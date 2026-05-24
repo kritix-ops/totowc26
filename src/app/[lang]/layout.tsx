@@ -1,0 +1,78 @@
+import type { Metadata } from "next";
+import { notFound } from "next/navigation";
+import {
+  Frank_Ruhl_Libre,
+  Fraunces,
+  Rubik,
+  Inter,
+} from "next/font/google";
+import {
+  getDictionary,
+  hasLocale,
+  dirFor,
+  LOCALES,
+  type Locale,
+} from "./dictionaries";
+import { AppShell } from "@/components/AppShell";
+import "../globals.css";
+
+const display = Frank_Ruhl_Libre({
+  subsets: ["hebrew", "latin"],
+  weight: ["500", "700", "900"],
+  variable: "--font-display",
+  display: "swap",
+});
+
+const displayEn = Fraunces({
+  subsets: ["latin"],
+  weight: ["500", "700", "900"],
+  variable: "--font-display-en",
+  display: "swap",
+});
+
+const ui = Rubik({
+  subsets: ["hebrew", "latin"],
+  weight: ["400", "500", "700"],
+  variable: "--font-ui",
+  display: "swap",
+});
+
+const labelFont = Inter({
+  subsets: ["latin"],
+  weight: ["700"],
+  variable: "--font-label",
+  display: "swap",
+});
+
+export async function generateStaticParams() {
+  return LOCALES.map((lang) => ({ lang }));
+}
+
+export const metadata: Metadata = {
+  title: "טוטו מונדיאל 2026",
+  description: "טוטו חברים על משחקי המונדיאל 2026",
+};
+
+export default async function RootLayout({
+  children,
+  params,
+}: LayoutProps<"/[lang]">) {
+  const { lang } = await params;
+  if (!hasLocale(lang)) notFound();
+  const locale = lang as Locale;
+  const dict = await getDictionary(locale);
+
+  return (
+    <html
+      lang={locale}
+      dir={dirFor(locale)}
+      className={`${display.variable} ${displayEn.variable} ${ui.variable} ${labelFont.variable}`}
+    >
+      <body className="bg-background text-on-background min-h-screen flex flex-col">
+        <AppShell locale={locale} dict={dict}>
+          {children}
+        </AppShell>
+      </body>
+    </html>
+  );
+}

@@ -1,26 +1,171 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+@theme {
+  /* Estadio palette */
+  --color-background: #fff8f5;
+  --color-surface: #fff8f5;
+  --color-surface-dim: #e7d7ce;
+  --color-surface-bright: #fff8f5;
+  --color-surface-container-lowest: #ffffff;
+  --color-surface-container-low: #fff1ea;
+  --color-surface-container: #fcebe2;
+  --color-surface-container-high: #f6e5dc;
+  --color-surface-container-highest: #f0dfd6;
+  --color-surface-variant: #f0dfd6;
+  --color-on-surface: #221a15;
+  --color-on-surface-variant: #58413c;
+  --color-on-background: #221a15;
+  --color-inverse-surface: #382e29;
+  --color-inverse-on-surface: #ffede4;
+  --color-outline: #8c716b;
+  --color-outline-variant: #dfc0b8;
+  --color-surface-tint: #a8381c;
+  --color-primary: #a13217;
+  --color-on-primary: #ffffff;
+  --color-primary-container: #c24a2d;
+  --color-on-primary-container: #fff5f3;
+  --color-primary-fixed: #ffdad2;
+  --color-primary-fixed-dim: #ffb4a2;
+  --color-on-primary-fixed: #3d0700;
+  --color-on-primary-fixed-variant: #872006;
+  --color-inverse-primary: #ffb4a2;
+  --color-secondary: #3b6846;
+  --color-on-secondary: #ffffff;
+  --color-secondary-container: #bcefc3;
+  --color-on-secondary-container: #416e4b;
+  --color-secondary-fixed: #bcefc3;
+  --color-secondary-fixed-dim: #a1d2a9;
+  --color-on-secondary-fixed: #00210c;
+  --color-on-secondary-fixed-variant: #235030;
+  --color-tertiary: #7a5000;
+  --color-on-tertiary: #ffffff;
+  --color-tertiary-container: #9a6703;
+  --color-on-tertiary-container: #fff6ee;
+  --color-tertiary-fixed: #ffddb2;
+  --color-tertiary-fixed-dim: #fbbb59;
+  --color-on-tertiary-fixed: #291800;
+  --color-on-tertiary-fixed-variant: #624000;
+  --color-error: #ba1a1a;
+  --color-on-error: #ffffff;
+  --color-error-container: #ffdad6;
+  --color-on-error-container: #93000a;
+
+  /* Typography families wired to next/font CSS vars */
+  --font-display: var(--font-display), "Frank Ruhl Libre", "Libre Caslon Text", Georgia, serif;
+  --font-display-en: var(--font-display-en), "Fraunces", Georgia, serif;
+  --font-ui: var(--font-ui), "Rubik", system-ui, sans-serif;
+  --font-label: var(--font-label), "Inter", system-ui, sans-serif;
+  --font-score: var(--font-score), "Rubik", system-ui, sans-serif;
+
+  /* Type ramp (px values from DESIGN.md) */
+  --text-display-hero: 48px;
+  --text-display-hero--line-height: 52px;
+  --text-display-hero--letter-spacing: -0.02em;
+  --text-display-hero--font-weight: 700;
+
+  --text-display-hero-mobile: 32px;
+  --text-display-hero-mobile--line-height: 36px;
+  --text-display-hero-mobile--font-weight: 700;
+
+  --text-headline-lg: 32px;
+  --text-headline-lg--line-height: 40px;
+  --text-headline-lg--font-weight: 700;
+
+  --text-headline-md: 24px;
+  --text-headline-md--line-height: 32px;
+  --text-headline-md--font-weight: 700;
+
+  --text-body-lg: 18px;
+  --text-body-lg--line-height: 28px;
+  --text-body-lg--font-weight: 400;
+
+  --text-body-md: 16px;
+  --text-body-md--line-height: 24px;
+  --text-body-md--font-weight: 400;
+
+  --text-label-caps: 12px;
+  --text-label-caps--line-height: 16px;
+  --text-label-caps--letter-spacing: 0.05em;
+  --text-label-caps--font-weight: 700;
+
+  --text-score-display: 40px;
+  --text-score-display--line-height: 40px;
+  --text-score-display--letter-spacing: 0.1em;
+  --text-score-display--font-weight: 700;
+
+  /* Spacing scale extras */
+  --spacing-margin-mobile: 20px;
+  --spacing-margin-desktop: 64px;
+  --spacing-gutter: 24px;
+  --spacing-section-gap: 48px;
+
+  /* Radius */
+  --radius-sm: 0.25rem;
+  --radius-md: 0.75rem;
+  --radius-lg: 1rem;
+  --radius-xl: 1.5rem;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+/* Base */
+html {
+  font-family: var(--font-ui);
+  color: var(--color-on-background);
+  background: var(--color-background);
+  overflow-x: hidden;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-ui);
+  background: var(--color-background);
+  color: var(--color-on-background);
+  min-height: 100dvh;
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Inputs must be at least 16px on mobile to prevent iOS Safari zoom on focus */
+@media (max-width: 767px) {
+  input, select, textarea {
+    font-size: 16px;
+  }
+}
+
+/* Hebrew gets +1px body baseline per design notes */
+html[dir="rtl"] body {
+  font-size: 17px;
+  line-height: 1.55;
+}
+
+html[dir="ltr"] body {
+  font-size: 16px;
+  line-height: 1.5;
+}
+
+/* Pure number / Latin tokens that must stay LTR inside RTL flow.
+   Use only for self-contained tokens: scores "3 - 1", times "03:14:22",
+   phone numbers, +14, etc. NEVER wrap mixed Hebrew+number strings. */
+.num {
+  unicode-bidi: isolate;
+  direction: ltr;
+}
+
+/* Legacy alias, do not use in new code */
+.bidi-ltr {
+  unicode-bidi: isolate;
+  direction: ltr;
+}
+
+/* Paper texture for hero backgrounds */
+.paper-dots {
+  background-image: radial-gradient(#a8381c 2px, transparent 2px);
+  background-size: 20px 20px;
+}
+
+/* Soft press feedback on interactive pills */
+.press-down {
+  transition: transform 150ms ease, box-shadow 150ms ease;
+}
+.press-down:active {
+  transform: translateY(1px) scale(0.99);
 }
