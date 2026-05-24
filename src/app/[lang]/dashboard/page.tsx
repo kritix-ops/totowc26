@@ -23,6 +23,7 @@ import {
 } from "@/components/ui";
 import { Flag } from "@/components/Flag";
 import { localePath } from "@/lib/paths";
+import { formatDateTime } from "@/lib/format";
 
 export default async function DashboardPage({
   params,
@@ -424,12 +425,12 @@ function formatRelative(iso: string, locale: Locale): string {
   if (days < 7) {
     return isHebrew ? `בעוד ${days} ימים` : `in ${days}d`;
   }
-  return new Intl.DateTimeFormat(isHebrew ? "he-IL" : "en-GB", {
+  return formatDateTime(iso, locale, {
     day: "numeric",
     month: "short",
     hour: "2-digit",
     minute: "2-digit",
-  }).format(new Date(iso));
+  });
 }
 
 function Sparkline({ trend }: { trend: number[] }) {

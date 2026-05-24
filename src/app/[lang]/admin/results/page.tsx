@@ -4,6 +4,7 @@ import { db } from "@/db";
 import { tournamentResults } from "@/db/schema";
 import { hasLocale, type Locale } from "../../dictionaries";
 import { LabelCaps } from "@/components/ui";
+import { formatDateTime } from "@/lib/format";
 import { ResultsForm } from "./ResultsForm";
 
 export default async function AdminResultsPage({
@@ -46,12 +47,12 @@ export default async function AdminResultsPage({
           <LabelCaps>
             {isHebrew ? "עודכן ב" : "Updated"}{" "}
             <bdi>
-              {new Intl.DateTimeFormat(isHebrew ? "he-IL" : "en-GB", {
+              {formatDateTime(row.updatedAt, locale, {
                 day: "numeric",
                 month: "short",
                 hour: "2-digit",
                 minute: "2-digit",
-              }).format(new Date(row.updatedAt))}
+              })}
             </bdi>
           </LabelCaps>
         )}

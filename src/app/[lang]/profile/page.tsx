@@ -10,6 +10,7 @@ import { eq } from "drizzle-orm";
 import { Card, LabelCaps, SectionHeading } from "@/components/ui";
 import { Flag } from "@/components/Flag";
 import { localePath } from "@/lib/paths";
+import { formatDateTime } from "@/lib/format";
 
 export default async function ProfilePage({
   params,
@@ -37,10 +38,10 @@ export default async function ProfilePage({
   const displayName = profile?.displayName ?? (user.email ?? "");
   const initials = displayName.charAt(0).toUpperCase();
   const memberSinceLabel = stats.memberSince
-    ? new Intl.DateTimeFormat(isHebrew ? "he-IL" : "en-GB", {
+    ? formatDateTime(stats.memberSince, locale, {
         month: "short",
         year: "numeric",
-      }).format(new Date(stats.memberSince))
+      })
     : "—";
 
   const statBlocks = [

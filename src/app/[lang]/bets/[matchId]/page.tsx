@@ -5,6 +5,7 @@ import { getUser } from "@/lib/supabase/auth";
 import { getFixtureWithBets, getMyBet } from "@/db/queries";
 import { Card, LabelCaps } from "@/components/ui";
 import { localePath } from "@/lib/paths";
+import { formatDateTime } from "@/lib/format";
 import { BetForm } from "./BetForm";
 
 export default async function MatchBetPage({
@@ -43,12 +44,12 @@ export default async function MatchBetPage({
               : match.stage}
             <span className="text-outline">·</span>
             <span className="bidi-ltr text-sm">
-              {new Intl.DateTimeFormat(isHebrew ? "he-IL" : "en-GB", {
+              {formatDateTime(match.kickoffAt, locale, {
                 day: "numeric",
                 month: "short",
                 hour: "2-digit",
                 minute: "2-digit",
-              }).format(new Date(match.kickoffAt))}
+              })}
             </span>
           </p>
         </div>

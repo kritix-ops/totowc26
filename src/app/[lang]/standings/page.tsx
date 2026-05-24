@@ -1,10 +1,11 @@
 import { notFound, redirect } from "next/navigation";
 import { getDictionary, hasLocale, type Locale } from "../dictionaries";
 import { getUser } from "@/lib/supabase/auth";
-import { getGroupsWithPredictions } from "@/db/queries";
-import { Card } from "@/components/ui";
+import { getGroupsWithPredictions, getLiveStandings } from "@/db/queries";
+import { Card, SectionHeading } from "@/components/ui";
 import { localePath } from "@/lib/paths";
 import { GroupsEditor } from "./GroupsEditor";
+import { LiveStandings } from "./LiveStandings";
 
 export default async function StandingsPage({
   params,
@@ -17,11 +18,14 @@ export default async function StandingsPage({
   const user = await getUser();
   if (!user) redirect(localePath(locale, "login"));
 
-  const groups = await getGroupsWithPredictions(user.id);
+  const [predictionGroups, liveGroups] = await Promise.all([
+    getGroupsWithPredictions(user.id),
+    getLiveStandings(),
+  ]);
   const isHebrew = locale === "he";
 
   return (
-    <section className="px-4 md:px-16 py-6 md:py-12 flex flex-col gap-6 md:gap-10 max-w-5xl mx-auto w-full">
+    <section className="px-4 md:px-16 py-6 md:py-12 flex flex-col gap-8 md:gap-12 max-w-5xl mx-auto w-full">
       <header className="flex flex-col gap-3">
         <h1 className="font-[family-name:var(--font-display)] text-[28px] leading-9 md:text-[48px] md:leading-[52px] font-bold text-primary">
           {dict.standings.title}
@@ -29,13 +33,27 @@ export default async function StandingsPage({
         <p className="text-base text-on-surface-variant">{dict.standings.subtitle}</p>
       </header>
 
-      {groups.length === 0 ? (
-        <Card className="p-6 text-center text-on-surface-variant">
-          {isHebrew ? "אין עדיין בתים" : "No groups yet"}
-        </Card>
-      ) : (
-        <GroupsEditor groups={groups} locale={locale} dict={dict} />
-      )}
+      <LiveStandings groups={liveGroups} locale={locale} />
+
+      <section className="flex flex-col gap-4">
+        <header className="flex flex-col gap-1">
+          <SectionHeading as="h2" underline="thin">
+            {isHebrew ? "הניחוש שלך" : "Your prediction"}
+          </SectionHeading>
+          <p className="text-sm text-on-surface-variant">
+            {isHebrew
+              ? "סדר את הנבחרות בכל בית כפי שאתה חוזה שיסיימו."
+              : "Order each group the way you predict it will end."}
+          </p>
+        </header>
+        {predictionGroups.length === 0 ? (
+          <Card className="p-6 text-center text-on-surface-variant">
+            {isHebrew ? "אין עדיין בתים" : "No groups yet"}
+          </Card>
+        ) : (
+          <GroupsEditor groups={predictionGroups} locale={locale} dict={dict} />
+        )}
+      </section>
     </section>
   );
 }

@@ -581,3 +581,316 @@ export function localizedTeam(
   const key = `${side}Name${locale === "he" ? "He" : "En"}` as keyof typeof row;
   return (row[key] as string) ?? "";
 }
+
+// ---------- Live group standings ----------
+//
+// Derived in pure SQL from finished group-stage matches. Row order follows
+// FIFA group-stage tiebreakers: points DESC, goal difference DESC, goals for
+// DESC, then team name as a stable final tiebreak. We deliberately stop at
+// GF — the remaining tiebreakers (head-to-head + drawing of lots) are rare
+// enough that the admin can resolve manually if it ever happens.
+
+export type LiveStandingRow = {
+  groupId: string;
+  position: number;
+  code: string;
+  nameHe: string;
+  nameEn: string;
+  flag: string;
+  played: number;
+  won: number;
+  drawn: number;
+  lost: number;
+  goalsFor: number;
+  goalsAgainst: number;
+  goalDiff: number;
+  points: number;
+};
+
+export type LiveGroup = {
+  id: string;
+  displayOrder: number;
+  rows: LiveStandingRow[];
+};
+
+export async function getLiveStandings(): Promise<LiveGroup[]> {
+  const rows = await db.execute<{
+    group_id: string;
+    display_order: number;
+    code: string;
+    name_he: string;
+    name_en: string;
+    flag: string;
+    played: number;
+    won: number;
+    drawn: number;
+    lost: number;
+    goals_for: number;
+    goals_against: number;
+    goal_diff: number;
+    points: number;
+  }>(sql`
+    with leg as (
+      -- One row per (team, match) for every finished group-stage match.
+      -- Materialising both sides via UNION lets the aggregation below stay
+      -- symmetric and trivially correct.
+      select
+        m.group_id,
+        m.home_team as team_code,
+        m.home_score as gf,
+        m.away_score as ga,
+        case
+          when m.home_score > m.away_score then 3
+          when m.home_score = m.away_score then 1
+          else 0
+        end as pts,
+        case when m.home_score > m.away_score then 1 else 0 end as won,
+        case when m.home_score = m.away_score then 1 else 0 end as drawn,
+        case when m.home_score < m.away_score then 1 else 0 end as lost
+      from public.matches m
+      where m.stage = 'group'
+        and m.status = 'final'
+        and m.home_score is not null
+        and m.away_score is not null
+      union all
+      select
+        m.group_id,
+        m.away_team as team_code,
+        m.away_score as gf,
+        m.home_score as ga,
+        case
+          when m.away_score > m.home_score then 3
+          when m.away_score = m.home_score then 1
+          else 0
+        end as pts,
+        case when m.away_score > m.home_score then 1 else 0 end as won,
+        case when m.away_score = m.home_score then 1 else 0 end as drawn,
+        case when m.away_score < m.home_score then 1 else 0 end as lost
+      from public.matches m
+      where m.stage = 'group'
+        and m.status = 'final'
+        and m.home_score is not null
+        and m.away_score is not null
+    ),
+    agg as (
+      select
+        g.id                                  as group_id,
+        g.display_order                       as display_order,
+        t.code                                as code,
+        t.name_he                             as name_he,
+        t.name_en                             as name_en,
+        t.flag                                as flag,
+        coalesce(count(leg.*) filter (where leg.team_code is not null), 0)::int as played,
+        coalesce(sum(leg.won), 0)::int        as won,
+        coalesce(sum(leg.drawn), 0)::int      as drawn,
+        coalesce(sum(leg.lost), 0)::int       as lost,
+        coalesce(sum(leg.gf), 0)::int         as goals_for,
+        coalesce(sum(leg.ga), 0)::int         as goals_against,
+        coalesce(sum(leg.gf) - sum(leg.ga), 0)::int as goal_diff,
+        coalesce(sum(leg.pts), 0)::int        as points
+      from public.groups g
+      join public.teams t on t.group_id = g.id
+      left join leg on leg.team_code = t.code and leg.group_id = g.id
+      group by g.id, g.display_order, t.code, t.name_he, t.name_en, t.flag
+    )
+    select * from agg
+    order by display_order asc, points desc, goal_diff desc, goals_for desc, name_en asc
+  `);
+
+  const grouped = new Map<string, LiveGroup>();
+  let runningPos = 0;
+  let lastGroup: string | null = null;
+  for (const r of rows as unknown as Array<{
+    group_id: string;
+    display_order: number;
+    code: string;
+    name_he: string;
+    name_en: string;
+    flag: string;
+    played: number;
+    won: number;
+    drawn: number;
+    lost: number;
+    goals_for: number;
+    goals_against: number;
+    goal_diff: number;
+    points: number;
+  }>) {
+    if (r.group_id !== lastGroup) {
+      runningPos = 0;
+      lastGroup = r.group_id;
+    }
+    runningPos += 1;
+    let entry = grouped.get(r.group_id);
+    if (!entry) {
+      entry = { id: r.group_id, displayOrder: Number(r.display_order), rows: [] };
+      grouped.set(r.group_id, entry);
+    }
+    entry.rows.push({
+      groupId: r.group_id,
+      position: runningPos,
+      code: r.code,
+      nameHe: r.name_he,
+      nameEn: r.name_en,
+      flag: r.flag,
+      played: Number(r.played),
+      won: Number(r.won),
+      drawn: Number(r.drawn),
+      lost: Number(r.lost),
+      goalsFor: Number(r.goals_for),
+      goalsAgainst: Number(r.goals_against),
+      goalDiff: Number(r.goal_diff),
+      points: Number(r.points),
+    });
+  }
+  return Array.from(grouped.values()).sort(
+    (a, b) => a.displayOrder - b.displayOrder,
+  );
+}
+
+// ---------- Team profile data ----------
+
+export type TeamProfile = {
+  code: string;
+  nameHe: string;
+  nameEn: string;
+  flag: string;
+  groupId: string | null;
+};
+
+export async function getTeamByCode(code: string): Promise<TeamProfile | null> {
+  const rows = await db.execute<TeamProfile>(sql`
+    select code, name_he as "nameHe", name_en as "nameEn", flag, group_id as "groupId"
+    from public.teams
+    where code = ${code.toUpperCase()}
+    limit 1
+  `);
+  const list = rows as unknown as TeamProfile[];
+  return list[0] ?? null;
+}
+
+export type TeamMatchRow = {
+  matchId: string;
+  kickoffAt: string;
+  stage: string;
+  groupId: string | null;
+  status: "scheduled" | "live" | "final";
+  isHome: boolean;
+  opponentCode: string;
+  opponentNameHe: string;
+  opponentNameEn: string;
+  opponentFlag: string;
+  goalsFor: number | null;
+  goalsAgainst: number | null;
+  wentToPenalties: boolean | null;
+};
+
+export async function getTeamMatches(code: string): Promise<TeamMatchRow[]> {
+  const upper = code.toUpperCase();
+  const rows = await db.execute<TeamMatchRow>(sql`
+    select
+      m.id::text                                    as "matchId",
+      m.kickoff_at                                  as "kickoffAt",
+      m.stage::text                                 as "stage",
+      m.group_id                                    as "groupId",
+      m.status::text                                as "status",
+      (m.home_team = ${upper})                      as "isHome",
+      case when m.home_team = ${upper}
+           then m.away_team else m.home_team end    as "opponentCode",
+      case when m.home_team = ${upper}
+           then aw.name_he else ho.name_he end      as "opponentNameHe",
+      case when m.home_team = ${upper}
+           then aw.name_en else ho.name_en end      as "opponentNameEn",
+      case when m.home_team = ${upper}
+           then aw.flag else ho.flag end            as "opponentFlag",
+      case when m.home_team = ${upper}
+           then m.home_score else m.away_score end  as "goalsFor",
+      case when m.home_team = ${upper}
+           then m.away_score else m.home_score end  as "goalsAgainst",
+      m.went_to_penalties                           as "wentToPenalties"
+    from public.matches m
+    join public.teams ho on ho.code = m.home_team
+    join public.teams aw on aw.code = m.away_team
+    where m.home_team = ${upper}
+       or m.away_team = ${upper}
+    order by m.kickoff_at asc
+  `);
+  return rows as unknown as TeamMatchRow[];
+}
+
+// ---------- Head-to-head ----------
+
+export type H2HMatch = {
+  matchId: string;
+  kickoffAt: string;
+  stage: string;
+  status: "scheduled" | "live" | "final";
+  aGoals: number | null;
+  bGoals: number | null;
+  aIsHome: boolean;
+  wentToPenalties: boolean | null;
+};
+
+// Tournament matches between two teams (past + scheduled). Codes are
+// 3-letter; case-insensitive. Returns chronological order.
+export async function getHeadToHead(a: string, b: string): Promise<H2HMatch[]> {
+  const A = a.toUpperCase();
+  const B = b.toUpperCase();
+  const rows = await db.execute<H2HMatch>(sql`
+    select
+      m.id::text                              as "matchId",
+      m.kickoff_at                            as "kickoffAt",
+      m.stage::text                           as "stage",
+      m.status::text                          as "status",
+      case when m.home_team = ${A}
+           then m.home_score else m.away_score end as "aGoals",
+      case when m.home_team = ${A}
+           then m.away_score else m.home_score end as "bGoals",
+      (m.home_team = ${A})                    as "aIsHome",
+      m.went_to_penalties                     as "wentToPenalties"
+    from public.matches m
+    where (m.home_team = ${A} and m.away_team = ${B})
+       or (m.home_team = ${B} and m.away_team = ${A})
+    order by m.kickoff_at asc
+  `);
+  return rows as unknown as H2HMatch[];
+}
+
+// ---------- Public pool stats ----------
+//
+// Used by the landing/dashboard hero card. The pot is the sum of all
+// approved entry-fee payments; the player count is how many distinct users
+// have an approved payment (i.e. paid in). Both numbers must be live — the
+// hero card never shows a placeholder.
+
+export type PoolStats = {
+  potIls: number;
+  participants: number;
+};
+
+export async function getPoolStats(): Promise<PoolStats> {
+  const rows = await db.execute<{ pot: number; players: number }>(sql`
+    select
+      coalesce(sum(amount_ils) filter (where status = 'approved'), 0)::int as pot,
+      count(distinct user_id) filter (where status = 'approved')::int       as players
+    from public.payments
+  `);
+  const r = (rows as unknown as Array<{ pot: number; players: number }>)[0];
+  return {
+    potIls: Number(r?.pot ?? 0),
+    participants: Number(r?.players ?? 0),
+  };
+}
+
+// Earliest scheduled match kickoff — i.e. when the tournament starts. Used
+// by the landing hero countdown. Returns null if no fixtures have been
+// seeded yet, in which case the caller should hide the countdown rather
+// than show a placeholder.
+export async function getTournamentStart(): Promise<string | null> {
+  const rows = await db.execute<{ kickoff_at: string }>(sql`
+    select min(kickoff_at) as kickoff_at
+    from public.matches
+  `);
+  const r = (rows as unknown as Array<{ kickoff_at: string | null }>)[0];
+  return r?.kickoff_at ?? null;
+}

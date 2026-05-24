@@ -32,6 +32,7 @@ import {
   MessageCircle,
 } from "lucide-react";
 import type { Locale } from "../../dictionaries";
+import { formatDateTime } from "@/lib/format";
 import { PillButton, LabelCaps, Chip } from "@/components/ui";
 import {
   setUserRole,
@@ -584,11 +585,11 @@ function PaymentBadge({
 
 function formatDate(value: string | Date, locale: Locale) {
   try {
-    return new Intl.DateTimeFormat(locale === "he" ? "he-IL" : "en-GB", {
+    return formatDateTime(value, locale, {
       day: "numeric",
       month: "short",
       year: "2-digit",
-    }).format(new Date(value));
+    });
   } catch {
     return String(value);
   }

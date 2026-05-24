@@ -1,12 +1,19 @@
+import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { Check, X } from "lucide-react";
 import { clsx } from "clsx";
 import { getDictionary, hasLocale, type Locale } from "../../dictionaries";
 import { getUser } from "@/lib/supabase/auth";
-import { getFixtureWithBets, getMatchBets, getMyBet } from "@/db/queries";
+import {
+  getFixtureWithBets,
+  getMatchBets,
+  getMyBet,
+  getHeadToHead,
+} from "@/db/queries";
 import { localePath } from "@/lib/paths";
 import { Card, Chip, LabelCaps, ScoreDigit, SectionHeading } from "@/components/ui";
 import { Flag } from "@/components/Flag";
+import { HeadToHead } from "./HeadToHead";
 
 export default async function MatchDetailPage({
   params,
@@ -21,9 +28,10 @@ export default async function MatchDetailPage({
 
   const match = await getFixtureWithBets(matchId);
   if (!match) notFound();
-  const [myBet, friendBets] = await Promise.all([
+  const [myBet, friendBets, h2h] = await Promise.all([
     getMyBet(matchId, user.id),
     getMatchBets(matchId, user.id),
+    getHeadToHead(match.homeCode, match.awayCode),
   ]);
 
   const isHebrew = locale === "he";
@@ -52,17 +60,23 @@ export default async function MatchDetailPage({
             {statusLabel}
           </Chip>
           <div className="flex justify-center items-end gap-6 md:gap-8">
-            <div className="flex flex-col items-center gap-2 md:gap-3">
+            <Link
+              href={localePath(locale, `teams/${match.homeCode}`)}
+              className="press-down flex flex-col items-center gap-2 md:gap-3 -mx-2 px-2 py-1 rounded-lg hover:bg-surface-container-low transition-colors"
+            >
               <Flag code={match.homeCode} size={48} />
               <span className="text-base md:text-lg text-on-surface-variant">{homeName}</span>
               <ScoreDigit value={match.homeScore ?? "—"} dark />
-            </div>
+            </Link>
             <span className="text-2xl text-on-surface-variant mb-3">:</span>
-            <div className="flex flex-col items-center gap-2 md:gap-3">
+            <Link
+              href={localePath(locale, `teams/${match.awayCode}`)}
+              className="press-down flex flex-col items-center gap-2 md:gap-3 -mx-2 px-2 py-1 rounded-lg hover:bg-surface-container-low transition-colors"
+            >
               <Flag code={match.awayCode} size={48} />
               <span className="text-base md:text-lg text-on-surface-variant">{awayName}</span>
               <ScoreDigit value={match.awayScore ?? "—"} dark />
-            </div>
+            </Link>
           </div>
         </div>
         <div className="p-5 md:p-6 flex flex-col gap-4 bg-[#FBF6EB]">
@@ -153,6 +167,16 @@ export default async function MatchDetailPage({
           </ul>
         )}
       </section>
+
+      <HeadToHead
+        locale={locale}
+        matches={h2h}
+        currentMatchId={match.id}
+        homeName={homeName}
+        awayName={awayName}
+        homeCode={match.homeCode}
+        awayCode={match.awayCode}
+      />
 
       <section className="flex flex-col gap-3">
         <SectionHeading underline="thin">{dict.matchDetail.reactions}</SectionHeading>

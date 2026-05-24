@@ -15,6 +15,7 @@ import {
 import { clsx } from "clsx";
 import { Card, LabelCaps, PillButton } from "@/components/ui";
 import type { Locale } from "../dictionaries";
+import { formatDateTime } from "@/lib/format";
 import { runSyncNow, type RunSyncResult } from "./sync-actions";
 import type { SyncRunRow } from "@/db/admin-queries";
 
@@ -137,11 +138,11 @@ export function SyncPanel({
         <LabelCaps>
           {isHebrew ? "הופעל ב" : "Ran at"}{" "}
           <bdi>
-            {new Intl.DateTimeFormat(isHebrew ? "he-IL" : "en-GB", {
+            {formatDateTime(ranAt, locale, {
               hour: "2-digit",
               minute: "2-digit",
               second: "2-digit",
-            }).format(ranAt)}
+            })}
           </bdi>
         </LabelCaps>
       )}
@@ -259,13 +260,12 @@ function summaryLine(r: SyncRunRow, isHebrew: boolean): string {
 }
 
 function fmtTime(iso: string, isHebrew: boolean): string {
-  const d = new Date(iso);
-  return new Intl.DateTimeFormat(isHebrew ? "he-IL" : "en-GB", {
+  return formatDateTime(iso, isHebrew ? "he" : "en", {
     day: "numeric",
     month: "short",
     hour: "2-digit",
     minute: "2-digit",
-  }).format(d);
+  });
 }
 
 function RunDetail({ run, isHebrew }: { run: SyncRunRow; isHebrew: boolean }) {

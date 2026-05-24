@@ -6,6 +6,7 @@ import { Check, X, RotateCcw, AlertCircle } from "lucide-react";
 import { clsx } from "clsx";
 import { Card, Chip, LabelCaps, SectionHeading } from "@/components/ui";
 import type { Locale } from "../dictionaries";
+import { formatDateTime } from "@/lib/format";
 import type { AdminPaymentRow } from "@/db/admin-queries";
 import {
   approvePayment,
@@ -175,12 +176,12 @@ function PaymentRow({
   onReject: () => void;
   onReopen: () => void;
 }) {
-  const submittedFmt = new Intl.DateTimeFormat(isHebrew ? "he-IL" : "en-GB", {
+  const submittedFmt = formatDateTime(row.submittedAt, isHebrew ? "he" : "en", {
     day: "numeric",
     month: "short",
     hour: "2-digit",
     minute: "2-digit",
-  }).format(new Date(row.submittedAt));
+  });
 
   return (
     <li

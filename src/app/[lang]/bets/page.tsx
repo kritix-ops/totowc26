@@ -7,6 +7,7 @@ import { getUpcomingFixtures } from "@/db/queries";
 import { Card, LabelCaps } from "@/components/ui";
 import { Flag } from "@/components/Flag";
 import { localePath } from "@/lib/paths";
+import { formatDateTime } from "@/lib/format";
 
 export default async function BetsListPage({
   params,
@@ -80,10 +81,10 @@ export default async function BetsListPage({
 }
 
 function formatShort(iso: string, locale: Locale): string {
-  return new Intl.DateTimeFormat(locale === "he" ? "he-IL" : "en-GB", {
+  return formatDateTime(iso, locale, {
     day: "numeric",
     month: "short",
     hour: "2-digit",
     minute: "2-digit",
-  }).format(new Date(iso));
+  });
 }
