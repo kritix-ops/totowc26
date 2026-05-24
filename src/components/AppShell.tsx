@@ -6,10 +6,12 @@ import {
   Users,
   User,
   LogIn,
+  Shield,
 } from "lucide-react";
 import type { Dictionary, Locale } from "@/app/[lang]/dictionaries";
 import { localePath } from "@/lib/paths";
 import { getUser } from "@/lib/supabase/auth";
+import { isAdmin } from "@/lib/admin";
 import { getMyRankSummary } from "@/db/queries";
 import { LanguageToggle } from "./LanguageToggle";
 import { NavLink, BottomNavLink } from "./NavLink";
@@ -29,9 +31,12 @@ export async function AppShell({
 
   const user = await getUser();
   const signedIn = !!user;
-  const rankSummary = signedIn ? await getMyRankSummary(user.id) : null;
+  const [rankSummary, admin] = signedIn
+    ? await Promise.all([getMyRankSummary(user.id), isAdmin(user.id)])
+    : [null, false];
   console.info("[app shell render]", {
     signedIn,
+    isAdmin: admin,
     myRank: rankSummary?.myRank ?? null,
     totalPlayers: rankSummary?.total ?? null,
   });
@@ -59,6 +64,12 @@ export async function AppShell({
             <NavLink locale={locale} path="specials" label={dict.nav.specials} />
             <span aria-hidden className="h-4 w-px bg-outline-variant" />
             <NavLink locale={locale} path="club" label={dict.nav.club} />
+            {admin && (
+              <>
+                <span aria-hidden className="h-4 w-px bg-outline-variant" />
+                <NavLink locale={locale} path="admin" label={dict.nav.admin} />
+              </>
+            )}
           </nav>
         )}
 
@@ -89,12 +100,15 @@ export async function AppShell({
       {signedIn && (
         <nav
           aria-label={isHebrew ? "ניווט תחתון" : "Bottom"}
-          className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-surface-container rounded-t-xl border-t border-outline-variant shadow-[0_-4px_12px_rgba(28,20,15,0.05)] grid grid-cols-5 items-stretch min-h-[64px] pb-[env(safe-area-inset-bottom)]">
+          className={`md:hidden fixed bottom-0 left-0 right-0 z-50 bg-surface-container rounded-t-xl border-t border-outline-variant shadow-[0_-4px_12px_rgba(28,20,15,0.05)] grid ${admin ? "grid-cols-6" : "grid-cols-5"} items-stretch min-h-[64px] pb-[env(safe-area-inset-bottom)]`}>
           <BottomNavLink locale={locale} path="" label={dict.nav.dashboard} icon={<LayoutDashboard className="h-5 w-5" strokeWidth={1.75} />} exact />
           <BottomNavLink locale={locale} path="bets" label={dict.nav.predictions} icon={<ListChecks className="h-5 w-5" strokeWidth={1.75} />} />
           <BottomNavLink locale={locale} path="club" label={dict.nav.club} icon={<Users className="h-5 w-5" strokeWidth={1.75} />} />
           <BottomNavLink locale={locale} path="leaderboard" label={dict.nav.leaderboard} icon={<Trophy className="h-5 w-5" strokeWidth={1.75} />} />
           <BottomNavLink locale={locale} path="profile" label={dict.nav.profile} icon={<User className="h-5 w-5" strokeWidth={1.75} />} />
+          {admin && (
+            <BottomNavLink locale={locale} path="admin" label={dict.nav.admin} icon={<Shield className="h-5 w-5" strokeWidth={1.75} />} />
+          )}
         </nav>
       )}
     </>

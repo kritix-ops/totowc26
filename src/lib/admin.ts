@@ -22,3 +22,12 @@ export async function requireAdmin(locale: Locale) {
   }
   return { user, profile };
 }
+
+export async function isAdmin(userId: string): Promise<boolean> {
+  const [profile] = await db
+    .select({ role: profiles.role })
+    .from(profiles)
+    .where(eq(profiles.id, userId))
+    .limit(1);
+  return profile?.role === "admin";
+}
