@@ -8,6 +8,7 @@ import {
   integer,
   boolean,
   timestamp,
+  jsonb,
   uniqueIndex,
   index,
   primaryKey,
@@ -309,6 +310,37 @@ export const tournamentResults = pgTable("tournament_results", {
     .notNull()
     .defaultNow(),
 });
+
+// sync_runs: audit log of every football-data sync attempt.
+export const syncRuns = pgTable(
+  "sync_runs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    startedAt: timestamp("started_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+    durationMs: integer("duration_ms"),
+    source: text("source").notNull().default("cron"),
+    triggeredBy: uuid("triggered_by").references(() => profiles.id, {
+      onDelete: "set null",
+    }),
+    ok: boolean("ok").notNull().default(false),
+    fetched: integer("fetched").default(0),
+    inserted: integer("inserted").default(0),
+    updated: integer("updated").default(0),
+    skipped: integer("skipped").default(0),
+    scoredBets: integer("scored_bets").default(0),
+    scoredMatches: integer("scored_matches").default(0),
+    scoredSpecials: integer("scored_specials").default(0),
+    unknownTeams: jsonb("unknown_teams").$type<string[] | null>(),
+    errorMessage: text("error_message"),
+    errorStack: text("error_stack"),
+  },
+  (t) => ({
+    startedIdx: index("sync_runs_started_idx").on(t.startedAt),
+  }),
+);
 
 // Drizzle relations are added separately if needed
 export type Profile = typeof profiles.$inferSelect;

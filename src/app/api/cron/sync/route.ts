@@ -18,7 +18,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
   try {
-    const report = await syncFixtures(2026);
+    const report = await syncFixtures(2026, { source: "cron" });
     return NextResponse.json({ ok: true, report });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

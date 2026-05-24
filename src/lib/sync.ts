@@ -9,6 +9,7 @@ import {
   teams,
   specialBets,
   tournamentResults,
+  syncRuns,
 } from "@/db/schema";
 import {
   fetchWorldCupMatches,
@@ -63,7 +64,61 @@ function normalizeTla(tla: string | null): string | null {
   return TLA_OVERRIDE[up] ?? up;
 }
 
-export async function syncFixtures(season = 2026): Promise<SyncReport> {
+export type SyncSource = "cron" | "admin" | "cli";
+
+export async function syncFixtures(
+  season = 2026,
+  options: { source?: SyncSource; triggeredBy?: string | null } = {},
+): Promise<SyncReport> {
+  const source = options.source ?? "cron";
+  const triggeredBy = options.triggeredBy ?? null;
+  const startedAt = new Date();
+
+  // Insert a "started" row right away so a hanging sync is still visible.
+  const [run] = await db
+    .insert(syncRuns)
+    .values({ startedAt, source, triggeredBy, ok: false })
+    .returning({ id: syncRuns.id });
+
+  try {
+    const report = await _runSync(season);
+    const finishedAt = new Date();
+    await db
+      .update(syncRuns)
+      .set({
+        finishedAt,
+        durationMs: finishedAt.getTime() - startedAt.getTime(),
+        ok: true,
+        fetched: report.fetched,
+        inserted: report.inserted,
+        updated: report.updated,
+        skipped: report.skipped,
+        scoredBets: report.scoredBets,
+        scoredMatches: report.scoredMatches,
+        scoredSpecials: report.scoredSpecials,
+        unknownTeams: report.unknownTeams.length ? report.unknownTeams : null,
+      })
+      .where(eq(syncRuns.id, run.id));
+    return report;
+  } catch (err) {
+    const finishedAt = new Date();
+    const message = err instanceof Error ? err.message : String(err);
+    const stack = err instanceof Error ? err.stack ?? null : null;
+    await db
+      .update(syncRuns)
+      .set({
+        finishedAt,
+        durationMs: finishedAt.getTime() - startedAt.getTime(),
+        ok: false,
+        errorMessage: message,
+        errorStack: stack,
+      })
+      .where(eq(syncRuns.id, run.id));
+    throw err;
+  }
+}
+
+async function _runSync(season: number): Promise<SyncReport> {
   const fixtures = await fetchWorldCupMatches(season);
   const report: SyncReport = {
     fetched: fixtures.length,

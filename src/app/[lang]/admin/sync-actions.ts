@@ -23,7 +23,10 @@ export async function runSyncNow(): Promise<RunSyncResult> {
 
   const start = Date.now();
   try {
-    const report = await syncFixtures(2026);
+    const report = await syncFixtures(2026, {
+      source: "admin",
+      triggeredBy: user.id,
+    });
     revalidatePath("/", "layout");
     return { ok: true, report, durationMs: Date.now() - start };
   } catch (err) {
