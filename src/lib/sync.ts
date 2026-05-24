@@ -99,7 +99,7 @@ export async function syncFixtures(season = 2026): Promise<SyncReport> {
     const away = f.score.fullTime.away;
     const htHome = f.score.halfTime?.home ?? null;
     const htAway = f.score.halfTime?.away ?? null;
-    const wentToPen = f.status === "PEN";
+    const wentToPen = (f.status as string) === "PEN";
 
     const result = await db.execute<{ inserted: boolean }>(drizzleSql`
       insert into public.matches
