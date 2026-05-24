@@ -5,6 +5,7 @@ import { getDictionary, hasLocale, type Locale } from "./dictionaries";
 import { notFound } from "next/navigation";
 import { localePath } from "@/lib/paths";
 import { BrandLogo } from "@/components/BrandLogo";
+import { InstallHint } from "@/components/InstallHint";
 
 export default async function LandingPage({
   params,
@@ -70,6 +71,8 @@ export default async function LandingPage({
               {dict.landing.cta}
             </Link>
           </div>
+
+          <InstallHint locale={locale as "he" | "en"} />
 
           <div className="pt-5 md:pt-6 border-t border-outline-variant flex flex-col gap-3">
             <p className="font-[family-name:var(--font-label)] text-[12px] font-bold tracking-[0.05em] text-on-surface-variant">
