@@ -10,9 +10,9 @@ export function Card({
 }: {
   children: React.ReactNode;
   className?: string;
-  as?: keyof JSX.IntrinsicElements;
+  as?: keyof React.JSX.IntrinsicElements;
 }) {
-  const Component = As as keyof JSX.IntrinsicElements;
+  const Component = As as keyof React.JSX.IntrinsicElements;
   return (
     <Component
       className={clsx(
