@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { notFound } from "next/navigation";
 import {
   Frank_Ruhl_Libre,
@@ -14,6 +14,7 @@ import {
   type Locale,
 } from "./dictionaries";
 import { AppShell } from "@/components/AppShell";
+import { ServiceWorkerRegistrar } from "@/components/ServiceWorkerRegistrar";
 import "../globals.css";
 
 const display = Frank_Ruhl_Libre({
@@ -49,8 +50,32 @@ export async function generateStaticParams() {
 }
 
 export const metadata: Metadata = {
-  title: "טוטו מונדיאל 2026",
+  title: {
+    default: "טוטו מונדיאל 2026",
+    template: "%s · טוטו מונדיאל 2026",
+  },
   description: "טוטו חברים על משחקי המונדיאל 2026",
+  applicationName: "טוטו מונדיאל 2026",
+  manifest: "/manifest.webmanifest",
+  appleWebApp: {
+    capable: true,
+    title: "טוטו מונדיאל",
+    statusBarStyle: "default",
+  },
+  formatDetection: { telephone: false },
+  openGraph: {
+    title: "טוטו מונדיאל 2026",
+    description: "טוטו חברים על משחקי המונדיאל 2026",
+    images: [{ url: "/icons/og-image.png", width: 1200, height: 630 }],
+    type: "website",
+  },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#A13217",
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
 };
 
 export default async function RootLayout({
@@ -72,6 +97,7 @@ export default async function RootLayout({
         <AppShell locale={locale} dict={dict}>
           {children}
         </AppShell>
+        <ServiceWorkerRegistrar />
       </body>
     </html>
   );

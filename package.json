@@ -14,6 +14,7 @@
     "db:seed": "node --env-file=.env.local scripts/seed.mjs",
     "db:bootstrap-admin": "node --env-file=.env.local scripts/bootstrap-admin.mjs",
     "logo:strip": "node scripts/strip-logo-bg.mjs",
+    "icons:build": "node scripts/build-icons.mjs",
     "db:score": "node --env-file=.env.local scripts/score-matches.mjs",
     "db:clean-mock": "node --env-file=.env.local scripts/clean-mock-matches.mjs",
     "api:fixtures": "node --env-file=.env.local scripts/api-sync-fixtures.mjs",
