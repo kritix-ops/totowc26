@@ -63,7 +63,7 @@ export default async function BetsListPage({
                         <LabelCaps as="div" className="mb-0.5">
                           {isHebrew ? "פתיחה" : "Kickoff"}
                         </LabelCaps>
-                        <span className="font-[family-name:var(--font-label)] text-xs font-bold bidi-ltr">
+                        <span className="font-[family-name:var(--font-label)] text-xs font-bold">
                           {formatShort(m.kickoffAt, locale)}
                         </span>
                       </div>

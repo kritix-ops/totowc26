@@ -190,7 +190,7 @@ function SyncHistory({
                 <StatusDot ok={r.ok} pending={!r.finishedAt} />
                 <SourceIcon source={r.source} />
                 <div className="flex flex-col min-w-0 flex-1">
-                  <span className="text-sm font-bold text-on-surface bidi-ltr">
+                  <span className="text-sm font-bold text-on-surface">
                     {fmtTime(r.startedAt, isHebrew)}
                   </span>
                   <span className="text-xs text-on-surface-variant truncate">

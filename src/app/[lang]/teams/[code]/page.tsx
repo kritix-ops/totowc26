@@ -222,7 +222,7 @@ function MatchRow({
           </span>
           <span className="text-xs text-on-surface-variant inline-flex items-center gap-1.5">
             <Calendar className="h-3 w-3" strokeWidth={2} />
-            <span className="bidi-ltr">{kickoff}</span>
+            <span>{kickoff}</span>
             <span className="text-outline">·</span>
             {stageLabel}
           </span>

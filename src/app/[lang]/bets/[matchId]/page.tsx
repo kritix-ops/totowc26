@@ -43,7 +43,7 @@ export default async function MatchBetPage({
               ? `${dict.standings.group} ${match.groupId}`
               : match.stage}
             <span className="text-outline">·</span>
-            <span className="bidi-ltr text-sm">
+            <span className="text-sm">
               {formatDateTime(match.kickoffAt, locale, {
                 day: "numeric",
                 month: "short",

@@ -191,7 +191,7 @@ function RecentResultsList({
                 href={localePath(locale, `match/${r.matchId}`)}
                 className="flex items-center gap-3 p-3 rounded-lg border border-outline-variant bg-surface-container-lowest hover:bg-surface-container transition-colors min-h-[56px]"
               >
-                <span className="text-xs text-on-surface-variant whitespace-nowrap bidi-ltr">
+                <span className="text-xs text-on-surface-variant whitespace-nowrap">
                   {formatDateTime(r.finalizedAt ?? r.kickoffAt, locale, {
                     day: "numeric",
                     month: "short",
