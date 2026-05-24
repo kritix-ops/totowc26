@@ -51,28 +51,31 @@
   --color-on-error-container: #93000a;
 
   /* Typography families wired to next/font CSS vars */
-  --font-display: var(--font-display), "Frank Ruhl Libre", "Libre Caslon Text", Georgia, serif;
-  --font-display-en: var(--font-display-en), "Fraunces", Georgia, serif;
-  --font-ui: var(--font-ui), "Rubik", system-ui, sans-serif;
+  --font-display: var(--font-display), "Heebo", "Assistant", system-ui, sans-serif;
+  --font-display-en: var(--font-display-en), "Space Grotesk", system-ui, sans-serif;
+  --font-ui: var(--font-ui), "Assistant", "Heebo", system-ui, sans-serif;
   --font-label: var(--font-label), "Inter", system-ui, sans-serif;
-  --font-score: var(--font-score), "Rubik", system-ui, sans-serif;
+  --font-score: var(--font-score), "Space Grotesk", "Heebo", system-ui, sans-serif;
 
   /* Type ramp (px values from DESIGN.md) */
   --text-display-hero: 48px;
   --text-display-hero--line-height: 52px;
-  --text-display-hero--letter-spacing: -0.02em;
-  --text-display-hero--font-weight: 700;
+  --text-display-hero--letter-spacing: -0.03em;
+  --text-display-hero--font-weight: 800;
 
   --text-display-hero-mobile: 32px;
   --text-display-hero-mobile--line-height: 36px;
-  --text-display-hero-mobile--font-weight: 700;
+  --text-display-hero-mobile--letter-spacing: -0.02em;
+  --text-display-hero-mobile--font-weight: 800;
 
   --text-headline-lg: 32px;
   --text-headline-lg--line-height: 40px;
-  --text-headline-lg--font-weight: 700;
+  --text-headline-lg--letter-spacing: -0.02em;
+  --text-headline-lg--font-weight: 800;
 
   --text-headline-md: 24px;
   --text-headline-md--line-height: 32px;
+  --text-headline-md--letter-spacing: -0.01em;
   --text-headline-md--font-weight: 700;
 
   --text-body-lg: 18px;

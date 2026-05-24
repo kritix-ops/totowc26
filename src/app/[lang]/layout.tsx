@@ -1,9 +1,9 @@
 import type { Metadata, Viewport } from "next";
 import { notFound } from "next/navigation";
 import {
-  Frank_Ruhl_Libre,
-  Fraunces,
-  Rubik,
+  Heebo,
+  Space_Grotesk,
+  Assistant,
   Inter,
 } from "next/font/google";
 import {
@@ -17,30 +17,30 @@ import { AppShell } from "@/components/AppShell";
 import { ServiceWorkerRegistrar } from "@/components/ServiceWorkerRegistrar";
 import "../globals.css";
 
-const display = Frank_Ruhl_Libre({
+const display = Heebo({
   subsets: ["hebrew", "latin"],
-  weight: ["500", "700", "900"],
+  weight: ["700", "800", "900"],
   variable: "--font-display",
   display: "swap",
 });
 
-const displayEn = Fraunces({
+const displayEn = Space_Grotesk({
   subsets: ["latin"],
-  weight: ["500", "700", "900"],
+  weight: ["600", "700"],
   variable: "--font-display-en",
   display: "swap",
 });
 
-const ui = Rubik({
+const ui = Assistant({
   subsets: ["hebrew", "latin"],
-  weight: ["400", "500", "700"],
+  weight: ["400", "500", "600", "700"],
   variable: "--font-ui",
   display: "swap",
 });
 
 const labelFont = Inter({
   subsets: ["latin"],
-  weight: ["700"],
+  weight: ["600", "700"],
   variable: "--font-label",
   display: "swap",
 });
