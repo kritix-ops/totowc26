@@ -1,6 +1,13 @@
 import Link from "next/link";
 import Image from "next/image";
-import { ArrowUpRight, CircleDollarSign, Sparkles, Trophy, Users } from "lucide-react";
+import {
+  ArrowUpRight,
+  CalendarClock,
+  CircleDollarSign,
+  Sparkles,
+  Trophy,
+  Users,
+} from "lucide-react";
 import { clsx } from "clsx";
 import { notFound } from "next/navigation";
 import { getDictionary, hasLocale, type Locale } from "./dictionaries";
@@ -30,38 +37,121 @@ import { Flag } from "@/components/Flag";
 
 export default async function HomePage({
   params,
+  searchParams,
 }: PageProps<"/[lang]">) {
   const { lang } = await params;
   if (!hasLocale(lang)) notFound();
   const locale = lang as Locale;
   const dict = await getDictionary(locale);
-  const isHebrew = locale === "he";
-  const displayFont = isHebrew
-    ? "font-[family-name:var(--font-display)]"
-    : "font-[family-name:var(--font-display-en)]";
+
+  const sp = (await searchParams) ?? {};
+  const previewPlayer =
+    process.env.NODE_ENV !== "production" && sp["preview"] === "player";
 
   const user = await getUser();
-  const signedIn = !!user;
+  const signedIn = !!user || previewPlayer;
 
-  // Hero data is public — no user required.
   const [pool, tournamentStart] = await Promise.all([
     getPoolStats(),
     getTournamentStart(),
   ]);
 
-  // Dashboard data is per-user; only fetch it when there's a signed-in user.
-  const dashboard = signedIn
-    ? await loadDashboard(user!.id)
-    : null;
+  let dashboard: DashboardData | null = null;
+  if (user) {
+    dashboard = await loadDashboard(user.id);
+  } else if (previewPlayer) {
+    dashboard = mockDashboard();
+  }
 
   console.info("[home render]", {
     signedIn,
+    previewPlayer,
     potIls: pool.potIls,
     participants: pool.participants,
     tournamentStart,
     hasDashboard: !!dashboard,
+    myRank: dashboard?.rankInfo.myRank ?? null,
+    totalPlayers: dashboard?.rankInfo.total ?? null,
   });
 
+  if (!signedIn) {
+    return (
+      <GuestLanding
+        locale={locale}
+        dict={dict}
+        pool={pool}
+        tournamentStart={tournamentStart}
+      />
+    );
+  }
+
+  return (
+    <PlayerHome
+      locale={locale}
+      dict={dict}
+      pool={pool}
+      tournamentStart={tournamentStart}
+      data={dashboard!}
+    />
+  );
+}
+
+// Dev-only mock so the PlayerHome layout can be previewed without a
+// Supabase session. Activated with `?preview=player` and ignored in
+// production builds.
+function mockDashboard(): DashboardData {
+  return {
+    upcoming: [],
+    lastFinal: null,
+    rankInfo: { myRank: 1, total: 1, gapToLeader: 0, myPoints: 0 },
+    trend: [],
+    board: [
+      {
+        rank: 1,
+        userId: "preview-self",
+        displayName: "אתה",
+        points: 0,
+        betCount: 0,
+        isYou: true,
+      },
+    ],
+  };
+}
+
+type DashboardData = Awaited<ReturnType<typeof loadDashboard>>;
+
+async function loadDashboard(userId: string) {
+  const [upcoming, lastFinal, rankInfo, trend, board] = await Promise.all([
+    getUpcomingFixtures(userId, 6),
+    getLatestFinalForUser(userId),
+    getMyRankSummary(userId),
+    getPointsTrend(userId),
+    getLeaderboard(userId),
+  ]);
+  return { upcoming, lastFinal, rankInfo, trend, board };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Guest landing — the marketing-style entry. The hero is the centerpiece;
+// everything important sits in a single centered card so a first-time visitor
+// reads it in one pass and knows what to do (sign in) without scrolling.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function GuestLanding({
+  locale,
+  dict,
+  pool,
+  tournamentStart,
+}: {
+  locale: Locale;
+  dict: Awaited<ReturnType<typeof getDictionary>>;
+  pool: { potIls: number; participants: number };
+  tournamentStart: string | null;
+}) {
+  const isHebrew = locale === "he";
+  const displayFont = isHebrew
+    ? "font-[family-name:var(--font-display)]"
+    : "font-[family-name:var(--font-display-en)]";
   const countdown = tournamentStart ? computeCountdown(tournamentStart) : null;
 
   return (
@@ -81,7 +171,7 @@ export default async function HomePage({
         />
       </div>
 
-      <div className="relative z-10 -mt-12 md:-mt-20 px-4 md:px-16 flex justify-center">
+      <div className="relative z-10 -mt-12 md:-mt-20 px-4 md:px-16 pb-10 md:pb-20 flex justify-center">
         <div className="w-full max-w-2xl bg-surface-container-low p-6 md:p-10 border border-outline rounded-lg shadow-[0_8px_32px_rgba(28,20,15,0.12)] flex flex-col gap-6 md:gap-8 text-start">
           <div className="flex justify-center -mt-2">
             <BrandLogo locale={locale} size="hero" />
@@ -117,24 +207,20 @@ export default async function HomePage({
             </div>
           )}
 
-          {!signedIn && (
-            <p
-              className={`${displayFont} text-xl md:text-[26px] leading-8 md:leading-9 text-on-surface max-w-md`}
-            >
-              {dict.landing.tagline}
-            </p>
-          )}
+          <p
+            className={`${displayFont} text-xl md:text-[26px] leading-8 md:leading-9 text-on-surface max-w-md`}
+          >
+            {dict.landing.tagline}
+          </p>
 
-          {!signedIn && (
-            <div>
-              <Link
-                href={localePath(locale, "login")}
-                className="press-down inline-flex items-center justify-center bg-primary text-on-primary font-[family-name:var(--font-label)] text-[14px] font-bold tracking-[0.05em] px-10 py-4 min-h-[48px] rounded-full shadow-md hover:bg-surface-tint hover:-translate-y-0.5 transition-all duration-200"
-              >
-                {dict.landing.cta}
-              </Link>
-            </div>
-          )}
+          <div>
+            <Link
+              href={localePath(locale, "login")}
+              className="press-down inline-flex items-center justify-center bg-primary text-on-primary font-[family-name:var(--font-label)] text-[14px] font-bold tracking-[0.05em] px-10 py-4 min-h-[48px] rounded-full shadow-md hover:bg-surface-tint hover:-translate-y-0.5 transition-all duration-200"
+            >
+              {dict.landing.cta}
+            </Link>
+          </div>
 
           <InstallHint locale={locale as "he" | "en"} />
 
@@ -160,169 +246,634 @@ export default async function HomePage({
           </div>
         </div>
       </div>
-
-      {dashboard && (
-        <DashboardBlock
-          locale={locale}
-          dict={dict}
-          data={dashboard}
-        />
-      )}
-
-      {!signedIn && <div className="pb-10 md:pb-20" />}
     </section>
   );
 }
 
-type DashboardData = Awaited<ReturnType<typeof loadDashboard>>;
+// ─────────────────────────────────────────────────────────────────────────────
+// Player home — the integrated dashboard. The hero is now a short, decorative
+// band whose only job is to carry the tournament-context strip (logo,
+// countdown, pot, participants) at its bottom edge. The rest of the screen is
+// a single-container dashboard so widths align and nothing floats.
+// ─────────────────────────────────────────────────────────────────────────────
 
-async function loadDashboard(userId: string) {
-  const [upcoming, lastFinal, rankInfo, trend, board] = await Promise.all([
-    getUpcomingFixtures(userId, 6),
-    getLatestFinalForUser(userId),
-    getMyRankSummary(userId),
-    getPointsTrend(userId),
-    getLeaderboard(userId),
-  ]);
-  return { upcoming, lastFinal, rankInfo, trend, board };
-}
-
-function DashboardBlock({
+function PlayerHome({
   locale,
   dict,
+  pool,
+  tournamentStart,
   data,
 }: {
   locale: Locale;
   dict: Awaited<ReturnType<typeof getDictionary>>;
+  pool: { potIls: number; participants: number };
+  tournamentStart: string | null;
   data: DashboardData;
 }) {
-  const { upcoming, lastFinal, rankInfo, trend, board } = data;
   const isHebrew = locale === "he";
-  const trendForChart = trend.length > 0 ? trend : [0, 0];
-  const leaderboardPreview = buildLeaderboardPreview(board);
+  const countdown = tournamentStart ? computeCountdown(tournamentStart) : null;
 
   return (
-    <section className="px-4 md:px-16 pt-10 md:pt-16 pb-10 md:pb-20 flex flex-col gap-8 md:gap-12">
-      <header className="flex flex-col sm:flex-row sm:items-end justify-between gap-6">
-        <h2 className="font-[family-name:var(--font-display)] text-[28px] leading-9 md:text-[40px] md:leading-[44px] font-bold text-primary">
+    <section className="flex flex-col">
+      <HeroBand
+        locale={locale}
+        dict={dict}
+        pool={pool}
+        countdown={countdown}
+      />
+
+      <div className="mx-auto w-full max-w-6xl px-4 md:px-8 lg:px-16 pt-8 md:pt-12 flex flex-col gap-8 md:gap-12">
+        <StatusRow locale={locale} dict={dict} rankInfo={data.rankInfo} />
+
+        <UpcomingSection
+          locale={locale}
+          dict={dict}
+          upcoming={data.upcoming}
+        />
+
+        <div className="flex flex-col gap-8 md:gap-12 lg:grid lg:grid-cols-12 lg:gap-x-12 lg:gap-y-12">
+          <div className="lg:col-start-1 lg:col-end-6 lg:row-start-1">
+            <LastBetSection
+              locale={locale}
+              dict={dict}
+              lastFinal={data.lastFinal}
+            />
+          </div>
+          <div className="lg:col-start-6 lg:col-end-13 lg:row-start-1">
+            <TrendSection
+              locale={locale}
+              dict={dict}
+              trend={data.trend}
+            />
+          </div>
+          <div className="lg:col-start-6 lg:col-end-13 lg:row-start-2">
+            <LeaderboardSection
+              locale={locale}
+              dict={dict}
+              board={data.board}
+            />
+          </div>
+          <div className="lg:col-start-1 lg:col-end-6 lg:row-start-2">
+            <SpecialsCard locale={locale} isHebrew={isHebrew} />
+          </div>
+        </div>
+
+        <InstallHint locale={locale as "he" | "en"} />
+      </div>
+    </section>
+  );
+}
+
+function HeroBand({
+  locale,
+  dict,
+  pool,
+  countdown,
+}: {
+  locale: Locale;
+  dict: Awaited<ReturnType<typeof getDictionary>>;
+  pool: { potIls: number; participants: number };
+  countdown: ReturnType<typeof computeCountdown> | null;
+}) {
+  const isHebrew = locale === "he";
+  return (
+    <div className="relative w-full h-[180px] sm:h-[220px] md:h-[280px] lg:h-[320px] overflow-hidden">
+      <Image
+        src="/hero.png"
+        alt={isHebrew ? "כוכבי המונדיאל" : "World Cup legends"}
+        fill
+        priority
+        sizes="100vw"
+        className="object-cover object-center"
+      />
+      <div
+        aria-hidden
+        className="absolute inset-x-0 bottom-0 h-3/4 bg-gradient-to-b from-transparent via-background/60 to-background pointer-events-none"
+      />
+      <div className="absolute inset-x-0 bottom-0 z-10">
+        <div className="mx-auto w-full max-w-6xl px-4 md:px-8 lg:px-16 pb-3 md:pb-5">
+          <div className="bg-surface-container-low/95 backdrop-blur-sm border border-outline rounded-lg shadow-[0_8px_24px_rgba(28,20,15,0.12)] px-4 md:px-6 py-3 md:py-4 grid grid-cols-3 gap-x-3 md:gap-x-6 items-center">
+            <HeroStat
+              icon={<CalendarClock className="h-4 w-4 text-surface-tint" strokeWidth={1.75} />}
+              value={
+                countdown
+                  ? countdown.started
+                    ? (isHebrew ? "מתחיל!" : "Live")
+                    : formatCountdownShort(countdown, locale)
+                  : "—"
+              }
+              label={
+                countdown?.started
+                  ? (isHebrew ? "המונדיאל" : "Tournament")
+                  : dict.landing.countdownLabel
+              }
+            />
+            <HeroStat
+              icon={<CircleDollarSign className="h-4 w-4 text-surface-tint" strokeWidth={1.75} />}
+              value={
+                <>
+                  {pool.potIls.toLocaleString(isHebrew ? "he-IL" : "en-US")}
+                  <span className="text-on-surface-variant font-normal mr-0.5 ms-0.5">
+                    {dict.common.currency}
+                  </span>
+                </>
+              }
+              label={dict.landing.potLabel}
+            />
+            <HeroStat
+              icon={<Users className="h-4 w-4 text-surface-tint" strokeWidth={1.75} />}
+              value={String(pool.participants)}
+              label={dict.landing.participantsLabel}
+            />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function HeroStat({
+  icon,
+  value,
+  label,
+}: {
+  icon: React.ReactNode;
+  value: React.ReactNode;
+  label: string;
+}) {
+  return (
+    <div className="flex flex-col items-center md:items-start gap-1 md:flex-row md:gap-2 min-w-0 text-center md:text-start">
+      <span aria-hidden className="shrink-0">
+        {icon}
+      </span>
+      <div className="flex flex-col leading-tight min-w-0">
+        <bdi className="font-[family-name:var(--font-display)] text-[13px] md:text-lg font-bold text-on-surface">
+          {value}
+        </bdi>
+        <span className="font-[family-name:var(--font-label)] text-[9px] md:text-[11px] tracking-[0.04em] uppercase text-on-surface-variant leading-snug">
+          {label}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function StatusRow({
+  locale,
+  dict,
+  rankInfo,
+}: {
+  locale: Locale;
+  dict: Awaited<ReturnType<typeof getDictionary>>;
+  rankInfo: DashboardData["rankInfo"];
+}) {
+  const isHebrew = locale === "he";
+  const hasRank = rankInfo.myRank > 0 && rankInfo.total > 0;
+  const rankValue = hasRank ? (
+    <>
+      <span className="bidi-ltr">{rankInfo.myRank}</span>
+      <span className="text-[18px] md:text-[20px] text-on-surface-variant font-medium">
+        {" "}{dict.dashboard.ofTotal}{" "}
+        <span className="bidi-ltr">{rankInfo.total}</span>
+      </span>
+    </>
+  ) : (
+    <span className="text-on-surface-variant">—</span>
+  );
+
+  return (
+    <section
+      aria-labelledby="status-heading"
+      className="flex flex-col gap-4 md:gap-6"
+    >
+      <div className="flex items-end justify-between">
+        <h2
+          id="status-heading"
+          className="font-[family-name:var(--font-display)] text-[24px] md:text-[32px] leading-tight font-bold text-on-surface"
+        >
           {dict.dashboard.welcome}
         </h2>
-        <div className="flex gap-4">
-          <Card className="px-6 py-4 text-center">
-            <LabelCaps as="div" className="mb-1">{dict.dashboard.myRankLabel}</LabelCaps>
-            <div className="font-[family-name:var(--font-display)] text-[28px] md:text-[32px] leading-none font-bold text-surface-tint">
-              <span className="bidi-ltr">{rankInfo.myRank || "—"}</span>{" "}
-              <span className="text-[18px] text-on-surface-variant">
-                {dict.dashboard.ofTotal} <span className="bidi-ltr">{rankInfo.total}</span>
-              </span>
-            </div>
-          </Card>
-          <Card className="px-6 py-4 text-center">
-            <LabelCaps as="div" className="mb-1">{dict.dashboard.gapToLeader}</LabelCaps>
-            <div className="font-[family-name:var(--font-display)] text-[28px] md:text-[32px] leading-none font-bold text-surface-tint">
-              <span className="bidi-ltr">{rankInfo.gapToLeader}</span>{" "}
-              <span className="text-[18px] text-on-surface-variant">{dict.common.points}</span>
-            </div>
-          </Card>
-        </div>
-      </header>
-
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-12">
-        <div className="lg:col-span-7 flex flex-col gap-12">
-          <section className="flex flex-col gap-6">
-            <div className="flex justify-between items-end">
-              <SectionHeading>{dict.dashboard.upcomingTitle}</SectionHeading>
-              <Link
-                href={localePath(locale, "bets")}
-                className="font-[family-name:var(--font-label)] text-[12px] font-bold tracking-[0.05em] text-primary hover:underline inline-flex items-center gap-1"
-              >
-                {dict.dashboard.viewAll}
-                <ArrowUpRight className="h-3.5 w-3.5" strokeWidth={2} />
-              </Link>
-            </div>
-            {upcoming.length === 0 ? (
-              <EmptyMatches isHebrew={isHebrew} />
+      </div>
+      <div className="grid grid-cols-3 gap-3 md:gap-4">
+        <StatCard
+          label={dict.dashboard.myRankLabel}
+          value={rankValue}
+        />
+        <StatCard
+          label={dict.dashboard.gapToLeader}
+          value={
+            hasRank ? (
+              <>
+                <span className="bidi-ltr">{rankInfo.gapToLeader}</span>
+                <span className="text-[18px] md:text-[20px] text-on-surface-variant font-medium">
+                  {" "}{dict.common.points}
+                </span>
+              </>
             ) : (
-              <div className="flex overflow-x-auto gap-4 pb-2 snap-x snap-mandatory -mx-4 px-4 md:mx-0 md:px-0">
-                {upcoming.slice(0, 3).map((m, idx) => (
-                  <UpcomingCard
-                    key={m.id}
-                    match={m}
-                    idx={idx}
-                    locale={locale}
-                    dict={dict}
-                  />
-                ))}
-              </div>
-            )}
-          </section>
+              <span className="text-on-surface-variant">—</span>
+            )
+          }
+        />
+        <StatCard
+          label={isHebrew ? "סה\"כ נקודות" : "Total points"}
+          value={
+            <>
+              <span className="bidi-ltr">{rankInfo.myPoints}</span>
+              <span className="text-[18px] md:text-[20px] text-on-surface-variant font-medium">
+                {" "}{dict.common.points}
+              </span>
+            </>
+          }
+        />
+      </div>
+    </section>
+  );
+}
 
-          <Card className="p-6">
-            <SectionHeading underline="thin" as="h3" className="mb-4">
-              {dict.dashboard.pointsTrend}
-            </SectionHeading>
-            <Sparkline trend={trendForChart} />
-            <div className="flex justify-between mt-3">
-              {trendForChart.map((_, i) => (
-                <LabelCaps key={i} className={i === trendForChart.length - 1 ? "text-primary" : ""}>
-                  {dict.dashboard.matchday} <span className="bidi-ltr">{i + 1}</span>
+function StatCard({
+  label,
+  value,
+}: {
+  label: string;
+  value: React.ReactNode;
+}) {
+  return (
+    <Card className="px-3 md:px-5 py-3 md:py-4 text-center">
+      <LabelCaps
+        as="div"
+        className="mb-1 text-[10px] md:text-[12px] leading-tight min-h-[1.5em]"
+      >
+        {label}
+      </LabelCaps>
+      <div className="font-[family-name:var(--font-display)] text-[24px] md:text-[36px] leading-none font-bold text-surface-tint">
+        {value}
+      </div>
+    </Card>
+  );
+}
+
+function UpcomingSection({
+  locale,
+  dict,
+  upcoming,
+}: {
+  locale: Locale;
+  dict: Awaited<ReturnType<typeof getDictionary>>;
+  upcoming: FixtureWithMyBet[];
+}) {
+  const isHebrew = locale === "he";
+  return (
+    <section
+      aria-labelledby="upcoming-heading"
+      className="flex flex-col gap-4 md:gap-6"
+    >
+      <div className="flex justify-between items-end">
+        <SectionHeading as="h3">
+          <span id="upcoming-heading">{dict.dashboard.upcomingTitle}</span>
+        </SectionHeading>
+        <Link
+          href={localePath(locale, "bets")}
+          className="font-[family-name:var(--font-label)] text-[12px] font-bold tracking-[0.05em] text-primary hover:underline inline-flex items-center gap-1 min-h-[40px]"
+        >
+          {dict.dashboard.viewAll}
+          <ArrowUpRight className="h-3.5 w-3.5" strokeWidth={2} />
+        </Link>
+      </div>
+      {upcoming.length === 0 ? (
+        <Card className="p-6 text-center text-on-surface-variant">
+          {isHebrew
+            ? "כרגע אין משחקים מתוכננים. המנהל יעדכן בקרוב."
+            : "No matches scheduled yet. The organizer will add them soon."}
+        </Card>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {upcoming.slice(0, 3).map((m) => (
+            <UpcomingCard
+              key={m.id}
+              match={m}
+              locale={locale}
+              dict={dict}
+            />
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function UpcomingCard({
+  match,
+  locale,
+  dict,
+}: {
+  match: FixtureWithMyBet;
+  locale: Locale;
+  dict: Awaited<ReturnType<typeof getDictionary>>;
+}) {
+  const isHebrew = locale === "he";
+  const homeName = isHebrew ? match.homeNameHe : match.homeNameEn;
+  const awayName = isHebrew ? match.awayNameHe : match.awayNameEn;
+  const countdown = formatRelative(match.kickoffAt, locale);
+  const hasBet = match.myHome !== null && match.myAway !== null;
+
+  return (
+    <Card className="p-5 md:p-6 relative flex flex-col gap-5 min-h-[200px]">
+      <div className="flex items-center justify-between gap-2">
+        <Chip tone={hasBet ? "secondary" : "default"}>
+          <CalendarClock className="h-3.5 w-3.5" strokeWidth={1.75} />
+          <span className="text-xs font-bold">{countdown}</span>
+        </Chip>
+        {hasBet && (
+          <LabelCaps className="text-secondary">
+            {isHebrew ? "הימור נשמר" : "Bet saved"}
+          </LabelCaps>
+        )}
+      </div>
+
+      <div className="flex justify-between items-center">
+        <TeamMini name={homeName} code={match.homeCode} />
+        <span className="font-[family-name:var(--font-display)] text-xl text-on-surface-variant px-2">
+          VS
+        </span>
+        <TeamMini name={awayName} code={match.awayCode} />
+      </div>
+
+      <div className="mt-auto border-t border-outline-variant pt-4 text-center">
+        {hasBet ? (
+          <>
+            <LabelCaps as="div" className="mb-1">{dict.dashboard.yourBet}</LabelCaps>
+            <span className="font-[family-name:var(--font-score)] text-[32px] md:text-[36px] leading-none tracking-[0.1em] font-bold text-primary">
+              <span className="bidi-ltr">{match.myHome} - {match.myAway}</span>
+            </span>
+          </>
+        ) : (
+          <Link
+            href={localePath(locale, `bets/${match.id}`)}
+            className="press-down inline-flex items-center justify-center bg-primary text-on-primary font-[family-name:var(--font-label)] text-[12px] font-bold tracking-[0.05em] px-5 py-2.5 min-h-[40px] rounded-full hover:bg-surface-tint transition-colors"
+          >
+            {dict.matchBet.saveBet}
+          </Link>
+        )}
+      </div>
+    </Card>
+  );
+}
+
+function TeamMini({ name, code }: { name: string; code: string }) {
+  return (
+    <div className="flex flex-col items-center gap-2 flex-1 min-w-0">
+      <Flag code={code} size={44} />
+      <span className="text-sm font-bold text-on-surface text-center truncate max-w-full">
+        {name}
+      </span>
+    </div>
+  );
+}
+
+function TrendSection({
+  locale,
+  dict,
+  trend,
+}: {
+  locale: Locale;
+  dict: Awaited<ReturnType<typeof getDictionary>>;
+  trend: number[];
+}) {
+  const isHebrew = locale === "he";
+  const hasData = trend.length > 0;
+
+  return (
+    <section
+      aria-labelledby="trend-heading"
+      className="flex flex-col gap-4 md:gap-6"
+    >
+      <SectionHeading as="h3">
+        <span id="trend-heading">{dict.dashboard.pointsTrend}</span>
+      </SectionHeading>
+      <Card className="p-5 md:p-6">
+        {hasData ? (
+          <>
+            <Sparkline trend={trend} />
+            <div className="flex justify-between mt-3 gap-2">
+              {trend.map((_, i) => (
+                <LabelCaps
+                  key={i}
+                  className={clsx(
+                    "truncate",
+                    i === trend.length - 1 && "text-primary",
+                  )}
+                >
+                  {dict.dashboard.matchday}{" "}
+                  <span className="bidi-ltr">{i + 1}</span>
                 </LabelCaps>
               ))}
             </div>
-          </Card>
-        </div>
+          </>
+        ) : (
+          <div className="flex flex-col items-center justify-center gap-2 py-8 text-center">
+            <CalendarClock
+              className="h-8 w-8 text-outline-variant"
+              strokeWidth={1.5}
+            />
+            <p className="text-sm text-on-surface-variant max-w-xs">
+              {isHebrew
+                ? "הגרף יתחיל להתמלא כשהמשחקים יסתיימו ויחושבו נקודות."
+                : "The chart fills in once matches finish and points are tallied."}
+            </p>
+          </div>
+        )}
+      </Card>
+    </section>
+  );
+}
 
-        <div className="lg:col-span-5 flex flex-col gap-12">
-          <section className="flex flex-col gap-6">
-            <SectionHeading>{dict.dashboard.lastBetTitle}</SectionHeading>
-            {lastFinal ? (
-              <LastBetCard match={lastFinal} locale={locale} dict={dict} />
-            ) : (
-              <Card className="p-6 text-center text-on-surface-variant">
-                {isHebrew
-                  ? "אין עדיין משחקים שהסתיימו"
-                  : "No finished matches yet"}
-              </Card>
-            )}
-          </section>
+function LastBetSection({
+  locale,
+  dict,
+  lastFinal,
+}: {
+  locale: Locale;
+  dict: Awaited<ReturnType<typeof getDictionary>>;
+  lastFinal: FixtureWithMyBet | null;
+}) {
+  const isHebrew = locale === "he";
+  return (
+    <section
+      aria-labelledby="last-bet-heading"
+      className="flex flex-col gap-4 md:gap-6"
+    >
+      <SectionHeading as="h3">
+        <span id="last-bet-heading">{dict.dashboard.lastBetTitle}</span>
+      </SectionHeading>
+      {lastFinal ? (
+        <LastBetCard match={lastFinal} locale={locale} dict={dict} />
+      ) : (
+        <Card className="p-6 text-center text-on-surface-variant">
+          {isHebrew
+            ? "אין עדיין משחקים שהסתיימו. נחזור לכאן אחרי שריקת הסיום הראשונה."
+            : "No finished matches yet. We'll come back here after the first full-time whistle."}
+        </Card>
+      )}
+    </section>
+  );
+}
 
-          <Link
-            href={localePath(locale, "specials")}
-            className="press-down group block"
-          >
-            <Card className="p-5 flex items-center gap-4 min-h-[64px] hover:bg-surface-container transition-colors">
-              <div className="w-11 h-11 rounded-full bg-tertiary-container flex items-center justify-center shrink-0">
-                <Sparkles className="h-5 w-5 text-on-tertiary-container" strokeWidth={1.75} />
-              </div>
-              <div className="flex flex-col min-w-0 flex-1">
-                <span className="font-bold text-base text-on-surface">
-                  {isHebrew ? "הימורי על הטורניר" : "Tournament specials"}
-                </span>
-                <span className="text-sm text-on-surface-variant truncate">
-                  {isHebrew
-                    ? "מלך השערים · פנדלים בגמר"
-                    : "Top scorer · Final on penalties"}
-                </span>
-              </div>
-              <ArrowUpRight className="h-5 w-5 text-primary shrink-0 group-hover:translate-x-0.5 transition-transform" strokeWidth={2} />
-            </Card>
-          </Link>
+function LastBetCard({
+  match,
+  locale,
+  dict,
+}: {
+  match: FixtureWithMyBet;
+  locale: Locale;
+  dict: Awaited<ReturnType<typeof getDictionary>>;
+}) {
+  const isHebrew = locale === "he";
+  const homeName = isHebrew ? match.homeNameHe : match.homeNameEn;
+  const awayName = isHebrew ? match.awayNameHe : match.awayNameEn;
+  const hasBet = match.myHome !== null && match.myAway !== null;
+  const points = match.myPoints ?? 0;
+  const exact = match.myExact === true;
 
-          <section className="flex flex-col gap-6">
-            <div className="flex justify-between items-end">
-              <SectionHeading>{isHebrew ? "טבלת המובילים" : "Standings"}</SectionHeading>
-              <Link
-                href={localePath(locale, "leaderboard")}
-                className="font-[family-name:var(--font-label)] text-[12px] font-bold tracking-[0.05em] text-primary hover:underline inline-flex items-center gap-1"
-              >
-                {isHebrew ? "טבלה מלאה" : "Full table"}
-                <ArrowUpRight className="h-3.5 w-3.5" strokeWidth={2} />
-              </Link>
-            </div>
-            <LeaderboardPreview rows={leaderboardPreview} locale={locale} />
-          </section>
+  return (
+    <Card className="overflow-hidden p-0">
+      <div className="p-5 md:p-6 bg-surface-container border-b-4 border-surface-tint text-center">
+        <LabelCaps as="div" className="mb-4 tracking-[0.15em]">
+          {dict.matchDetail.final}
+        </LabelCaps>
+        <div className="flex justify-center items-end gap-4 md:gap-6">
+          <div className="flex flex-col items-center gap-2 min-w-0">
+            <span className="text-base md:text-lg text-on-surface-variant truncate max-w-[120px]">
+              {homeName}
+            </span>
+            <ScoreDigit value={match.homeScore ?? 0} dark />
+          </div>
+          <span className="text-2xl text-on-surface-variant mb-3">:</span>
+          <div className="flex flex-col items-center gap-2 min-w-0">
+            <span className="text-base md:text-lg text-on-surface-variant truncate max-w-[120px]">
+              {awayName}
+            </span>
+            <ScoreDigit value={match.awayScore ?? 0} dark />
+          </div>
         </div>
       </div>
+      <div className="p-5 md:p-6 bg-[#FBF6EB] flex flex-col gap-4">
+        <div className="flex justify-between items-center">
+          <LabelCaps>{dict.dashboard.yourBet}</LabelCaps>
+          <span className="font-[family-name:var(--font-score)] text-[24px] md:text-[28px] leading-none tracking-[0.1em] font-bold text-on-surface">
+            <span className="bidi-ltr">
+              {hasBet ? `${match.myHome} - ${match.myAway}` : "—"}
+            </span>
+          </span>
+        </div>
+        <div className="border-t border-outline-variant pt-4 flex justify-between items-end">
+          <div className="flex flex-col gap-2">
+            {hasBet ? (
+              <>
+                <LabelCaps
+                  className={exact ? "text-secondary" : "text-on-surface-variant"}
+                >
+                  {exact
+                    ? isHebrew ? "תוצאה מדויקת" : "Exact score"
+                    : isHebrew ? "ניחוש" : "Bet"}
+                </LabelCaps>
+                <Chip tone={exact ? "secondary" : "default"}>
+                  <span>+{points} {dict.common.points}</span>
+                </Chip>
+              </>
+            ) : (
+              <LabelCaps>{isHebrew ? "לא הזנת הימור" : "No bet placed"}</LabelCaps>
+            )}
+          </div>
+          <div className="text-end">
+            <LabelCaps as="div" className="mb-1">
+              {dict.dashboard.earned}
+            </LabelCaps>
+            <span
+              className={clsx(
+                "font-[family-name:var(--font-display)] text-[32px] md:text-[40px] leading-none font-bold",
+                points > 0 ? "text-secondary" : "text-on-surface-variant",
+              )}
+            >
+              <span className="bidi-ltr">+{points}</span>
+            </span>
+          </div>
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+function SpecialsCard({
+  locale,
+  isHebrew,
+}: {
+  locale: Locale;
+  isHebrew: boolean;
+}) {
+  return (
+    <Link
+      href={localePath(locale, "specials")}
+      className="press-down group block"
+    >
+      <Card className="p-5 flex items-center gap-4 min-h-[72px] hover:bg-surface-container transition-colors">
+        <div className="w-11 h-11 rounded-full bg-tertiary-container flex items-center justify-center shrink-0">
+          <Sparkles
+            className="h-5 w-5 text-on-tertiary-container"
+            strokeWidth={1.75}
+          />
+        </div>
+        <div className="flex flex-col min-w-0 flex-1">
+          <span className="font-bold text-base text-on-surface">
+            {isHebrew ? "הימורי על הטורניר" : "Tournament specials"}
+          </span>
+          <span className="text-sm text-on-surface-variant truncate">
+            {isHebrew
+              ? "מלך השערים · פנדלים בגמר"
+              : "Top scorer · Final on penalties"}
+          </span>
+        </div>
+        <ArrowUpRight
+          className="h-5 w-5 text-primary shrink-0 group-hover:translate-x-0.5 transition-transform"
+          strokeWidth={2}
+        />
+      </Card>
+    </Link>
+  );
+}
+
+function LeaderboardSection({
+  locale,
+  dict,
+  board,
+}: {
+  locale: Locale;
+  dict: Awaited<ReturnType<typeof getDictionary>>;
+  board: LeaderboardEntry[];
+}) {
+  const isHebrew = locale === "he";
+  const rows = buildLeaderboardPreview(board);
+  // dict is intentionally unused for now (kept for future i18n labels).
+  void dict;
+  return (
+    <section
+      aria-labelledby="leaderboard-heading"
+      className="flex flex-col gap-4 md:gap-6"
+    >
+      <div className="flex justify-between items-end">
+        <SectionHeading as="h3">
+          <span id="leaderboard-heading">
+            {isHebrew ? "טבלת המובילים" : "Standings"}
+          </span>
+        </SectionHeading>
+        <Link
+          href={localePath(locale, "leaderboard")}
+          className="font-[family-name:var(--font-label)] text-[12px] font-bold tracking-[0.05em] text-primary hover:underline inline-flex items-center gap-1 min-h-[40px]"
+        >
+          {isHebrew ? "טבלה מלאה" : "Full table"}
+          <ArrowUpRight className="h-3.5 w-3.5" strokeWidth={2} />
+        </Link>
+      </div>
+      <LeaderboardPreview rows={rows} locale={locale} />
     </section>
   );
 }
@@ -355,7 +906,9 @@ function LeaderboardPreview({
   if (rows.length === 0) {
     return (
       <Card className="p-6 text-center text-on-surface-variant">
-        {isHebrew ? "אין עדיין משתתפים" : "No players yet"}
+        {isHebrew
+          ? "אין עדיין משתתפים מדורגים. תתעדכן ברגע שייסגרו הימורים."
+          : "No ranked players yet. Updates as bets settle."}
       </Card>
     );
   }
@@ -393,7 +946,14 @@ function LeaderboardPreview({
                 )}
                 aria-hidden
               >
-                {top3 ? <Trophy className="h-4 w-4 text-tertiary-fixed-dim" strokeWidth={2} /> : row.displayName.charAt(0)}
+                {top3 ? (
+                  <Trophy
+                    className="h-4 w-4 text-tertiary-fixed-dim"
+                    strokeWidth={2}
+                  />
+                ) : (
+                  row.displayName.charAt(0)
+                )}
               </div>
               <span className="flex-1 min-w-0 text-sm font-bold truncate">
                 {row.isYou ? (isHebrew ? "אתה" : "You") : row.displayName}
@@ -408,157 +968,6 @@ function LeaderboardPreview({
           );
         })}
       </ul>
-    </Card>
-  );
-}
-
-function UpcomingCard({
-  match,
-  idx,
-  locale,
-  dict,
-}: {
-  match: FixtureWithMyBet;
-  idx: number;
-  locale: Locale;
-  dict: Awaited<ReturnType<typeof getDictionary>>;
-}) {
-  const isHebrew = locale === "he";
-  const homeName = isHebrew ? match.homeNameHe : match.homeNameEn;
-  const awayName = isHebrew ? match.awayNameHe : match.awayNameEn;
-  const dim = idx === 1 ? "opacity-90" : idx === 2 ? "opacity-70" : "";
-  const countdown = formatRelative(match.kickoffAt, locale);
-  const hasBet = match.myHome !== null && match.myAway !== null;
-  return (
-    <Card className={`min-w-[280px] snap-start p-6 relative flex flex-col ${dim}`}>
-      <div
-        className={`absolute top-0 ${
-          isHebrew ? "right-0 rounded-bl-lg rounded-tr-lg" : "left-0 rounded-br-lg rounded-tl-lg"
-        } px-3 py-1 text-[12px] font-[family-name:var(--font-label)] font-bold tracking-[0.05em] ${
-          idx === 0
-            ? "bg-secondary text-on-secondary"
-            : "bg-surface-variant text-on-surface-variant border-b border-outline-variant"
-        }`}
-      >
-        {countdown}
-      </div>
-      <div className="flex justify-between items-center mt-4 mb-6">
-        <TeamMini name={homeName} code={match.homeCode} />
-        <span className="font-[family-name:var(--font-display)] text-2xl text-on-surface-variant px-4">
-          VS
-        </span>
-        <TeamMini name={awayName} code={match.awayCode} />
-      </div>
-      <div className="mt-auto border-t border-outline-variant pt-4 text-center">
-        {hasBet ? (
-          <>
-            <LabelCaps as="div" className="mb-1">{dict.dashboard.yourBet}</LabelCaps>
-            <span className="font-[family-name:var(--font-score)] text-[40px] leading-none tracking-[0.1em] font-bold text-primary">
-              <span className="bidi-ltr">{match.myHome} - {match.myAway}</span>
-            </span>
-          </>
-        ) : (
-          <Link
-            href={localePath(locale, `bets/${match.id}`)}
-            className="press-down inline-flex items-center text-primary border-b border-primary font-[family-name:var(--font-label)] text-[12px] font-bold tracking-[0.05em] pb-1 hover:bg-surface-container-low transition-colors"
-          >
-            {dict.matchBet.saveBet}
-          </Link>
-        )}
-      </div>
-    </Card>
-  );
-}
-
-function TeamMini({ name, code }: { name: string; code: string }) {
-  return (
-    <div className="flex flex-col items-center gap-2">
-      <Flag code={code} size={48} />
-      <span className="text-sm font-bold text-on-surface text-center">{name}</span>
-    </div>
-  );
-}
-
-function LastBetCard({
-  match,
-  locale,
-  dict,
-}: {
-  match: FixtureWithMyBet;
-  locale: Locale;
-  dict: Awaited<ReturnType<typeof getDictionary>>;
-}) {
-  const isHebrew = locale === "he";
-  const homeName = isHebrew ? match.homeNameHe : match.homeNameEn;
-  const awayName = isHebrew ? match.awayNameHe : match.awayNameEn;
-  const hasBet = match.myHome !== null && match.myAway !== null;
-  const points = match.myPoints ?? 0;
-  const exact = match.myExact === true;
-
-  return (
-    <Card className="overflow-hidden p-0">
-      <div className="p-6 bg-surface-container border-b-4 border-surface-tint text-center">
-        <LabelCaps as="div" className="mb-4 tracking-[0.15em]">{dict.matchDetail.final}</LabelCaps>
-        <div className="flex justify-center items-end gap-6">
-          <div className="flex flex-col items-center gap-2">
-            <span className="text-lg text-on-surface-variant">{homeName}</span>
-            <ScoreDigit value={match.homeScore ?? 0} dark />
-          </div>
-          <span className="text-2xl text-on-surface-variant mb-3">:</span>
-          <div className="flex flex-col items-center gap-2">
-            <span className="text-lg text-on-surface-variant">{awayName}</span>
-            <ScoreDigit value={match.awayScore ?? 0} dark />
-          </div>
-        </div>
-      </div>
-      <div className="p-6 bg-[#FBF6EB] flex flex-col gap-4">
-        <div className="flex justify-between items-center">
-          <LabelCaps>{dict.dashboard.yourBet}</LabelCaps>
-          <span className="font-[family-name:var(--font-score)] text-[28px] leading-none tracking-[0.1em] font-bold text-on-surface">
-            <span className="bidi-ltr">
-              {hasBet ? `${match.myHome} - ${match.myAway}` : "—"}
-            </span>
-          </span>
-        </div>
-        <div className="border-t border-outline-variant pt-4 flex justify-between items-end">
-          <div className="flex flex-col gap-2">
-            {hasBet ? (
-              <>
-                <LabelCaps className={exact ? "text-secondary" : "text-on-surface-variant"}>
-                  {exact
-                    ? isHebrew ? "תוצאה מדויקת" : "Exact score"
-                    : isHebrew ? "ניחוש" : "Bet"}
-                </LabelCaps>
-                <Chip tone={exact ? "secondary" : "default"}>
-                  <span>+{points} {dict.common.points}</span>
-                </Chip>
-              </>
-            ) : (
-              <LabelCaps>{isHebrew ? "לא הזנת הימור" : "No bet placed"}</LabelCaps>
-            )}
-          </div>
-          <div className="text-end">
-            <LabelCaps as="div" className="mb-1">{dict.dashboard.earned}</LabelCaps>
-            <span
-              className={`font-[family-name:var(--font-display)] text-[40px] leading-none font-bold ${
-                points > 0 ? "text-secondary" : "text-on-surface-variant"
-              }`}
-            >
-              <span className="bidi-ltr">+{points}</span>
-            </span>
-          </div>
-        </div>
-      </div>
-    </Card>
-  );
-}
-
-function EmptyMatches({ isHebrew }: { isHebrew: boolean }) {
-  return (
-    <Card className="p-6 text-center text-on-surface-variant">
-      {isHebrew
-        ? "כרגע אין משחקים מתוכננים. המנהל יעדכן בקרוב."
-        : "No matches scheduled yet. The organizer will add them soon."}
     </Card>
   );
 }
@@ -582,7 +991,21 @@ function formatRelative(iso: string, locale: Locale): string {
     month: "short",
     hour: "2-digit",
     minute: "2-digit",
+    timeZone: "Asia/Jerusalem",
   }).format(new Date(iso));
+}
+
+function formatCountdownShort(
+  c: { days: number; hours: number },
+  locale: Locale,
+): string {
+  const isHebrew = locale === "he";
+  if (c.days >= 1) {
+    return isHebrew
+      ? `${c.days} ימים · ${c.hours} שעות`
+      : `${c.days}d ${c.hours}h`;
+  }
+  return isHebrew ? `${c.hours} שעות` : `${c.hours}h`;
 }
 
 function Sparkline({ trend }: { trend: number[] }) {
@@ -611,6 +1034,8 @@ function Sparkline({ trend }: { trend: number[] }) {
         viewBox={`0 0 ${w} ${h}`}
         preserveAspectRatio="none"
         className="w-full h-full overflow-visible"
+        role="img"
+        aria-label="Points trend"
       >
         <line stroke="#dfc0b8" strokeDasharray="4 4" strokeWidth="1" x1="0" x2={w} y1="0" y2="0" />
         <line stroke="#dfc0b8" strokeDasharray="4 4" strokeWidth="1" x1="0" x2={w} y1={h / 2} y2={h / 2} />
