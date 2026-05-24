@@ -38,7 +38,7 @@ export default async function OnboardingPage({
     !!profile && profile.displayName.length >= 2 && profile.phone.length >= 7;
   const isAdmin = profile?.role === "admin";
   if (profileComplete && (isAdmin || latestPayment?.status === "approved")) {
-    redirect(localePath(locale, "dashboard"));
+    redirect(localePath(locale));
   }
 
   return (

@@ -18,7 +18,7 @@ export async function requireAdmin(locale: Locale) {
     .limit(1);
 
   if (!profile || profile.role !== "admin") {
-    redirect(localePath(locale, "dashboard"));
+    redirect(localePath(locale));
   }
   return { user, profile };
 }

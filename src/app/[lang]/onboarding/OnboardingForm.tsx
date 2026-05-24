@@ -125,7 +125,7 @@ export function OnboardingForm({
       {isApproved && (
         <PillButton
           type="button"
-          onClick={() => router.push(localePath(locale, "dashboard"))}
+          onClick={() => router.push(localePath(locale))}
           className="w-full py-4 text-base"
         >
           {isHebrew ? "מעבר לדאשבורד" : "Go to dashboard"}
