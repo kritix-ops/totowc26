@@ -1,0 +1,407 @@
+"use client";
+
+import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
+import { AlertCircle, Check, Info, Lock, Minus, Plus } from "lucide-react";
+import { clsx } from "clsx";
+import { Card, Chip, LabelCaps } from "@/components/ui";
+import { formatDateTime } from "@/lib/format";
+import type { Locale } from "@/app/[lang]/dictionaries";
+import type {
+  AnswerConfig,
+  MultiChoiceOption,
+  PickAnswer,
+} from "@/lib/bets/types";
+import { submitCustomBetPick } from "@/app/[lang]/play/[date]/actions";
+
+// Player-facing card for a single custom bet. Renders the question, the
+// grading-rule contract, the stake/payout chip, and the right answer
+// widget for the bet's answer type. On submit it calls the server action
+// and lets the parent page re-fetch via router.refresh().
+
+export type CustomBetCardData = {
+  id: string;
+  questionHe: string;
+  questionEn: string;
+  gradingRuleHe: string;
+  gradingRuleEn: string;
+  answerType: "yes_no" | "number" | "multi_choice" | "free_text";
+  answerConfig: AnswerConfig;
+  stakeSnapshot: number;
+  payoutSnapshot: number;
+  lockAt: string;
+  status: "open" | "locked" | "graded" | "reversed" | "cancelled" | "draft";
+  myAnswer: PickAnswer | null;
+  myStakePaid: number | null;
+  scopeLabel?: string;  // e.g. "BRA vs GER" for match-scope, optional
+};
+
+export function CustomBetCard({
+  locale,
+  bet,
+  bankBalance,
+  editable,
+}: {
+  locale: Locale;
+  bet: CustomBetCardData;
+  bankBalance: number;
+  // Server computes this once per render so the client doesn't have to
+  // call Date.now() (which React 19 lint rules flag as impure).
+  editable: boolean;
+}) {
+  const isHebrew = locale === "he";
+  const router = useRouter();
+
+  // The "current" answer the player has selected. Starts as their saved
+  // pick if any, otherwise an empty draft of the right shape.
+  const [draft, setDraft] = useState<PickAnswer | null>(bet.myAnswer);
+  const [error, setError] = useState<string | null>(null);
+  const [savedFlash, setSavedFlash] = useState(false);
+  const [pending, startTransition] = useTransition();
+
+  const refund = bet.myStakePaid ?? 0;
+  // If the draft is "empty" the user hasn't expressed a choice yet, so the
+  // submit-cost is 0 (we render submit disabled in that case anyway).
+  const hasChoice = !!draft;
+  const newCost = hasChoice ? bet.stakeSnapshot : 0;
+  const effective = bankBalance + refund;
+  const bankAfter = effective - newCost;
+  const overdrawn = hasChoice && bankAfter < 0;
+
+  const dirty =
+    JSON.stringify(draft ?? null) !== JSON.stringify(bet.myAnswer ?? null);
+
+  const onSubmit = () => {
+    if (!draft || !editable || overdrawn) return;
+    setError(null);
+    setSavedFlash(false);
+    startTransition(async () => {
+      const res = await submitCustomBetPick(bet.id, draft);
+      if (!res.ok) {
+        setError(translateError(res.error, isHebrew, res));
+        return;
+      }
+      setSavedFlash(true);
+      router.refresh();
+    });
+  };
+
+  const lockLabel = formatDateTime(bet.lockAt, locale, {
+    day: "numeric",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+
+  return (
+    <Card className="p-4 md:p-5 flex flex-col gap-4">
+      {/* Header: question + scope chip + lock time */}
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <div className="flex flex-col gap-1 min-w-0 flex-1">
+          <h3 className="font-[family-name:var(--font-display)] text-base md:text-lg font-bold text-on-surface leading-snug">
+            {isHebrew ? bet.questionHe : bet.questionEn}
+          </h3>
+          {bet.scopeLabel && (
+            <span className="text-xs text-on-surface-variant tabular-nums">
+              {bet.scopeLabel}
+            </span>
+          )}
+        </div>
+        <div className="flex flex-col items-end gap-1 shrink-0">
+          <Chip tone={bet.status === "open" ? "primary" : "default"}>
+            {bet.status === "open"
+              ? isHebrew ? "פתוח" : "Open"
+              : isHebrew ? "נסגר" : "Locked"}
+          </Chip>
+          <span className="font-[family-name:var(--font-label)] text-xs text-on-surface-variant tabular-nums inline-flex items-center gap-1">
+            <Lock className="h-3 w-3" strokeWidth={2} />
+            {lockLabel}
+          </span>
+        </div>
+      </div>
+
+      {/* Grading rule — the contract */}
+      <div className="flex items-start gap-2 text-xs md:text-sm text-on-surface-variant bg-surface-container-low border border-outline-variant rounded p-3">
+        <Info className="h-4 w-4 shrink-0 mt-0.5" strokeWidth={2} />
+        <p className="flex-1">
+          {isHebrew ? bet.gradingRuleHe : bet.gradingRuleEn}
+        </p>
+      </div>
+
+      {/* Answer widget per type */}
+      <AnswerWidget
+        locale={locale}
+        bet={bet}
+        value={draft}
+        onChange={setDraft}
+        disabled={!editable || pending}
+      />
+
+      {/* Stake/payout + submit */}
+      <div className="flex flex-col-reverse md:flex-row md:items-center md:justify-between gap-3 pt-3 border-t border-outline-variant">
+        <div className="flex flex-wrap items-center gap-2 text-xs md:text-sm text-on-surface-variant">
+          <span>
+            {isHebrew ? "עלות" : "Stake"}:{" "}
+            <bdi className="tabular-nums font-bold text-on-surface">
+              {bet.stakeSnapshot}
+            </bdi>
+          </span>
+          <span aria-hidden className="opacity-40">·</span>
+          <span>
+            {isHebrew ? "זכייה" : "Payout"}:{" "}
+            <bdi className="tabular-nums font-bold text-on-surface">
+              {bet.payoutSnapshot}
+            </bdi>
+          </span>
+          {hasChoice && dirty && (
+            <>
+              <span aria-hidden className="opacity-40">·</span>
+              <span className={clsx(overdrawn && "text-error font-bold")}>
+                {isHebrew ? "בנק אחרי" : "Bank after"}:{" "}
+                <bdi className="tabular-nums">{bankAfter}</bdi>
+              </span>
+            </>
+          )}
+        </div>
+        <div className="flex flex-col items-stretch md:items-end gap-1.5">
+          {error && (
+            <p className="inline-flex items-center gap-1.5 text-xs text-error">
+              <AlertCircle className="h-3 w-3" strokeWidth={2} />
+              {error}
+            </p>
+          )}
+          {savedFlash && !error && (
+            <p className="inline-flex items-center gap-1.5 text-xs text-secondary">
+              <Check className="h-3 w-3" strokeWidth={2.5} />
+              {isHebrew ? "נשמר" : "Saved"}
+            </p>
+          )}
+          <button
+            type="button"
+            onClick={onSubmit}
+            disabled={!editable || pending || overdrawn || !hasChoice || !dirty}
+            className={clsx(
+              "press-down inline-flex items-center justify-center gap-2 min-h-[40px] px-5 rounded-full text-sm font-bold transition-colors",
+              "bg-primary text-on-primary shadow-md hover:bg-surface-tint",
+              "disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-primary",
+            )}
+          >
+            {pending
+              ? isHebrew ? "שומר…" : "Saving…"
+              : overdrawn
+                ? isHebrew ? "אין מספיק בבנק" : "Insufficient bank"
+                : bet.myAnswer
+                  ? isHebrew ? "עדכן ניחוש" : "Update pick"
+                  : isHebrew ? "שמור ניחוש" : "Save pick"}
+          </button>
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+// ---------- Answer widgets ----------
+
+function AnswerWidget({
+  locale,
+  bet,
+  value,
+  onChange,
+  disabled,
+}: {
+  locale: Locale;
+  bet: CustomBetCardData;
+  value: PickAnswer | null;
+  onChange: (v: PickAnswer | null) => void;
+  disabled?: boolean;
+}) {
+  const isHebrew = locale === "he";
+  const cfg = bet.answerConfig;
+
+  if (bet.answerType === "yes_no") {
+    const current = value?.type === "yes_no" ? value.value : null;
+    return (
+      <div className="grid grid-cols-2 gap-3">
+        <ChoicePill
+          active={current === true}
+          disabled={disabled}
+          onClick={() =>
+            onChange(current === true ? null : { type: "yes_no", value: true })
+          }
+        >
+          {isHebrew ? "כן" : "Yes"}
+        </ChoicePill>
+        <ChoicePill
+          active={current === false}
+          disabled={disabled}
+          onClick={() =>
+            onChange(current === false ? null : { type: "yes_no", value: false })
+          }
+        >
+          {isHebrew ? "לא" : "No"}
+        </ChoicePill>
+      </div>
+    );
+  }
+
+  if (bet.answerType === "number") {
+    const c = cfg.kind === "number" ? cfg : null;
+    const min = c?.min ?? 0;
+    const max = c?.max ?? 99;
+    const current =
+      value?.type === "number" && Number.isFinite(value.value) ? value.value : min;
+    return (
+      <div className="flex flex-col items-center gap-2">
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            disabled={disabled || current <= min}
+            onClick={() =>
+              onChange({ type: "number", value: Math.max(min, current - 1) })
+            }
+            className="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-full bg-surface-container-lowest border border-outline text-on-surface hover:bg-surface-container disabled:opacity-40"
+            aria-label={isHebrew ? "פחות" : "Less"}
+          >
+            <Minus className="h-5 w-5" strokeWidth={2.5} />
+          </button>
+          <input
+            type="number"
+            min={min}
+            max={max}
+            value={value?.type === "number" ? value.value : ""}
+            onChange={(e) => {
+              const raw = e.target.value.trim();
+              if (raw === "") {
+                onChange(null);
+                return;
+              }
+              const n = parseInt(raw, 10);
+              if (!Number.isFinite(n)) {
+                onChange(null);
+                return;
+              }
+              onChange({
+                type: "number",
+                value: Math.max(min, Math.min(max, n)),
+              });
+            }}
+            disabled={disabled}
+            placeholder="—"
+            className="w-20 h-14 text-center font-[family-name:var(--font-score)] text-3xl font-bold bg-[#1C140F] border-2 border-outline rounded text-[#FBF6EB] focus:outline-none placeholder:text-[#FBF6EB]/40 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none disabled:opacity-60 tabular-nums"
+            dir="ltr"
+          />
+          <button
+            type="button"
+            disabled={disabled || current >= max}
+            onClick={() =>
+              onChange({ type: "number", value: Math.min(max, current + 1) })
+            }
+            className="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-full bg-surface-container-lowest border border-outline text-on-surface hover:bg-surface-container disabled:opacity-40"
+            aria-label={isHebrew ? "יותר" : "More"}
+          >
+            <Plus className="h-5 w-5" strokeWidth={2.5} />
+          </button>
+        </div>
+        {c?.unit && (
+          <LabelCaps>{c.unit}</LabelCaps>
+        )}
+      </div>
+    );
+  }
+
+  if (bet.answerType === "multi_choice") {
+    const opts: MultiChoiceOption[] =
+      cfg.kind === "multi_choice" ? cfg.options : [];
+    const current = value?.type === "multi_choice" ? value.value : null;
+    return (
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+        {opts.map((o) => (
+          <ChoicePill
+            key={o.value}
+            active={current === o.value}
+            disabled={disabled}
+            onClick={() =>
+              onChange(
+                current === o.value
+                  ? null
+                  : { type: "multi_choice", value: o.value },
+              )
+            }
+          >
+            {isHebrew ? o.labelHe : o.labelEn}
+          </ChoicePill>
+        ))}
+      </div>
+    );
+  }
+
+  // free_text
+  const c = cfg.kind === "free_text" ? cfg : null;
+  const placeholder = isHebrew ? c?.placeholderHe : c?.placeholderEn;
+  return (
+    <input
+      type="text"
+      maxLength={200}
+      value={value?.type === "free_text" ? value.value : ""}
+      onChange={(e) => {
+        const v = e.target.value;
+        if (v === "") onChange(null);
+        else onChange({ type: "free_text", value: v });
+      }}
+      disabled={disabled}
+      placeholder={placeholder ?? (isHebrew ? "התשובה שלך" : "Your answer")}
+      dir={isHebrew ? "rtl" : "ltr"}
+      className="min-h-[48px] w-full px-3 rounded border border-outline bg-surface-container-lowest text-base"
+    />
+  );
+}
+
+function ChoicePill({
+  children,
+  active,
+  onClick,
+  disabled,
+}: {
+  children: React.ReactNode;
+  active: boolean;
+  onClick: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className={clsx(
+        "press-down min-h-[48px] py-3 px-4 rounded-full border text-base font-bold transition-colors",
+        active
+          ? "border-2 border-primary bg-primary-container text-on-primary-container shadow-sm"
+          : "border-outline bg-surface-container-lowest text-on-surface hover:bg-surface-container",
+        disabled && "opacity-60 cursor-not-allowed",
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
+function translateError(
+  err: string,
+  isHebrew: boolean,
+  res: { needed?: number },
+): string {
+  const map: Record<string, [string, string]> = {
+    unauth:            ["יש להתחבר", "Sign in required"],
+    not_paid:          ["תשלום עדיין לא אושר", "Payment not approved yet"],
+    bet_not_found:     ["ההימור לא נמצא", "Bet not found"],
+    bet_not_open:      ["ההימור עוד לא פתוח להגשה", "Bet isn't open yet"],
+    bet_locked:        ["ההימור נסגר. לא ניתן לעדכן.", "Bet locked"],
+    invalid_answer:    ["תשובה לא תקינה", "Invalid answer"],
+    insufficient_bank:
+      res.needed && res.needed > 0
+        ? [`חסר: ${res.needed} נק'`, `Need ${res.needed} more pts`]
+        : ["אין מספיק נקודות בבנק", "Not enough points in bank"],
+    db:                ["שגיאת שמירה", "Save failed"],
+  };
+  return (map[err] ?? ["שגיאה", "Error"])[isHebrew ? 0 : 1];
+}

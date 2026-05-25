@@ -153,6 +153,10 @@ export async function getLeaderboard(
         + coalesce((
             select sum(coalesce(sb.points_earned, 0))::int
             from public.special_bets sb where sb.user_id = p.id
+          ), 0)
+        + coalesce((
+            select sum(coalesce(pk.points_earned, 0))::int
+            from public.user_custom_bet_picks pk where pk.user_id = p.id
           ), 0) as gross_points
       from public.profiles p
     ),
@@ -172,7 +176,9 @@ export async function getLeaderboard(
         + coalesce((select sum(bp.stake_paid)::int
             from public.bracket_predictions bp where bp.user_id = p.id), 0)
         + coalesce((select sum(sb.stake_paid)::int
-            from public.special_bets sb where sb.user_id = p.id), 0) as total_stakes,
+            from public.special_bets sb where sb.user_id = p.id), 0)
+        + coalesce((select sum(pk.stake_paid)::int
+            from public.user_custom_bet_picks pk where pk.user_id = p.id), 0) as total_stakes,
         coalesce((
           select sum(
             case when mb.points_btts    = 0 then coalesce(mb.stake_paid_btts,    0) else 0 end +
@@ -186,7 +192,9 @@ export async function getLeaderboard(
         + coalesce((select sum(case when bp.points_earned = 0 then bp.stake_paid else 0 end)::int
             from public.bracket_predictions bp where bp.user_id = p.id), 0)
         + coalesce((select sum(case when sb.points_earned = 0 then sb.stake_paid else 0 end)::int
-            from public.special_bets sb where sb.user_id = p.id), 0) as wasted_stakes
+            from public.special_bets sb where sb.user_id = p.id), 0)
+        + coalesce((select sum(case when pk.points_earned = 0 then pk.stake_paid else 0 end)::int
+            from public.user_custom_bet_picks pk where pk.user_id = p.id), 0) as wasted_stakes
       from public.profiles p
     ),
     adjustments as (
@@ -440,6 +448,10 @@ export async function getProfileStats(userId: string): Promise<ProfileStats> {
         + coalesce((
             select sum(coalesce(sb.points_earned, 0) - sb.stake_paid)::int
             from public.special_bets sb where sb.user_id = ${userId}
+          ), 0)
+        + coalesce((
+            select sum(coalesce(pk.points_earned, 0) - pk.stake_paid)::int
+            from public.user_custom_bet_picks pk where pk.user_id = ${userId}
           ), 0)
         + coalesce((
             select sum(pa.delta)::int
@@ -1179,6 +1191,224 @@ export async function getBankHistory(userId: string): Promise<BankEvent[]> {
     limit 500
   `);
   return rows as unknown as BankEvent[];
+}
+
+// ---------- Custom bets — player surfaces ----------
+//
+// Three queries power the play pages:
+//   listOpenPlayDays   → /play index — every date that has at least one open
+//                        custom bet, plus the day's match count + a 1‑line
+//                        fixtures preview so the card is informative.
+//   getPlayDayDetail   → /play/[date] — the fixtures + every open custom bet
+//                        that targets that day (scope='day' OR scope='match'
+//                        anchored on a match that day), with the caller's
+//                        current pick (if any) folded onto each bet row.
+//   getOpenTournamentBetCount / getOpenGroupBetCount — counters for the
+//                        pinned tournament / groups cards on the index.
+
+export type PlayDayRow = {
+  date: string;                    // YYYY-MM-DD, Asia/Jerusalem
+  openBetCount: number;
+  matchCount: number;
+  firstKickoffAt: string;
+  flagsPreview: string;            // "🇧🇷 🇩🇪 🇺🇸 …" (already in DB)
+};
+
+export async function listOpenPlayDays(): Promise<PlayDayRow[]> {
+  const rows = await db.execute<PlayDayRow>(sql`
+    with days as (
+      -- Every Asia/Jerusalem date that has either fixtures OR open bets.
+      select to_char((m.kickoff_at at time zone 'Asia/Jerusalem')::date,
+                     'YYYY-MM-DD') as date,
+             min(m.kickoff_at)                                as first_kickoff,
+             count(*)::int                                    as match_count,
+             string_agg(distinct ht.flag, ' ' order by ht.flag) ||
+               ' ' ||
+               string_agg(distinct at.flag, ' ' order by at.flag) as flags
+      from public.matches m
+      join public.teams ht on ht.code = m.home_team
+      join public.teams at on at.code = m.away_team
+      where m.status in ('scheduled', 'live')
+      group by (m.kickoff_at at time zone 'Asia/Jerusalem')::date
+    ),
+    bet_counts as (
+      -- Open bets per day, counting both day-scope (direct matchday FK)
+      -- and match-scope (FK on a match whose Asia/Jerusalem date matches).
+      select day::text as date, sum(c)::int as open_bet_count
+      from (
+        select to_char(md.date, 'YYYY-MM-DD')::date as day,
+               count(*)::int as c
+        from public.custom_bets cb
+        join public.matchdays md on md.id = cb.matchday_id
+        where cb.scope = 'day' and cb.status = 'open' and cb.lock_at > now()
+        group by md.date
+        union all
+        select (m.kickoff_at at time zone 'Asia/Jerusalem')::date as day,
+               count(*)::int
+        from public.custom_bets cb
+        join public.matches m on m.id = cb.match_id
+        where cb.scope = 'match' and cb.status = 'open' and cb.lock_at > now()
+        group by (m.kickoff_at at time zone 'Asia/Jerusalem')::date
+      ) per_scope
+      group by day
+    )
+    select
+      d.date                                          as "date",
+      coalesce(bc.open_bet_count, 0)::int             as "openBetCount",
+      d.match_count                                   as "matchCount",
+      d.first_kickoff::text                           as "firstKickoffAt",
+      d.flags                                         as "flagsPreview"
+    from days d
+    left join bet_counts bc on bc.date::text = d.date
+    order by d.date asc
+  `);
+  return rows as unknown as PlayDayRow[];
+}
+
+export type PlayFixture = {
+  id: string;
+  kickoffAt: string;
+  homeCode: string;
+  homeNameHe: string;
+  homeNameEn: string;
+  awayCode: string;
+  awayNameHe: string;
+  awayNameEn: string;
+  status: "scheduled" | "live" | "final";
+  myHome: number | null;
+  myAway: number | null;
+};
+
+export type PlayBetRow = {
+  id: string;
+  scope: "match" | "day";          // only these two scopes appear on /play/[date]
+  questionHe: string;
+  questionEn: string;
+  gradingRuleHe: string;
+  gradingRuleEn: string;
+  answerType: "yes_no" | "number" | "multi_choice" | "free_text";
+  answerConfig: unknown;            // raw JSONB — caller casts via AnswerConfig
+  stakeSnapshot: number;
+  payoutSnapshot: number;
+  lockAt: string;
+  status: "open" | "locked";        // we only fetch these two
+  matchId: string | null;
+  matchLabel: string | null;        // "BRA vs GER" for match-scope
+  myAnswer: unknown | null;         // raw JSONB; null when caller hasn't picked
+  myStakePaid: number | null;
+};
+
+export type PlayDayDetail = {
+  date: string;
+  matchdayId: string | null;
+  fixtures: PlayFixture[];
+  bets: PlayBetRow[];
+} | null;
+
+// Returns everything `/play/[date]` needs in one trip. Returns null when
+// the date has no fixtures AND no bets (so the page can render notFound).
+export async function getPlayDayDetail(
+  date: string,
+  userId: string,
+): Promise<PlayDayDetail> {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
+
+  const fixtures = await db.execute<PlayFixture>(sql`
+    select
+      m.id::text       as "id",
+      m.kickoff_at     as "kickoffAt",
+      m.home_team      as "homeCode",
+      ht.name_he       as "homeNameHe",
+      ht.name_en       as "homeNameEn",
+      m.away_team      as "awayCode",
+      at.name_he       as "awayNameHe",
+      at.name_en       as "awayNameEn",
+      m.status::text   as "status",
+      mb.home_score    as "myHome",
+      mb.away_score    as "myAway"
+    from public.matches m
+    join public.teams ht on ht.code = m.home_team
+    join public.teams at on at.code = m.away_team
+    left join public.match_bets mb on mb.match_id = m.id and mb.user_id = ${userId}
+    where (m.kickoff_at at time zone 'Asia/Jerusalem')::date = ${date}::date
+    order by m.kickoff_at asc
+  `);
+
+  const bets = await db.execute<PlayBetRow>(sql`
+    select
+      cb.id::text                                 as "id",
+      cb.scope::text                              as "scope",
+      cb.question_he                              as "questionHe",
+      cb.question_en                              as "questionEn",
+      cb.grading_rule_he                          as "gradingRuleHe",
+      cb.grading_rule_en                          as "gradingRuleEn",
+      cb.answer_type::text                        as "answerType",
+      cb.answer_config                            as "answerConfig",
+      cb.stake_snapshot                           as "stakeSnapshot",
+      cb.payout_snapshot                          as "payoutSnapshot",
+      cb.lock_at                                  as "lockAt",
+      cb.status::text                             as "status",
+      cb.match_id::text                           as "matchId",
+      case when cb.match_id is not null
+        then m.home_team || ' vs ' || m.away_team
+        else null end                             as "matchLabel",
+      pk.answer                                   as "myAnswer",
+      pk.stake_paid                               as "myStakePaid"
+    from public.custom_bets cb
+    left join public.matches    m  on m.id = cb.match_id
+    left join public.matchdays  md on md.id = cb.matchday_id
+    left join public.user_custom_bet_picks pk
+      on pk.custom_bet_id = cb.id and pk.user_id = ${userId}
+    where cb.status in ('open', 'locked')
+      and (
+        (cb.scope = 'day'   and md.date = ${date}::date) or
+        (cb.scope = 'match' and (m.kickoff_at at time zone 'Asia/Jerusalem')::date = ${date}::date)
+      )
+    order by
+      cb.scope asc,
+      cb.lock_at asc
+  `);
+
+  const fxList = fixtures as unknown as PlayFixture[];
+  const betList = bets as unknown as PlayBetRow[];
+
+  if (fxList.length === 0 && betList.length === 0) return null;
+
+  const [md] = await db.execute<{ id: string | null }>(sql`
+    select md.id::text as id
+    from public.matchdays md
+    where md.date = ${date}::date
+    limit 1
+  `);
+  const matchdayId = (md as unknown as { id: string | null } | undefined)?.id ?? null;
+
+  return {
+    date,
+    matchdayId,
+    fixtures: fxList,
+    bets: betList,
+  };
+}
+
+// Counters for the pinned cards on /play. Cheap — single index scan each.
+export async function getOpenTournamentBetCount(): Promise<number> {
+  const rows = await db.execute<{ n: number }>(sql`
+    select count(*)::int as n
+    from public.custom_bets
+    where status = 'open'
+      and scope in ('tournament', 'stage')
+      and lock_at > now()
+  `);
+  return (rows as unknown as Array<{ n: number }>)[0]?.n ?? 0;
+}
+
+export async function getOpenGroupBetCount(): Promise<number> {
+  const rows = await db.execute<{ n: number }>(sql`
+    select count(*)::int as n
+    from public.custom_bets
+    where status = 'open' and scope = 'group' and lock_at > now()
+  `);
+  return (rows as unknown as Array<{ n: number }>)[0]?.n ?? 0;
 }
 
 // Earliest scheduled match kickoff — i.e. when the tournament starts. Used

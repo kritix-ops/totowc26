@@ -60,6 +60,10 @@ export function bankBalanceSql(userId: string): SQL {
         from public.special_bets sb where sb.user_id = ${userId}
       ), 0)
     + coalesce((
+        select sum(coalesce(pk.points_earned, 0) - pk.stake_paid)::int
+        from public.user_custom_bet_picks pk where pk.user_id = ${userId}
+      ), 0)
+    + coalesce((
         select sum(pa.delta)::int
         from public.point_adjustments pa where pa.user_id = ${userId}
       ), 0)
@@ -117,6 +121,10 @@ export async function getBankBreakdown(
           select sum(coalesce(sb.points_earned, 0))::int
           from public.special_bets sb where sb.user_id = ${userId}
         ), 0)
+      + coalesce((
+          select sum(coalesce(pk.points_earned, 0))::int
+          from public.user_custom_bet_picks pk where pk.user_id = ${userId}
+        ), 0)
       as "payouts",
 
       coalesce((
@@ -138,6 +146,10 @@ export async function getBankBreakdown(
       + coalesce((
           select sum(sb.stake_paid)::int
           from public.special_bets sb where sb.user_id = ${userId}
+        ), 0)
+      + coalesce((
+          select sum(pk.stake_paid)::int
+          from public.user_custom_bet_picks pk where pk.user_id = ${userId}
         ), 0)
       as "stakes",
 
