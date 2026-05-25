@@ -7,15 +7,19 @@ import {
   User,
   LogIn,
   Shield,
+  Wallet,
 } from "lucide-react";
 import type { Dictionary, Locale } from "@/app/[lang]/dictionaries";
 import { localePath } from "@/lib/paths";
 import { getUser } from "@/lib/supabase/auth";
-import { isAdmin } from "@/lib/admin";
+import { getUserAccess } from "@/lib/access";
 import { getMyRankSummary } from "@/db/queries";
+import { getBankBreakdown } from "@/lib/bank";
 import { LanguageToggle } from "./LanguageToggle";
 import { NavLink, BottomNavLink } from "./NavLink";
 import { BrandLogo } from "./BrandLogo";
+import { BankPill } from "./BankPill";
+import { ViewAsBanner } from "./ViewAsBanner";
 
 export async function AppShell({
   locale,
@@ -31,19 +35,40 @@ export async function AppShell({
 
   const user = await getUser();
   const signedIn = !!user;
-  const [rankSummary, admin] = signedIn
-    ? await Promise.all([getMyRankSummary(user.id), isAdmin(user.id)])
-    : [null, false];
+  const [rankSummary, access, bank] = signedIn
+    ? await Promise.all([
+        getMyRankSummary(user.id),
+        getUserAccess(user.id),
+        getBankBreakdown(user.id),
+      ])
+    : [null, null, null];
+  // `access.isAdmin` is the EFFECTIVE role — it's false while an admin
+  // impersonates a player, so the nav swaps to the player layout. The
+  // banner + the action server-side gates already pick up the same
+  // impersonation through the cookie.
+  const admin = !!access?.isAdmin;
+  const viewingAs = access?.viewingAs ?? null;
+  // Admin never has anything to pay, so the /pay tab only adds noise. Hide
+  // it for them and keep the bottom nav compact.
+  const showPay = signedIn && !admin;
   console.info("[app shell render]", {
     signedIn,
     isAdmin: admin,
+    viewingAs,
     myRank: rankSummary?.myRank ?? null,
     totalPlayers: rankSummary?.total ?? null,
   });
 
   return (
     <>
-      <header className="bg-surface border-b border-outline-variant shadow-sm fixed top-0 left-0 right-0 w-full px-4 md:px-16 h-14 md:h-16 z-50 flex items-center justify-between gap-3">
+      {viewingAs && (
+        <div className="fixed top-0 left-0 right-0 z-[60]">
+          <ViewAsBanner locale={locale} role={viewingAs} />
+        </div>
+      )}
+      <header
+        className={`bg-surface border-b border-outline-variant shadow-sm fixed left-0 right-0 w-full px-4 md:px-16 h-14 md:h-16 z-50 flex items-center justify-between gap-3 ${viewingAs ? "top-[40px]" : "top-0"}`}
+      >
         <Link
           href={home}
           aria-label={isHebrew ? "טוטו מונדיאל" : "Toto Mundial"}
@@ -64,6 +89,9 @@ export async function AppShell({
             <NavLink locale={locale} path="specials" label={dict.nav.specials} />
             <span aria-hidden className="h-4 w-px bg-outline-variant" />
             <NavLink locale={locale} path="club" label={dict.nav.club} />
+            {showPay && (
+              <NavLink locale={locale} path="pay" label={dict.nav.pay} />
+            )}
             {admin && (
               <>
                 <span aria-hidden className="h-4 w-px bg-outline-variant" />
@@ -75,11 +103,21 @@ export async function AppShell({
 
         <div className="flex items-center gap-2 md:gap-4 shrink-0">
           {signedIn ? (
-            rankSummary && rankSummary.myRank > 0 ? (
-              <span className="hidden md:inline-block font-[family-name:var(--font-label)] text-[12px] font-bold tracking-[0.05em] text-on-surface-variant">
-                {dict.common.rankShort} <bdi>#{rankSummary.myRank}</bdi>
-              </span>
-            ) : null
+            <>
+              {bank && (
+                <BankPill
+                  locale={locale}
+                  dict={dict}
+                  balance={bank.balance}
+                  starting={bank.starting}
+                />
+              )}
+              {rankSummary && rankSummary.myRank > 0 ? (
+                <span className="hidden md:inline-block font-[family-name:var(--font-label)] text-[12px] font-bold tracking-[0.05em] text-on-surface-variant">
+                  {dict.common.rankShort} <bdi>#{rankSummary.myRank}</bdi>
+                </span>
+              ) : null}
+            </>
           ) : (
             <Link
               href={localePath(locale, "login")}
@@ -93,18 +131,27 @@ export async function AppShell({
         </div>
       </header>
 
-      <main className={`flex-grow pt-14 md:pt-16 ${signedIn ? "pb-24 md:pb-8" : "pb-8"}`}>
+      <main
+        className={`flex-grow ${viewingAs ? "pt-[calc(40px+3.5rem)] md:pt-[calc(40px+4rem)]" : "pt-14 md:pt-16"} ${signedIn ? "pb-24 md:pb-8" : "pb-8"}`}
+      >
         {children}
       </main>
 
       {signedIn && (
         <nav
           aria-label={isHebrew ? "ניווט תחתון" : "Bottom"}
-          className={`md:hidden fixed bottom-0 left-0 right-0 z-50 bg-surface-container rounded-t-xl border-t border-outline-variant shadow-[0_-4px_12px_rgba(28,20,15,0.05)] grid ${admin ? "grid-cols-6" : "grid-cols-5"} items-stretch min-h-[64px] pb-[env(safe-area-inset-bottom)]`}>
+          // 6 cells for everyone: players get …+ Pay + Profile, admins get
+          // …+ Profile + Admin. Keeping the count fixed avoids a layout
+          // jump when the role toggles.
+          className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-surface-container rounded-t-xl border-t border-outline-variant shadow-[0_-4px_12px_rgba(28,20,15,0.05)] grid grid-cols-6 items-stretch min-h-[64px] pb-[env(safe-area-inset-bottom)]"
+        >
           <BottomNavLink locale={locale} path="" label={dict.nav.dashboard} icon={<LayoutDashboard className="h-5 w-5" strokeWidth={1.75} />} exact />
           <BottomNavLink locale={locale} path="bets" label={dict.nav.predictions} icon={<ListChecks className="h-5 w-5" strokeWidth={1.75} />} />
           <BottomNavLink locale={locale} path="club" label={dict.nav.club} icon={<Users className="h-5 w-5" strokeWidth={1.75} />} />
           <BottomNavLink locale={locale} path="leaderboard" label={dict.nav.leaderboard} icon={<Trophy className="h-5 w-5" strokeWidth={1.75} />} />
+          {showPay && (
+            <BottomNavLink locale={locale} path="pay" label={dict.nav.pay} icon={<Wallet className="h-5 w-5" strokeWidth={1.75} />} />
+          )}
           <BottomNavLink locale={locale} path="profile" label={dict.nav.profile} icon={<User className="h-5 w-5" strokeWidth={1.75} />} />
           {admin && (
             <BottomNavLink locale={locale} path="admin" label={dict.nav.admin} icon={<Shield className="h-5 w-5" strokeWidth={1.75} />} />

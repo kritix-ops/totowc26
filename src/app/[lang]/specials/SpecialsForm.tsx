@@ -15,11 +15,13 @@ export function SpecialsForm({
   initialValue,
   options,
   locale,
+  canEdit,
 }: {
   slot: Slot;
   initialValue: string;
   options?: string[];
   locale: Locale;
+  canEdit: boolean;
 }) {
   const isHebrew = locale === "he";
   const router = useRouter();
@@ -32,6 +34,7 @@ export function SpecialsForm({
   const listId = useId();
 
   const submit = (next?: string) => {
+    if (!canEdit) return;
     setError(null);
     setSaved(false);
     const val = next ?? value;
@@ -60,16 +63,18 @@ export function SpecialsForm({
                 key={opt.v}
                 type="button"
                 onClick={() => {
+                  if (!canEdit) return;
                   setValue(opt.v);
                   submit(opt.v);
                 }}
-                disabled={pending}
+                disabled={pending || !canEdit}
                 className={clsx(
                   "press-down min-h-[48px] py-3 px-4 rounded-full border text-base font-bold transition-colors",
                   active
                     ? "border-2 border-primary bg-primary-container text-on-primary-container shadow-sm"
                     : "border-outline bg-surface-container-lowest text-on-surface hover:bg-surface-container",
-                  pending && "opacity-60",
+                  (pending || !canEdit) && "opacity-60",
+                  !canEdit && "cursor-not-allowed",
                 )}
               >
                 {opt.label}
@@ -90,9 +95,13 @@ export function SpecialsForm({
           type="text"
           value={value}
           onChange={(e) => setValue(e.target.value)}
+          disabled={!canEdit}
           list={options && options.length > 0 ? listId : undefined}
           placeholder={isHebrew ? "שם השחקן" : "Player name"}
-          className="w-full h-12 px-4 rounded-full bg-surface-container-lowest border border-outline focus:border-primary focus:outline-none text-base text-on-surface placeholder:text-outline-variant"
+          className={clsx(
+            "w-full h-12 px-4 rounded-full bg-surface-container-lowest border border-outline focus:border-primary focus:outline-none text-base text-on-surface placeholder:text-outline-variant",
+            !canEdit && "opacity-60 cursor-not-allowed",
+          )}
         />
         {options && options.length > 0 && (
           <datalist id={listId}>
@@ -101,7 +110,7 @@ export function SpecialsForm({
             ))}
           </datalist>
         )}
-        {value && (
+        {value && canEdit && (
           <button
             type="button"
             onClick={() => {
@@ -123,8 +132,11 @@ export function SpecialsForm({
         <PillButton
           type="button"
           onClick={() => submit()}
-          disabled={pending || !value.trim()}
-          className="text-sm px-6 py-2.5"
+          disabled={pending || !value.trim() || !canEdit}
+          className={clsx(
+            "text-sm px-6 py-2.5",
+            !canEdit && "opacity-60 cursor-not-allowed",
+          )}
         >
           {pending
             ? isHebrew ? "שומר..." : "Saving..."
@@ -176,8 +188,13 @@ function translate(
 ): string {
   const map: Record<string, [string, string]> = {
     unauth: ["יש להתחבר", "Sign in required"],
+    not_paid: ["תשלום עדיין לא אושר", "Payment not approved yet"],
     invalid: ["בחירה לא תקינה", "Invalid value"],
     db: ["שגיאת שמירה", "Save failed"],
+    insufficient_bank: [
+      "אין מספיק נקודות בבנק להימור הזה",
+      "Not enough points in your bank for this bet",
+    ],
   };
   return map[code][isHebrew ? 0 : 1];
 }

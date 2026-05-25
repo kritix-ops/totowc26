@@ -7,10 +7,16 @@ import {
   Settings,
   RefreshCw,
   ChevronRight,
+  Coins,
 } from "lucide-react";
+import { eq } from "drizzle-orm";
 import { hasLocale, type Locale } from "../dictionaries";
 import { Card, LabelCaps } from "@/components/ui";
 import { localePath } from "@/lib/paths";
+import { getViewAs } from "@/lib/view-as";
+import { PAYBOX_FALLBACK_URL } from "@/lib/paybox";
+import { db } from "@/db";
+import { settings } from "@/db/schema";
 import {
   getRecentSyncRuns,
   getPaymentsByStatus,
@@ -18,6 +24,8 @@ import {
 } from "@/db/admin-queries";
 import { SyncPanel } from "./SyncPanel";
 import { PaymentsPanel } from "./PaymentsPanel";
+import { ViewAsPanel } from "./ViewAsPanel";
+import { PayboxSettingsPanel } from "./PayboxSettingsPanel";
 
 export default async function AdminPage({
   params,
@@ -27,10 +35,17 @@ export default async function AdminPage({
   const locale = lang as Locale;
   const isHebrew = locale === "he";
 
-  const [syncHistory, payments, totals] = await Promise.all([
+  const [syncHistory, payments, totals, viewAs, settingsRow] = await Promise.all([
     getRecentSyncRuns(20),
     getPaymentsByStatus("all", 50),
     getPaymentTotals(),
+    getViewAs(),
+    db
+      .select({ payboxUrl: settings.payboxUrl })
+      .from(settings)
+      .where(eq(settings.id, 1))
+      .limit(1)
+      .then((r) => r[0] ?? null),
   ]);
 
   return (
@@ -72,6 +87,12 @@ export default async function AdminPage({
         />
         <SectionLink
           locale={locale}
+          path="admin/settings/scoring"
+          icon={<Coins className="h-5 w-5" strokeWidth={1.75} />}
+          label={isHebrew ? "ניקוד ובנק" : "Scoring & bank"}
+        />
+        <SectionLink
+          locale={locale}
           path="bets"
           icon={<RefreshCw className="h-5 w-5" strokeWidth={1.75} />}
           label={isHebrew ? "כל המשחקים" : "All matches"}
@@ -83,6 +104,14 @@ export default async function AdminPage({
           label={isHebrew ? "טבלת הבתים" : "Standings"}
         />
       </nav>
+
+      <ViewAsPanel locale={locale} current={viewAs} />
+
+      <PayboxSettingsPanel
+        locale={locale}
+        current={settingsRow?.payboxUrl ?? null}
+        fallback={PAYBOX_FALLBACK_URL}
+      />
 
       <SyncPanel locale={locale} history={syncHistory} />
 

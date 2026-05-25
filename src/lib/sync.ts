@@ -10,6 +10,7 @@ import {
   specialBets,
   tournamentResults,
   syncRuns,
+  groupPredictions,
 } from "@/db/schema";
 import {
   fetchWorldCupMatches,
@@ -44,6 +45,7 @@ export type SyncReport = {
   scoredBets: number;
   scoredMatches: number;
   scoredSpecials: number;
+  scoredGroupPredictions: number;
   unknownTeams: string[];
 };
 
@@ -128,6 +130,7 @@ async function _runSync(season: number): Promise<SyncReport> {
     scoredBets: 0,
     scoredMatches: 0,
     scoredSpecials: 0,
+    scoredGroupPredictions: 0,
     unknownTeams: [],
   };
 
@@ -193,6 +196,10 @@ async function _runSync(season: number): Promise<SyncReport> {
   const scoring = await scoreFinalMatches();
   report.scoredBets = scoring.scoredBets;
   report.scoredMatches = scoring.scoredMatches;
+
+  // Score group predictions for any group whose 6 group-stage matches are
+  // all final. Idempotent: only rows with points_earned IS NULL get a value.
+  report.scoredGroupPredictions = await scoreGroupPredictions();
 
   // Tournament-wide special bets (top scorer, final penalties). Idempotent —
   // re-running rescores everyone against the latest tournament_results row.
@@ -341,6 +348,136 @@ export async function scoreFinalMatches(): Promise<{
   }
 
   return { scoredMatches: matchesList.length, scoredBets };
+}
+
+// Score group_predictions rows once every group-stage match for that group
+// is final. Awards `scoringGroupTeam` per correctly placed team, plus a
+// `scoringGroupPerfect` bonus attached to the rank-1 prediction row when
+// all four ranks are correct.
+//
+// Idempotent: only touches rows where points_earned IS NULL, so re-running
+// after a partial group rolls out leaves earlier groups untouched.
+export async function scoreGroupPredictions(): Promise<number> {
+  const [s] = await db
+    .select({
+      scoringGroupTeam: settings.scoringGroupTeam,
+      scoringGroupPerfect: settings.scoringGroupPerfect,
+    })
+    .from(settings)
+    .where(eq(settings.id, 1));
+  if (!s) return 0;
+
+  // For every finalized group, compute the actual ranking using the same
+  // FIFA tiebreakers as the live standings view (points → GD → GF → code).
+  // Then mark each user's predictions: scoringGroupTeam where predicted_rank
+  // matches actual_rank, 0 otherwise.
+  const rows = await db.execute<{
+    group_id: string;
+    user_id: string;
+    pred_id: string;
+    is_correct: boolean;
+    perfect: boolean;
+    predicted_rank: number;
+  }>(drizzleSql`
+    with finalized_groups as (
+      select g.id as group_id
+      from public.groups g
+      where exists (
+        select 1 from public.matches m
+        where m.stage = 'group' and m.group_id = g.id
+      )
+      and not exists (
+        select 1 from public.matches m
+        where m.stage = 'group'
+          and m.group_id = g.id
+          and m.status <> 'final'
+      )
+    ),
+    leg as (
+      select m.group_id, m.home_team as team_code, m.home_score as gf, m.away_score as ga,
+        case when m.home_score > m.away_score then 3
+             when m.home_score = m.away_score then 1 else 0 end as pts
+      from public.matches m
+      join finalized_groups fg on fg.group_id = m.group_id
+      where m.stage = 'group' and m.status = 'final'
+        and m.home_score is not null and m.away_score is not null
+      union all
+      select m.group_id, m.away_team, m.away_score, m.home_score,
+        case when m.away_score > m.home_score then 3
+             when m.home_score = m.away_score then 1 else 0 end
+      from public.matches m
+      join finalized_groups fg on fg.group_id = m.group_id
+      where m.stage = 'group' and m.status = 'final'
+        and m.home_score is not null and m.away_score is not null
+    ),
+    agg as (
+      select group_id, team_code,
+        sum(pts)::int        as points,
+        sum(gf - ga)::int    as goal_diff,
+        sum(gf)::int         as goals_for
+      from leg
+      group by group_id, team_code
+    ),
+    actual_ranks as (
+      select group_id, team_code,
+        row_number() over (
+          partition by group_id
+          order by points desc, goal_diff desc, goals_for desc, team_code asc
+        )::int as actual_rank
+      from agg
+    ),
+    per_pred as (
+      select
+        gp.id           as pred_id,
+        gp.user_id      as user_id,
+        gp.group_id     as group_id,
+        gp.predicted_rank,
+        (ar.actual_rank = gp.predicted_rank) as is_correct
+      from public.group_predictions gp
+      join actual_ranks ar
+        on ar.group_id = gp.group_id and ar.team_code = gp.team_code
+      where gp.points_earned is null
+    ),
+    perfect_groups as (
+      select user_id, group_id
+      from per_pred
+      group by user_id, group_id
+      having count(*) = 4 and bool_and(is_correct)
+    )
+    select
+      pp.pred_id::text     as "pred_id",
+      pp.user_id::text     as "user_id",
+      pp.group_id          as "group_id",
+      pp.predicted_rank::int as "predicted_rank",
+      pp.is_correct        as "is_correct",
+      (pg.user_id is not null) as "perfect"
+    from per_pred pp
+    left join perfect_groups pg
+      on pg.user_id = pp.user_id and pg.group_id = pp.group_id
+  `);
+
+  const list = rows as unknown as Array<{
+    pred_id: string;
+    user_id: string;
+    group_id: string;
+    predicted_rank: number;
+    is_correct: boolean;
+    perfect: boolean;
+  }>;
+
+  let scored = 0;
+  for (const r of list) {
+    const teamPts = r.is_correct ? s.scoringGroupTeam : 0;
+    // Attach the perfect-group bonus to the rank-1 row so the leaderboard
+    // sum captures it without an extra column.
+    const bonus = r.perfect && r.predicted_rank === 1 ? s.scoringGroupPerfect : 0;
+    await db
+      .update(groupPredictions)
+      .set({ pointsEarned: teamPts + bonus })
+      .where(eq(groupPredictions.id, r.pred_id));
+    scored += 1;
+  }
+  return scored;
 }
 
 function normalizeName(s: string): string {

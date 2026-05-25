@@ -43,9 +43,9 @@ export type RecordPaymentResult =
   | { ok: true }
   | { ok: false; error: "unauthorized" | "db" };
 
-export async function recordPayment(
-  method: "bit" | "paybox",
-): Promise<RecordPaymentResult> {
+// Paybox is the only supported channel. The DB enum still allows "bit"
+// for historical rows, but new payments are always Paybox.
+export async function recordPayment(): Promise<RecordPaymentResult> {
   const user = await getUser();
   if (!user) return { ok: false, error: "unauthorized" };
 
@@ -58,10 +58,23 @@ export async function recordPayment(
       .limit(1);
 
     if (existing.length === 0) {
-      await db.insert(payments).values({
+      const inserted = await db
+        .insert(payments)
+        .values({
+          userId: user.id,
+          method: "paybox",
+          amountIls: 100,
+        })
+        .returning({ id: payments.id });
+      console.info("[onboarding paybox]", {
         userId: user.id,
-        method,
-        amountIls: 100,
+        paymentId: inserted[0]?.id ?? null,
+      });
+    } else {
+      console.info("[onboarding paybox]", {
+        userId: user.id,
+        paymentId: existing[0].id,
+        reused: true,
       });
     }
     revalidatePath("/", "layout");

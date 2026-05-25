@@ -27,7 +27,18 @@ export type InitialBet = {
   over25: boolean | null;
   htHome: number | null;
   htAway: number | null;
+  stakePaidBtts: number | null;
+  stakePaidOver25: number | null;
+  stakePaidHt: number | null;
 } | null;
+
+type Stakes = { btts: number; over25: number; ht: number };
+type Payouts = {
+  btts: number;
+  over25: number;
+  htExact: number;
+  htOutcome: number;
+};
 
 export function BetForm({
   locale,
@@ -35,6 +46,9 @@ export function BetForm({
   match,
   initialBet,
   editable,
+  stakes,
+  payouts,
+  balance,
 }: {
   locale: Locale;
   dict: Dictionary;
@@ -47,6 +61,9 @@ export function BetForm({
   };
   initialBet: InitialBet;
   editable: boolean;
+  stakes: Stakes;
+  payouts: Payouts;
+  balance: number;
 }) {
   const isHebrew = locale === "he";
   const router = useRouter();
@@ -71,6 +88,22 @@ export function BetForm({
 
   const pick: Pick = home === away ? "X" : home > away ? "1" : "2";
   const clamp = (n: number) => Math.max(0, Math.min(99, n));
+
+  // Points-bank math. Cost of submission = sum of stakes for currently
+  // opted-in side bets. Refund = sum of stakes already snapshotted on
+  // the existing row (those are about to be replaced). Effective bank =
+  // current balance plus that refund. Submit is blocked if effective < cost.
+  const newCost =
+    (btts !== null ? stakes.btts : 0) +
+    (over25 !== null ? stakes.over25 : 0) +
+    (htHome !== null && htAway !== null ? stakes.ht : 0);
+  const refund =
+    (initialBet?.stakePaidBtts ?? 0) +
+    (initialBet?.stakePaidOver25 ?? 0) +
+    (initialBet?.stakePaidHt ?? 0);
+  const effectiveBalance = balance + refund;
+  const bankAfter = effectiveBalance - newCost;
+  const overdrawn = bankAfter < 0;
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -197,10 +230,30 @@ export function BetForm({
           setHtHome={setHtHome}
           setHtAway={setHtAway}
           disabled={!editable || pending}
+          stakes={stakes}
+          payouts={payouts}
         />
       </div>
 
       <div className="md:col-span-12 flex flex-col gap-3 items-stretch md:items-end">
+        {newCost > 0 && (
+          <p
+            className={clsx(
+              "self-start md:self-end inline-flex items-center gap-2 text-sm",
+              overdrawn ? "text-error font-bold" : "text-on-surface-variant",
+            )}
+            aria-live="polite"
+          >
+            <span>
+              {dict.bank.cost}: <bdi className="tabular-nums">{newCost}</bdi>
+            </span>
+            <span aria-hidden className="opacity-40">·</span>
+            <span>
+              {dict.bank.costAfter}:{" "}
+              <bdi className="tabular-nums">{bankAfter}</bdi>
+            </span>
+          </p>
+        )}
         {error && (
           <p className="inline-flex items-center gap-2 text-sm text-error self-start md:self-end">
             <AlertCircle className="h-4 w-4" strokeWidth={2} />
@@ -215,16 +268,19 @@ export function BetForm({
         )}
         <PillButton
           type="submit"
-          disabled={!editable || pending}
+          disabled={!editable || pending || overdrawn}
           className={clsx(
             "w-full md:w-auto px-10 md:px-12 py-4 text-base shadow-[0_8px_24px_rgba(28,20,15,0.15)]",
-            (!editable || pending) && "opacity-60 cursor-not-allowed",
+            (!editable || pending || overdrawn) &&
+              "opacity-60 cursor-not-allowed",
           )}
         >
           <Check className="h-5 w-5" strokeWidth={2.5} />
           {pending
             ? isHebrew ? "שומר..." : "Saving..."
-            : dict.matchBet.saveBet}
+            : overdrawn
+              ? `${dict.bank.insufficient} (${dict.bank.needed} ${Math.abs(bankAfter)})`
+              : dict.matchBet.saveBet}
         </PillButton>
       </div>
     </form>
@@ -296,6 +352,8 @@ function AdvancedSection({
   setHtHome,
   setHtAway,
   disabled,
+  stakes,
+  payouts,
 }: {
   isHebrew: boolean;
   open: boolean;
@@ -309,6 +367,8 @@ function AdvancedSection({
   setHtHome: (n: number | null) => void;
   setHtAway: (n: number | null) => void;
   disabled?: boolean;
+  stakes: Stakes;
+  payouts: Payouts;
 }) {
   const placedCount = [btts !== null, over25 !== null, htHome !== null && htAway !== null]
     .filter(Boolean).length;
@@ -341,7 +401,7 @@ function AdvancedSection({
         <div className="border-t border-outline-variant p-5 md:p-6 flex flex-col gap-6 md:gap-8">
           <YesNoRow
             title={isHebrew ? "שתי הקבוצות יבקיעו?" : "Both teams to score?"}
-            subtitle={isHebrew ? "+2 נק'" : "+2 pts"}
+            subtitle={costLabel(stakes.btts, payouts.btts, isHebrew)}
             value={btts}
             onChange={setBtts}
             yes={isHebrew ? "כן" : "Yes"}
@@ -350,7 +410,7 @@ function AdvancedSection({
           />
           <YesNoRow
             title={isHebrew ? "סך השערים מעל 2.5?" : "Total goals over 2.5?"}
-            subtitle={isHebrew ? "+2 נק'" : "+2 pts"}
+            subtitle={costLabel(stakes.over25, payouts.over25, isHebrew)}
             value={over25}
             onChange={setOver25}
             yes={isHebrew ? "מעל 2.5" : "Over 2.5"}
@@ -363,7 +423,9 @@ function AdvancedSection({
                 {isHebrew ? "תוצאת מחצית" : "Halftime score"}
               </span>
               <LabelCaps>
-                {isHebrew ? "מדויק +5, כיוון +2" : "Exact +5, outcome +2"}
+                {isHebrew
+                  ? `עלות ${stakes.ht} · מדויק +${payouts.htExact} · כיוון +${payouts.htOutcome}`
+                  : `Cost ${stakes.ht} · exact +${payouts.htExact} · outcome +${payouts.htOutcome}`}
               </LabelCaps>
             </div>
             <div className="flex items-center justify-center gap-3">
@@ -542,10 +604,24 @@ function translate(
 ): string {
   const map: Record<string, [string, string]> = {
     unauth: ["יש להתחבר", "Sign in required"],
+    not_paid: [
+      "תשלום עדיין לא אושר. ההימור לא נשמר.",
+      "Payment not approved yet. Bet not saved.",
+    ],
     locked: ["ההימור נסגר. לא ניתן לערוך עוד.", "Bet is locked. Cannot edit."],
     invalid: ["תוצאה לא תקינה", "Invalid score"],
     db: ["שגיאת שמירה", "Save failed"],
     not_found: ["המשחק לא נמצא", "Match not found"],
+    insufficient_bank: [
+      "אין מספיק נקודות בבנק להימור הזה",
+      "Not enough points in your bank for this bet",
+    ],
   };
   return map[code][isHebrew ? 0 : 1];
+}
+
+function costLabel(stake: number, payout: number, isHebrew: boolean): string {
+  return isHebrew
+    ? `עלות ${stake} · ${payout > 0 ? `+${payout}` : payout} צודק`
+    : `Cost ${stake} · ${payout > 0 ? `+${payout}` : payout} right`;
 }

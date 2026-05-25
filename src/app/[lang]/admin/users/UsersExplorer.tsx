@@ -31,8 +31,10 @@ import {
   Link2,
   MessageCircle,
 } from "lucide-react";
+import Link from "next/link";
 import type { Locale } from "../../dictionaries";
 import { formatDateTime } from "@/lib/format";
+import { localePath } from "@/lib/paths";
 import { PillButton, LabelCaps, Chip } from "@/components/ui";
 import {
   setUserRole,
@@ -705,11 +707,17 @@ function UserDrawer({
           </div>
 
           <div className="grid grid-cols-3 gap-2">
-            <Stat
-              label={isHebrew ? "נקודות" : "Points"}
-              value={user.totalPoints}
-              accent="text-primary"
-            />
+            <Link
+              href={localePath(locale, `admin/users/${user.id}/bank`)}
+              className="block rounded-lg hover:bg-surface-container-low transition-colors"
+              aria-label={isHebrew ? "נהל את בנק הנקודות" : "Manage points bank"}
+            >
+              <Stat
+                label={isHebrew ? "בנק" : "Bank"}
+                value={user.totalPoints}
+                accent="text-primary"
+              />
+            </Link>
             <Stat
               label={isHebrew ? "הימורים" : "Bets"}
               value={user.betCount}

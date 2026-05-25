@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import { profiles, payments } from "@/db/schema";
 import { getUser } from "@/lib/supabase/auth";
+import { getPayboxUrl } from "@/lib/paybox";
 import { localePath } from "@/lib/paths";
 import { getDictionary, hasLocale, type Locale } from "../dictionaries";
 import { BrandLogo } from "@/components/BrandLogo";
@@ -31,6 +32,8 @@ export default async function OnboardingPage({
     .from(payments)
     .where(eq(payments.userId, user.id))
     .limit(1);
+
+  const payboxUrl = await getPayboxUrl();
 
   // Admins skip the payment step. For players, both profile and payment must
   // be set before they reach the dashboard.
@@ -61,6 +64,7 @@ export default async function OnboardingPage({
           initialPhone={profile?.phone ?? user.phone ?? ""}
           paymentStatus={latestPayment?.status ?? null}
           paymentMethod={latestPayment?.method ?? null}
+          payboxUrl={payboxUrl}
         />
       </div>
     </section>

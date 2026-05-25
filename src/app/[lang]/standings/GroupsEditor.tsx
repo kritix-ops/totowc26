@@ -14,10 +14,12 @@ export function GroupsEditor({
   groups,
   locale,
   dict,
+  canEdit,
 }: {
   groups: GroupWithRanks[];
   locale: Locale;
   dict: Dictionary;
+  canEdit: boolean;
 }) {
   const isHebrew = locale === "he";
 
@@ -49,6 +51,7 @@ export function GroupsEditor({
             saved={savedById[g.id]}
             isHebrew={isHebrew}
             dict={dict}
+            canEdit={canEdit}
             onChange={(next) =>
               setOrderById((prev) => ({ ...prev, [g.id]: next }))
             }
@@ -69,6 +72,7 @@ function GroupCard({
   saved,
   isHebrew,
   dict,
+  canEdit,
   onChange,
   onSaved,
 }: {
@@ -78,6 +82,7 @@ function GroupCard({
   saved: boolean;
   isHebrew: boolean;
   dict: Dictionary;
+  canEdit: boolean;
   onChange: (next: string[]) => void;
   onSaved: () => void;
 }) {
@@ -90,6 +95,7 @@ function GroupCard({
   const byCode = new Map(group.teams.map((t) => [t.code, t]));
 
   const move = (idx: number, dir: -1 | 1) => {
+    if (!canEdit) return;
     const next = [...order];
     const target = idx + dir;
     if (target < 0 || target >= next.length) return;
@@ -98,6 +104,7 @@ function GroupCard({
   };
 
   const save = () => {
+    if (!canEdit) return;
     setError(null);
     startTransition(async () => {
       const res = await saveGroupOrder(group.id, order);
@@ -148,7 +155,7 @@ function GroupCard({
                   type="button"
                   aria-label={isHebrew ? "העלה" : "Move up"}
                   onClick={() => move(idx, -1)}
-                  disabled={idx === 0 || pending}
+                  disabled={idx === 0 || pending || !canEdit}
                   className="min-w-[36px] min-h-[36px] flex items-center justify-center rounded-full hover:bg-surface-container disabled:opacity-30"
                 >
                   <ChevronUp className="h-5 w-5" />
@@ -157,7 +164,7 @@ function GroupCard({
                   type="button"
                   aria-label={isHebrew ? "הורד" : "Move down"}
                   onClick={() => move(idx, 1)}
-                  disabled={idx === order.length - 1 || pending}
+                  disabled={idx === order.length - 1 || pending || !canEdit}
                   className="min-w-[36px] min-h-[36px] flex items-center justify-center rounded-full hover:bg-surface-container disabled:opacity-30"
                 >
                   <ChevronDown className="h-5 w-5" />
@@ -175,17 +182,26 @@ function GroupCard({
             ? isHebrew ? "סדר לא תקין" : "Invalid ordering"
             : error === "unauth"
               ? isHebrew ? "יש להתחבר" : "Sign in required"
-              : isHebrew ? "שמירה נכשלה" : "Save failed"}
+              : error === "not_paid"
+                ? isHebrew
+                  ? "תשלום עדיין לא אושר"
+                  : "Payment not approved yet"
+                : error === "insufficient_bank"
+                  ? isHebrew
+                    ? "אין מספיק נקודות בבנק"
+                    : "Not enough points in your bank"
+                  : isHebrew ? "שמירה נכשלה" : "Save failed"}
         </p>
       )}
 
       <PillButton
         type="button"
         onClick={save}
-        disabled={pending}
+        disabled={pending || !canEdit}
         className={clsx(
           "w-full md:w-auto self-stretch md:self-end px-6 py-3 text-sm",
           pending && "opacity-70 cursor-wait",
+          !canEdit && "opacity-60 cursor-not-allowed",
         )}
       >
         {pending

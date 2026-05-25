@@ -2,8 +2,11 @@ import { notFound, redirect } from "next/navigation";
 import { Calendar } from "lucide-react";
 import { getDictionary, hasLocale, type Locale } from "../../dictionaries";
 import { getUser } from "@/lib/supabase/auth";
+import { getUserAccess } from "@/lib/access";
 import { getFixtureWithBets, getMyBet } from "@/db/queries";
+import { getBankBalance, getStakeConfig } from "@/lib/bank";
 import { Card, LabelCaps } from "@/components/ui";
+import { PayGateBanner } from "@/components/PayGateBanner";
 import { localePath } from "@/lib/paths";
 import { formatDateTime } from "@/lib/format";
 import { BetForm } from "./BetForm";
@@ -21,12 +24,18 @@ export default async function MatchBetPage({
 
   const match = await getFixtureWithBets(matchId);
   if (!match) notFound();
-  const myBet = await getMyBet(matchId, user.id);
+  const [myBet, access, stakes, balance] = await Promise.all([
+    getMyBet(matchId, user.id),
+    getUserAccess(user.id),
+    getStakeConfig(),
+    getBankBalance(user.id),
+  ]);
 
   const isHebrew = locale === "he";
   const homeName = isHebrew ? match.homeNameHe : match.homeNameEn;
   const awayName = isHebrew ? match.awayNameHe : match.awayNameEn;
-  const lockable = match.status === "scheduled" && !myBet?.locked;
+  const lockable =
+    match.status === "scheduled" && !myBet?.locked && access.canEdit;
 
   return (
     <section className="px-4 md:px-16 py-6 md:py-12 flex flex-col gap-8 md:gap-12 max-w-5xl mx-auto w-full">
@@ -59,6 +68,8 @@ export default async function MatchBetPage({
         </Card>
       </header>
 
+      {!access.canEdit && <PayGateBanner locale={locale} dict={dict} />}
+
       <BetForm
         locale={locale}
         dict={dict}
@@ -78,13 +89,28 @@ export default async function MatchBetPage({
                 over25: myBet.betOver25,
                 htHome: myBet.betHtHome,
                 htAway: myBet.betHtAway,
+                stakePaidBtts: myBet.stakePaidBtts,
+                stakePaidOver25: myBet.stakePaidOver25,
+                stakePaidHt: myBet.stakePaidHt,
               }
             : null
         }
         editable={lockable}
+        stakes={{
+          btts: stakes.stakeBtts,
+          over25: stakes.stakeOver25,
+          ht: stakes.stakeHt,
+        }}
+        payouts={{
+          btts: stakes.scoringBtts,
+          over25: stakes.scoringOver25,
+          htExact: stakes.scoringHtExact,
+          htOutcome: stakes.scoringHtOutcome,
+        }}
+        balance={balance}
       />
 
-      {!lockable && (
+      {!lockable && access.canEdit && (
         <Card className="p-4 text-center text-on-surface-variant">
           {match.status === "final"
             ? isHebrew ? "המשחק הסתיים. ההימור נסגר." : "Match is final. Bet is locked."

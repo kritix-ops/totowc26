@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Copy, Check, CircleDot, AlertCircle } from "lucide-react";
+import { Copy, Check, CircleDot, AlertCircle, ExternalLink } from "lucide-react";
 import { clsx } from "clsx";
 import type { Dictionary, Locale } from "../dictionaries";
 import { PillButton, LabelCaps } from "@/components/ui";
@@ -19,6 +19,7 @@ export function OnboardingForm({
   initialPhone,
   paymentStatus,
   paymentMethod,
+  payboxUrl,
 }: {
   locale: Locale;
   dict: Dictionary;
@@ -26,6 +27,7 @@ export function OnboardingForm({
   initialPhone: string;
   paymentStatus: PaymentStatus;
   paymentMethod: PaymentMethod;
+  payboxUrl: string;
 }) {
   const isHebrew = locale === "he";
   const displayFont = isHebrew
@@ -38,7 +40,9 @@ export function OnboardingForm({
   const [profileSaved, setProfileSaved] = useState(
     initialName.length >= 2 && initialPhone.length >= 7,
   );
-  const [method, setMethod] = useState<PaymentMethod>(paymentMethod);
+  // Display only — Paybox is the only method now. Kept so legacy "bit"
+  // payments still render their badge correctly in the status row.
+  const lastMethod: PaymentMethod = paymentMethod;
   const [submittedStatus, setSubmittedStatus] = useState<PaymentStatus>(
     paymentStatus,
   );
@@ -73,10 +77,9 @@ export function OnboardingForm({
   };
 
   const handleIPaid = () => {
-    if (!method) return;
     setError(null);
     startTransition(async () => {
-      const res = await recordPayment(method);
+      const res = await recordPayment();
       if (!res.ok) {
         setError(res.error);
         return;
@@ -113,13 +116,13 @@ export function OnboardingForm({
         recipient={recipient}
         copied={copied}
         onCopy={copyNumber}
-        method={method}
-        setMethod={setMethod}
+        lastMethod={lastMethod}
         profileSaved={profileSaved}
         isPending={isPending}
         isApproved={isApproved}
         onIPaid={handleIPaid}
         pending={pending}
+        payboxUrl={payboxUrl}
       />
 
       {isApproved && (
@@ -224,16 +227,22 @@ function PaymentStep(props: {
   recipient: string;
   copied: boolean;
   onCopy: () => void;
-  method: PaymentMethod;
-  setMethod: (m: PaymentMethod) => void;
+  lastMethod: PaymentMethod;
   profileSaved: boolean;
   isPending: boolean;
   isApproved: boolean;
   onIPaid: () => void;
   pending: boolean;
+  payboxUrl: string;
 }) {
   const { isHebrew, displayFont, dict } = props;
   const locked = !props.profileSaved || props.isApproved;
+  // Legacy "bit" rows still show their original method label in the
+  // status row; everything below the recipient block is Paybox only.
+  const methodLabel =
+    props.lastMethod === "bit"
+      ? dict.onboarding.bit
+      : dict.onboarding.paybox;
 
   return (
     <div
@@ -259,6 +268,10 @@ function PaymentStep(props: {
         {dict.onboarding.entryFeeLabel}:{" "}
         <span className="font-bold text-on-surface text-lg">
           <bdi>{dict.onboarding.entryFee}</bdi> {dict.common.currency}
+        </span>{" "}
+        <span className="text-sm">
+          {isHebrew ? "דרך" : "via"}{" "}
+          <span className="font-bold text-on-surface">{methodLabel}</span>
         </span>
       </p>
 
@@ -283,33 +296,31 @@ function PaymentStep(props: {
         </button>
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
-        {(["bit", "paybox"] as const).map((m) => (
-          <button
-            key={m}
-            type="button"
-            onClick={() => props.setMethod(m)}
-            disabled={props.isApproved}
-            className={clsx(
-              "press-down min-h-[48px] border rounded-full px-4 py-3 font-bold text-base flex items-center justify-center gap-2 transition-colors",
-              props.method === m
-                ? "bg-surface-container-high border-primary text-primary"
-                : "bg-surface-container-lowest border-outline text-on-surface hover:bg-surface-container-low",
-            )}
-          >
-            {m === "bit" ? dict.onboarding.bit : dict.onboarding.paybox}
-          </button>
-        ))}
-      </div>
+      <p className="text-sm text-on-surface-variant">
+        {dict.onboarding.payboxHelp}
+      </p>
+
+      <a
+        href={props.payboxUrl}
+        target="_blank"
+        rel="noopener noreferrer"
+        aria-disabled={props.isApproved || undefined}
+        className={clsx(
+          "press-down inline-flex items-center justify-center gap-2 w-full min-h-[48px] py-3 px-5 rounded-full border-2 border-primary bg-surface-container-lowest text-primary font-[family-name:var(--font-label)] text-[14px] font-bold tracking-[0.05em] hover:bg-primary-container transition-colors",
+          props.isApproved && "opacity-60 pointer-events-none",
+        )}
+      >
+        <ExternalLink className="h-4 w-4" strokeWidth={2.5} />
+        {dict.onboarding.payboxOpen}
+      </a>
 
       <PillButton
         type="button"
         onClick={props.onIPaid}
-        disabled={!props.method || props.pending || props.isApproved || props.isPending}
+        disabled={props.pending || props.isApproved || props.isPending}
         className={clsx(
           "w-full py-4 text-base",
-          (!props.method || props.isApproved || props.isPending) &&
-            "opacity-60 cursor-not-allowed",
+          (props.isApproved || props.isPending) && "opacity-60 cursor-not-allowed",
         )}
       >
         {props.isApproved

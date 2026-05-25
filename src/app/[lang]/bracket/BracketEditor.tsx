@@ -34,11 +34,13 @@ export function BracketEditor({
   teams,
   locale,
   dict,
+  canEdit,
 }: {
   picks: Record<BracketSlot, BracketRow>;
   teams: TeamRow[];
   locale: Locale;
   dict: Dictionary;
+  canEdit: boolean;
 }) {
   const isHebrew = locale === "he";
   const router = useRouter();
@@ -54,6 +56,7 @@ export function BracketEditor({
   );
 
   const update = (slot: BracketSlot, team: TeamRow | null) => {
+    if (!canEdit) return;
     setError(null);
     startTransition(async () => {
       const res = await setBracketPick(slot, team?.code ?? null);
@@ -94,21 +97,29 @@ export function BracketEditor({
                   <span className="text-base md:text-lg font-bold">
                     {isHebrew ? pick.teamNameHe : pick.teamNameEn}
                   </span>
-                  <button
-                    type="button"
-                    onClick={() => update(key, null)}
-                    disabled={pending}
-                    className="text-xs text-on-surface-variant hover:text-error inline-flex items-center gap-1"
-                  >
-                    <X className="h-3 w-3" />
-                    {isHebrew ? "הסר בחירה" : "Remove pick"}
-                  </button>
+                  {canEdit && (
+                    <button
+                      type="button"
+                      onClick={() => update(key, null)}
+                      disabled={pending}
+                      className="text-xs text-on-surface-variant hover:text-error inline-flex items-center gap-1"
+                    >
+                      <X className="h-3 w-3" />
+                      {isHebrew ? "הסר בחירה" : "Remove pick"}
+                    </button>
+                  )}
                 </div>
               ) : (
                 <button
                   type="button"
-                  onClick={() => setOpenSlot(key)}
-                  className="press-down w-full min-h-[48px] py-3 border-2 border-dashed border-outline-variant rounded-lg text-on-surface-variant hover:border-primary hover:text-primary transition-colors"
+                  onClick={() => canEdit && setOpenSlot(key)}
+                  disabled={!canEdit}
+                  className={clsx(
+                    "press-down w-full min-h-[48px] py-3 border-2 border-dashed border-outline-variant rounded-lg text-on-surface-variant transition-colors",
+                    canEdit
+                      ? "hover:border-primary hover:text-primary"
+                      : "opacity-60 cursor-not-allowed",
+                  )}
                 >
                   {dict.bracket.pickTeam}
                 </button>
@@ -122,11 +133,21 @@ export function BracketEditor({
       {error && (
         <p className="inline-flex items-center gap-2 text-sm text-error">
           <AlertCircle className="h-4 w-4" strokeWidth={2} />
-          {isHebrew ? "השמירה נכשלה" : "Save failed"}
+          {error === "not_paid"
+            ? isHebrew
+              ? "תשלום עדיין לא אושר"
+              : "Payment not approved yet"
+            : error === "insufficient_bank"
+              ? isHebrew
+                ? "אין מספיק נקודות בבנק"
+                : "Not enough points in your bank"
+              : isHebrew
+                ? "השמירה נכשלה"
+                : "Save failed"}
         </p>
       )}
 
-      <Card className="p-5 md:p-6 flex flex-col gap-4">
+      <Card className={clsx("p-5 md:p-6 flex flex-col gap-4", !canEdit && "opacity-60")}>
         <SectionHeading underline="thin" as="h3">
           {isHebrew ? "לחץ על קבוצה כדי להחליף שיבוץ" : "Tap a team to assign"}
         </SectionHeading>
@@ -134,6 +155,7 @@ export function BracketEditor({
           teams={teams}
           isHebrew={isHebrew}
           pickedCodes={pickedCodes}
+          disabled={!canEdit}
           onPick={(team) => {
             // When clicked directly without an explicit slot, default to the
             // first empty slot, or champion.
@@ -165,11 +187,13 @@ function TeamGrid({
   isHebrew,
   pickedCodes,
   onPick,
+  disabled,
 }: {
   teams: TeamRow[];
   isHebrew: boolean;
   pickedCodes: Set<string>;
   onPick: (team: TeamRow) => void;
+  disabled?: boolean;
 }) {
   return (
     <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-2 md:gap-3">
@@ -180,11 +204,13 @@ function TeamGrid({
             key={team.code}
             type="button"
             onClick={() => onPick(team)}
+            disabled={disabled}
             className={clsx(
               "press-down flex flex-col items-center gap-1 p-2 md:p-3 rounded-lg border bg-surface-container-lowest transition-colors min-h-[80px]",
               used
                 ? "border-secondary opacity-70"
                 : "border-outline-variant hover:border-primary",
+              disabled && "opacity-60 cursor-not-allowed",
             )}
           >
             <Flag code={team.code} size={36} rounded="sm" />

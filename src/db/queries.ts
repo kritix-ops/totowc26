@@ -113,48 +113,126 @@ export type LeaderboardEntry = {
   rank: number;
   userId: string;
   displayName: string;
-  points: number;
+  points: number;        // bank balance — primary leaderboard number
+  grossPoints: number;   // sum of payouts before stake deduction (skill proxy)
   betCount: number;
+  wastedStakes: number;  // stakes paid on bets that returned zero (tie-break)
   isYou: boolean;
 };
 
+// Leaderboard = bank balance:
+//   starting_bank + Σ payouts − Σ stakes + Σ adjustments
+//
+// Tie-breaker order:
+//   1. Fewest stakes wasted (highest hit rate among risky bets)
+//   2. display_name ASC (stable)
 export async function getLeaderboard(
   currentUserId: string,
 ): Promise<LeaderboardEntry[]> {
   const rows = await db.execute<LeaderboardEntry>(sql`
-    with totals as (
+    with payouts as (
       select
-        p.id::text as user_id,
-        p.display_name,
-        coalesce(sum(
-          coalesce(mb.points_earned, 0) +
-          coalesce(mb.points_btts, 0) +
-          coalesce(mb.points_over_25, 0) +
-          coalesce(mb.points_ht, 0)
-        ), 0)::int as match_points,
+        p.id as user_id,
         coalesce((
-          select sum(coalesce(sb.points_earned, 0))
-          from public.special_bets sb where sb.user_id = p.id
-        ), 0)::int as special_points,
-        count(mb.id)::int as bet_count
+          select sum(
+            coalesce(mb.points_earned,   0) +
+            coalesce(mb.points_btts,     0) +
+            coalesce(mb.points_over_25,  0) +
+            coalesce(mb.points_ht,       0)
+          )::int
+          from public.match_bets mb where mb.user_id = p.id
+        ), 0)
+        + coalesce((
+            select sum(coalesce(gp.points_earned, 0))::int
+            from public.group_predictions gp where gp.user_id = p.id
+          ), 0)
+        + coalesce((
+            select sum(coalesce(bp.points_earned, 0))::int
+            from public.bracket_predictions bp where bp.user_id = p.id
+          ), 0)
+        + coalesce((
+            select sum(coalesce(sb.points_earned, 0))::int
+            from public.special_bets sb where sb.user_id = p.id
+          ), 0) as gross_points
       from public.profiles p
-      left join public.match_bets mb on mb.user_id = p.id
-      group by p.id, p.display_name
     ),
-    final_totals as (
-      select user_id, display_name, bet_count,
-             (match_points + special_points) as points
-      from totals
+    stakes as (
+      select
+        p.id as user_id,
+        coalesce((
+          select sum(
+            coalesce(mb.stake_paid_btts,    0) +
+            coalesce(mb.stake_paid_over_25, 0) +
+            coalesce(mb.stake_paid_ht,      0)
+          )::int
+          from public.match_bets mb where mb.user_id = p.id
+        ), 0)
+        + coalesce((select sum(gp.stake_paid)::int
+            from public.group_predictions gp where gp.user_id = p.id), 0)
+        + coalesce((select sum(bp.stake_paid)::int
+            from public.bracket_predictions bp where bp.user_id = p.id), 0)
+        + coalesce((select sum(sb.stake_paid)::int
+            from public.special_bets sb where sb.user_id = p.id), 0) as total_stakes,
+        coalesce((
+          select sum(
+            case when mb.points_btts    = 0 then coalesce(mb.stake_paid_btts,    0) else 0 end +
+            case when mb.points_over_25 = 0 then coalesce(mb.stake_paid_over_25, 0) else 0 end +
+            case when mb.points_ht      = 0 then coalesce(mb.stake_paid_ht,      0) else 0 end
+          )::int
+          from public.match_bets mb where mb.user_id = p.id
+        ), 0)
+        + coalesce((select sum(case when gp.points_earned = 0 then gp.stake_paid else 0 end)::int
+            from public.group_predictions gp where gp.user_id = p.id), 0)
+        + coalesce((select sum(case when bp.points_earned = 0 then bp.stake_paid else 0 end)::int
+            from public.bracket_predictions bp where bp.user_id = p.id), 0)
+        + coalesce((select sum(case when sb.points_earned = 0 then sb.stake_paid else 0 end)::int
+            from public.special_bets sb where sb.user_id = p.id), 0) as wasted_stakes
+      from public.profiles p
+    ),
+    adjustments as (
+      select p.id as user_id,
+        coalesce((
+          select sum(pa.delta)::int
+          from public.point_adjustments pa where pa.user_id = p.id
+        ), 0) as total_adj
+      from public.profiles p
+    ),
+    bet_counts as (
+      select p.id as user_id,
+        (select count(*)::int from public.match_bets mb where mb.user_id = p.id) as bet_count
+      from public.profiles p
+    ),
+    base as (
+      select
+        p.id::text                    as user_id,
+        p.display_name                as display_name,
+        po.gross_points               as gross_points,
+        st.total_stakes               as total_stakes,
+        st.wasted_stakes              as wasted_stakes,
+        adj.total_adj                 as adjustments,
+        bc.bet_count                  as bet_count,
+        (select starting_bank from public.settings where id = 1)::int as starting_bank
+      from public.profiles p
+      join payouts po     on po.user_id  = p.id
+      join stakes st      on st.user_id  = p.id
+      join adjustments adj on adj.user_id = p.id
+      join bet_counts bc  on bc.user_id  = p.id
     )
     select
-      rank() over (order by points desc, display_name asc)::int as "rank",
-      user_id::text                                              as "userId",
-      display_name                                               as "displayName",
-      points                                                     as "points",
-      bet_count                                                  as "betCount",
-      (user_id::text = ${currentUserId})                         as "isYou"
-    from final_totals
-    order by rank, display_name asc
+      rank() over (
+        order by (starting_bank + gross_points - total_stakes + adjustments) desc,
+                 wasted_stakes asc,
+                 display_name asc
+      )::int                                                                   as "rank",
+      user_id                                                                  as "userId",
+      display_name                                                             as "displayName",
+      (starting_bank + gross_points - total_stakes + adjustments)::int         as "points",
+      gross_points                                                             as "grossPoints",
+      bet_count                                                                as "betCount",
+      wasted_stakes                                                            as "wastedStakes",
+      (user_id = ${currentUserId})                                             as "isYou"
+    from base
+    order by "rank", display_name asc
   `);
   return rows as unknown as LeaderboardEntry[];
 }
@@ -277,6 +355,9 @@ export type MyBet = {
   pointsBtts: number | null;
   pointsOver25: number | null;
   pointsHt: number | null;
+  stakePaidBtts: number | null;
+  stakePaidOver25: number | null;
+  stakePaidHt: number | null;
 };
 
 export async function getMyBet(
@@ -285,18 +366,21 @@ export async function getMyBet(
 ): Promise<MyBet | null> {
   const rows = await db.execute<MyBet>(sql`
     select
-      home_score      as "homeScore",
-      away_score      as "awayScore",
-      points_earned   as "pointsEarned",
-      was_exact       as "wasExact",
-      locked          as "locked",
-      bet_btts        as "betBtts",
-      bet_over_25     as "betOver25",
-      bet_ht_home     as "betHtHome",
-      bet_ht_away     as "betHtAway",
-      points_btts     as "pointsBtts",
-      points_over_25  as "pointsOver25",
-      points_ht       as "pointsHt"
+      home_score          as "homeScore",
+      away_score          as "awayScore",
+      points_earned       as "pointsEarned",
+      was_exact           as "wasExact",
+      locked              as "locked",
+      bet_btts            as "betBtts",
+      bet_over_25         as "betOver25",
+      bet_ht_home         as "betHtHome",
+      bet_ht_away         as "betHtAway",
+      points_btts         as "pointsBtts",
+      points_over_25      as "pointsOver25",
+      points_ht           as "pointsHt",
+      stake_paid_btts     as "stakePaidBtts",
+      stake_paid_over_25  as "stakePaidOver25",
+      stake_paid_ht       as "stakePaidHt"
     from public.match_bets
     where match_id = ${matchId}::uuid and user_id = ${userId}
     limit 1
@@ -319,6 +403,9 @@ export type ProfileStats = {
 };
 
 export async function getProfileStats(userId: string): Promise<ProfileStats> {
+  // total_points is the user's current bank balance — same number that ranks
+  // them on the leaderboard. Other metrics (bets_placed, exact_count, ...)
+  // stay tied to match_bets since they describe match-pick behaviour only.
   const rows = await db.execute<{
     total_points: number;
     bets_placed: number;
@@ -328,12 +415,37 @@ export async function getProfileStats(userId: string): Promise<ProfileStats> {
     member_since: string | null;
   }>(sql`
     select
-      coalesce(sum(
-        coalesce(mb.points_earned, 0) +
-        coalesce(mb.points_btts, 0) +
-        coalesce(mb.points_over_25, 0) +
-        coalesce(mb.points_ht, 0)
-      ), 0)::int                                        as total_points,
+      (
+        (select starting_bank from public.settings where id = 1)::int
+        + coalesce((
+            select sum(
+              coalesce(mb.points_earned,   0) +
+              coalesce(mb.points_btts,     0) +
+              coalesce(mb.points_over_25,  0) +
+              coalesce(mb.points_ht,       0) -
+              coalesce(mb.stake_paid_btts,    0) -
+              coalesce(mb.stake_paid_over_25, 0) -
+              coalesce(mb.stake_paid_ht,      0)
+            )::int
+            from public.match_bets mb where mb.user_id = ${userId}
+          ), 0)
+        + coalesce((
+            select sum(coalesce(gp.points_earned, 0) - gp.stake_paid)::int
+            from public.group_predictions gp where gp.user_id = ${userId}
+          ), 0)
+        + coalesce((
+            select sum(coalesce(bp.points_earned, 0) - bp.stake_paid)::int
+            from public.bracket_predictions bp where bp.user_id = ${userId}
+          ), 0)
+        + coalesce((
+            select sum(coalesce(sb.points_earned, 0) - sb.stake_paid)::int
+            from public.special_bets sb where sb.user_id = ${userId}
+          ), 0)
+        + coalesce((
+            select sum(pa.delta)::int
+            from public.point_adjustments pa where pa.user_id = ${userId}
+          ), 0)
+      )::int                                            as total_points,
       count(mb.id)::int                                 as bets_placed,
       count(case when mb.points_earned is not null then 1 end)::int as bets_final,
       count(case when mb.was_exact then 1 end)::int     as exact_count,
@@ -880,6 +992,141 @@ export async function getPoolStats(): Promise<PoolStats> {
     potIls: Number(r?.pot ?? 0),
     participants: Number(r?.players ?? 0),
   };
+}
+
+// ---------- Points-bank history ----------
+//
+// Returns every event that touches a user's bank, ordered chronologically.
+// The UI on /[lang]/me/bank walks this in order to show a running balance.
+
+export type BankEventKind =
+  | "start"
+  | "stake_match"
+  | "payout_match"
+  | "stake_group"
+  | "payout_group"
+  | "stake_bracket"
+  | "payout_bracket"
+  | "stake_special"
+  | "payout_special"
+  | "adjustment";
+
+export type BankEvent = {
+  at: string;
+  kind: BankEventKind;
+  delta: number;
+  detail: string | null;
+};
+
+export async function getBankHistory(userId: string): Promise<BankEvent[]> {
+  const rows = await db.execute<BankEvent>(sql`
+    with start_event as (
+      select
+        p.created_at::text                                             as "at",
+        'start'::text                                                  as "kind",
+        (select starting_bank from public.settings where id = 1)::int  as "delta",
+        null::text                                                     as "detail"
+      from public.profiles p
+      where p.id = ${userId}
+    ),
+    match_stakes as (
+      -- One row per opted-in side bet (each charged at submit time).
+      select mb.created_at::text as "at", 'stake_match'::text as "kind",
+        -coalesce(mb.stake_paid_btts, 0) as "delta",
+        ('BTTS · ' || mb.match_id::text) as "detail"
+      from public.match_bets mb
+      where mb.user_id = ${userId} and mb.stake_paid_btts is not null and mb.stake_paid_btts > 0
+      union all
+      select mb.created_at::text, 'stake_match',
+        -coalesce(mb.stake_paid_over_25, 0),
+        ('Over 2.5 · ' || mb.match_id::text)
+      from public.match_bets mb
+      where mb.user_id = ${userId} and mb.stake_paid_over_25 is not null and mb.stake_paid_over_25 > 0
+      union all
+      select mb.created_at::text, 'stake_match',
+        -coalesce(mb.stake_paid_ht, 0),
+        ('HT · ' || mb.match_id::text)
+      from public.match_bets mb
+      where mb.user_id = ${userId} and mb.stake_paid_ht is not null and mb.stake_paid_ht > 0
+    ),
+    match_payouts as (
+      -- Net payout per match (main + side bets) once the match goes final.
+      select mb.updated_at::text as "at", 'payout_match'::text as "kind",
+        (coalesce(mb.points_earned, 0)
+         + coalesce(mb.points_btts, 0)
+         + coalesce(mb.points_over_25, 0)
+         + coalesce(mb.points_ht, 0)) as "delta",
+        mb.match_id::text as "detail"
+      from public.match_bets mb
+      where mb.user_id = ${userId} and mb.points_earned is not null
+    ),
+    group_stakes as (
+      select gp.created_at::text as "at", 'stake_group'::text as "kind",
+        -gp.stake_paid as "delta",
+        gp.group_id as "detail"
+      from public.group_predictions gp
+      where gp.user_id = ${userId} and gp.stake_paid > 0
+    ),
+    group_payouts as (
+      select gp.created_at::text as "at", 'payout_group'::text as "kind",
+        gp.points_earned as "delta",
+        gp.group_id as "detail"
+      from public.group_predictions gp
+      where gp.user_id = ${userId} and gp.points_earned is not null
+    ),
+    bracket_stakes as (
+      select bp.created_at::text as "at", 'stake_bracket'::text as "kind",
+        -bp.stake_paid as "delta",
+        bp.slot::text as "detail"
+      from public.bracket_predictions bp
+      where bp.user_id = ${userId} and bp.stake_paid > 0
+    ),
+    bracket_payouts as (
+      select bp.created_at::text as "at", 'payout_bracket'::text as "kind",
+        bp.points_earned as "delta",
+        bp.slot::text as "detail"
+      from public.bracket_predictions bp
+      where bp.user_id = ${userId} and bp.points_earned is not null
+    ),
+    special_stakes as (
+      select sb.created_at::text as "at", 'stake_special'::text as "kind",
+        -sb.stake_paid as "delta",
+        sb.bet_type::text as "detail"
+      from public.special_bets sb
+      where sb.user_id = ${userId} and sb.stake_paid > 0
+    ),
+    special_payouts as (
+      select sb.updated_at::text as "at", 'payout_special'::text as "kind",
+        sb.points_earned as "delta",
+        sb.bet_type::text as "detail"
+      from public.special_bets sb
+      where sb.user_id = ${userId} and sb.points_earned is not null
+    ),
+    adjustments as (
+      select pa.created_at::text as "at", 'adjustment'::text as "kind",
+        pa.delta as "delta",
+        pa.reason as "detail"
+      from public.point_adjustments pa
+      where pa.user_id = ${userId}
+    ),
+    all_events as (
+      select * from start_event
+      union all select * from match_stakes
+      union all select * from match_payouts
+      union all select * from group_stakes
+      union all select * from group_payouts
+      union all select * from bracket_stakes
+      union all select * from bracket_payouts
+      union all select * from special_stakes
+      union all select * from special_payouts
+      union all select * from adjustments
+    )
+    select "at", "kind"::text as "kind", "delta"::int as "delta", "detail"
+    from all_events
+    order by "at" desc
+    limit 500
+  `);
+  return rows as unknown as BankEvent[];
 }
 
 // Earliest scheduled match kickoff — i.e. when the tournament starts. Used

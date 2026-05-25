@@ -4,10 +4,12 @@ import { Trophy, ShieldCheck } from "lucide-react";
 import { db } from "@/db";
 import { specialBets } from "@/db/schema";
 import { getUser } from "@/lib/supabase/auth";
+import { getUserAccess } from "@/lib/access";
 import { fetchTopScorers } from "@/lib/football-data";
-import { hasLocale, type Locale } from "../dictionaries";
+import { getDictionary, hasLocale, type Locale } from "../dictionaries";
 import { localePath } from "@/lib/paths";
 import { Card, LabelCaps, SectionHeading } from "@/components/ui";
+import { PayGateBanner } from "@/components/PayGateBanner";
 import { SpecialsForm } from "./SpecialsForm";
 
 export default async function SpecialsPage({
@@ -16,11 +18,13 @@ export default async function SpecialsPage({
   const { lang } = await params;
   if (!hasLocale(lang)) notFound();
   const locale = lang as Locale;
+  const dict = await getDictionary(locale);
 
   const user = await getUser();
   if (!user) redirect(localePath(locale, "login"));
 
   const isHebrew = locale === "he";
+  const access = await getUserAccess(user.id);
 
   const picks = await db
     .select({ betType: specialBets.betType, value: specialBets.value })
@@ -55,6 +59,8 @@ export default async function SpecialsPage({
         </p>
       </header>
 
+      {!access.canEdit && <PayGateBanner locale={locale} dict={dict} />}
+
       <Card className="p-5 md:p-6 flex flex-col gap-4">
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-center gap-2 min-w-0">
@@ -75,6 +81,7 @@ export default async function SpecialsPage({
           initialValue={topScorerPick}
           options={scorerOptions}
           locale={locale}
+          canEdit={access.canEdit}
         />
       </Card>
 
@@ -97,6 +104,7 @@ export default async function SpecialsPage({
           slot="final_penalties"
           initialValue={finalPenaltiesPick}
           locale={locale}
+          canEdit={access.canEdit}
         />
       </Card>
     </section>

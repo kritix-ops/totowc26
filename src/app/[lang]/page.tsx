@@ -14,7 +14,9 @@ import { getDictionary, hasLocale, type Locale } from "./dictionaries";
 import { localePath } from "@/lib/paths";
 import { BrandLogo } from "@/components/BrandLogo";
 import { InstallHint } from "@/components/InstallHint";
+import { BankResetBanner } from "@/components/BankResetBanner";
 import { getUser } from "@/lib/supabase/auth";
+import { getUserAccess } from "@/lib/access";
 import {
   getLatestFinalForUser,
   getLeaderboard,
@@ -57,8 +59,14 @@ export default async function HomePage({
   ]);
 
   let dashboard: DashboardData | null = null;
+  let userIsPaid = false;
   if (user) {
-    dashboard = await loadDashboard(user.id);
+    const [data, access] = await Promise.all([
+      loadDashboard(user.id),
+      getUserAccess(user.id),
+    ]);
+    dashboard = data;
+    userIsPaid = access.isPaid;
   } else if (previewPlayer) {
     dashboard = mockDashboard();
   }
@@ -92,6 +100,8 @@ export default async function HomePage({
       pool={pool}
       tournamentStart={tournamentStart}
       data={dashboard!}
+      userId={user?.id ?? null}
+      isPaid={userIsPaid}
     />
   );
 }
@@ -111,7 +121,9 @@ function mockDashboard(): DashboardData {
         userId: "preview-self",
         displayName: "אתה",
         points: 0,
+        grossPoints: 0,
         betCount: 0,
+        wastedStakes: 0,
         isYou: true,
       },
     ],
@@ -263,12 +275,16 @@ function PlayerHome({
   pool,
   tournamentStart,
   data,
+  userId,
+  isPaid,
 }: {
   locale: Locale;
   dict: Awaited<ReturnType<typeof getDictionary>>;
   pool: { potIls: number; participants: number };
   tournamentStart: string | null;
   data: DashboardData;
+  userId: string | null;
+  isPaid: boolean;
 }) {
   const isHebrew = locale === "he";
   const countdown = tournamentStart ? computeCountdown(tournamentStart) : null;
@@ -283,6 +299,9 @@ function PlayerHome({
       />
 
       <div className="mx-auto w-full max-w-6xl px-4 md:px-8 lg:px-16 pt-8 md:pt-12 flex flex-col gap-8 md:gap-12">
+        {userId && (
+          <BankResetBanner userId={userId} locale={locale} isPaid={isPaid} />
+        )}
         <StatusRow locale={locale} dict={dict} rankInfo={data.rankInfo} />
 
         <UpcomingSection

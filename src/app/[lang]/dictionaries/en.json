@@ -15,7 +15,33 @@
     "kickoffIn": "Kickoff in",
     "locksIn": "Locks in",
     "points": "pts",
-    "pointsLong": "points"
+    "pointsLong": "points",
+    "bank": "Bank",
+    "bankShort": "Bank"
+  },
+  "bank": {
+    "label": "Points Bank",
+    "balance": "Balance",
+    "starting": "Starting",
+    "stakesPaid": "Stakes paid",
+    "payoutsEarned": "Payouts",
+    "adjustments": "Admin adjustments",
+    "cost": "Cost",
+    "costAfter": "Bank after",
+    "freeAction": "Free",
+    "insufficient": "Not enough points",
+    "needed": "Short by",
+    "stakeRefund": "Stake refund",
+    "stakeCharge": "Stake",
+    "history": "Bank history",
+    "noTransactions": "No bank activity yet",
+    "starts": "Tournament start",
+    "bankTitle": "This bet costs",
+    "bankSubtitle": "This amount comes out of your bank now. If you're right, you'll get the full payout back.",
+    "confirm": "Confirm & charge",
+    "cancel": "Cancel",
+    "tooltipFree": "Free — not deducted from your bank",
+    "tooltipCost": "Deducted from your bank on save"
   },
   "nav": {
     "home": "Home",
@@ -28,7 +54,8 @@
     "dashboard": "Dashboard",
     "predictions": "Picks",
     "leaderboard": "Leaderboard",
-    "profile": "Profile"
+    "profile": "Profile",
+    "pay": "Pay"
   },
   "landing": {
     "countdownLabel": "Kickoff in",
@@ -57,7 +84,28 @@
     "copyNumber": "Copy number",
     "iPaid": "I have paid",
     "statusPending": "Waiting for admin approval",
-    "statusApproved": "Paid, good luck"
+    "statusApproved": "Paid, good luck",
+    "payboxOpen": "Open Paybox",
+    "payboxHelp": "Open Paybox, send 100 ILS, then come back and tap 'I have paid'."
+  },
+  "payGate": {
+    "title": "Your payment is not approved yet",
+    "subtitle": "You can browse everything, but bets only save once you have paid and been approved.",
+    "cta": "Complete payment"
+  },
+  "pay": {
+    "title": "Entry fee",
+    "subtitle": "100 ILS via the pool's Paybox group. After you send it, mark 'I have paid' so the admin can approve.",
+    "amountLabel": "Amount",
+    "groupLabel": "Paybox group",
+    "openGroup": "Open the Paybox group",
+    "iPaid": "I have paid",
+    "statusPaid": "Your payment is approved. Good luck in the tournament!",
+    "statusPending": "We received your payment. Waiting for admin approval.",
+    "statusRejected": "Your payment was rejected. Contact the admin.",
+    "statusNotPaid": "Not paid yet.",
+    "afterPayHint": "After sending the payment, come back here and tap 'I have paid'. The admin will see it and approve.",
+    "previousMethod": "Previous payment was sent via"
   },
   "dashboard": {
     "welcome": "What is up",

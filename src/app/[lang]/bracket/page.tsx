@@ -1,8 +1,10 @@
 import { notFound, redirect } from "next/navigation";
 import { getDictionary, hasLocale, type Locale } from "../dictionaries";
 import { getUser } from "@/lib/supabase/auth";
+import { getUserAccess } from "@/lib/access";
 import { getBracketPredictions, getAllTeams } from "@/db/queries";
 import { localePath } from "@/lib/paths";
+import { PayGateBanner } from "@/components/PayGateBanner";
 import { BracketEditor } from "./BracketEditor";
 
 export default async function BracketPage({
@@ -16,9 +18,10 @@ export default async function BracketPage({
   const user = await getUser();
   if (!user) redirect(localePath(locale, "login"));
 
-  const [picks, teams] = await Promise.all([
+  const [picks, teams, access] = await Promise.all([
     getBracketPredictions(user.id),
     getAllTeams(),
+    getUserAccess(user.id),
   ]);
 
   return (
@@ -29,7 +32,14 @@ export default async function BracketPage({
         </h1>
         <p className="text-base text-on-surface-variant">{dict.bracket.subtitle}</p>
       </header>
-      <BracketEditor picks={picks} teams={teams} locale={locale} dict={dict} />
+      {!access.canEdit && <PayGateBanner locale={locale} dict={dict} />}
+      <BracketEditor
+        picks={picks}
+        teams={teams}
+        locale={locale}
+        dict={dict}
+        canEdit={access.canEdit}
+      />
     </section>
   );
 }

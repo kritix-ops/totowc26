@@ -3,9 +3,10 @@
 import { revalidatePath } from "next/cache";
 import { eq, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { profiles, payments } from "@/db/schema";
+import { profiles, payments, pointAdjustments } from "@/db/schema";
 import { getUser } from "@/lib/supabase/auth";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
+import { lockUserForBetting, getBankBalanceWith } from "@/lib/bank";
 
 type Ok = { ok: true };
 type Err = { ok: false; error: string };
@@ -259,6 +260,62 @@ export async function regenerateInviteLink(
   if (!url) return { ok: false, error: "no_link" };
   const userId = link.data.user?.id ?? "";
   return { ok: true, inviteUrl: url, userId };
+}
+
+// Adjust a user's points bank by a signed delta. Append-only audit log.
+// Constraints (also enforced at the DB level via CHECK):
+//   - delta non-zero
+//   - |delta| <= 500  (per-row sanity cap; admin can split into multiple rows)
+//   - reason length >= 3
+// The point_adjustments table has REVOKE UPDATE/DELETE on client roles, so
+// once written this row cannot be edited or removed by any non-superuser.
+export async function adjustUserPoints(
+  targetUserId: string,
+  delta: number,
+  reason: string,
+): Promise<
+  | { ok: true; newBalance: number; oldBalance: number }
+  | { ok: false; error: string }
+> {
+  const guard = await assertAdmin();
+  if ("ok" in guard && guard.ok === false) return guard;
+  const adminId = (guard as { adminId: string }).adminId;
+
+  const d = Math.trunc(Number(delta));
+  if (!Number.isFinite(d) || d === 0) return { ok: false, error: "invalid" };
+  if (Math.abs(d) > 500) return { ok: false, error: "invalid" };
+  const r = reason.trim();
+  if (r.length < 3) return { ok: false, error: "invalid" };
+
+  try {
+    const result = await db.transaction(async (tx) => {
+      // Lock the target user so this insert and the balance read are
+      // serialised against concurrent bet submissions from that user.
+      await lockUserForBetting(tx, targetUserId);
+      const oldBalance = await getBankBalanceWith(tx, targetUserId);
+      await tx.insert(pointAdjustments).values({
+        userId: targetUserId,
+        delta: d,
+        reason: r,
+        createdBy: adminId,
+      });
+      const newBalance = oldBalance + d;
+      console.info("[admin adjustment]", {
+        targetUserId,
+        delta: d,
+        reason: r,
+        by: adminId,
+        oldBalance,
+        newBalance,
+      });
+      return { ok: true as const, oldBalance, newBalance };
+    });
+    revalidatePath("/", "layout");
+    return result;
+  } catch (err) {
+    console.error("adjustUserPoints failed:", err);
+    return { ok: false, error: "db" };
+  }
 }
 
 // Reset a user's bets, group predictions, and bracket. Useful before the

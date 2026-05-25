@@ -28,6 +28,8 @@ export type AdminUserStats = {
 };
 
 export async function fetchAdminUsers(): Promise<AdminUserRow[]> {
+  // totalPoints is the user's live bank balance, computed the same way as
+  // the leaderboard (starting_bank + payouts − stakes + adjustments).
   const rows = await db.execute<AdminUserRow>(sql`
     select
       p.id::text                     as "id",
@@ -42,7 +44,28 @@ export async function fetchAdminUsers(): Promise<AdminUserRow[]> {
       pay.status::text               as "paymentStatus",
       pay.submitted_at               as "paymentSubmittedAt",
       coalesce(bet_stats.bet_count, 0)::int    as "betCount",
-      coalesce(bet_stats.total_points, 0)::int as "totalPoints"
+      (
+        (select starting_bank from public.settings where id = 1)::int
+        + coalesce((
+            select sum(
+              coalesce(mb.points_earned,      0) +
+              coalesce(mb.points_btts,        0) +
+              coalesce(mb.points_over_25,     0) +
+              coalesce(mb.points_ht,          0) -
+              coalesce(mb.stake_paid_btts,    0) -
+              coalesce(mb.stake_paid_over_25, 0) -
+              coalesce(mb.stake_paid_ht,      0)
+            )::int from public.match_bets mb where mb.user_id = p.id
+          ), 0)
+        + coalesce((select sum(coalesce(gp.points_earned, 0) - gp.stake_paid)::int
+            from public.group_predictions gp where gp.user_id = p.id), 0)
+        + coalesce((select sum(coalesce(bp.points_earned, 0) - bp.stake_paid)::int
+            from public.bracket_predictions bp where bp.user_id = p.id), 0)
+        + coalesce((select sum(coalesce(sb.points_earned, 0) - sb.stake_paid)::int
+            from public.special_bets sb where sb.user_id = p.id), 0)
+        + coalesce((select sum(pa.delta)::int
+            from public.point_adjustments pa where pa.user_id = p.id), 0)
+      )::int                         as "totalPoints"
     from public.profiles p
     left join auth.users u on u.id = p.id
     left join lateral (
@@ -53,9 +76,7 @@ export async function fetchAdminUsers(): Promise<AdminUserRow[]> {
       limit 1
     ) pay on true
     left join lateral (
-      select
-        count(*)                                  as bet_count,
-        coalesce(sum(points_earned), 0)           as total_points
+      select count(*) as bet_count
       from public.match_bets
       where user_id = p.id
     ) bet_stats on true
@@ -63,6 +84,57 @@ export async function fetchAdminUsers(): Promise<AdminUserRow[]> {
   `);
 
   return rows as unknown as AdminUserRow[];
+}
+
+export type AdminAdjustmentRow = {
+  id: string;
+  delta: number;
+  reason: string;
+  createdAt: string;
+  createdByName: string;
+};
+
+// All admin point adjustments for a user, newest first.
+export async function fetchUserAdjustments(
+  userId: string,
+): Promise<AdminAdjustmentRow[]> {
+  const rows = await db.execute<AdminAdjustmentRow>(sql`
+    select
+      pa.id::text                            as "id",
+      pa.delta                               as "delta",
+      pa.reason                              as "reason",
+      pa.created_at                          as "createdAt",
+      p.display_name                         as "createdByName"
+    from public.point_adjustments pa
+    join public.profiles p on p.id = pa.created_by
+    where pa.user_id = ${userId}
+    order by pa.created_at desc
+  `);
+  return rows as unknown as AdminAdjustmentRow[];
+}
+
+export type AdminUserBasic = {
+  id: string;
+  displayName: string;
+  phone: string;
+  role: "player" | "admin";
+};
+
+export async function fetchUserBasic(
+  userId: string,
+): Promise<AdminUserBasic | null> {
+  const rows = await db.execute<AdminUserBasic>(sql`
+    select
+      p.id::text       as "id",
+      p.display_name   as "displayName",
+      p.phone          as "phone",
+      p.role::text     as "role"
+    from public.profiles p
+    where p.id = ${userId}
+    limit 1
+  `);
+  const list = rows as unknown as AdminUserBasic[];
+  return list[0] ?? null;
 }
 
 export async function fetchAdminStats(entryFee: number): Promise<AdminUserStats> {

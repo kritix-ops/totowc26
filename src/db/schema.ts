@@ -136,6 +136,11 @@ export const matchBets = pgTable(
     pointsBtts: smallint("points_btts"),
     pointsOver25: smallint("points_over_25"),
     pointsHt: smallint("points_ht"),
+    // Stake snapshots: the stake actually deducted when the user opted into
+    // the side bet. Null when the user did not opt in.
+    stakePaidBtts: smallint("stake_paid_btts"),
+    stakePaidOver25: smallint("stake_paid_over_25"),
+    stakePaidHt: smallint("stake_paid_ht"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -169,6 +174,9 @@ export const groupPredictions = pgTable(
       .references(() => teams.code, { onDelete: "cascade" }),
     predictedRank: smallint("predicted_rank").notNull(), // 1..4
     pointsEarned: smallint("points_earned"),
+    // Stake snapshot — settings.stakeGroupTeam at submit time. Frozen so
+    // a later setting change doesn't retroactively re-price a saved pick.
+    stakePaid: smallint("stake_paid").notNull().default(0),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -200,6 +208,8 @@ export const bracketPredictions = pgTable(
       .notNull()
       .references(() => teams.code, { onDelete: "cascade" }),
     pointsEarned: smallint("points_earned"),
+    // Stake snapshot — settings.stakeBracket<Slot> at submit time.
+    stakePaid: smallint("stake_paid").notNull().default(0),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -239,26 +249,55 @@ export const payments = pgTable(
 );
 
 // settings: singleton (id = 1)
+//
+// Two parallel pricing dimensions:
+//   scoring_*  → the GROSS payout when the user is correct (added to bank)
+//   stake_*    → the deduction taken from the user's bank at submit time
+// Net change on a correct bet  = scoring_* − stake_*
+// Net change on a wrong bet    = −stake_*
+//
+// The main 1/X/2 pick is intentionally free (stake_main = 0); every other
+// action costs. starting_bank seeds every user with the configured float.
 export const settings = pgTable("settings", {
   id: smallint("id").primaryKey().default(1),
   entryFeeIls: integer("entry_fee_ils").notNull().default(100),
   recipientPhone: text("recipient_phone").notNull(),
+  // Admin-controlled deep link to the pool's Paybox group. Null = fall
+  // back to the marketing site so the button is never dead.
+  payboxUrl: text("paybox_url"),
   betLockMinutes: smallint("bet_lock_minutes").notNull().default(5),
+  // Points bank
+  startingBank: smallint("starting_bank").notNull().default(100),
+  // Main bet (kept free — stake 0)
   scoringExact: smallint("scoring_exact").notNull().default(15),
   scoringOutcome: smallint("scoring_outcome").notNull().default(3),
-  scoringGroupPerfect: smallint("scoring_group_perfect").notNull().default(20),
-  scoringChampion: smallint("scoring_champion").notNull().default(25),
-  scoringRunnerUp: smallint("scoring_runner_up").notNull().default(15),
-  scoringThird: smallint("scoring_third").notNull().default(8),
-  scoringFourth: smallint("scoring_fourth").notNull().default(5),
+  stakeMain: smallint("stake_main").notNull().default(0),
+  // Group-stage predictions
+  scoringGroupTeam: smallint("scoring_group_team").notNull().default(3),
+  scoringGroupPerfect: smallint("scoring_group_perfect").notNull().default(8),
+  stakeGroupTeam: smallint("stake_group_team").notNull().default(2),
+  // Bracket: champion / runner-up / third / fourth
+  scoringChampion: smallint("scoring_champion").notNull().default(30),
+  scoringRunnerUp: smallint("scoring_runner_up").notNull().default(18),
+  scoringThird: smallint("scoring_third").notNull().default(10),
+  scoringFourth: smallint("scoring_fourth").notNull().default(7),
+  stakeBracketChampion: smallint("stake_bracket_champion").notNull().default(5),
+  stakeBracketRunnerUp: smallint("stake_bracket_runner_up").notNull().default(3),
+  stakeBracketThird: smallint("stake_bracket_third").notNull().default(2),
+  stakeBracketFourth: smallint("stake_bracket_fourth").notNull().default(2),
   // Per-match side bets
-  scoringBtts: smallint("scoring_btts").notNull().default(2),
-  scoringOver25: smallint("scoring_over_25").notNull().default(2),
-  scoringHtExact: smallint("scoring_ht_exact").notNull().default(5),
-  scoringHtOutcome: smallint("scoring_ht_outcome").notNull().default(2),
+  scoringBtts: smallint("scoring_btts").notNull().default(3),
+  scoringOver25: smallint("scoring_over_25").notNull().default(3),
+  scoringHtExact: smallint("scoring_ht_exact").notNull().default(8),
+  scoringHtOutcome: smallint("scoring_ht_outcome").notNull().default(5),
+  stakeBtts: smallint("stake_btts").notNull().default(1),
+  stakeOver25: smallint("stake_over_25").notNull().default(1),
+  stakeHt: smallint("stake_ht").notNull().default(2),
   // Tournament special bets
-  scoringTopScorer: smallint("scoring_top_scorer").notNull().default(20),
-  scoringFinalPenalties: smallint("scoring_final_penalties").notNull().default(10),
+  scoringTopScorer: smallint("scoring_top_scorer").notNull().default(25),
+  scoringFinalPenalties: smallint("scoring_final_penalties").notNull().default(13),
+  stakeTopScorer: smallint("stake_top_scorer").notNull().default(5),
+  stakeFinalPenalties: smallint("stake_final_penalties").notNull().default(3),
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
@@ -284,6 +323,8 @@ export const specialBets = pgTable(
     betType: specialBetTypeEnum("bet_type").notNull(),
     value: text("value").notNull(),
     pointsEarned: smallint("points_earned"),
+    // Stake snapshot — settings.stake<Type> at submit time.
+    stakePaid: smallint("stake_paid").notNull().default(0),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -310,6 +351,34 @@ export const tournamentResults = pgTable("tournament_results", {
     .notNull()
     .defaultNow(),
 });
+
+// point_adjustments: append-only audit log of admin-issued bank deltas.
+//
+// Rows are immutable: REVOKE UPDATE/DELETE in the SQL migration blocks
+// client-side edits. If an admin mis-types, they enter a corrective row.
+// `reason` is required; `delta` is non-zero and capped at ±500 per row to
+// protect against fat-finger entries (admin can split into multiple rows).
+export const pointAdjustments = pgTable(
+  "point_adjustments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => profiles.id, { onDelete: "cascade" }),
+    delta: integer("delta").notNull(),
+    reason: text("reason").notNull(),
+    createdBy: uuid("created_by")
+      .notNull()
+      .references(() => profiles.id, { onDelete: "restrict" }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    userIdx: index("point_adjustments_user_idx").on(t.userId),
+    createdAtIdx: index("point_adjustments_created_idx").on(t.createdAt),
+  }),
+);
 
 // sync_runs: audit log of every football-data sync attempt.
 export const syncRuns = pgTable(
@@ -352,5 +421,7 @@ export type NewMatchBet = typeof matchBets.$inferInsert;
 export type Payment = typeof payments.$inferSelect;
 export type Team = typeof teams.$inferSelect;
 export type Settings = typeof settings.$inferSelect;
+export type PointAdjustment = typeof pointAdjustments.$inferSelect;
+export type NewPointAdjustment = typeof pointAdjustments.$inferInsert;
 
 export const _useSql = sql; // re-export to silence unused if any

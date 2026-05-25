@@ -1,8 +1,10 @@
 import { notFound, redirect } from "next/navigation";
 import { getDictionary, hasLocale, type Locale } from "../dictionaries";
 import { getUser } from "@/lib/supabase/auth";
+import { getUserAccess } from "@/lib/access";
 import { getGroupsWithPredictions, getLiveStandings } from "@/db/queries";
 import { Card, SectionHeading } from "@/components/ui";
+import { PayGateBanner } from "@/components/PayGateBanner";
 import { localePath } from "@/lib/paths";
 import { GroupsEditor } from "./GroupsEditor";
 import { LiveStandings } from "./LiveStandings";
@@ -18,9 +20,10 @@ export default async function StandingsPage({
   const user = await getUser();
   if (!user) redirect(localePath(locale, "login"));
 
-  const [predictionGroups, liveGroups] = await Promise.all([
+  const [predictionGroups, liveGroups, access] = await Promise.all([
     getGroupsWithPredictions(user.id),
     getLiveStandings(),
+    getUserAccess(user.id),
   ]);
   const isHebrew = locale === "he";
 
@@ -46,12 +49,18 @@ export default async function StandingsPage({
               : "Order each group the way you predict it will end."}
           </p>
         </header>
+        {!access.canEdit && <PayGateBanner locale={locale} dict={dict} />}
         {predictionGroups.length === 0 ? (
           <Card className="p-6 text-center text-on-surface-variant">
             {isHebrew ? "אין עדיין בתים" : "No groups yet"}
           </Card>
         ) : (
-          <GroupsEditor groups={predictionGroups} locale={locale} dict={dict} />
+          <GroupsEditor
+            groups={predictionGroups}
+            locale={locale}
+            dict={dict}
+            canEdit={access.canEdit}
+          />
         )}
       </section>
     </section>

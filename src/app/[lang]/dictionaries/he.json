@@ -15,7 +15,33 @@
     "kickoffIn": "פתיחה בעוד",
     "locksIn": "נסגר בעוד",
     "points": "נק'",
-    "pointsLong": "נקודות"
+    "pointsLong": "נקודות",
+    "bank": "בנק",
+    "bankShort": "בנק"
+  },
+  "bank": {
+    "label": "בנק נקודות",
+    "balance": "יתרה",
+    "starting": "התחלתי",
+    "stakesPaid": "השקעות",
+    "payoutsEarned": "תשלומים",
+    "adjustments": "התאמות אדמין",
+    "cost": "עלות",
+    "costAfter": "יתרה לאחר",
+    "freeAction": "חינם",
+    "insufficient": "אין מספיק נקודות",
+    "needed": "חסר",
+    "stakeRefund": "החזר השקעה",
+    "stakeCharge": "השקעה",
+    "history": "היסטוריית בנק",
+    "noTransactions": "עוד לא בוצעו תנועות בבנק",
+    "starts": "התחלת טורניר",
+    "bankTitle": "ההימור עולה",
+    "bankSubtitle": "סכום זה ייגרע מהבנק שלך. אם תצדק - תקבל את התשלום המלא חזרה.",
+    "confirm": "אשר וחייב",
+    "cancel": "ביטול",
+    "tooltipFree": "חינם — לא יורד מהבנק",
+    "tooltipCost": "יורד מהבנק בעת השמירה"
   },
   "nav": {
     "home": "ראשי",
@@ -28,7 +54,8 @@
     "dashboard": "דאשבורד",
     "predictions": "ניחושים",
     "leaderboard": "טבלה",
-    "profile": "פרופיל"
+    "profile": "פרופיל",
+    "pay": "תשלום"
   },
   "landing": {
     "countdownLabel": "המונדיאל מתחיל בעוד",
@@ -57,7 +84,28 @@
     "copyNumber": "העתק מספר",
     "iPaid": "שילמתי",
     "statusPending": "ממתין לאישור מנהל",
-    "statusApproved": "שולם, בהצלחה במונדיאל"
+    "statusApproved": "שולם, בהצלחה במונדיאל",
+    "payboxOpen": "פתח Paybox",
+    "payboxHelp": "פתח את Paybox, השלם תשלום של 100 ש\"ח, וחזור לסמן 'שילמתי'."
+  },
+  "payGate": {
+    "title": "התשלום שלך עדיין לא אושר",
+    "subtitle": "אתה יכול לצפות בכל המסכים, אבל הימורים יפעלו רק אחרי שתשלם ותקבל אישור.",
+    "cta": "השלם תשלום"
+  },
+  "pay": {
+    "title": "תשלום השתתפות",
+    "subtitle": "100 ש\"ח דרך קבוצת ה-Paybox של הטוטו. אחרי שתשלם, סמן 'שילמתי' והמנהל יאשר.",
+    "amountLabel": "סכום",
+    "groupLabel": "קבוצת Paybox",
+    "openGroup": "פתח את קבוצת Paybox",
+    "iPaid": "שילמתי",
+    "statusPaid": "התשלום שלך אושר. בהצלחה במונדיאל!",
+    "statusPending": "התשלום שלך התקבל וממתין לאישור מנהל.",
+    "statusRejected": "התשלום שלך נדחה. פנה למנהל הטוטו.",
+    "statusNotPaid": "טרם שילמת.",
+    "afterPayHint": "אחרי שתעביר, חזור לכאן ותסמן 'שילמתי'. המנהל יראה ויאשר.",
+    "previousMethod": "התשלום הקודם בוצע דרך"
   },
   "dashboard": {
     "welcome": "מה המצב",
