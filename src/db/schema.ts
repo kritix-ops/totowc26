@@ -8,6 +8,7 @@ import {
   integer,
   boolean,
   timestamp,
+  date,
   jsonb,
   uniqueIndex,
   index,
@@ -42,6 +43,44 @@ export const bracketSlotEnum = pgEnum("bracket_slot", [
   "runner_up",
   "third",
   "fourth",
+]);
+
+// Custom-bets system enums. See _plans/2026-05-25-matchday-custom-bets-system.md.
+//
+// answer_type    — shape of the player's answer. Drives input widget + JSONB
+//                  validation. yes_no / number / multi_choice / free_text.
+// bet_scope      — what the bet attaches to. Drives which player surface it
+//                  shows up on (matchday page vs tournament page vs group page).
+// bet_status     — lifecycle. draft is admin-only; open is pickable; locked
+//                  has closed for picks but is not yet graded; graded is
+//                  resolved; reversed re-opens a wrong grade; cancelled voids.
+// grading_source — who/what fills resolved_value. auto_balldontlie is wired
+//                  but stubbed until BALLDONTLIE_ENABLED flips (see §6.5).
+export const answerTypeEnum = pgEnum("answer_type", [
+  "yes_no",
+  "number",
+  "multi_choice",
+  "free_text",
+]);
+export const betScopeEnum = pgEnum("bet_scope", [
+  "match",
+  "day",
+  "stage",
+  "group",
+  "tournament",
+]);
+export const betStatusEnum = pgEnum("bet_status", [
+  "draft",
+  "open",
+  "locked",
+  "graded",
+  "reversed",
+  "cancelled",
+]);
+export const gradingSourceEnum = pgEnum("grading_source", [
+  "auto_balldontlie",
+  "auto_football_data",
+  "manual",
 ]);
 
 // profiles: extends Supabase auth.users (FK added via raw SQL migration)
@@ -298,6 +337,17 @@ export const settings = pgTable("settings", {
   scoringFinalPenalties: smallint("scoring_final_penalties").notNull().default(13),
   stakeTopScorer: smallint("stake_top_scorer").notNull().default(5),
   stakeFinalPenalties: smallint("stake_final_penalties").notNull().default(3),
+  // Custom-bets defaults: stake / payout per answer type. Admin can override
+  // per bet at creation time; the override snapshots onto custom_bets so a
+  // later settings tweak does not retroactively re-price an existing bet.
+  stakeYesNo:        smallint("stake_yes_no").notNull().default(1),
+  payoutYesNo:       smallint("payout_yes_no").notNull().default(3),
+  stakeNumber:       smallint("stake_number").notNull().default(2),
+  payoutNumber:      smallint("payout_number").notNull().default(6),
+  stakeMultiChoice:  smallint("stake_multi_choice").notNull().default(2),
+  payoutMultiChoice: smallint("payout_multi_choice").notNull().default(5),
+  stakeFreeText:     smallint("stake_free_text").notNull().default(3),
+  payoutFreeText:    smallint("payout_free_text").notNull().default(10),
   // Prize split for the top 4 finishers (% of the pot). Default 50/30/15/5.
   // Sum must be <= 100 (CHECK constraint added in migration). Each prize
   // is computed dynamically as floor(pot * pct / 100).
@@ -387,6 +437,194 @@ export const pointAdjustments = pgTable(
   }),
 );
 
+// matchdays: calendar-day container (Asia/Jerusalem) used to group per-day
+// custom bets. Materialised on demand — created the first time the admin
+// opens a bet for that date. The PG `date` type is timezone-less; the
+// server derives the date from `matches.kickoff_at AT TIME ZONE 'Asia/Jerusalem'`
+// before insert so a 23:00 IL kickoff and a 01:00 IL kickoff land on
+// different rows correctly.
+export const matchdays = pgTable(
+  "matchdays",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    date: date("date").notNull(),
+    label: text("label"),
+    // Default lock cutoff for any bet that doesn't set its own lockAt.
+    // Server picks 5 min before the earliest kickoff of the day at the
+    // moment the matchday is materialised.
+    defaultLockAt: timestamp("default_lock_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    dateUniq: uniqueIndex("matchdays_date_uniq").on(t.date),
+  }),
+);
+
+// custom_bets: admin-authored bet, the unit of betting in the new system.
+//
+// Scope (exactly one anchor key is non-null per scope):
+//   match       → matchdayId + matchId both set
+//   day         → matchdayId set, matchId null
+//   stage       → stage set (e.g. 'qf', 'final')
+//   group       → groupId set (e.g. 'A')
+//   tournament  → all anchor keys null
+// A DB-level CHECK enforces this in the migration.
+//
+// Answer shape (`answer_type` + `answer_config`):
+//   yes_no       → answer is { type:'yes_no', value: boolean }
+//   number       → answer is { type:'number', value: number }, config holds
+//                  optional min/max/unit
+//   multi_choice → answer is { type:'multi_choice', value: string }, config
+//                  holds { options: [{ value, labelHe, labelEn }] }
+//   free_text    → answer is { type:'free_text', value: string }, config
+//                  holds optional placeholders
+//
+// Pricing: stake_snapshot / payout_snapshot copy the settings default at
+// creation, then freeze. Admin can override at create time; future settings
+// changes never re-price an existing bet.
+//
+// Grading: see _plans/2026-05-25-matchday-custom-bets-system.md §6.
+// `auto_balldontlie` is supported in schema but stubbed until the API key
+// is in env (§6.5). `manual` is the safety valve for everything balldontlie
+// can't grade.
+export const customBets = pgTable(
+  "custom_bets",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+
+    // Scoping
+    scope: betScopeEnum("scope").notNull(),
+    matchdayId: uuid("matchday_id").references(() => matchdays.id, {
+      onDelete: "cascade",
+    }),
+    matchId: uuid("match_id").references(() => matches.id, {
+      onDelete: "cascade",
+    }),
+    stage: stageEnum("stage"),
+    groupId: varchar("group_id", { length: 2 }).references(() => groups.id),
+
+    // Player-facing copy. Both languages required so we never show a
+    // half-translated bet to the friends who picked the other locale.
+    questionHe: text("question_he").notNull(),
+    questionEn: text("question_en").notNull(),
+    // Mandatory: a one-sentence rule that defines exactly what counts.
+    // This is the contract bettors stake against. Empty strings rejected
+    // at the DB level via a CHECK constraint in the migration.
+    gradingRuleHe: text("grading_rule_he").notNull(),
+    gradingRuleEn: text("grading_rule_en").notNull(),
+
+    // Answer shape
+    answerType: answerTypeEnum("answer_type").notNull(),
+    answerConfig: jsonb("answer_config").notNull().default({}),
+
+    // Pricing snapshot
+    stakeSnapshot: smallint("stake_snapshot").notNull(),
+    payoutSnapshot: smallint("payout_snapshot").notNull(),
+
+    // Grading config
+    gradingSource: gradingSourceEnum("grading_source").notNull(),
+    gradingConfig: jsonb("grading_config"),
+    resolvedValue: jsonb("resolved_value"),
+
+    // Lifecycle
+    status: betStatusEnum("status").notNull().default("draft"),
+    lockAt: timestamp("lock_at", { withTimezone: true }).notNull(),
+    publishedAt: timestamp("published_at", { withTimezone: true }),
+    gradedAt: timestamp("graded_at", { withTimezone: true }),
+    gradedBy: uuid("graded_by").references(() => profiles.id, {
+      onDelete: "set null",
+    }),
+
+    // Bookkeeping
+    createdBy: uuid("created_by")
+      .notNull()
+      .references(() => profiles.id, { onDelete: "restrict" }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    scopeIdx: index("custom_bets_scope_idx").on(t.scope),
+    matchdayIdx: index("custom_bets_matchday_idx").on(t.matchdayId),
+    matchIdx: index("custom_bets_match_idx").on(t.matchId),
+    statusIdx: index("custom_bets_status_idx").on(t.status),
+    lockIdx: index("custom_bets_lock_idx").on(t.lockAt),
+  }),
+);
+
+// user_custom_bet_picks: one row per (user, custom_bet). Answer carried as
+// JSONB so we keep all four answer types in a single column without future
+// schema work. stakePaid snapshots customBets.stakeSnapshot at submit time
+// and is refunded atomically when the user edits / clears the pick.
+export const userCustomBetPicks = pgTable(
+  "user_custom_bet_picks",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => profiles.id, { onDelete: "cascade" }),
+    customBetId: uuid("custom_bet_id")
+      .notNull()
+      .references(() => customBets.id, { onDelete: "cascade" }),
+    answer: jsonb("answer").notNull(),
+    stakePaid: smallint("stake_paid").notNull(),
+    pointsEarned: smallint("points_earned"),
+    wasCorrect: boolean("was_correct"),
+    locked: boolean("locked").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    uniqUserBet: uniqueIndex("user_custom_bet_picks_uniq").on(
+      t.userId,
+      t.customBetId,
+    ),
+    userIdx: index("user_custom_bet_picks_user_idx").on(t.userId),
+    betIdx: index("user_custom_bet_picks_bet_idx").on(t.customBetId),
+  }),
+);
+
+// bet_grading_audit: append-only log of every grade / reverse / cancel
+// performed on a custom_bets row. The migration REVOKEs UPDATE/DELETE so
+// the trail is physically immutable; corrections happen as new rows. This
+// pairs with the reversal flow (§6.4) — when admin reverses a wrong grade,
+// the original row stays put and a new row with action='reverse' records
+// who, when, and why.
+export const betGradingAudit = pgTable(
+  "bet_grading_audit",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    customBetId: uuid("custom_bet_id")
+      .notNull()
+      .references(() => customBets.id, { onDelete: "cascade" }),
+    action: text("action").notNull(), // 'grade' | 'reverse' | 'cancel'
+    previousStatus: betStatusEnum("previous_status"),
+    newStatus: betStatusEnum("new_status").notNull(),
+    previousResolvedValue: jsonb("previous_resolved_value"),
+    newResolvedValue: jsonb("new_resolved_value"),
+    reason: text("reason").notNull(),
+    performedBy: uuid("performed_by")
+      .notNull()
+      .references(() => profiles.id, { onDelete: "restrict" }),
+    performedAt: timestamp("performed_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    betIdx: index("bet_grading_audit_bet_idx").on(t.customBetId),
+    timeIdx: index("bet_grading_audit_time_idx").on(t.performedAt),
+  }),
+);
+
 // sync_runs: audit log of every football-data sync attempt.
 export const syncRuns = pgTable(
   "sync_runs",
@@ -430,5 +668,13 @@ export type Team = typeof teams.$inferSelect;
 export type Settings = typeof settings.$inferSelect;
 export type PointAdjustment = typeof pointAdjustments.$inferSelect;
 export type NewPointAdjustment = typeof pointAdjustments.$inferInsert;
+export type Matchday = typeof matchdays.$inferSelect;
+export type NewMatchday = typeof matchdays.$inferInsert;
+export type CustomBet = typeof customBets.$inferSelect;
+export type NewCustomBet = typeof customBets.$inferInsert;
+export type UserCustomBetPick = typeof userCustomBetPicks.$inferSelect;
+export type NewUserCustomBetPick = typeof userCustomBetPicks.$inferInsert;
+export type BetGradingAudit = typeof betGradingAudit.$inferSelect;
+export type NewBetGradingAudit = typeof betGradingAudit.$inferInsert;
 
 export const _useSql = sql; // re-export to silence unused if any

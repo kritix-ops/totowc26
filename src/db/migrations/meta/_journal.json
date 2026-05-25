@@ -64,6 +64,13 @@
       "when": 1780058000000,
       "tag": "0008_prize_split",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1780230800000,
+      "tag": "0009_matchday_custom_bets",
+      "breakpoints": true
     }
   ]
 }
