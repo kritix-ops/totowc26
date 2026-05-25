@@ -11,6 +11,8 @@ import {
   tournamentResults,
   syncRuns,
   groupPredictions,
+  customBets,
+  userCustomBetPicks,
 } from "@/db/schema";
 import {
   fetchWorldCupMatches,
@@ -46,6 +48,7 @@ export type SyncReport = {
   scoredMatches: number;
   scoredSpecials: number;
   scoredGroupPredictions: number;
+  scoredAutoCustomBets: number;
   unknownTeams: string[];
 };
 
@@ -131,6 +134,7 @@ async function _runSync(season: number): Promise<SyncReport> {
     scoredMatches: 0,
     scoredSpecials: 0,
     scoredGroupPredictions: 0,
+    scoredAutoCustomBets: 0,
     unknownTeams: [],
   };
 
@@ -204,6 +208,12 @@ async function _runSync(season: number): Promise<SyncReport> {
   // Tournament-wide special bets (top scorer, final penalties). Idempotent —
   // re-running rescores everyone against the latest tournament_results row.
   report.scoredSpecials = await scoreSpecialBets();
+
+  // Auto-grade any custom_bets with grading_source='auto_football_data'
+  // whose underlying matches are now final. Idempotent: only touches bets
+  // in (open, locked) status. Skipped bets stay in the manual grading
+  // queue without raising errors.
+  report.scoredAutoCustomBets = await scoreAutoCustomBets();
 
   return report;
 }
@@ -545,6 +555,328 @@ export async function scoreSpecialBets(): Promise<number> {
   }
 
   return scored;
+}
+
+// ---------- Auto-grading custom_bets from football-data ----------
+//
+// Sister pass to scoreFinalMatches / scoreGroupPredictions / scoreSpecialBets:
+// finds every custom_bets row that opted into auto_football_data and is
+// still in (open, locked) state, then grades it deterministically from
+// the matches table. The function is idempotent — graded rows are skipped
+// on subsequent runs because we only touch status in ('open', 'locked').
+//
+// Data-readiness rules per scope:
+//   match scope → matches.status = 'final'
+//   day   scope → every match on that Asia/Jerusalem date is final
+//   stage scope → every match in that stage is final
+//   group scope → every group-stage match in that group is final
+//   tournament  → not auto-graded here (would need "every match final"
+//                 which is roughly equivalent to scoreSpecialBets's
+//                 trigger). Left for manual / future iteration.
+//
+// Field semantics: the resolved value's TYPE has to match the bet's
+// answer_type or the bet is skipped (admin authored an unwhitelisted
+// combo). Combinations we support:
+//   answer_type=number       + field in {home_score, away_score,
+//                                        total_goals, ht_total}
+//   answer_type=multi_choice + field=winner   → values "1" | "X" | "2"
+//   answer_type=multi_choice + field=ht_score → values "{home}-{away}"
+//   answer_type=yes_no       + field=went_to_penalties
+//
+// Anything else stays in the manual queue. Mismatches log a [grading skipped]
+// warn so admin sees why a bet didn't auto-resolve.
+type AutoFootballField =
+  | "home_score"
+  | "away_score"
+  | "winner"
+  | "ht_score"
+  | "total_goals"
+  | "ht_total"
+  | "went_to_penalties";
+
+type CandidateBet = {
+  id: string;
+  scope: "match" | "day" | "stage" | "group" | "tournament";
+  matchdayId: string | null;
+  matchdayDate: string | null;
+  matchId: string | null;
+  stage: string | null;
+  groupId: string | null;
+  questionEn: string;
+  answerType: "yes_no" | "number" | "multi_choice" | "free_text";
+  payoutSnapshot: number;
+  gradingConfig: { source: string; field?: string } | null;
+};
+
+export async function scoreAutoCustomBets(): Promise<number> {
+  // 1) Candidate set. We pull matchday.date so the day-scope readiness
+  // query can run without a second roundtrip.
+  const candidateRows = await db.execute<CandidateBet>(drizzleSql`
+    select
+      cb.id::text                       as "id",
+      cb.scope::text                    as "scope",
+      cb.matchday_id::text              as "matchdayId",
+      md.date::text                     as "matchdayDate",
+      cb.match_id::text                 as "matchId",
+      cb.stage::text                    as "stage",
+      cb.group_id                       as "groupId",
+      cb.question_en                    as "questionEn",
+      cb.answer_type::text              as "answerType",
+      cb.payout_snapshot                as "payoutSnapshot",
+      cb.grading_config                 as "gradingConfig"
+    from public.custom_bets cb
+    left join public.matchdays md on md.id = cb.matchday_id
+    where cb.status in ('open', 'locked')
+      and cb.grading_source = 'auto_football_data'
+  `);
+  const candidates = candidateRows as unknown as CandidateBet[];
+
+  let scored = 0;
+  for (const bet of candidates) {
+    const field = bet.gradingConfig?.field as AutoFootballField | undefined;
+    if (!field) {
+      console.warn("[grading skipped]", {
+        betId: bet.id,
+        reason: "no_field",
+        question: bet.questionEn,
+      });
+      continue;
+    }
+
+    // 2) Compute the resolved value if the data is ready.
+    const resolved = await tryResolveFromFootballData(bet, field);
+    if (resolved === "not_ready") continue;
+    if (resolved === "skip") {
+      console.warn("[grading skipped]", {
+        betId: bet.id,
+        scope: bet.scope,
+        field,
+        answerType: bet.answerType,
+        reason: "type_mismatch_or_unsupported_combo",
+      });
+      continue;
+    }
+
+    // 3) Grade everyone's pick + flip status. We do this inside a txn
+    // per bet so a failed pick update rolls back the bet's status flip.
+    try {
+      const { picksGraded, winners } = await db.transaction(async (tx) => {
+        const picks = await tx
+          .select({
+            id: userCustomBetPicks.id,
+            answer: userCustomBetPicks.answer,
+          })
+          .from(userCustomBetPicks)
+          .where(eq(userCustomBetPicks.customBetId, bet.id));
+
+        let wins = 0;
+        for (const pk of picks) {
+          const correct = isAutoPickCorrect(bet.answerType, pk.answer as unknown, resolved);
+          if (correct) wins += 1;
+          await tx
+            .update(userCustomBetPicks)
+            .set({
+              pointsEarned: correct ? bet.payoutSnapshot : 0,
+              wasCorrect: correct,
+              locked: true,
+              updatedAt: new Date(),
+            })
+            .where(eq(userCustomBetPicks.id, pk.id));
+        }
+
+        await tx
+          .update(customBets)
+          .set({
+            status: "graded",
+            resolvedValue: resolved,
+            gradedAt: new Date(),
+            // graded_by stays null — this was a system-driven grade. The
+            // FK is `on delete set null` so the column accepts NULL.
+            updatedAt: new Date(),
+          })
+          .where(eq(customBets.id, bet.id));
+
+        return { picksGraded: picks.length, winners: wins };
+      });
+
+      console.info("[grading auto]", {
+        betId: bet.id,
+        scope: bet.scope,
+        field,
+        resolved,
+        picksGraded,
+        winners,
+      });
+      scored += 1;
+    } catch (err) {
+      // One bad row should not poison the whole sync run. Log and move on.
+      console.error("[grading auto] failed:", { betId: bet.id, err });
+    }
+  }
+
+  return scored;
+}
+
+// Resolve the bet's value from the matches table.
+//
+// Returns:
+//   "not_ready"  – the underlying matches are not all final yet. Caller
+//                  skips silently; we'll try again on the next sync.
+//   "skip"       – the answer_type / field combo isn't supported. Caller
+//                  logs a warning so admin can re-author or grade manually.
+//   ResolvedValue – ready to grade.
+type ResolvedNumber = { type: "number"; value: number };
+type ResolvedMulti  = { type: "multi_choice"; value: string };
+type ResolvedYesNo  = { type: "yes_no"; value: boolean };
+type Resolved = ResolvedNumber | ResolvedMulti | ResolvedYesNo;
+
+async function tryResolveFromFootballData(
+  bet: CandidateBet,
+  field: AutoFootballField,
+): Promise<Resolved | "not_ready" | "skip"> {
+  if (bet.scope === "match") return resolveMatchScope(bet, field);
+  if (bet.scope === "day")   return resolveDayScope(bet, field);
+  // stage / group / tournament scopes are not auto-graded here yet — they
+  // need "all matches in scope final" semantics which add complexity
+  // (e.g. tournament also depends on knock-out brackets). Left as manual
+  // grading for v1.
+  return "skip";
+}
+
+async function resolveMatchScope(
+  bet: CandidateBet,
+  field: AutoFootballField,
+): Promise<Resolved | "not_ready" | "skip"> {
+  if (!bet.matchId) return "skip";
+  const [m] = await db
+    .select({
+      status: matches.status,
+      homeScore: matches.homeScore,
+      awayScore: matches.awayScore,
+      htHomeScore: matches.htHomeScore,
+      htAwayScore: matches.htAwayScore,
+      wentToPenalties: matches.wentToPenalties,
+    })
+    .from(matches)
+    .where(eq(matches.id, bet.matchId))
+    .limit(1);
+  if (!m) return "skip";
+  if (m.status !== "final" || m.homeScore === null || m.awayScore === null) {
+    return "not_ready";
+  }
+
+  // Coerce field → resolved value, then check the answer_type matches.
+  return coerceMatchField(bet.answerType, field, {
+    homeScore: m.homeScore,
+    awayScore: m.awayScore,
+    htHomeScore: m.htHomeScore,
+    htAwayScore: m.htAwayScore,
+    wentToPenalties: m.wentToPenalties,
+  });
+}
+
+async function resolveDayScope(
+  bet: CandidateBet,
+  field: AutoFootballField,
+): Promise<Resolved | "not_ready" | "skip"> {
+  if (!bet.matchdayDate) return "skip";
+
+  // Day-scope only makes sense for fields that aggregate cleanly across
+  // multiple matches. Anything per-match (winner / ht_score / one team's
+  // score / went_to_penalties) doesn't have a natural aggregation, so we
+  // skip it back to manual.
+  const aggregable: AutoFootballField[] = ["total_goals", "ht_total"];
+  if (!aggregable.includes(field)) return "skip";
+  if (bet.answerType !== "number") return "skip";
+
+  // Readiness: every match that day must be final.
+  const dayRows = await db.execute<{
+    total_matches: number;
+    final_matches: number;
+    sum_total_goals: number;
+    sum_ht_total: number;
+  }>(drizzleSql`
+    select
+      count(*)::int                                              as total_matches,
+      count(*) filter (where m.status = 'final'
+                             and m.home_score is not null
+                             and m.away_score is not null)::int  as final_matches,
+      coalesce(sum(coalesce(m.home_score, 0) + coalesce(m.away_score, 0))
+        filter (where m.status = 'final'), 0)::int               as sum_total_goals,
+      coalesce(sum(coalesce(m.ht_home_score, 0) + coalesce(m.ht_away_score, 0))
+        filter (where m.status = 'final'), 0)::int               as sum_ht_total
+    from public.matches m
+    where (m.kickoff_at at time zone 'Asia/Jerusalem')::date = ${bet.matchdayDate}::date
+  `);
+  const r = (dayRows as unknown as Array<{
+    total_matches: number;
+    final_matches: number;
+    sum_total_goals: number;
+    sum_ht_total: number;
+  }>)[0];
+  if (!r || r.total_matches === 0) return "skip";
+  if (r.final_matches < r.total_matches) return "not_ready";
+
+  const value =
+    field === "total_goals" ? Number(r.sum_total_goals) : Number(r.sum_ht_total);
+  return { type: "number", value };
+}
+
+function coerceMatchField(
+  answerType: "yes_no" | "number" | "multi_choice" | "free_text",
+  field: AutoFootballField,
+  m: {
+    homeScore: number;
+    awayScore: number;
+    htHomeScore: number | null;
+    htAwayScore: number | null;
+    wentToPenalties: boolean | null;
+  },
+): Resolved | "skip" {
+  switch (field) {
+    case "home_score":
+      return answerType === "number"
+        ? { type: "number", value: m.homeScore }
+        : "skip";
+    case "away_score":
+      return answerType === "number"
+        ? { type: "number", value: m.awayScore }
+        : "skip";
+    case "total_goals":
+      return answerType === "number"
+        ? { type: "number", value: m.homeScore + m.awayScore }
+        : "skip";
+    case "ht_total":
+      if (answerType !== "number") return "skip";
+      if (m.htHomeScore === null || m.htAwayScore === null) return "skip";
+      return { type: "number", value: m.htHomeScore + m.htAwayScore };
+    case "winner":
+      return answerType === "multi_choice"
+        ? { type: "multi_choice", value: outcome(m.homeScore, m.awayScore) }
+        : "skip";
+    case "ht_score":
+      if (answerType !== "multi_choice") return "skip";
+      if (m.htHomeScore === null || m.htAwayScore === null) return "skip";
+      return {
+        type: "multi_choice",
+        value: `${m.htHomeScore}-${m.htAwayScore}`,
+      };
+    case "went_to_penalties":
+      return answerType === "yes_no"
+        ? { type: "yes_no", value: m.wentToPenalties === true }
+        : "skip";
+  }
+}
+
+function isAutoPickCorrect(
+  answerType: "yes_no" | "number" | "multi_choice" | "free_text",
+  pickAnswer: unknown,
+  resolved: Resolved,
+): boolean {
+  if (!pickAnswer || typeof pickAnswer !== "object") return false;
+  const a = pickAnswer as { type?: string; value?: unknown };
+  if (a.type !== answerType || a.type !== resolved.type) return false;
+  return a.value === resolved.value;
 }
 
 // Lightweight typing helper for the `FDMatch` consumer above. Keeps the
