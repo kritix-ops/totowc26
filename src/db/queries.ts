@@ -1390,6 +1390,119 @@ export async function getPlayDayDetail(
   };
 }
 
+// Tournament + stage bets for /play/tournament. We expose `stage` so the
+// page can group bets under "Group stage", "QF", "Final", etc. Bets with
+// scope='tournament' have stage=null and render in their own bucket.
+export type TournamentPlayBetRow = {
+  id: string;
+  scope: "tournament" | "stage";
+  stage: "group" | "r32" | "r16" | "qf" | "sf" | "third_place" | "final" | null;
+  questionHe: string;
+  questionEn: string;
+  gradingRuleHe: string;
+  gradingRuleEn: string;
+  answerType: "yes_no" | "number" | "multi_choice" | "free_text";
+  answerConfig: unknown;
+  stakeSnapshot: number;
+  payoutSnapshot: number;
+  lockAt: string;
+  status: "open" | "locked";
+  myAnswer: unknown | null;
+  myStakePaid: number | null;
+};
+
+export async function getTournamentPlayBets(
+  userId: string,
+): Promise<TournamentPlayBetRow[]> {
+  const rows = await db.execute<TournamentPlayBetRow>(sql`
+    select
+      cb.id::text                                 as "id",
+      cb.scope::text                              as "scope",
+      cb.stage::text                              as "stage",
+      cb.question_he                              as "questionHe",
+      cb.question_en                              as "questionEn",
+      cb.grading_rule_he                          as "gradingRuleHe",
+      cb.grading_rule_en                          as "gradingRuleEn",
+      cb.answer_type::text                        as "answerType",
+      cb.answer_config                            as "answerConfig",
+      cb.stake_snapshot                           as "stakeSnapshot",
+      cb.payout_snapshot                          as "payoutSnapshot",
+      cb.lock_at                                  as "lockAt",
+      cb.status::text                             as "status",
+      pk.answer                                   as "myAnswer",
+      pk.stake_paid                               as "myStakePaid"
+    from public.custom_bets cb
+    left join public.user_custom_bet_picks pk
+      on pk.custom_bet_id = cb.id and pk.user_id = ${userId}
+    where cb.status in ('open', 'locked')
+      and cb.scope in ('tournament', 'stage')
+    order by
+      case cb.stage
+        when 'group'        then 1
+        when 'r32'          then 2
+        when 'r16'          then 3
+        when 'qf'           then 4
+        when 'sf'           then 5
+        when 'third_place'  then 6
+        when 'final'        then 7
+        else                     8
+      end asc nulls last,
+      cb.lock_at asc
+  `);
+  return rows as unknown as TournamentPlayBetRow[];
+}
+
+// Per-group bets for /play/groups. Returned with the group's display
+// order so the UI can present panels in A..H sequence.
+export type GroupPlayBetRow = {
+  id: string;
+  groupId: string;
+  groupDisplayOrder: number;
+  questionHe: string;
+  questionEn: string;
+  gradingRuleHe: string;
+  gradingRuleEn: string;
+  answerType: "yes_no" | "number" | "multi_choice" | "free_text";
+  answerConfig: unknown;
+  stakeSnapshot: number;
+  payoutSnapshot: number;
+  lockAt: string;
+  status: "open" | "locked";
+  myAnswer: unknown | null;
+  myStakePaid: number | null;
+};
+
+export async function getGroupPlayBets(
+  userId: string,
+): Promise<GroupPlayBetRow[]> {
+  const rows = await db.execute<GroupPlayBetRow>(sql`
+    select
+      cb.id::text                                 as "id",
+      cb.group_id                                 as "groupId",
+      g.display_order                             as "groupDisplayOrder",
+      cb.question_he                              as "questionHe",
+      cb.question_en                              as "questionEn",
+      cb.grading_rule_he                          as "gradingRuleHe",
+      cb.grading_rule_en                          as "gradingRuleEn",
+      cb.answer_type::text                        as "answerType",
+      cb.answer_config                            as "answerConfig",
+      cb.stake_snapshot                           as "stakeSnapshot",
+      cb.payout_snapshot                          as "payoutSnapshot",
+      cb.lock_at                                  as "lockAt",
+      cb.status::text                             as "status",
+      pk.answer                                   as "myAnswer",
+      pk.stake_paid                               as "myStakePaid"
+    from public.custom_bets cb
+    join public.groups g on g.id = cb.group_id
+    left join public.user_custom_bet_picks pk
+      on pk.custom_bet_id = cb.id and pk.user_id = ${userId}
+    where cb.status in ('open', 'locked')
+      and cb.scope = 'group'
+    order by g.display_order asc, cb.lock_at asc
+  `);
+  return rows as unknown as GroupPlayBetRow[];
+}
+
 // Counters for the pinned cards on /play. Cheap — single index scan each.
 export async function getOpenTournamentBetCount(): Promise<number> {
   const rows = await db.execute<{ n: number }>(sql`
