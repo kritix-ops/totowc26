@@ -8,6 +8,7 @@ import {
   RefreshCw,
   ChevronRight,
   Coins,
+  Sparkles,
 } from "lucide-react";
 import { eq } from "drizzle-orm";
 import { hasLocale, type Locale } from "../dictionaries";
@@ -90,6 +91,12 @@ export default async function AdminPage({
           path="admin/settings/scoring"
           icon={<Coins className="h-5 w-5" strokeWidth={1.75} />}
           label={isHebrew ? "ניקוד ובנק" : "Scoring & bank"}
+        />
+        <SectionLink
+          locale={locale}
+          path="admin/bets"
+          icon={<Sparkles className="h-5 w-5" strokeWidth={1.75} />}
+          label={isHebrew ? "הימורים מותאמים" : "Custom bets"}
         />
         <SectionLink
           locale={locale}
