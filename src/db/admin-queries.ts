@@ -180,15 +180,111 @@ export async function listCustomBets(opts: {
   return rows as unknown as AdminCustomBetRow[];
 }
 
-// One-bet detail for the edit / grade view.
-export async function getAdminCustomBet(
+// One-bet detail for the edit / grade view. Returns the bet row joined
+// with every pick + the player's display name so the grade page can
+// render the picks table without a second roundtrip. answerConfig +
+// resolvedValue + answer are returned as raw JSONB; caller casts via
+// the AnswerConfig / ResolvedValue / PickAnswer types from
+// src/lib/bets/types.ts.
+export type AdminCustomBetPickRow = {
+  pickId: string;
+  userId: string;
+  displayName: string;
+  answer: unknown;
+  stakePaid: number;
+  pointsEarned: number | null;
+  wasCorrect: boolean | null;
+  locked: boolean;
+  createdAt: string;
+};
+
+export type AdminCustomBetDetail = {
+  id: string;
+  scope: "match" | "day" | "stage" | "group" | "tournament";
+  status: "draft" | "open" | "locked" | "graded" | "reversed" | "cancelled";
+  questionHe: string;
+  questionEn: string;
+  gradingRuleHe: string;
+  gradingRuleEn: string;
+  answerType: "yes_no" | "number" | "multi_choice" | "free_text";
+  answerConfig: unknown;
+  stakeSnapshot: number;
+  payoutSnapshot: number;
+  gradingSource: "auto_balldontlie" | "auto_football_data" | "manual";
+  gradingConfig: unknown;
+  resolvedValue: unknown;
+  lockAt: string;
+  publishedAt: string | null;
+  gradedAt: string | null;
+  matchdayDate: string | null;
+  matchLabel: string | null;
+  stage: string | null;
+  groupId: string | null;
+  createdAt: string;
+  picks: AdminCustomBetPickRow[];
+};
+
+export async function getAdminCustomBetDetail(
   id: string,
-): Promise<AdminCustomBetRow | null> {
-  const rows = await listCustomBets({ limit: 1 });
-  // Cheap filter — listCustomBets is already indexed. For a single row we
-  // could write a dedicated query, but keeping one source of truth keeps
-  // the field set in sync.
-  return rows.find((r) => r.id === id) ?? null;
+): Promise<AdminCustomBetDetail | null> {
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return null;
+
+  const betRows = await db.execute<Omit<AdminCustomBetDetail, "picks">>(sql`
+    select
+      cb.id::text                                 as "id",
+      cb.scope::text                              as "scope",
+      cb.status::text                             as "status",
+      cb.question_he                              as "questionHe",
+      cb.question_en                              as "questionEn",
+      cb.grading_rule_he                          as "gradingRuleHe",
+      cb.grading_rule_en                          as "gradingRuleEn",
+      cb.answer_type::text                        as "answerType",
+      cb.answer_config                            as "answerConfig",
+      cb.stake_snapshot                           as "stakeSnapshot",
+      cb.payout_snapshot                          as "payoutSnapshot",
+      cb.grading_source::text                     as "gradingSource",
+      cb.grading_config                           as "gradingConfig",
+      cb.resolved_value                           as "resolvedValue",
+      cb.lock_at                                  as "lockAt",
+      cb.published_at                             as "publishedAt",
+      cb.graded_at                                as "gradedAt",
+      md.date::text                               as "matchdayDate",
+      case when cb.match_id is not null
+        then m.home_team || ' vs ' || m.away_team
+        else null end                             as "matchLabel",
+      cb.stage::text                              as "stage",
+      cb.group_id                                 as "groupId",
+      cb.created_at                               as "createdAt"
+    from public.custom_bets cb
+    left join public.matchdays md on md.id = cb.matchday_id
+    left join public.matches   m  on m.id  = cb.match_id
+    where cb.id = ${id}::uuid
+    limit 1
+  `);
+  const bet = (betRows as unknown as Array<Omit<AdminCustomBetDetail, "picks">>)[0];
+  if (!bet) return null;
+
+  const pickRows = await db.execute<AdminCustomBetPickRow>(sql`
+    select
+      pk.id::text          as "pickId",
+      pk.user_id::text     as "userId",
+      p.display_name       as "displayName",
+      pk.answer            as "answer",
+      pk.stake_paid        as "stakePaid",
+      pk.points_earned     as "pointsEarned",
+      pk.was_correct       as "wasCorrect",
+      pk.locked            as "locked",
+      pk.created_at        as "createdAt"
+    from public.user_custom_bet_picks pk
+    join public.profiles p on p.id = pk.user_id
+    where pk.custom_bet_id = ${id}::uuid
+    order by pk.created_at asc
+  `);
+
+  return {
+    ...bet,
+    picks: pickRows as unknown as AdminCustomBetPickRow[],
+  };
 }
 
 // Matches that haven't kicked off yet — used by the admin form when scope
