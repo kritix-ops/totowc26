@@ -4,6 +4,7 @@ import { ChevronLeft, ChevronRight, Settings } from "lucide-react";
 import { hasLocale, type Locale } from "../../../dictionaries";
 import { requireAdmin } from "@/lib/admin";
 import { getStakeConfig } from "@/lib/bank";
+import { getPrizeBreakdown } from "@/db/queries";
 import { db } from "@/db";
 import { settings } from "@/db/schema";
 import { eq } from "drizzle-orm";
@@ -26,15 +27,20 @@ export default async function AdminScoringSettingsPage({
   // Read the full settings row including the main 1/X/2 scoring values
   // (StakeConfig doesn't include the main payouts since the main pick is
   // free, so we fetch them directly here).
-  const [stakeCfg, [mainCfg]] = await Promise.all([
+  const [stakeCfg, [mainCfg], prize] = await Promise.all([
     getStakeConfig(),
     db
       .select({
         scoringExact: settings.scoringExact,
         scoringOutcome: settings.scoringOutcome,
+        prizePct1: settings.prizePct1,
+        prizePct2: settings.prizePct2,
+        prizePct3: settings.prizePct3,
+        prizePct4: settings.prizePct4,
       })
       .from(settings)
       .where(eq(settings.id, 1)),
+    getPrizeBreakdown(),
   ]);
 
   const initial = {
@@ -63,6 +69,10 @@ export default async function AdminScoringSettingsPage({
     scoringFourth: stakeCfg.scoringFourth,
     scoringTopScorer: stakeCfg.scoringTopScorer,
     scoringFinalPenalties: stakeCfg.scoringFinalPenalties,
+    prizePct1: mainCfg?.prizePct1 ?? 50,
+    prizePct2: mainCfg?.prizePct2 ?? 30,
+    prizePct3: mainCfg?.prizePct3 ?? 15,
+    prizePct4: mainCfg?.prizePct4 ?? 5,
   };
 
   return (
@@ -97,7 +107,7 @@ export default async function AdminScoringSettingsPage({
         </p>
       </Card>
 
-      <ScoringForm initial={initial} locale={locale} />
+      <ScoringForm initial={initial} locale={locale} potIls={prize.potIls} />
     </section>
   );
 }

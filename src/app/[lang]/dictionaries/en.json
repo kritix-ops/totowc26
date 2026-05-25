@@ -19,6 +19,11 @@
     "bank": "Bank",
     "bankShort": "Bank"
   },
+  "prizes": {
+    "label": "Prize pool",
+    "rankLabel": "#{n}",
+    "fromPot": "from current pot: {pot} ILS"
+  },
   "bank": {
     "label": "Points Bank",
     "balance": "Balance",

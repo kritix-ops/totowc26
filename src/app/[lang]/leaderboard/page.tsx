@@ -1,10 +1,10 @@
 import { notFound, redirect } from "next/navigation";
-import { Flame } from "lucide-react";
+import { Flame, Trophy } from "lucide-react";
 import { clsx } from "clsx";
 import { getDictionary, hasLocale, type Locale } from "../dictionaries";
 import { getUser } from "@/lib/supabase/auth";
-import { getLeaderboard } from "@/db/queries";
-import { Card, LabelCaps, SectionHeading } from "@/components/ui";
+import { getLeaderboard, getPrizeBreakdown } from "@/db/queries";
+import { Card, LabelCaps } from "@/components/ui";
 import { localePath } from "@/lib/paths";
 
 export default async function LeaderboardPage({
@@ -18,7 +18,13 @@ export default async function LeaderboardPage({
   const user = await getUser();
   if (!user) redirect(localePath(locale, "login"));
 
-  const rows = await getLeaderboard(user.id);
+  const [rows, prize] = await Promise.all([
+    getLeaderboard(user.id),
+    getPrizeBreakdown(),
+  ]);
+  const prizeByRank = new Map<number, number>(
+    prize.prizes.map((p) => [p.rank, p.ils]),
+  );
   const isHebrew = locale === "he";
 
   return (
@@ -59,6 +65,7 @@ export default async function LeaderboardPage({
         <ul className="flex flex-col gap-2">
           {rows.map((row) => {
             const top3 = row.rank <= 3;
+            const prizeIls = prizeByRank.get(row.rank) ?? 0;
             return (
               <li
                 key={row.userId}
@@ -93,11 +100,26 @@ export default async function LeaderboardPage({
                     </span>
                   )}
                 </div>
-                <div className="text-end shrink-0">
+                <div className="text-end shrink-0 flex flex-col items-end gap-0.5">
                   <span className="font-[family-name:var(--font-display)] text-xl md:text-2xl leading-none font-bold text-surface-tint">
                     <span className="bidi-ltr">{row.points}</span>
                   </span>
                   <LabelCaps as="div">{dict.common.points}</LabelCaps>
+                  {prizeIls > 0 && row.rank <= 4 && (
+                    <span
+                      className="mt-1 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-tertiary-fixed text-on-tertiary-fixed-variant text-[11px] font-bold tabular-nums"
+                      aria-label={
+                        isHebrew
+                          ? `פרס למקום ${row.rank}: ${prizeIls} ש״ח`
+                          : `Prize for rank ${row.rank}: ${prizeIls} ILS`
+                      }
+                    >
+                      <Trophy className="h-3 w-3" strokeWidth={2} />
+                      <bdi>
+                        {prizeIls.toLocaleString()} {isHebrew ? "ש״ח" : "ILS"}
+                      </bdi>
+                    </span>
+                  )}
                 </div>
               </li>
             );

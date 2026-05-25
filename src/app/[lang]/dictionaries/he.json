@@ -19,6 +19,11 @@
     "bank": "בנק",
     "bankShort": "בנק"
   },
+  "prizes": {
+    "label": "חלוקת הקופה",
+    "rankLabel": "מקום {n}",
+    "fromPot": "מתוך קופה נוכחית: {pot} ש\"ח"
+  },
   "bank": {
     "label": "בנק נקודות",
     "balance": "יתרה",

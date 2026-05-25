@@ -15,6 +15,7 @@ import { localePath } from "@/lib/paths";
 import { BrandLogo } from "@/components/BrandLogo";
 import { InstallHint } from "@/components/InstallHint";
 import { BankResetBanner } from "@/components/BankResetBanner";
+import { PrizeStrip } from "@/components/PrizeStrip";
 import { getUser } from "@/lib/supabase/auth";
 import { getUserAccess } from "@/lib/access";
 import {
@@ -23,10 +24,12 @@ import {
   getMyRankSummary,
   getPointsTrend,
   getPoolStats,
+  getPrizeBreakdown,
   getTournamentStart,
   getUpcomingFixtures,
   type FixtureWithMyBet,
   type LeaderboardEntry,
+  type PrizeBreakdown,
 } from "@/db/queries";
 import {
   Card,
@@ -53,9 +56,10 @@ export default async function HomePage({
   const user = await getUser();
   const signedIn = !!user || previewPlayer;
 
-  const [pool, tournamentStart] = await Promise.all([
+  const [pool, tournamentStart, prize] = await Promise.all([
     getPoolStats(),
     getTournamentStart(),
+    getPrizeBreakdown(),
   ]);
 
   let dashboard: DashboardData | null = null;
@@ -89,6 +93,7 @@ export default async function HomePage({
         dict={dict}
         pool={pool}
         tournamentStart={tournamentStart}
+        prize={prize}
       />
     );
   }
@@ -102,6 +107,7 @@ export default async function HomePage({
       data={dashboard!}
       userId={user?.id ?? null}
       isPaid={userIsPaid}
+      prize={prize}
     />
   );
 }
@@ -154,11 +160,13 @@ function GuestLanding({
   dict,
   pool,
   tournamentStart,
+  prize,
 }: {
   locale: Locale;
   dict: Awaited<ReturnType<typeof getDictionary>>;
   pool: { potIls: number; participants: number };
   tournamentStart: string | null;
+  prize: PrizeBreakdown;
 }) {
   const isHebrew = locale === "he";
   const displayFont = isHebrew
@@ -256,6 +264,12 @@ function GuestLanding({
               </span>
             </div>
           </div>
+
+          {prize.potIls > 0 && (
+            <div className="pt-2">
+              <PrizeStrip prize={prize} locale={locale} dict={dict} />
+            </div>
+          )}
         </div>
       </div>
     </section>
@@ -277,6 +291,7 @@ function PlayerHome({
   data,
   userId,
   isPaid,
+  prize,
 }: {
   locale: Locale;
   dict: Awaited<ReturnType<typeof getDictionary>>;
@@ -285,6 +300,7 @@ function PlayerHome({
   data: DashboardData;
   userId: string | null;
   isPaid: boolean;
+  prize: PrizeBreakdown;
 }) {
   const isHebrew = locale === "he";
   const countdown = tournamentStart ? computeCountdown(tournamentStart) : null;
@@ -302,6 +318,7 @@ function PlayerHome({
         {userId && (
           <BankResetBanner userId={userId} locale={locale} isPaid={isPaid} />
         )}
+        <PrizeStrip prize={prize} locale={locale} dict={dict} />
         <StatusRow locale={locale} dict={dict} rankInfo={data.rankInfo} />
 
         <UpcomingSection

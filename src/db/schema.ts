@@ -298,6 +298,13 @@ export const settings = pgTable("settings", {
   scoringFinalPenalties: smallint("scoring_final_penalties").notNull().default(13),
   stakeTopScorer: smallint("stake_top_scorer").notNull().default(5),
   stakeFinalPenalties: smallint("stake_final_penalties").notNull().default(3),
+  // Prize split for the top 4 finishers (% of the pot). Default 50/30/15/5.
+  // Sum must be <= 100 (CHECK constraint added in migration). Each prize
+  // is computed dynamically as floor(pot * pct / 100).
+  prizePct1: smallint("prize_pct_1").notNull().default(50),
+  prizePct2: smallint("prize_pct_2").notNull().default(30),
+  prizePct3: smallint("prize_pct_3").notNull().default(15),
+  prizePct4: smallint("prize_pct_4").notNull().default(5),
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .notNull()
     .defaultNow(),

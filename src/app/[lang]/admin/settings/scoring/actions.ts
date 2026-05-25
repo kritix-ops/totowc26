@@ -34,6 +34,12 @@ export type ScoringPayload = {
   scoringFourth: number;
   scoringTopScorer: number;
   scoringFinalPenalties: number;
+  // Prize split for the top 4 finishers. Must sum to <= 100 (enforced by
+  // a CHECK constraint on settings as well).
+  prizePct1: number;
+  prizePct2: number;
+  prizePct3: number;
+  prizePct4: number;
 };
 
 export type SaveScoringResult =
@@ -86,6 +92,10 @@ export async function saveScoringSettings(
     "scoringFourth",
     "scoringTopScorer",
     "scoringFinalPenalties",
+    "prizePct1",
+    "prizePct2",
+    "prizePct3",
+    "prizePct4",
   ];
   for (const k of integerKeys) {
     const v = payload[k];
@@ -94,6 +104,20 @@ export async function saveScoringSettings(
     }
   }
   if (payload.startingBank < 1) return { ok: false, error: "invalid" };
+
+  // Prize percentages: each must be 0-100, sum <= 100 (a fraction held
+  // back is allowed — admin may want to reserve some of the pot for ops).
+  const pctSum =
+    payload.prizePct1 + payload.prizePct2 + payload.prizePct3 + payload.prizePct4;
+  if (
+    payload.prizePct1 > 100 ||
+    payload.prizePct2 > 100 ||
+    payload.prizePct3 > 100 ||
+    payload.prizePct4 > 100 ||
+    pctSum > 100
+  ) {
+    return { ok: false, error: "invalid" };
+  }
 
   try {
     await db
@@ -124,6 +148,10 @@ export async function saveScoringSettings(
         scoringFourth: payload.scoringFourth,
         scoringTopScorer: payload.scoringTopScorer,
         scoringFinalPenalties: payload.scoringFinalPenalties,
+        prizePct1: payload.prizePct1,
+        prizePct2: payload.prizePct2,
+        prizePct3: payload.prizePct3,
+        prizePct4: payload.prizePct4,
         updatedAt: new Date(),
       })
       .where(eq(settings.id, 1));

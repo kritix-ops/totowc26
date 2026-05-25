@@ -96,12 +96,26 @@ const GROUPS: Group[] = [
   },
 ];
 
+// Prize-split is rendered separately so it can show a live ILS preview
+// next to each percentage based on the live pot.
+const PRIZE_FIELDS: Array<{
+  key: keyof ScoringPayload;
+  label: { he: string; en: string };
+}> = [
+  { key: "prizePct1", label: { he: "מקום ראשון %", en: "1st place %" } },
+  { key: "prizePct2", label: { he: "מקום שני %", en: "2nd place %" } },
+  { key: "prizePct3", label: { he: "מקום שלישי %", en: "3rd place %" } },
+  { key: "prizePct4", label: { he: "מקום רביעי %", en: "4th place %" } },
+];
+
 export function ScoringForm({
   initial,
   locale,
+  potIls,
 }: {
   initial: ScoringPayload;
   locale: Locale;
+  potIls: number;
 }) {
   const isHebrew = locale === "he";
   const router = useRouter();
@@ -170,6 +184,13 @@ export function ScoringForm({
         </Card>
       ))}
 
+      <PrizeSplitCard
+        values={values}
+        update={update}
+        potIls={potIls}
+        isHebrew={isHebrew}
+      />
+
       <div className="flex items-center justify-between gap-3 flex-wrap sticky bottom-2 bg-surface-container-low/95 backdrop-blur p-3 rounded-xl border border-outline-variant shadow-lg">
         <div>
           {error && (
@@ -206,12 +227,115 @@ export function ScoringForm({
 function translateError(code: string, isHebrew: boolean): string {
   const map: Record<string, [string, string]> = {
     invalid: [
-      "ערכים לא תקינים. כל ערך חייב להיות מספר שלם בין 0 ל-32000.",
-      "Invalid values. Each must be an integer between 0 and 32000.",
+      "ערכים לא תקינים. כל ערך חייב להיות מספר שלם בין 0 ל-32000. סכום אחוזי הזכייה צריך להיות עד 100.",
+      "Invalid values. Each must be an integer between 0 and 32000. Prize percentages must sum to <= 100.",
     ],
     unauth: ["יש להתחבר", "Sign in required"],
     forbidden: ["אין הרשאות אדמין", "Admin role required"],
     db: ["שגיאת שמירה", "Save failed"],
   };
   return (map[code] ?? map.db)[isHebrew ? 0 : 1];
+}
+
+// Live preview card: shows each prize % alongside the ILS amount it would
+// award given the current pot. The sum bar warns if the percentages exceed
+// 100 (the server-side validation would reject the submit).
+function PrizeSplitCard({
+  values,
+  update,
+  potIls,
+  isHebrew,
+}: {
+  values: ScoringPayload;
+  update: (k: keyof ScoringPayload, v: string) => void;
+  potIls: number;
+  isHebrew: boolean;
+}) {
+  const total =
+    values.prizePct1 + values.prizePct2 + values.prizePct3 + values.prizePct4;
+  const over = total > 100;
+  const remainder = 100 - total;
+  return (
+    <Card className="p-5 md:p-6 flex flex-col gap-4">
+      <SectionHeading underline="thin" as="h2">
+        {isHebrew ? "חלוקת הקופה (1-4)" : "Prize split (1st-4th)"}
+      </SectionHeading>
+      <p className="text-sm text-on-surface-variant">
+        {isHebrew
+          ? "האחוז של כל מקום מהקופה הנוכחית. הסכומים מתעדכנים אוטומטית כל פעם שמתקבל תשלום חדש."
+          : "Each rank's share of the current pot. Amounts auto-update whenever a payment is approved."}
+      </p>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {PRIZE_FIELDS.map((f) => {
+          const pct = Number(values[f.key]) || 0;
+          const ils = Math.floor((potIls * pct) / 100);
+          return (
+            <div key={f.key} className="flex flex-col gap-1.5">
+              <label
+                htmlFor={`set-${f.key}`}
+                className="font-bold text-sm text-on-surface"
+              >
+                {isHebrew ? f.label.he : f.label.en}
+              </label>
+              <div className="flex items-stretch gap-2">
+                <input
+                  id={`set-${f.key}`}
+                  type="number"
+                  inputMode="numeric"
+                  min={0}
+                  max={100}
+                  step={1}
+                  value={values[f.key]}
+                  onChange={(e) => update(f.key, e.target.value)}
+                  className="w-24 h-12 px-3 bg-surface-container-lowest border border-outline rounded-lg text-on-surface text-base font-bold tabular-nums text-center focus:outline-none focus:border-primary"
+                  dir="ltr"
+                />
+                <span className="flex-1 h-12 px-3 flex items-center justify-between rounded-lg bg-surface-container-low border border-outline-variant">
+                  <span className="text-xs text-on-surface-variant">
+                    {isHebrew ? "מקופה נוכחית" : "of current pot"}
+                  </span>
+                  <span className="font-[family-name:var(--font-score)] text-lg font-bold tabular-nums">
+                    <bdi>
+                      {ils.toLocaleString()} {isHebrew ? "ש״ח" : "ILS"}
+                    </bdi>
+                  </span>
+                </span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <div
+        className={clsx(
+          "flex items-center justify-between gap-3 p-3 rounded-lg border",
+          over
+            ? "bg-error-container text-on-error-container border-error"
+            : remainder === 0
+              ? "bg-secondary-container text-on-secondary-container border-secondary-fixed"
+              : "bg-surface-container-low text-on-surface-variant border-outline-variant",
+        )}
+      >
+        <span className="text-sm font-bold">
+          {isHebrew ? "סה״כ אחוזים" : "Total %"}
+        </span>
+        <span className="font-[family-name:var(--font-score)] text-lg font-bold tabular-nums">
+          <bdi>{total}%</bdi>
+          {!over && remainder > 0 && (
+            <span className="opacity-60">
+              {" "}
+              · {isHebrew ? "לא חולק" : "unallocated"} {remainder}%
+            </span>
+          )}
+          {over && (
+            <span>
+              {" "}
+              · {isHebrew ? "חורג מ-100%" : "exceeds 100%"}
+            </span>
+          )}
+        </span>
+      </div>
+    </Card>
+  );
 }

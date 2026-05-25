@@ -994,6 +994,58 @@ export async function getPoolStats(): Promise<PoolStats> {
   };
 }
 
+// ---------- Prize-pool split ----------
+//
+// Dynamic prize amounts for the top 4 finishers. The admin tunes only the
+// percentages (settings.prize_pct_N); each amount = floor(pot * pct / 100)
+// so it tracks the live pot without any cash math in the admin UI.
+
+export type PrizeBreakdown = {
+  potIls: number;
+  prizes: Array<{ rank: 1 | 2 | 3 | 4; pct: number; ils: number }>;
+  totalAwardedIls: number;
+};
+
+export async function getPrizeBreakdown(): Promise<PrizeBreakdown> {
+  const rows = await db.execute<{
+    pot: number;
+    pct1: number;
+    pct2: number;
+    pct3: number;
+    pct4: number;
+  }>(sql`
+    select
+      coalesce((
+        select sum(amount_ils) filter (where status = 'approved')
+        from public.payments
+      ), 0)::int                                              as "pot",
+      (select prize_pct_1 from public.settings where id = 1)::int as "pct1",
+      (select prize_pct_2 from public.settings where id = 1)::int as "pct2",
+      (select prize_pct_3 from public.settings where id = 1)::int as "pct3",
+      (select prize_pct_4 from public.settings where id = 1)::int as "pct4"
+  `);
+  const r = (rows as unknown as Array<{
+    pot: number;
+    pct1: number;
+    pct2: number;
+    pct3: number;
+    pct4: number;
+  }>)[0];
+  const pot = Number(r?.pot ?? 0);
+  const pcts: Array<{ rank: 1 | 2 | 3 | 4; pct: number }> = [
+    { rank: 1, pct: Number(r?.pct1 ?? 0) },
+    { rank: 2, pct: Number(r?.pct2 ?? 0) },
+    { rank: 3, pct: Number(r?.pct3 ?? 0) },
+    { rank: 4, pct: Number(r?.pct4 ?? 0) },
+  ];
+  const prizes = pcts.map((p) => ({
+    ...p,
+    ils: Math.floor((pot * p.pct) / 100),
+  }));
+  const totalAwardedIls = prizes.reduce((s, p) => s + p.ils, 0);
+  return { potIls: pot, prizes, totalAwardedIls };
+}
+
 // ---------- Points-bank history ----------
 //
 // Returns every event that touches a user's bank, ordered chronologically.
