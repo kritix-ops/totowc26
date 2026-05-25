@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import { profiles, payments } from "@/db/schema";
 import { getUser } from "@/lib/supabase/auth";
-import { getPayboxUrl } from "@/lib/paybox";
+import { getPayboxUrl } from "@/lib/paybox-server";
 import { localePath } from "@/lib/paths";
 import { getDictionary, hasLocale, type Locale } from "../dictionaries";
 import { BrandLogo } from "@/components/BrandLogo";

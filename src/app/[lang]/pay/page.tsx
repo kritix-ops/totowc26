@@ -4,7 +4,7 @@ import { db } from "@/db";
 import { payments } from "@/db/schema";
 import { getUser } from "@/lib/supabase/auth";
 import { getUserAccess } from "@/lib/access";
-import { getPayboxUrl } from "@/lib/paybox";
+import { getPayboxUrl } from "@/lib/paybox-server";
 import { localePath } from "@/lib/paths";
 import { getDictionary, hasLocale, type Locale } from "../dictionaries";
 import { PayPanel } from "./PayPanel";
