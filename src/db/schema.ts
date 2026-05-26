@@ -38,6 +38,14 @@ export const paymentStatusEnum = pgEnum("payment_status", [
   "approved",
   "rejected",
 ]);
+// Public-signup queue. Players submit a request via /[lang]/signup; admin
+// approves which creates the auth user + profile, or rejects (no email by
+// default). See _plans/2026-05-26-public-signup-with-admin-approval.md.
+export const signupRequestStatusEnum = pgEnum("signup_request_status", [
+  "pending",
+  "approved",
+  "rejected",
+]);
 // Custom-bets system enums. See _plans/2026-05-25-matchday-custom-bets-system.md.
 //
 // answer_type    — shape of the player's answer. Drives input widget + JSONB
@@ -203,6 +211,41 @@ export const payments = pgTable(
   }),
 );
 
+// signup_requests: public-signup queue. A non-member submits a request from
+// /[lang]/signup; admin approves (which then provisions the auth user +
+// profile via the existing invite flow) or rejects. We deliberately do NOT
+// create a Supabase auth user until approval — pending rows have no auth
+// footprint and cannot log in.
+export const signupRequests = pgTable(
+  "signup_requests",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    displayName: text("display_name").notNull(),
+    phone: text("phone").notNull(),
+    email: text("email").notNull(),
+    status: signupRequestStatusEnum("status").notNull().default("pending"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+    decidedBy: uuid("decided_by").references(() => profiles.id, {
+      onDelete: "set null",
+    }),
+    note: text("note"),
+    // Links an approved request to the auth user that was created, so the
+    // admin can still see history after the user edits their profile.
+    createdUserId: uuid("created_user_id"),
+  },
+  (t) => ({
+    statusIdx: index("signup_requests_status_idx").on(t.status),
+    // Partial unique index — at most one pending request per email at a
+    // time. Approved/rejected history rows can repeat freely.
+    pendingEmailUq: uniqueIndex("signup_requests_pending_email_uq")
+      .on(t.email)
+      .where(sql`status = 'pending'`),
+  }),
+);
+
 // settings: singleton (id = 1)
 //
 // Two parallel pricing dimensions:
@@ -247,6 +290,10 @@ export const settings = pgTable("settings", {
   prizePct2: smallint("prize_pct_2").notNull().default(30),
   prizePct3: smallint("prize_pct_3").notNull().default(15),
   prizePct4: smallint("prize_pct_4").notNull().default(5),
+  // Public-signup gate. When false, /[lang]/signup renders a closed page
+  // and the "להגיש בקשה" link on /[lang]/login is hidden. Default true so
+  // existing deployments keep accepting requests after the migration runs.
+  publicSignupOpen: boolean("public_signup_open").notNull().default(true),
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .notNull()
     .defaultNow(),

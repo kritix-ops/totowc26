@@ -104,8 +104,8 @@ export function LoginForm({
 
       <p className="text-xs text-on-surface-variant text-center leading-5">
         {isHebrew
-          ? "טוטו חברים. ההזמנה נשלחה אליך בקישור אישי. אם אין לך גישה, פנה למנהל הקבוצה."
-          : "Friends only pool. Each player gets a personal invite. Contact the organizer if you do not have one."}
+          ? "טוטו חברים. אם אין לך עדיין חשבון, אפשר להגיש בקשה ומנהל הקבוצה יאשר."
+          : "Friends only pool. If you do not have an account yet, request to join and the organizer will approve."}
       </p>
     </form>
   );

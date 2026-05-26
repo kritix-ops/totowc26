@@ -1,5 +1,8 @@
 import { notFound, redirect } from "next/navigation";
+import { eq } from "drizzle-orm";
 import { getDictionary, hasLocale, type Locale } from "../dictionaries";
+import { db } from "@/db";
+import { settings } from "@/db/schema";
 import { getUser } from "@/lib/supabase/auth";
 import { localePath } from "@/lib/paths";
 import { BrandLogo } from "@/components/BrandLogo";
@@ -12,9 +15,18 @@ export default async function LoginPage({
   if (!hasLocale(lang)) notFound();
   const locale = lang as Locale;
   const dict = await getDictionary(locale);
+  const isHebrew = locale === "he";
 
   const user = await getUser();
   if (user) redirect(localePath(locale, "onboarding"));
+
+  // Hide the "request to join" link when the admin has closed signups.
+  const [s] = await db
+    .select({ open: settings.publicSignupOpen })
+    .from(settings)
+    .where(eq(settings.id, 1))
+    .limit(1);
+  const signupOpen = s?.open ?? true;
 
   return (
     <section className="flex items-center justify-center min-h-[calc(100dvh-4rem)] px-4 md:px-16 py-6 md:py-10">
@@ -26,6 +38,17 @@ export default async function LoginPage({
           </p>
         </div>
         <LoginForm locale={locale} dict={dict} />
+        {signupOpen && (
+          <p className="text-sm text-on-surface-variant text-center">
+            {isHebrew ? "עוד לא רשום? " : "Not a member yet? "}
+            <a
+              href={localePath(locale, "signup")}
+              className="text-primary underline underline-offset-2 font-medium"
+            >
+              {isHebrew ? "להגיש בקשה ←" : "Request to join →"}
+            </a>
+          </p>
+        )}
       </div>
     </section>
   );
