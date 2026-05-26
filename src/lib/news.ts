@@ -64,6 +64,24 @@ const YNET_TITLE_RE =
   /<(?:h[12]|div)\s+[^>]*class="slotTitle[^"]*"[^>]*>\s*<span[^>]*>([\s\S]*?)<\/span>/;
 const YNET_DATE_RE = /dateTime="([^"]+)"/;
 const YNET_IMG_RE = /<img\s+[^>]*src="([^"]+)"/;
+// Ynet articles carry their primary category in the URL path
+// (/sport/<category>/article/<id>). The Mundial-2026 tag aggregates
+// articles broadly — including Israeli-league cup wins and other
+// non-Mundial sports stories that mention the tournament in passing.
+// We drop any article whose primary category is clearly off-topic so
+// the news tab stays close to "actual World Cup coverage". Canonical
+// /sport/article/ (no category) and /sport/worldsoccer/ stay.
+const YNET_EXCLUDED_PATHS = [
+  "/sport/israelisoccer/",
+  "/sport/israelibasketball/",
+  "/sport/basketball/",
+  "/sport/nba/",
+  "/sport/handball/",
+  "/sport/tennis/",
+  "/sport/motor/",
+  "/sport/extremesport/",
+  "/sport/morsports/",
+];
 
 export async function getNewsForLocale(locale: Locale): Promise<NewsFeed> {
   if (locale === "en") {
@@ -238,6 +256,7 @@ async function fetchYnetMundialArticles(): Promise<NewsItem[]> {
     const html = await res.text();
     const items: NewsItem[] = [];
     const seen = new Set<string>();
+    let droppedByPath = 0;
     // Use a local copy of the boundary regex to keep state across calls
     // safe — the YNET_SLOT_BOUNDARY constant is /g and stateful.
     const boundary = new RegExp(YNET_SLOT_BOUNDARY.source, "g");
@@ -249,6 +268,11 @@ async function fetchYnetMundialArticles(): Promise<NewsItem[]> {
       if (!linkMatch) continue;
       const link = linkMatch[1];
       if (seen.has(link)) continue;
+      if (YNET_EXCLUDED_PATHS.some((p) => link.includes(p))) {
+        droppedByPath++;
+        seen.add(link);
+        continue;
+      }
       const titleMatch = body.match(YNET_TITLE_RE);
       if (!titleMatch) continue;
       const title = decodeEntities(stripTags(titleMatch[1]));
@@ -270,6 +294,7 @@ async function fetchYnetMundialArticles(): Promise<NewsItem[]> {
       url: YNET_MUNDIAL_TAG_URL,
       status: res.status,
       itemCount: items.length,
+      droppedByPath,
       durationMs: Date.now() - started,
     });
     return items;
