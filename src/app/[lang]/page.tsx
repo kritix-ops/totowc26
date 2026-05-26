@@ -345,17 +345,6 @@ function HeroBand({
         aria-hidden
         className="absolute inset-x-0 bottom-0 h-2/5 bg-gradient-to-b from-transparent via-background/55 to-background pointer-events-none"
       />
-      <div
-        aria-hidden
-        className="absolute inset-x-0 top-0 h-1/4 bg-gradient-to-b from-background/55 via-background/15 to-transparent pointer-events-none"
-      />
-      <div className="absolute inset-x-0 top-0 z-10 flex justify-center pt-2 sm:pt-3 md:pt-5 lg:pt-6 pointer-events-none">
-        <BrandLogo
-          locale={locale}
-          size="xl"
-          className="drop-shadow-[0_2px_10px_rgba(28,20,15,0.45)]"
-        />
-      </div>
       <div className="absolute inset-x-0 bottom-0 z-10">
         <div className="mx-auto w-full max-w-6xl px-4 md:px-8 lg:px-16 pb-3 md:pb-5">
           <div className="bg-surface-container-low/95 backdrop-blur-sm border border-outline rounded-lg shadow-[0_8px_24px_rgba(28,20,15,0.12)] px-4 md:px-6 py-3 md:py-4 grid grid-cols-3 gap-x-3 md:gap-x-6 items-center">
