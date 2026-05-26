@@ -16,6 +16,7 @@
     "db:bootstrap-admin": "node --env-file=.env.local scripts/bootstrap-admin.mjs",
     "logo:strip": "node scripts/strip-logo-bg.mjs",
     "icons:build": "node scripts/build-icons.mjs",
+    "splashes:build": "node scripts/build-splashes.mjs",
     "db:score": "node --env-file=.env.local scripts/score-matches.mjs",
     "db:clean-mock": "node --env-file=.env.local scripts/clean-mock-matches.mjs",
     "api:fixtures": "node --env-file=.env.local scripts/api-sync-fixtures.mjs",
@@ -30,7 +31,9 @@
     "next": "16.2.6",
     "postgres": "^3.4.9",
     "react": "19.2.4",
-    "react-dom": "19.2.4"
+    "react-dom": "19.2.4",
+    "react-email": "^6.3.3",
+    "resend": "^6.12.4"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
