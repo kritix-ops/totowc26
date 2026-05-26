@@ -8,7 +8,6 @@ import {
   ChevronRight,
   Coins,
   Sparkles,
-  UserPlus,
 } from "lucide-react";
 import { eq } from "drizzle-orm";
 import { hasLocale, type Locale } from "../dictionaries";
@@ -23,12 +22,10 @@ import {
   getPaymentsByStatus,
   getPaymentTotals,
 } from "@/db/admin-queries";
-import { countPendingSignups } from "./signup-requests/queries";
 import { SyncPanel } from "./SyncPanel";
 import { PaymentsPanel } from "./PaymentsPanel";
 import { ViewAsPanel } from "./ViewAsPanel";
 import { PayboxSettingsPanel } from "./PayboxSettingsPanel";
-import { PublicSignupSettingsPanel } from "./SignupSettingsPanel";
 
 export default async function AdminPage({
   params,
@@ -38,23 +35,18 @@ export default async function AdminPage({
   const locale = lang as Locale;
   const isHebrew = locale === "he";
 
-  const [syncHistory, payments, totals, viewAs, settingsRow, pendingSignups] =
-    await Promise.all([
-      getRecentSyncRuns(20),
-      getPaymentsByStatus("all", 50),
-      getPaymentTotals(),
-      getViewAs(),
-      db
-        .select({
-          payboxUrl: settings.payboxUrl,
-          publicSignupOpen: settings.publicSignupOpen,
-        })
-        .from(settings)
-        .where(eq(settings.id, 1))
-        .limit(1)
-        .then((r) => r[0] ?? null),
-      countPendingSignups(),
-    ]);
+  const [syncHistory, payments, totals, viewAs, settingsRow] = await Promise.all([
+    getRecentSyncRuns(20),
+    getPaymentsByStatus("all", 50),
+    getPaymentTotals(),
+    getViewAs(),
+    db
+      .select({ payboxUrl: settings.payboxUrl })
+      .from(settings)
+      .where(eq(settings.id, 1))
+      .limit(1)
+      .then((r) => r[0] ?? null),
+  ]);
 
   return (
     <section className="px-4 md:px-16 py-6 md:py-12 flex flex-col gap-6 md:gap-8 max-w-5xl mx-auto w-full">
@@ -86,13 +78,6 @@ export default async function AdminPage({
           path="admin/users"
           icon={<Users className="h-5 w-5" strokeWidth={1.75} />}
           label={isHebrew ? "משתתפים" : "Players"}
-        />
-        <SectionLink
-          locale={locale}
-          path="admin/signup-requests"
-          icon={<UserPlus className="h-5 w-5" strokeWidth={1.75} />}
-          label={isHebrew ? "בקשות הרשמה" : "Signup requests"}
-          badge={pendingSignups > 0 ? pendingSignups : undefined}
         />
         <SectionLink
           locale={locale}
@@ -128,11 +113,6 @@ export default async function AdminPage({
         fallback={PAYBOX_FALLBACK_URL}
       />
 
-      <PublicSignupSettingsPanel
-        locale={locale}
-        current={settingsRow?.publicSignupOpen ?? true}
-      />
-
       <SyncPanel locale={locale} history={syncHistory} />
 
       <PaymentsPanel
@@ -152,13 +132,11 @@ function SectionLink({
   path,
   icon,
   label,
-  badge,
 }: {
   locale: Locale;
   path: string;
   icon: React.ReactNode;
   label: string;
-  badge?: number;
 }) {
   return (
     <Link
@@ -172,14 +150,6 @@ function SectionLink({
         <span className="flex-1 min-w-0 font-bold text-sm text-on-surface truncate">
           {label}
         </span>
-        {badge !== undefined && (
-          <span
-            aria-label={`${badge} pending`}
-            className="min-w-[24px] h-6 px-2 rounded-full bg-primary text-on-primary text-xs font-bold inline-flex items-center justify-center"
-          >
-            <span className="bidi-ltr">{badge}</span>
-          </span>
-        )}
         <ChevronRight
           className="h-4 w-4 text-on-surface-variant shrink-0 rtl:rotate-180"
           strokeWidth={2}

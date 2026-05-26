@@ -38,11 +38,6 @@ export const paymentStatusEnum = pgEnum("payment_status", [
   "approved",
   "rejected",
 ]);
-export const signupRequestStatusEnum = pgEnum("signup_request_status", [
-  "pending",
-  "approved",
-  "rejected",
-]);
 // Custom-bets system enums. See _plans/2026-05-25-matchday-custom-bets-system.md.
 //
 // answer_type    — shape of the player's answer. Drives input widget + JSONB
@@ -80,41 +75,6 @@ export const gradingSourceEnum = pgEnum("grading_source", [
   "auto_football_data",
   "manual",
 ]);
-
-// signup_requests: public self-service join queue. A row is inserted from
-// the unauthenticated /signup form (via a server action — RLS is enabled
-// but only the postgres role writes here). The admin reviews each row and
-// either approves it — which triggers the existing invitePlayer flow to
-// create the auth.users row and email a recovery link — or rejects it.
-// No auth.users row exists for a pending request, so a pending registrant
-// cannot log in, cannot appear in profile lookups, and leaves no auth
-// footprint if abandoned or rejected. The unique partial index keeps a
-// single pending row per email; approved/rejected history rows are fine.
-export const signupRequests = pgTable(
-  "signup_requests",
-  {
-    id: uuid("id").primaryKey().defaultRandom(),
-    displayName: text("display_name").notNull(),
-    phone: text("phone").notNull(),
-    email: text("email").notNull(),
-    status: signupRequestStatusEnum("status").notNull().default("pending"),
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-    decidedAt: timestamp("decided_at", { withTimezone: true }),
-    decidedBy: uuid("decided_by"),
-    note: text("note"),
-    // Ties an approved request to the auth user that resulted, so the
-    // admin can audit which signup became which member after the fact.
-    createdUserId: uuid("created_user_id"),
-  },
-  (t) => ({
-    statusIdx: index("signup_requests_status_idx").on(t.status),
-    pendingEmailUq: uniqueIndex("signup_requests_pending_email_uq")
-      .on(t.email)
-      .where(sql`status = 'pending'`),
-  }),
-);
 
 // profiles: extends Supabase auth.users (FK added via raw SQL migration)
 export const profiles = pgTable("profiles", {
@@ -262,11 +222,6 @@ export const settings = pgTable("settings", {
   // Admin-controlled deep link to the pool's Paybox group. Null = fall
   // back to the marketing site so the button is never dead.
   payboxUrl: text("paybox_url"),
-  // Whether the public /signup page accepts new requests. When false, the
-  // page renders a friendly "signup closed" message and the link from
-  // /login is hidden. Default open so behaviour stays the same until the
-  // admin chooses to lock the queue (e.g. after the tournament starts).
-  publicSignupOpen: boolean("public_signup_open").notNull().default(true),
   betLockMinutes: smallint("bet_lock_minutes").notNull().default(5),
   // Points bank
   startingBank: smallint("starting_bank").notNull().default(100),
