@@ -39,17 +39,44 @@ export async function AppShell({
 
   const user = await getUser();
   const signedIn = !!user;
+
+  // Defensive wrapper: surface the real error to Vercel function logs
+  // instead of letting an obscured "Server Components render" 500 hide
+  // which exact query failed. Each promise is wrapped so one bad row /
+  // missing column does not nuke the whole shell.
+  const safe = async <T,>(
+    label: string,
+    fn: () => Promise<T>,
+    fallback: T,
+  ): Promise<T> => {
+    try {
+      return await fn();
+    } catch (err) {
+      console.error(`[app shell ${label} failed]`, {
+        userId: user?.id ?? null,
+        error: err instanceof Error ? err.message : String(err),
+        stack: err instanceof Error ? err.stack : undefined,
+      });
+      return fallback;
+    }
+  };
+
   const [rankSummary, access, bank, profileRow, signupOpen] = signedIn
     ? await Promise.all([
-        getMyRankSummary(user.id),
-        getUserAccess(user.id),
-        getBankBreakdown(user.id),
-        db
-          .select({ displayName: profiles.displayName })
-          .from(profiles)
-          .where(eq(profiles.id, user.id))
-          .limit(1)
-          .then((r) => r[0] ?? null),
+        safe("rank", () => getMyRankSummary(user.id), null),
+        safe("access", () => getUserAccess(user.id), null),
+        safe("bank", () => getBankBreakdown(user.id), null),
+        safe(
+          "profile",
+          () =>
+            db
+              .select({ displayName: profiles.displayName })
+              .from(profiles)
+              .where(eq(profiles.id, user.id))
+              .limit(1)
+              .then((r) => r[0] ?? null),
+          null,
+        ),
         Promise.resolve(true),
       ])
     : await Promise.all([
@@ -59,12 +86,17 @@ export async function AppShell({
         Promise.resolve(null),
         // Guest header: hide the "Sign up" pill when the admin has closed
         // signups, so visitors are not led to a dead-end page.
-        db
-          .select({ open: settings.publicSignupOpen })
-          .from(settings)
-          .where(eq(settings.id, 1))
-          .limit(1)
-          .then((r) => r[0]?.open ?? true),
+        safe(
+          "signup-open",
+          () =>
+            db
+              .select({ open: settings.publicSignupOpen })
+              .from(settings)
+              .where(eq(settings.id, 1))
+              .limit(1)
+              .then((r) => r[0]?.open ?? true),
+          true,
+        ),
       ]);
   const displayName =
     profileRow?.displayName ?? user?.email ?? "";
