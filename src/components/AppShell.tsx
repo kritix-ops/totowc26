@@ -172,6 +172,9 @@ export async function AppShell({
                   openMenu: dict.nav.openMenu,
                 }}
               />
+              <div className="hidden md:flex">
+                <LanguageToggle currentLocale={locale} label={dict.common.languageToggle} />
+              </div>
             </>
           ) : (
             <>
