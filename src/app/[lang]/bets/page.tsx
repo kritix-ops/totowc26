@@ -3,7 +3,7 @@ import Link from "next/link";
 import { sql } from "drizzle-orm";
 import { Calendar, ListChecks } from "lucide-react";
 import { getDictionary, hasLocale, type Locale } from "../dictionaries";
-import { Card, LabelCaps } from "@/components/ui";
+import { Card } from "@/components/ui";
 import { PayGateBanner } from "@/components/PayGateBanner";
 import { getUser } from "@/lib/supabase/auth";
 import { getUserAccess } from "@/lib/access";
@@ -89,13 +89,10 @@ export default async function QuickBetsPage({
         <div className="flex flex-col gap-6">
           {days.map((day) => (
             <section key={day.date} className="flex flex-col gap-3">
-              <div className="flex items-center justify-between gap-2">
-                <h2 className="font-[family-name:var(--font-display)] text-lg md:text-xl font-bold text-on-surface inline-flex items-center gap-2">
-                  <Calendar className="h-4 w-4 text-tertiary-fixed-dim" strokeWidth={1.75} />
-                  {day.label}
-                </h2>
-                <LabelCaps>{day.matches.length}</LabelCaps>
-              </div>
+              <h2 className="font-[family-name:var(--font-display)] text-lg md:text-xl font-bold text-on-surface inline-flex items-center gap-2">
+                <Calendar className="h-4 w-4 text-tertiary-fixed-dim" strokeWidth={1.75} />
+                {day.label}
+              </h2>
               <ul className="flex flex-col gap-3">
                 {day.matches.map((m) => (
                   <li key={m.id}>

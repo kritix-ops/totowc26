@@ -8,7 +8,7 @@ import {
   Trophy,
 } from "lucide-react";
 import { getDictionary, hasLocale, type Locale } from "../dictionaries";
-import { Card, Chip, LabelCaps } from "@/components/ui";
+import { Card, Chip } from "@/components/ui";
 import { PayGateBanner } from "@/components/PayGateBanner";
 import { getUser } from "@/lib/supabase/auth";
 import { getUserAccess } from "@/lib/access";
@@ -87,13 +87,10 @@ export default async function PlayIndexPage({
 
       {/* Daily list */}
       <section className="flex flex-col gap-3">
-        <div className="flex items-center justify-between gap-2">
-          <h2 className="font-[family-name:var(--font-display)] text-xl md:text-2xl font-bold text-on-surface inline-flex items-center gap-2">
-            <Calendar className="h-5 w-5 text-tertiary-fixed-dim" strokeWidth={1.75} />
-            {dict.live.daysHeading}
-          </h2>
-          <LabelCaps>{days.length}</LabelCaps>
-        </div>
+        <h2 className="font-[family-name:var(--font-display)] text-xl md:text-2xl font-bold text-on-surface inline-flex items-center gap-2">
+          <Calendar className="h-5 w-5 text-tertiary-fixed-dim" strokeWidth={1.75} />
+          {dict.live.daysHeading}
+        </h2>
 
         {days.length === 0 ? (
           <Card className="p-6 text-center text-on-surface-variant">
