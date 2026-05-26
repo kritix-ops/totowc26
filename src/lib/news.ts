@@ -44,6 +44,27 @@ const WALLA_MUNDIAL_TAG_URL =
 const WALLA_ITEM_URL_PATTERN = /https?:\/\/sports\.walla\.co\.il\/item\/\d+/g;
 const MIN_TAG_URLS_TO_TRUST = 5;
 
+// Ynet's tag page for "מונדיאל 2026". Ynet's general sports RSS feed
+// hardly carries any World-Cup items in May 2026, so intersecting it
+// would yield ~zero. Instead we scrape the tag page directly. The page
+// is built from repeated <div class="slotView"> blocks; we split on
+// those boundaries and extract title/link/date/image per block, so
+// adding or removing a variant in the future never bleeds one card's
+// fields into another. We deliberately keep only blocks whose title
+// sits inside a slotTitle <span> — that excludes the page's "תוכן
+// גולשים" sidebar widgets, which use a plain anchor with no span and
+// are not Mundial articles.
+const YNET_MUNDIAL_TAG_URL =
+  "https://www.ynet.co.il/topics/%D7%9E%D7%95%D7%A0%D7%93%D7%99%D7%90%D7%9C_2026";
+const YNET_SLOT_BOUNDARY =
+  /<div class="slotView"[^>]*>([\s\S]*?)(?=<div class="slotView"|<\/section>|<footer)/g;
+const YNET_LINK_RE =
+  /href="(https:\/\/www\.ynet\.co\.il\/sport(?:\/[a-z]+)?\/article\/[A-Za-z0-9_-]+)"/;
+const YNET_TITLE_RE =
+  /<(?:h[12]|div)\s+[^>]*class="slotTitle[^"]*"[^>]*>\s*<span[^>]*>([\s\S]*?)<\/span>/;
+const YNET_DATE_RE = /dateTime="([^"]+)"/;
+const YNET_IMG_RE = /<img\s+[^>]*src="([^"]+)"/;
+
 export async function getNewsForLocale(locale: Locale): Promise<NewsFeed> {
   if (locale === "en") {
     const items = await fetchAndParse("bbc");
@@ -55,13 +76,14 @@ export async function getNewsForLocale(locale: Locale): Promise<NewsFeed> {
     return { items, source: "bbc" };
   }
 
-  // Hebrew: Walla primary, Ynet fallback only when Walla returns
-  // nothing usable (network error or zero items). Walla items are
-  // filtered down to the World-Cup tag set when the tag page is
-  // reachable; if that scrape fails we fall back to the unfiltered
-  // world-football feed so the tab is never empty for a transient
-  // upstream issue.
-  const [wallaRaw, tagUrls] = await Promise.all([
+  // Hebrew: mix Walla (RSS filtered to the Mundial-2026 tag) with Ynet
+  // (scraped directly from the Mundial-2026 tag page) and sort by date.
+  // The general Ynet sports RSS barely carries Mundial items today, so
+  // RSS intersection would be near-empty for Ynet; the tag scrape is
+  // the only path that yields useful Ynet content. If both primary
+  // sources come back empty we still fall back to the unfiltered Ynet
+  // sports RSS so the tab is never blank for a transient upstream issue.
+  const [wallaRaw, wallaTagUrls, ynetItems] = await Promise.all([
     fetchAndParse("walla").catch((error) => {
       console.warn("[news fetch walla]", {
         url: FEEDS.walla,
@@ -70,35 +92,52 @@ export async function getNewsForLocale(locale: Locale): Promise<NewsFeed> {
       return [] as NewsItem[];
     }),
     fetchWallaMundialTagUrls(),
+    fetchYnetMundialArticles(),
   ]);
 
-  const walla =
-    tagUrls.size >= MIN_TAG_URLS_TO_TRUST
-      ? wallaRaw.filter((item) => tagUrls.has(item.link))
+  const wallaFiltered =
+    wallaTagUrls.size >= MIN_TAG_URLS_TO_TRUST
+      ? wallaRaw.filter((item) => wallaTagUrls.has(item.link))
       : wallaRaw;
 
   console.info("[news filter walla]", {
     rawCount: wallaRaw.length,
-    tagUrlCount: tagUrls.size,
-    keptCount: walla.length,
-    filtered: tagUrls.size >= MIN_TAG_URLS_TO_TRUST,
+    tagUrlCount: wallaTagUrls.size,
+    keptCount: wallaFiltered.length,
+    filtered: wallaTagUrls.size >= MIN_TAG_URLS_TO_TRUST,
   });
 
-  if (walla.length > 0) {
+  const merged = [...wallaFiltered, ...ynetItems]
+    .sort(
+      (a, b) =>
+        new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime(),
+    )
+    .slice(0, MAX_ITEMS);
+
+  console.info("[news merge]", {
+    wallaCount: wallaFiltered.length,
+    ynetCount: ynetItems.length,
+    mergedCount: merged.length,
+  });
+
+  if (merged.length > 0) {
+    const primary: NewsSource = wallaFiltered.length >= ynetItems.length
+      ? "walla"
+      : "ynet";
     console.info("[news render]", {
       locale,
-      source: "walla",
-      itemCount: walla.length,
+      source: primary,
+      itemCount: merged.length,
     });
-    return { items: walla, source: "walla" };
+    return { items: merged, source: primary };
   }
 
   console.warn("[news fallback]", {
-    from: "walla",
-    to: "ynet",
-    reason: "walla returned 0 items",
+    from: "walla+ynet-tag",
+    to: "ynet-rss",
+    reason: "both primary sources returned 0 items",
   });
-  const ynet = await fetchAndParse("ynet").catch((error) => {
+  const ynetRss = await fetchAndParse("ynet").catch((error) => {
     console.warn("[news fetch ynet]", {
       url: FEEDS.ynet,
       error: error instanceof Error ? error.message : String(error),
@@ -109,9 +148,9 @@ export async function getNewsForLocale(locale: Locale): Promise<NewsFeed> {
   console.info("[news render]", {
     locale,
     source: "ynet",
-    itemCount: ynet.length,
+    itemCount: ynetRss.length,
   });
-  return { items: ynet, source: "ynet" };
+  return { items: ynetRss, source: "ynet" };
 }
 
 async function fetchAndParse(source: NewsSource): Promise<NewsItem[]> {
@@ -177,6 +216,70 @@ async function fetchWallaMundialTagUrls(): Promise<Set<string>> {
       durationMs: Date.now() - started,
     });
     return new Set();
+  }
+}
+
+async function fetchYnetMundialArticles(): Promise<NewsItem[]> {
+  const started = Date.now();
+  try {
+    const res = await fetch(YNET_MUNDIAL_TAG_URL, {
+      next: { revalidate: REVALIDATE_SECONDS },
+      headers: { Accept: "text/html" },
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+    });
+    if (!res.ok) {
+      console.warn("[news fetch ynet-tag]", {
+        url: YNET_MUNDIAL_TAG_URL,
+        status: res.status,
+        durationMs: Date.now() - started,
+      });
+      return [];
+    }
+    const html = await res.text();
+    const items: NewsItem[] = [];
+    const seen = new Set<string>();
+    // Use a local copy of the boundary regex to keep state across calls
+    // safe — the YNET_SLOT_BOUNDARY constant is /g and stateful.
+    const boundary = new RegExp(YNET_SLOT_BOUNDARY.source, "g");
+    let block: RegExpExecArray | null;
+    while ((block = boundary.exec(html)) !== null) {
+      if (items.length >= MAX_ITEMS) break;
+      const body = block[1];
+      const linkMatch = body.match(YNET_LINK_RE);
+      if (!linkMatch) continue;
+      const link = linkMatch[1];
+      if (seen.has(link)) continue;
+      const titleMatch = body.match(YNET_TITLE_RE);
+      if (!titleMatch) continue;
+      const title = decodeEntities(stripTags(titleMatch[1]));
+      if (!title) continue;
+      const dateMatch = body.match(YNET_DATE_RE);
+      const imgMatch = body.match(YNET_IMG_RE);
+      seen.add(link);
+      items.push({
+        id: link,
+        title,
+        summary: "",
+        link,
+        publishedAt: dateMatch ? dateMatch[1] : new Date().toISOString(),
+        imageUrl: imgMatch ? imgMatch[1] : null,
+        source: "ynet",
+      });
+    }
+    console.info("[news fetch ynet-tag]", {
+      url: YNET_MUNDIAL_TAG_URL,
+      status: res.status,
+      itemCount: items.length,
+      durationMs: Date.now() - started,
+    });
+    return items;
+  } catch (error) {
+    console.warn("[news fetch ynet-tag]", {
+      url: YNET_MUNDIAL_TAG_URL,
+      error: error instanceof Error ? error.message : String(error),
+      durationMs: Date.now() - started,
+    });
+    return [];
   }
 }
 

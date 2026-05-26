@@ -8,6 +8,7 @@ const nextConfig: NextConfig = {
     remotePatterns: [
       { protocol: "https", hostname: "ichef.bbci.co.uk" },
       { protocol: "https", hostname: "images.wcdn.co.il" },
+      { protocol: "https", hostname: "**.yit.co.il" },
     ],
   },
   async headers() {
