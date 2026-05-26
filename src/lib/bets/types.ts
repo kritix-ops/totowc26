@@ -52,15 +52,31 @@ export type AnswerConfig =
 // Grading config tells the auto-grading pipeline where to read the resolved
 // value from. `null` means manual: admin types it in.
 //
-// auto_balldontlie  — pull from balldontlie GOAT response. `stat` is the
-//                     team_match_stats field (e.g. "corners", "yellow_cards").
-//                     `aggregate` picks how to combine across the matches
-//                     covered by the bet's scope.
+// auto_api_football  — pull from the API-Football v3 /fixtures/statistics
+//                      endpoint. `stat` is one of the stat keys returned
+//                      by their API (see fields below). `aggregate` picks
+//                      how to combine across the matches covered by the
+//                      bet's scope.
 // auto_football_data — pull from the football-data API result we already
-//                     store on matches (home_score, away_score, ht_*).
-export type AutoBalldontlieConfig = {
-  source: "auto_balldontlie";
-  stat: string;
+//                      store on matches (home_score, away_score, ht_*).
+export type AutoApiFootballStat =
+  | "corners"
+  | "yellow_cards"
+  | "red_cards"
+  | "shots"
+  | "shots_on_goal"
+  | "shots_inside_box"
+  | "shots_outside_box"
+  | "possession"
+  | "fouls"
+  | "offsides"
+  | "saves"
+  | "total_passes"
+  | "pass_accuracy";
+
+export type AutoApiFootballConfig = {
+  source: "auto_api_football";
+  stat: AutoApiFootballStat;
   aggregate: "sum_day" | "per_match" | "first_match";
 };
 
@@ -76,7 +92,7 @@ export type AutoFootballDataConfig = {
     | "went_to_penalties";
 };
 
-export type GradingConfig = AutoBalldontlieConfig | AutoFootballDataConfig | null;
+export type GradingConfig = AutoApiFootballConfig | AutoFootballDataConfig | null;
 
 // Resolved value carried on custom_bets.resolved_value once the bet has been
 // graded. Mirrored on user_custom_bet_picks.answer (same shape) so grading

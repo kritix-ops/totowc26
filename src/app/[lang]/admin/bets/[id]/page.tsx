@@ -239,7 +239,7 @@ function answerTypeLabel(t: string, isHebrew: boolean): string {
 
 function gradingSourceLabel(s: string, isHebrew: boolean): string {
   const map: Record<string, [string, string]> = {
-    auto_balldontlie:   ["balldontlie", "balldontlie"],
+    auto_api_football:  ["API-Football", "API-Football"],
     auto_football_data: ["אוטו (תוצאה)", "Auto (score)"],
     manual:             ["ידני", "Manual"],
   };

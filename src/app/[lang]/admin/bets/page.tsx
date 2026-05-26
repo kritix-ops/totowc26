@@ -324,7 +324,7 @@ function gradingSourceLabel(
   isHebrew: boolean,
 ): string {
   const map: Record<AdminCustomBetRow["gradingSource"], [string, string]> = {
-    auto_balldontlie:   ["אוטו (balldontlie)", "Auto (balldontlie)"],
+    auto_api_football:  ["אוטו (API-Football)", "Auto (API-Football)"],
     auto_football_data: ["אוטו (תוצאה)", "Auto (score)"],
     manual:             ["ידני", "Manual"],
   };

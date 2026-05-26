@@ -55,8 +55,9 @@ export const signupRequestStatusEnum = pgEnum("signup_request_status", [
 // bet_status     — lifecycle. draft is admin-only; open is pickable; locked
 //                  has closed for picks but is not yet graded; graded is
 //                  resolved; reversed re-opens a wrong grade; cancelled voids.
-// grading_source — who/what fills resolved_value. auto_balldontlie is wired
-//                  but stubbed until BALLDONTLIE_ENABLED flips (see §6.5).
+// grading_source — who/what fills resolved_value. auto_api_football is
+//                  wired but stubbed until API_FOOTBALL_KEY is set in
+//                  env (see plan §6.5).
 export const answerTypeEnum = pgEnum("answer_type", [
   "yes_no",
   "number",
@@ -79,7 +80,7 @@ export const betStatusEnum = pgEnum("bet_status", [
   "cancelled",
 ]);
 export const gradingSourceEnum = pgEnum("grading_source", [
-  "auto_balldontlie",
+  "auto_api_football",
   "auto_football_data",
   "manual",
 ]);
@@ -378,9 +379,9 @@ export const matchdays = pgTable(
 // changes never re-price an existing bet.
 //
 // Grading: see _plans/2026-05-25-matchday-custom-bets-system.md §6.
-// `auto_balldontlie` is supported in schema but stubbed until the API key
-// is in env (§6.5). `manual` is the safety valve for everything balldontlie
-// can't grade.
+// `auto_api_football` is supported in schema but stubbed until
+// API_FOOTBALL_KEY lands in env (§6.5). `manual` is the safety valve
+// for anything the API can't grade.
 export const customBets = pgTable(
   "custom_bets",
   {

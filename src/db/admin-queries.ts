@@ -113,7 +113,7 @@ export type AdminCustomBetRow = {
   questionHe: string;
   questionEn: string;
   answerType: "yes_no" | "number" | "multi_choice" | "free_text";
-  gradingSource: "auto_balldontlie" | "auto_football_data" | "manual";
+  gradingSource: "auto_api_football" | "auto_football_data" | "manual";
   stakeSnapshot: number;
   payoutSnapshot: number;
   lockAt: string;
@@ -210,7 +210,7 @@ export type AdminCustomBetDetail = {
   answerConfig: unknown;
   stakeSnapshot: number;
   payoutSnapshot: number;
-  gradingSource: "auto_balldontlie" | "auto_football_data" | "manual";
+  gradingSource: "auto_api_football" | "auto_football_data" | "manual";
   gradingConfig: unknown;
   resolvedValue: unknown;
   lockAt: string;

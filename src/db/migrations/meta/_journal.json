@@ -85,6 +85,13 @@
       "when": 1780576400000,
       "tag": "0011_signup_requests",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1780662800000,
+      "tag": "0012_rename_grading_source_to_api_football",
+      "breakpoints": true
     }
   ]
 }

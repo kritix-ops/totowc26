@@ -7,7 +7,11 @@ import { clsx } from "clsx";
 import { PillButton, LabelCaps } from "@/components/ui";
 import { localePath } from "@/lib/paths";
 import type { Locale } from "../../dictionaries";
-import type { AnswerConfig, GradingConfig } from "@/lib/bets/types";
+import type {
+  AnswerConfig,
+  AutoApiFootballStat,
+  GradingConfig,
+} from "@/lib/bets/types";
 import type { AdminAnchorMatch, AdminAnchorDay } from "@/db/admin-queries";
 import { createCustomBet, updateCustomBet } from "./actions";
 
@@ -20,7 +24,7 @@ import { createCustomBet, updateCustomBet } from "./actions";
 
 type Scope = "match" | "day" | "stage" | "group" | "tournament";
 type AnswerType = "yes_no" | "number" | "multi_choice" | "free_text";
-type GradingSource = "auto_balldontlie" | "auto_football_data" | "manual";
+type GradingSource = "auto_api_football" | "auto_football_data" | "manual";
 type StageId = "group" | "r32" | "r16" | "qf" | "sf" | "third_place" | "final";
 type AutoFdField =
   | "home_score"
@@ -161,13 +165,13 @@ export function BetForm({
   const [gradingSource, setGradingSource] = useState<GradingSource>(
     initialBet?.gradingSource ?? "manual",
   );
-  const initialBdl =
-    initialBet?.gradingConfig?.source === "auto_balldontlie"
+  const initialAf =
+    initialBet?.gradingConfig?.source === "auto_api_football"
       ? initialBet.gradingConfig
       : null;
-  const [autoBdlStat, setAutoBdlStat] = useState<string>(initialBdl?.stat ?? "corners");
-  const [autoBdlAgg, setAutoBdlAgg] = useState<"sum_day" | "per_match" | "first_match">(
-    initialBdl?.aggregate ?? "per_match",
+  const [autoAfStat, setAutoAfStat] = useState<string>(initialAf?.stat ?? "corners");
+  const [autoAfAgg, setAutoAfAgg] = useState<"sum_day" | "per_match" | "first_match">(
+    initialAf?.aggregate ?? "per_match",
   );
   const initialFd =
     initialBet?.gradingConfig?.source === "auto_football_data"
@@ -219,7 +223,7 @@ export function BetForm({
 
     const gradingConfig = buildGradingConfig(
       gradingSource,
-      { autoBdlStat, autoBdlAgg, autoFdField },
+      { autoAfStat, autoAfAgg, autoFdField },
     );
     if (gradingConfig === "invalid") {
       setError(isHebrew ? "תצורת דירוג לא תקינה" : "Invalid grading config");
@@ -603,16 +607,16 @@ export function BetForm({
           options={[
             { value: "manual",             label: isHebrew ? "ידני" : "Manual" },
             { value: "auto_football_data", label: isHebrew ? "אוטו (תוצאה)" : "Auto (score)" },
-            { value: "auto_balldontlie",   label: isHebrew ? "אוטו (balldontlie)" : "Auto (balldontlie)" },
+            { value: "auto_api_football", label: isHebrew ? "אוטו (API-Football)" : "Auto (API-Football)" },
           ]}
           value={gradingSource}
           onChange={(v) => setGradingSource(v as GradingSource)}
         />
-        {gradingSource === "auto_balldontlie" && (
+        {gradingSource === "auto_api_football" && (
           <p className="text-xs text-tertiary-fixed-dim">
             {isHebrew
-              ? "balldontlie עוד לא מופעל בפרוד. עד אז ההימור ימתין בתור ידני."
-              : "balldontlie isn't live yet. The bet will queue for manual grading until it is."}
+              ? "API-Football עוד לא מופעל בפרוד. עד אז ההימור ימתין בתור ידני."
+              : "API-Football isn't live yet. The bet will queue for manual grading until it is."}
           </p>
         )}
       </Section>
@@ -636,26 +640,31 @@ export function BetForm({
         </Section>
       )}
 
-      {gradingSource === "auto_balldontlie" && (
-        <Section title={isHebrew ? "מה לדגום מ-balldontlie?" : "Which balldontlie stat?"}>
+      {gradingSource === "auto_api_football" && (
+        <Section title={isHebrew ? "מה לדגום מ-API-Football?" : "Which API-Football stat?"}>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <select
-              value={autoBdlStat}
-              onChange={(e) => setAutoBdlStat(e.target.value)}
+              value={autoAfStat}
+              onChange={(e) => setAutoAfStat(e.target.value)}
               className="min-h-[48px] px-3 rounded border border-outline bg-surface-container-lowest text-base"
             >
-              <option value="corners">       {isHebrew ? "קרנות" : "Corners"}</option>
-              <option value="yellow_cards">  {isHebrew ? "כרטיסים צהובים" : "Yellow cards"}</option>
-              <option value="red_cards">     {isHebrew ? "כרטיסים אדומים" : "Red cards"}</option>
-              <option value="shots">         {isHebrew ? "בעיטות" : "Shots"}</option>
-              <option value="shots_on_target">{isHebrew ? "בעיטות למסגרת" : "Shots on target"}</option>
-              <option value="possession">    {isHebrew ? "אחוז כדור" : "Possession %"}</option>
-              <option value="fouls">         {isHebrew ? "עבירות" : "Fouls"}</option>
-              <option value="offsides">      {isHebrew ? "נבדלים" : "Offsides"}</option>
+              <option value="corners">           {isHebrew ? "קרנות" : "Corners"}</option>
+              <option value="yellow_cards">      {isHebrew ? "כרטיסים צהובים" : "Yellow cards"}</option>
+              <option value="red_cards">         {isHebrew ? "כרטיסים אדומים" : "Red cards"}</option>
+              <option value="shots">             {isHebrew ? "בעיטות (סך הכל)" : "Total shots"}</option>
+              <option value="shots_on_goal">     {isHebrew ? "בעיטות למסגרת" : "Shots on goal"}</option>
+              <option value="shots_inside_box">  {isHebrew ? "בעיטות מתוך הרחבה" : "Shots inside box"}</option>
+              <option value="shots_outside_box"> {isHebrew ? "בעיטות מחוץ לרחבה" : "Shots outside box"}</option>
+              <option value="possession">        {isHebrew ? "אחוז כדור" : "Possession %"}</option>
+              <option value="fouls">             {isHebrew ? "עבירות" : "Fouls"}</option>
+              <option value="offsides">          {isHebrew ? "נבדלים" : "Offsides"}</option>
+              <option value="saves">             {isHebrew ? "הצלות שוער" : "Goalkeeper saves"}</option>
+              <option value="total_passes">      {isHebrew ? "מסירות (סך הכל)" : "Total passes"}</option>
+              <option value="pass_accuracy">     {isHebrew ? "דיוק מסירות" : "Pass accuracy %"}</option>
             </select>
             <select
-              value={autoBdlAgg}
-              onChange={(e) => setAutoBdlAgg(e.target.value as typeof autoBdlAgg)}
+              value={autoAfAgg}
+              onChange={(e) => setAutoAfAgg(e.target.value as typeof autoAfAgg)}
               className="min-h-[48px] px-3 rounded border border-outline bg-surface-container-lowest text-base"
             >
               <option value="per_match">   {isHebrew ? "פר משחק" : "Per match"}</option>
@@ -951,18 +960,18 @@ function buildAnswerConfig(
 function buildGradingConfig(
   source: GradingSource,
   fields: {
-    autoBdlStat: string;
-    autoBdlAgg: "sum_day" | "per_match" | "first_match";
+    autoAfStat: string;
+    autoAfAgg: "sum_day" | "per_match" | "first_match";
     autoFdField: AutoFdField;
   },
 ): GradingConfig | "invalid" {
   if (source === "manual") return null;
-  if (source === "auto_balldontlie") {
-    if (!fields.autoBdlStat) return "invalid";
+  if (source === "auto_api_football") {
+    if (!fields.autoAfStat) return "invalid";
     return {
-      source: "auto_balldontlie",
-      stat: fields.autoBdlStat,
-      aggregate: fields.autoBdlAgg,
+      source: "auto_api_football",
+      stat: fields.autoAfStat as AutoApiFootballStat,
+      aggregate: fields.autoAfAgg,
     };
   }
   return {

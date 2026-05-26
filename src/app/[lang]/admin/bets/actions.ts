@@ -56,7 +56,7 @@ export type CreateCustomBetInput = {
   stakeSnapshot: number;
   payoutSnapshot: number;
 
-  gradingSource: "auto_balldontlie" | "auto_football_data" | "manual";
+  gradingSource: "auto_api_football" | "auto_football_data" | "manual";
   gradingConfig: GradingConfig;
 
   lockAt: string; // ISO 8601
@@ -463,9 +463,9 @@ function validateGradingConfig(
 ): boolean {
   if (source === "manual") return config === null;
   if (!config) return false;
-  if (source === "auto_balldontlie") {
+  if (source === "auto_api_football") {
     return (
-      config.source === "auto_balldontlie" &&
+      config.source === "auto_api_football" &&
       typeof config.stat === "string" &&
       config.stat.length > 0 &&
       ["sum_day", "per_match", "first_match"].includes(config.aggregate)
