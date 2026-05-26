@@ -68,6 +68,8 @@
     "hours": "hours",
     "tagline": "Who is taking the cup?",
     "cta": "Enter the pool",
+    "signupHint": "New here?",
+    "signupCta": "Request to join",
     "friendsPoolLabel": "Friends pool.",
     "potLabel": "Pot",
     "participantsLabel": "players"
