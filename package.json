@@ -20,7 +20,8 @@
     "db:score": "node --env-file=.env.local scripts/score-matches.mjs",
     "db:clean-mock": "node --env-file=.env.local scripts/clean-mock-matches.mjs",
     "api:fixtures": "node --env-file=.env.local scripts/api-sync-fixtures.mjs",
-    "api:sync": "node --env-file=.env.local scripts/api-sync-fixtures.mjs && node --env-file=.env.local scripts/score-matches.mjs"
+    "api:sync": "node --env-file=.env.local scripts/api-sync-fixtures.mjs && node --env-file=.env.local scripts/score-matches.mjs",
+    "api-football:map": "node --env-file=.env.local scripts/api-football-map-fixtures.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.10.3",

@@ -22,6 +22,10 @@ import type { AutoApiFootballStat } from "@/lib/bets/types";
 
 const BASE = "https://v3.football.api-sports.io";
 
+// FIFA World Cup competition ID on API-Football. Their numbering is
+// stable across seasons — only the `season` query param changes.
+export const API_FOOTBALL_WC_LEAGUE_ID = 15;
+
 export type ApiFootballStats = Partial<Record<AutoApiFootballStat, number>>;
 
 export type TeamStats = {
@@ -79,6 +83,61 @@ export async function fetchFixtureStats(
   }
 }
 
+// Lightweight fixture shape — enough to map API-Football fixtures to our
+// matches table by (homeTla, awayTla, kickoffAt) at activation time.
+export type ApiFootballFixture = {
+  fixtureId: number;
+  kickoffAt: string;        // ISO 8601 UTC
+  homeTla: string | null;   // 3-letter code, uppercase
+  awayTla: string | null;
+};
+
+// Pull every fixture for a competition + season. Used once at activation
+// time by scripts/api-football-map-fixtures.mjs to backfill
+// matches.api_football_fixture_id. Single round-trip; API-Football returns
+// the whole tournament in one paginated batch.
+export async function fetchSeasonFixtures(
+  league: number,
+  season: number,
+): Promise<ApiFootballFixture[] | null> {
+  const key = process.env.API_FOOTBALL_KEY;
+  if (!key) {
+    console.warn("[api-football stubbed]", {
+      reason: "API_FOOTBALL_KEY not set",
+      league,
+      season,
+    });
+    return null;
+  }
+
+  try {
+    const res = await fetch(
+      `${BASE}/fixtures?league=${league}&season=${season}`,
+      {
+        headers: {
+          "x-rapidapi-key": key,
+          "x-rapidapi-host": "v3.football.api-sports.io",
+        },
+        cache: "no-store",
+      },
+    );
+    if (!res.ok) {
+      console.warn("[api-football error]", {
+        endpoint: "fixtures",
+        league,
+        season,
+        status: res.status,
+      });
+      return null;
+    }
+    const json = (await res.json()) as ApiFootballFixturesResponse;
+    return parseFixturesResponse(json);
+  } catch (err) {
+    console.error("[api-football fetch failed]", { league, season, err });
+    return null;
+  }
+}
+
 // ---------- response shape + parser ----------
 
 type ApiFootballStatItem = {
@@ -92,6 +151,28 @@ type ApiFootballStatsResponse = {
     statistics: ApiFootballStatItem[];
   }>;
 };
+
+type ApiFootballFixturesResponse = {
+  response?: Array<{
+    fixture: { id: number; date: string };
+    teams: {
+      home: { id: number; name: string; code?: string | null };
+      away: { id: number; name: string; code?: string | null };
+    };
+  }>;
+};
+
+function parseFixturesResponse(
+  json: ApiFootballFixturesResponse,
+): ApiFootballFixture[] {
+  const list = json.response ?? [];
+  return list.map((row) => ({
+    fixtureId: row.fixture.id,
+    kickoffAt: row.fixture.date,
+    homeTla: row.teams.home.code?.toUpperCase() ?? null,
+    awayTla: row.teams.away.code?.toUpperCase() ?? null,
+  }));
+}
 
 // Map from API-Football's stat label to our internal AutoApiFootballStat
 // keys. Done as a lookup table so a vendor-side rename is one edit.

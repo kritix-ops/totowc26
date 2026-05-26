@@ -17,6 +17,8 @@ import {
   mapStatus,
   type FDMatch,
 } from "./football-data";
+import { fetchFixtureStats, type ApiFootballStats } from "./api-football";
+import type { AutoApiFootballStat } from "./bets/types";
 import TEAM_NAMES from "../../data/team-names.json";
 
 type LocalisedTeam = { he: string; en: string; flag: string };
@@ -316,33 +318,32 @@ export async function scoreFinalMatches(): Promise<{
 }
 
 
-// ---------- Auto-grading custom_bets from football-data ----------
+// ---------- Auto-grading custom_bets ----------
 //
 // Sister pass to scoreFinalMatches: finds every custom_bets row that
-// opted into auto_football_data and is still in (open, locked) state,
-// then grades it deterministically from the matches table. The function
-// is idempotent — graded rows are skipped on subsequent runs because we
-// only touch status in ('open', 'locked').
+// opted into auto_football_data OR auto_api_football and is still in
+// (open, locked) state, then grades it deterministically against the
+// relevant data source. The function is idempotent — graded rows are
+// skipped on subsequent runs because we only touch status in
+// ('open', 'locked').
+//
+// Two grading sources:
+//   auto_football_data → reads from our matches table (final scores,
+//                        halftime, went_to_penalties). Always available.
+//   auto_api_football  → reads from API-Football's /fixtures/statistics
+//                        endpoint (corners, cards, possession, etc.).
+//                        Requires API_FOOTBALL_KEY in env AND
+//                        matches.api_football_fixture_id populated
+//                        (one-shot map script). Until both are in place
+//                        the api-football branch returns "not_ready"
+//                        and the bet stays in the manual queue.
 //
 // Data-readiness rules per scope:
 //   match scope → matches.status = 'final'
 //   day   scope → every match on that Asia/Jerusalem date is final
-//   stage scope → every match in that stage is final
-//   group scope → every group-stage match in that group is final
-//   tournament  → not auto-graded here (would need "every match final"
-//                 semantics). Left for manual / future iteration.
-//
-// Field semantics: the resolved value's TYPE has to match the bet's
-// answer_type or the bet is skipped (admin authored an unwhitelisted
-// combo). Combinations we support:
-//   answer_type=number       + field in {home_score, away_score,
-//                                        total_goals, ht_total}
-//   answer_type=multi_choice + field=winner   → values "1" | "X" | "2"
-//   answer_type=multi_choice + field=ht_score → values "{home}-{away}"
-//   answer_type=yes_no       + field=went_to_penalties
-//
-// Anything else stays in the manual queue. Mismatches log a [grading skipped]
-// warn so admin sees why a bet didn't auto-resolve.
+//   stage scope → not auto-graded yet (manual)
+//   group scope → not auto-graded yet (manual)
+//   tournament  → not auto-graded here (manual)
 type AutoFootballField =
   | "home_score"
   | "away_score"
@@ -363,12 +364,17 @@ type CandidateBet = {
   questionEn: string;
   answerType: "yes_no" | "number" | "multi_choice" | "free_text";
   payoutSnapshot: number;
-  gradingConfig: { source: string; field?: string } | null;
+  gradingSource: "auto_football_data" | "auto_api_football" | "manual";
+  gradingConfig: {
+    source: string;
+    field?: string;
+    stat?: string;
+    aggregate?: "sum_day" | "per_match" | "first_match";
+  } | null;
 };
 
 export async function scoreAutoCustomBets(): Promise<number> {
-  // 1) Candidate set. We pull matchday.date so the day-scope readiness
-  // query can run without a second roundtrip.
+  // 1) Candidate set. Both auto sources share the same shape.
   const candidateRows = await db.execute<CandidateBet>(drizzleSql`
     select
       cb.id::text                       as "id",
@@ -381,34 +387,25 @@ export async function scoreAutoCustomBets(): Promise<number> {
       cb.question_en                    as "questionEn",
       cb.answer_type::text              as "answerType",
       cb.payout_snapshot                as "payoutSnapshot",
+      cb.grading_source::text           as "gradingSource",
       cb.grading_config                 as "gradingConfig"
     from public.custom_bets cb
     left join public.matchdays md on md.id = cb.matchday_id
     where cb.status in ('open', 'locked')
-      and cb.grading_source = 'auto_football_data'
+      and cb.grading_source in ('auto_football_data', 'auto_api_football')
   `);
   const candidates = candidateRows as unknown as CandidateBet[];
 
   let scored = 0;
   for (const bet of candidates) {
-    const field = bet.gradingConfig?.field as AutoFootballField | undefined;
-    if (!field) {
-      console.warn("[grading skipped]", {
-        betId: bet.id,
-        reason: "no_field",
-        question: bet.questionEn,
-      });
-      continue;
-    }
-
     // 2) Compute the resolved value if the data is ready.
-    const resolved = await tryResolveFromFootballData(bet, field);
+    const resolved = await tryResolve(bet);
     if (resolved === "not_ready") continue;
     if (resolved === "skip") {
       console.warn("[grading skipped]", {
         betId: bet.id,
         scope: bet.scope,
-        field,
+        source: bet.gradingSource,
         answerType: bet.answerType,
         reason: "type_mismatch_or_unsupported_combo",
       });
@@ -460,7 +457,7 @@ export async function scoreAutoCustomBets(): Promise<number> {
       console.info("[grading auto]", {
         betId: bet.id,
         scope: bet.scope,
-        field,
+        source: bet.gradingSource,
         resolved,
         picksGraded,
         winners,
@@ -488,16 +485,24 @@ type ResolvedMulti  = { type: "multi_choice"; value: string };
 type ResolvedYesNo  = { type: "yes_no"; value: boolean };
 type Resolved = ResolvedNumber | ResolvedMulti | ResolvedYesNo;
 
-async function tryResolveFromFootballData(
+async function tryResolve(
   bet: CandidateBet,
-  field: AutoFootballField,
 ): Promise<Resolved | "not_ready" | "skip"> {
-  if (bet.scope === "match") return resolveMatchScope(bet, field);
-  if (bet.scope === "day")   return resolveDayScope(bet, field);
-  // stage / group / tournament scopes are not auto-graded here yet — they
-  // need "all matches in scope final" semantics which add complexity
-  // (e.g. tournament also depends on knock-out brackets). Left as manual
-  // grading for v1.
+  if (bet.gradingSource === "auto_football_data") {
+    const field = bet.gradingConfig?.field as AutoFootballField | undefined;
+    if (!field) return "skip";
+    if (bet.scope === "match") return resolveMatchScope(bet, field);
+    if (bet.scope === "day")   return resolveDayScope(bet, field);
+    return "skip";
+  }
+  if (bet.gradingSource === "auto_api_football") {
+    const stat = bet.gradingConfig?.stat as AutoApiFootballStat | undefined;
+    const aggregate = bet.gradingConfig?.aggregate;
+    if (!stat || !aggregate) return "skip";
+    if (bet.scope === "match") return resolveMatchScopeApiFootball(bet, stat);
+    if (bet.scope === "day")   return resolveDayScopeApiFootball(bet, stat, aggregate);
+    return "skip";
+  }
   return "skip";
 }
 
@@ -577,6 +582,101 @@ async function resolveDayScope(
 
   const value =
     field === "total_goals" ? Number(r.sum_total_goals) : Number(r.sum_ht_total);
+  return { type: "number", value };
+}
+
+async function resolveMatchScopeApiFootball(
+  bet: CandidateBet,
+  stat: AutoApiFootballStat,
+): Promise<Resolved | "not_ready" | "skip"> {
+  if (!bet.matchId) return "skip";
+  if (bet.answerType !== "number") return "skip";
+
+  // 1) Confirm the match is final and has been mapped to an API-Football
+  // fixture id. If either is false, the bet stays queued.
+  const [m] = await db
+    .select({
+      status: matches.status,
+      apiFootballFixtureId: matches.apiFootballFixtureId,
+    })
+    .from(matches)
+    .where(eq(matches.id, bet.matchId))
+    .limit(1);
+  if (!m || m.status !== "final") return "not_ready";
+  if (m.apiFootballFixtureId === null) return "not_ready";
+
+  // 2) Fetch + coerce. fetchFixtureStats returns null when the API key
+  // is unset OR on an upstream error; treat both as "try again later".
+  const stats = await fetchFixtureStats(m.apiFootballFixtureId);
+  if (!stats) return "not_ready";
+
+  return coerceApiFootballStat(stat, stats.combined);
+}
+
+async function resolveDayScopeApiFootball(
+  bet: CandidateBet,
+  stat: AutoApiFootballStat,
+  aggregate: "sum_day" | "per_match" | "first_match",
+): Promise<Resolved | "not_ready" | "skip"> {
+  if (!bet.matchdayDate) return "skip";
+  if (bet.answerType !== "number") return "skip";
+  if (aggregate === "per_match") return "skip"; // ambiguous at day scope
+
+  // Pull every match on the matchday with its fixture id + final status.
+  const rows = await db.execute<{
+    api_football_fixture_id: number | null;
+    status: string;
+    kickoff_at: string;
+  }>(drizzleSql`
+    select m.api_football_fixture_id, m.status::text, m.kickoff_at::text
+    from public.matches m
+    where (m.kickoff_at at time zone 'Asia/Jerusalem')::date = ${bet.matchdayDate}::date
+    order by m.kickoff_at asc
+  `);
+  const list = rows as unknown as Array<{
+    api_football_fixture_id: number | null;
+    status: string;
+    kickoff_at: string;
+  }>;
+  if (list.length === 0) return "skip";
+
+  // Every match must be final + mapped. Any missing piece → not_ready.
+  const allFinal = list.every((r) => r.status === "final");
+  const allMapped = list.every((r) => r.api_football_fixture_id !== null);
+  if (!allFinal || !allMapped) return "not_ready";
+
+  if (aggregate === "first_match") {
+    const first = list[0];
+    if (first.api_football_fixture_id === null) return "not_ready";
+    const stats = await fetchFixtureStats(first.api_football_fixture_id);
+    if (!stats) return "not_ready";
+    return coerceApiFootballStat(stat, stats.combined);
+  }
+
+  // sum_day: pull stats for every fixture, then add the combined values.
+  let total = 0;
+  for (const row of list) {
+    const stats = await fetchFixtureStats(row.api_football_fixture_id!);
+    if (!stats) return "not_ready";
+    const v = stats.combined[stat];
+    if (v === undefined) {
+      // Wrapper drops % stats from combined (possession, pass_accuracy)
+      // because summing them across teams is meaningless. Reaching here
+      // means admin chose a non-aggregable stat — return skip so the
+      // bet drops into the manual queue with a clear warn.
+      return "skip";
+    }
+    total += v;
+  }
+  return { type: "number", value: total };
+}
+
+function coerceApiFootballStat(
+  stat: AutoApiFootballStat,
+  combined: ApiFootballStats,
+): Resolved | "skip" {
+  const value = combined[stat];
+  if (value === undefined) return "skip"; // possession / pass_accuracy
   return { type: "number", value };
 }
 

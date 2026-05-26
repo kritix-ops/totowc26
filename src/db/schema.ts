@@ -143,6 +143,9 @@ export const matches = pgTable(
     wentToPenalties: boolean("went_to_penalties"),
     finalizedAt: timestamp("finalized_at", { withTimezone: true }),
     apiFixtureId: integer("api_fixture_id"),
+    // API-Football v3 fixture ID. Populated by a one-shot mapping
+    // script at API_FOOTBALL_KEY activation time. Null until then.
+    apiFootballFixtureId: integer("api_football_fixture_id"),
   },
   (t) => ({
     kickoffIdx: index("matches_kickoff_idx").on(t.kickoffAt),
