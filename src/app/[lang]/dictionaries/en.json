@@ -161,6 +161,12 @@
     "newRuleHint": "Exactly what counts? Phrase it so it can't be argued.",
     "betweenAndPts": "{stake} pts each side"
   },
+  "quickBets": {
+    "title": "Quick picks",
+    "subtitle": "Every match still open to pick, all in one list. Fill the score, tap Save — no need to open a separate page per match.",
+    "empty": "No matches available right now. They lock 5 minutes before kickoff and drop off the list.",
+    "hint": "Looking for live bets, group rankings or tournament bets?"
+  },
   "live": {
     "title": "Live bets",
     "subtitle": "Custom bets the admin publishes for each match day. Each one has a fixed stake and payout.",

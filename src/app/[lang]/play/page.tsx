@@ -1,6 +1,13 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { Calendar, ChevronLeft, ChevronRight, Sparkles, Trophy } from "lucide-react";
+import {
+  Calendar,
+  ChevronLeft,
+  ChevronRight,
+  ListChecks,
+  Sparkles,
+  Trophy,
+} from "lucide-react";
 import { getDictionary, hasLocale, type Locale } from "../dictionaries";
 import { Card, Chip, LabelCaps } from "@/components/ui";
 import { PayGateBanner } from "@/components/PayGateBanner";
@@ -48,6 +55,27 @@ export default async function PlayIndexPage({
       </header>
 
       {!access.canEdit && <PayGateBanner locale={locale} dict={dict} />}
+
+      {/* Quick-fill shortcut — full list of upcoming matches one tap away. */}
+      <Link
+        href={localePath(locale, "bets")}
+        className="press-down block"
+      >
+        <Card className="p-4 md:p-5 flex items-center gap-3 hover:bg-surface-container transition-colors bg-primary-fixed border-primary text-on-primary-fixed-variant">
+          <div className="w-10 h-10 rounded-full bg-primary text-on-primary flex items-center justify-center shrink-0">
+            <ListChecks className="h-5 w-5" strokeWidth={1.75} />
+          </div>
+          <div className="flex-1 min-w-0">
+            <span className="block font-[family-name:var(--font-display)] text-base font-bold truncate">
+              {dict.quickBets.title}
+            </span>
+            <span className="block text-xs opacity-80 truncate mt-0.5">
+              {dict.quickBets.subtitle}
+            </span>
+          </div>
+          <Chev className="h-5 w-5 shrink-0" />
+        </Card>
+      </Link>
 
       {/* Pinned: tournament + groups */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
