@@ -18,7 +18,6 @@ export type SyncRunRow = {
   skipped: number | null;
   scoredBets: number | null;
   scoredMatches: number | null;
-  scoredSpecials: number | null;
   unknownTeams: string[] | null;
   errorMessage: string | null;
   errorStack: string | null;
@@ -40,7 +39,6 @@ export async function getRecentSyncRuns(limit = 20): Promise<SyncRunRow[]> {
       r.skipped                   as "skipped",
       r.scored_bets               as "scoredBets",
       r.scored_matches            as "scoredMatches",
-      r.scored_specials           as "scoredSpecials",
       r.unknown_teams             as "unknownTeams",
       r.error_message             as "errorMessage",
       r.error_stack               as "errorStack"

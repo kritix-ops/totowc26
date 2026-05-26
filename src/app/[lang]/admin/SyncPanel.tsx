@@ -248,9 +248,6 @@ function summaryLine(r: SyncRunRow, isHebrew: boolean): string {
     `${r.inserted ?? 0} ${isHebrew ? "חדשים" : "new"}`,
     `${r.scoredBets ?? 0} ${isHebrew ? "ניקודים" : "scored"}`,
   ];
-  if ((r.scoredSpecials ?? 0) > 0) {
-    parts.push(`${r.scoredSpecials} ${isHebrew ? "על" : "specials"}`);
-  }
   if ((r.unknownTeams?.length ?? 0) > 0) {
     parts.push(
       `${r.unknownTeams!.length} ${isHebrew ? "קבוצות לא ידועות" : "unknown teams"}`,
@@ -314,10 +311,6 @@ function RunDetail({ run, isHebrew }: { run: SyncRunRow; isHebrew: boolean }) {
           <Field
             label={isHebrew ? "משחקים" : "Matches"}
             value={String(run.scoredMatches ?? 0)}
-          />
-          <Field
-            label={isHebrew ? "הימורי על" : "Specials"}
-            value={String(run.scoredSpecials ?? 0)}
           />
           <Field
             label={isHebrew ? "ק׳ לא ידועות" : "Unknown teams"}
