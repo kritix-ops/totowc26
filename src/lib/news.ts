@@ -65,12 +65,15 @@ const YNET_TITLE_RE =
 const YNET_DATE_RE = /dateTime="([^"]+)"/;
 const YNET_IMG_RE = /<img\s+[^>]*src="([^"]+)"/;
 // Ynet articles carry their primary category in the URL path
-// (/sport/<category>/article/<id>). The Mundial-2026 tag aggregates
-// articles broadly — including Israeli-league cup wins and other
-// non-Mundial sports stories that mention the tournament in passing.
-// We drop any article whose primary category is clearly off-topic so
-// the news tab stays close to "actual World Cup coverage". Canonical
-// /sport/article/ (no category) and /sport/worldsoccer/ stay.
+// (/sport/<category>/article/<id>). The Mundial-2026 tag page also
+// mixes in editorially-curated "trending" sports articles that aren't
+// actually tagged Mundial at all — verified by fetching the articles
+// directly (zero "מונדיאל" mentions in their own body). So we do two
+// passes: (1) drop articles whose primary category is clearly off-
+// topic by URL path, (2) fetch each remaining article and require at
+// least MIN_YNET_MUNDIAL_MENTIONS occurrences of "מונדיאל" in the body.
+// Pass 2 is the load-bearing filter; pass 1 just keeps the per-render
+// article-fetch count low.
 const YNET_EXCLUDED_PATHS = [
   "/sport/israelisoccer/",
   "/sport/israelibasketball/",
@@ -82,6 +85,8 @@ const YNET_EXCLUDED_PATHS = [
   "/sport/extremesport/",
   "/sport/morsports/",
 ];
+const MIN_YNET_MUNDIAL_MENTIONS = 2;
+const YNET_MUNDIAL_BODY_RE = /מונדיאל/g;
 
 export async function getNewsForLocale(locale: Locale): Promise<NewsFeed> {
   if (locale === "en") {
@@ -290,14 +295,29 @@ async function fetchYnetMundialArticles(): Promise<NewsItem[]> {
         source: "ynet",
       });
     }
+    // Pass 2: verify each candidate by fetching the article and
+    // counting "מונדיאל" mentions in the body. Parallelised since the
+    // list is small (~4-10 items) and each response caches under the
+    // same TTL so subsequent renders are free.
+    const verifications = await Promise.all(
+      items.map((item) => verifyYnetMundialArticle(item.link)),
+    );
+    const verified: NewsItem[] = [];
+    let droppedByVerify = 0;
+    for (let i = 0; i < items.length; i++) {
+      if (verifications[i]) verified.push(items[i]);
+      else droppedByVerify++;
+    }
     console.info("[news fetch ynet-tag]", {
       url: YNET_MUNDIAL_TAG_URL,
       status: res.status,
-      itemCount: items.length,
+      candidateCount: items.length,
+      verifiedCount: verified.length,
       droppedByPath,
+      droppedByVerify,
       durationMs: Date.now() - started,
     });
-    return items;
+    return verified;
   } catch (error) {
     console.warn("[news fetch ynet-tag]", {
       url: YNET_MUNDIAL_TAG_URL,
@@ -305,6 +325,22 @@ async function fetchYnetMundialArticles(): Promise<NewsItem[]> {
       durationMs: Date.now() - started,
     });
     return [];
+  }
+}
+
+async function verifyYnetMundialArticle(url: string): Promise<boolean> {
+  try {
+    const res = await fetch(url, {
+      next: { revalidate: REVALIDATE_SECONDS },
+      headers: { Accept: "text/html" },
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+    });
+    if (!res.ok) return false;
+    const html = await res.text();
+    const matches = html.match(YNET_MUNDIAL_BODY_RE);
+    return (matches?.length ?? 0) >= MIN_YNET_MUNDIAL_MENTIONS;
+  } catch {
+    return false;
   }
 }
 
