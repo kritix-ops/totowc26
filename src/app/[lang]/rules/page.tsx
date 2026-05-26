@@ -9,6 +9,7 @@ import {
   Eye,
   ListChecks,
   Medal,
+  Radio,
   Sparkles,
   Swords,
   Target,
@@ -16,13 +17,13 @@ import {
   Wallet,
 } from "lucide-react";
 import { getDictionary, hasLocale, type Locale } from "../dictionaries";
-import { getPrizeBreakdown } from "@/db/queries";
+import { getCategoryPrizeBreakdown } from "@/db/queries";
 import { db } from "@/db";
 import { settings } from "@/db/schema";
 import { getUser } from "@/lib/supabase/auth";
 import { localePath } from "@/lib/paths";
 import { Card, LabelCaps, SectionHeading } from "@/components/ui";
-import { PrizeStrip } from "@/components/PrizeStrip";
+import { CategoryPrizeStrip } from "@/components/CategoryPrizeStrip";
 
 export default async function RulesPage({
   params,
@@ -39,7 +40,7 @@ export default async function RulesPage({
   // of truth (admin can flip the risk toggle and the page reflects it).
   const [user, prize, [scoringCfg]] = await Promise.all([
     getUser(),
-    getPrizeBreakdown(),
+    getCategoryPrizeBreakdown(),
     db
       .select({
         scoringExact: settings.scoringExact,
@@ -173,12 +174,19 @@ export default async function RulesPage({
       </RuleSection>
 
       <RuleSection
+        icon={<Radio className="h-5 w-5" strokeWidth={1.75} />}
+        title={dict.rules.liveViewTitle}
+      >
+        <p>{dict.rules.liveViewBody}</p>
+      </RuleSection>
+
+      <RuleSection
         icon={<Trophy className="h-5 w-5" strokeWidth={1.75} />}
         title={dict.rules.prizesTitle}
       >
         <p>{dict.rules.prizesEntry}</p>
         <p>{dict.rules.prizesBody}</p>
-        <PrizeStrip prize={prize} locale={locale} dict={dict} />
+        <CategoryPrizeStrip prize={prize} locale={locale} />
       </RuleSection>
 
       <div>

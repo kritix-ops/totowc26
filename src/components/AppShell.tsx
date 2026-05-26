@@ -202,6 +202,7 @@ export async function AppShell({
             isAdmin={admin}
             labels={{
               moreCell: dict.nav.more,
+              liveScores: dict.nav.liveScores,
               duels: dict.nav.duels,
               transparency: dict.nav.transparency,
               pay: dict.nav.pay,

@@ -877,6 +877,76 @@ export type PrizeBreakdown = {
   totalAwardedIls: number;
 };
 
+// 7-way category prize split (king 1/2/3 + matches/live/duels winner + reserve).
+// Mirrors PrizeBreakdown but groups by category rather than rank 1-4 so the
+// new prize UI can render alongside the four-tab leaderboard.
+export type CategoryPrizeKey =
+  | "king_first"
+  | "king_second"
+  | "king_third"
+  | "matches_winner"
+  | "live_winner"
+  | "duels_winner"
+  | "reserve";
+
+export type CategoryPrizeBreakdown = {
+  potIls: number;
+  prizes: Array<{ key: CategoryPrizeKey; pct: number; ils: number }>;
+  totalAwardedIls: number;
+};
+
+export async function getCategoryPrizeBreakdown(): Promise<CategoryPrizeBreakdown> {
+  const rows = await db.execute<{
+    pot: number;
+    king_first: number;
+    king_second: number;
+    king_third: number;
+    matches_winner: number;
+    live_winner: number;
+    duels_winner: number;
+    reserve: number;
+  }>(sql`
+    select
+      coalesce((
+        select sum(amount_ils) filter (where status = 'approved')
+        from public.payments
+      ), 0)::int                                                        as "pot",
+      (select prize_king_first_pct      from public.settings where id = 1)::int as "king_first",
+      (select prize_king_second_pct     from public.settings where id = 1)::int as "king_second",
+      (select prize_king_third_pct      from public.settings where id = 1)::int as "king_third",
+      (select prize_matches_winner_pct  from public.settings where id = 1)::int as "matches_winner",
+      (select prize_live_winner_pct     from public.settings where id = 1)::int as "live_winner",
+      (select prize_duels_winner_pct    from public.settings where id = 1)::int as "duels_winner",
+      (select prize_reserve_pct         from public.settings where id = 1)::int as "reserve"
+  `);
+  const r = (rows as unknown as Array<{
+    pot: number;
+    king_first: number;
+    king_second: number;
+    king_third: number;
+    matches_winner: number;
+    live_winner: number;
+    duels_winner: number;
+    reserve: number;
+  }>)[0];
+  const pot = Number(r?.pot ?? 0);
+  const keys: Array<{ key: CategoryPrizeKey; pct: number }> = [
+    { key: "king_first",     pct: Number(r?.king_first ?? 0) },
+    { key: "king_second",    pct: Number(r?.king_second ?? 0) },
+    { key: "king_third",     pct: Number(r?.king_third ?? 0) },
+    { key: "matches_winner", pct: Number(r?.matches_winner ?? 0) },
+    { key: "live_winner",    pct: Number(r?.live_winner ?? 0) },
+    { key: "duels_winner",   pct: Number(r?.duels_winner ?? 0) },
+    { key: "reserve",        pct: Number(r?.reserve ?? 0) },
+  ];
+  const prizes = keys.map((k) => ({
+    ...k,
+    ils: Math.floor((pot * k.pct) / 100),
+  }));
+  const totalAwardedIls = prizes.reduce((s, p) => s + p.ils, 0);
+  return { potIls: pot, prizes, totalAwardedIls };
+}
+
 export async function getPrizeBreakdown(): Promise<PrizeBreakdown> {
   const rows = await db.execute<{
     pot: number;
@@ -1633,5 +1703,59 @@ export async function getBankStats(userId: string): Promise<BankStats> {
     duelsWon: Number(r?.duels_won ?? 0),
     duelsParticipated: Number(r?.duels_participated ?? 0),
   };
+}
+
+// Live matches feed for /[lang]/live. Returns every fixture currently
+// in 'live' status plus matches finalised within the last 90 minutes
+// (so the page still has something to show during half-time / right
+// after the whistle) and the signed-in viewer's pick if any.
+
+export type LiveMatchRow = {
+  id: string;
+  homeCode: string;
+  homeNameHe: string;
+  homeNameEn: string;
+  awayCode: string;
+  awayNameHe: string;
+  awayNameEn: string;
+  kickoffAt: string;
+  status: "live" | "final";
+  homeScore: number | null;
+  awayScore: number | null;
+  myHomeScore: number | null;
+  myAwayScore: number | null;
+  myPointsEarned: number | null;
+};
+
+export async function getLiveMatches(userId: string): Promise<LiveMatchRow[]> {
+  const rows = await db.execute<LiveMatchRow>(sql`
+    select
+      m.id::text                                          as "id",
+      m.home_team                                         as "homeCode",
+      ht.name_he                                          as "homeNameHe",
+      ht.name_en                                          as "homeNameEn",
+      m.away_team                                         as "awayCode",
+      at.name_he                                          as "awayNameHe",
+      at.name_en                                          as "awayNameEn",
+      m.kickoff_at::text                                  as "kickoffAt",
+      m.status::text                                      as "status",
+      m.home_score                                        as "homeScore",
+      m.away_score                                        as "awayScore",
+      mb.home_score                                       as "myHomeScore",
+      mb.away_score                                       as "myAwayScore",
+      mb.points_earned                                    as "myPointsEarned"
+    from public.matches m
+    join public.teams ht on ht.code = m.home_team
+    join public.teams at on at.code = m.away_team
+    left join public.match_bets mb on mb.match_id = m.id and mb.user_id = ${userId}
+    where m.status = 'live'
+       or (m.status = 'final'
+           and coalesce(m.finalized_at, m.kickoff_at) > now() - interval '90 minutes')
+    order by
+      case when m.status = 'live' then 0 else 1 end,
+      m.kickoff_at asc
+    limit 50
+  `);
+  return rows as unknown as LiveMatchRow[];
 }
 

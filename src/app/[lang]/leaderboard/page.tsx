@@ -5,11 +5,13 @@ import { clsx } from "clsx";
 import { getDictionary, hasLocale, type Locale } from "../dictionaries";
 import { getUser } from "@/lib/supabase/auth";
 import {
+  getCategoryPrizeBreakdown,
   getLeaderboard,
   getPrizeBreakdown,
   type LeaderboardTab,
 } from "@/db/queries";
 import { Card, LabelCaps } from "@/components/ui";
+import { CategoryPrizeStrip } from "@/components/CategoryPrizeStrip";
 import { localePath } from "@/lib/paths";
 
 type SearchSP = { tab?: string | string[] };
@@ -41,18 +43,32 @@ export default async function LeaderboardPage({
       ? (rawTab as LeaderboardTab)
       : "overall";
 
-  const [rows, prize] = await Promise.all([
+  const [rows, prize, categoryPrize] = await Promise.all([
     getLeaderboard(user.id, tab),
     getPrizeBreakdown(),
+    getCategoryPrizeBreakdown(),
   ]);
 
-  // Prizes only render alongside the overall tab — the category tabs
-  // each carry their own single-winner prize, surfaced by PR 5's prize
-  // UI rather than the legacy 1-4 split that PrizeStrip still drives.
+  // Per-rank legacy prize ILS amounts only render alongside the
+  // overall tab. Category tabs surface their single-winner prize
+  // through the strip above the list.
   const prizeByRank =
     tab === "overall"
       ? new Map<number, number>(prize.prizes.map((p) => [p.rank, p.ils]))
       : new Map<number, number>();
+
+  // Map each category tab to the matching slot in the 7-way split so
+  // we can highlight the winner's prize on the first row.
+  const categoryPrizeIls = (() => {
+    if (tab === "overall") return null;
+    const key =
+      tab === "matches"
+        ? "matches_winner"
+        : tab === "live"
+          ? "live_winner"
+          : "duels_winner";
+    return categoryPrize.prizes.find((p) => p.key === key)?.ils ?? 0;
+  })();
 
   return (
     <section className="px-4 md:px-16 py-6 md:py-12 flex flex-col gap-6 md:gap-8 max-w-3xl mx-auto w-full">
@@ -79,6 +95,24 @@ export default async function LeaderboardPage({
           />
         ))}
       </nav>
+
+      {tab === "overall" && <CategoryPrizeStrip prize={categoryPrize} locale={locale} />}
+
+      {tab !== "overall" && categoryPrizeIls !== null && categoryPrizeIls > 0 && (
+        <Card className="p-4 md:p-5 flex items-center justify-between gap-3 bg-secondary-container text-on-secondary-container border border-secondary-fixed">
+          <span className="text-sm font-bold inline-flex items-center gap-2">
+            <Trophy className="h-4 w-4" strokeWidth={2} />
+            {isHebrew
+              ? "פרס המוביל בקטגוריה"
+              : "Category-leader prize"}
+          </span>
+          <span className="font-[family-name:var(--font-display)] text-xl font-bold tabular-nums">
+            <bdi>
+              {categoryPrizeIls.toLocaleString()} {isHebrew ? "ש״ח" : "ILS"}
+            </bdi>
+          </span>
+        </Card>
+      )}
 
       {rows.length === 0 ? (
         <Card className="p-6 text-center text-on-surface-variant">
