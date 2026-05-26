@@ -168,7 +168,7 @@ function GuestLanding({
     <section className="relative flex flex-col items-stretch">
       <div className="relative w-full h-[220px] sm:h-[320px] md:h-[440px] lg:h-[520px] overflow-hidden">
         <Image
-          src="/hero.png"
+          src={isHebrew ? "/hero-he.png" : "/hero-en.png"}
           alt={isHebrew ? "כוכבי המונדיאל" : "World Cup legends"}
           fill
           priority
@@ -364,7 +364,7 @@ function HeroBand({
   return (
     <div className="relative w-full h-[300px] sm:h-[400px] md:h-[520px] lg:h-[600px] overflow-hidden">
       <Image
-        src="/hero.png"
+        src={isHebrew ? "/hero-he.png" : "/hero-en.png"}
         alt={isHebrew ? "כוכבי המונדיאל" : "World Cup legends"}
         fill
         priority
