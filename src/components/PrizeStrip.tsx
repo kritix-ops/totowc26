@@ -4,9 +4,9 @@ import type { Dictionary, Locale } from "@/app/[lang]/dictionaries";
 import type { PrizeBreakdown } from "@/db/queries";
 
 // Compact prize-pool breakdown for the top 4. Renders one chip per rank
-// with the live ILS amount derived from the current pot. Hides itself
-// completely when the pot is zero (no payments approved yet) so the home
-// page doesn't show "1st place: 0 ILS" empty state.
+// with the live ILS amount derived from the current pot. Always rendered:
+// before any payments land, the chips show the configured percentages with
+// `0 ILS` so first-time visitors still see what the split looks like.
 export function PrizeStrip({
   prize,
   locale,
@@ -16,10 +16,7 @@ export function PrizeStrip({
   locale: Locale;
   dict: Dictionary;
 }) {
-  if (prize.potIls <= 0) return null;
   const isHebrew = locale === "he";
-  const positive = prize.prizes.filter((p) => p.ils > 0);
-  if (positive.length === 0) return null;
 
   return (
     <section

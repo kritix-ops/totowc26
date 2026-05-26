@@ -50,6 +50,26 @@ export function BetForm({
   const pick: Pick = home === away ? "X" : home > away ? "1" : "2";
   const clamp = (n: number) => Math.max(0, Math.min(99, n));
 
+  // Click on a 1/X/2 pill: if it already matches the current direction we
+  // leave the user's exact score untouched (so 3-1 stays 3-1 when they tap
+  // "1" again). Direction change snaps to a canonical default score the
+  // user can then nudge with the steppers.
+  const onPickClick = (p: Exclude<Pick, null>) => {
+    if (!editable || pending) return;
+    if (pick === p) return;
+    if (p === "1") {
+      setHome(1);
+      setAway(0);
+    } else if (p === "X") {
+      setHome(1);
+      setAway(1);
+    } else {
+      setHome(0);
+      setAway(1);
+    }
+    console.info("[bet pick click]", { matchId: match.id, pick: p });
+  };
+
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
@@ -116,26 +136,32 @@ export function BetForm({
           </h3>
           <div className="flex flex-col gap-3">
             {([
-              { p: "1" as Pick, label: dict.matchBet.homeWin },
-              { p: "X" as Pick, label: dict.matchBet.draw },
-              { p: "2" as Pick, label: dict.matchBet.awayWin },
+              { p: "1" as const, label: dict.matchBet.homeWin },
+              { p: "X" as const, label: dict.matchBet.draw },
+              { p: "2" as const, label: dict.matchBet.awayWin },
             ]).map(({ p, label }) => {
               const selected = pick === p;
+              const disabled = !editable || pending;
               return (
-                <div
+                <button
                   key={p}
+                  type="button"
+                  onClick={() => onPickClick(p)}
+                  disabled={disabled}
+                  aria-pressed={selected}
                   className={clsx(
-                    "min-h-[48px] w-full py-3 px-5 rounded-full border text-base flex justify-between items-center",
+                    "press-down min-h-[48px] w-full py-3 px-5 rounded-full border text-base flex justify-between items-center transition-colors",
                     selected
                       ? "border-2 border-primary bg-primary-container text-on-primary-container font-bold shadow-sm"
-                      : "border-outline bg-surface-container-lowest text-on-surface-variant",
+                      : "border-outline bg-surface-container-lowest text-on-surface-variant hover:bg-surface-container",
+                    disabled && "opacity-60 cursor-not-allowed",
                   )}
                 >
                   <span>{label}</span>
                   <span className="font-[family-name:var(--font-label)] text-sm tracking-[0.05em]">
                     {p}
                   </span>
-                </div>
+                </button>
               );
             })}
           </div>

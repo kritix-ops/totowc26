@@ -9,8 +9,10 @@ const LOCALE_COOKIE_MAX_AGE = 60 * 60 * 24 * 365;
 // Pages that an unauthenticated user is allowed to see. Each entry is the
 // path AFTER the locale segment (no leading slash). Empty string = landing.
 // "signup" covers both /signup (the request form) and /signup/thanks (the
-// post-submit confirmation) via the prefix match in isPublic().
-const PUBLIC_PATHS = ["", "login", "signup"];
+// post-submit confirmation) via the prefix match in isPublic(). "rules"
+// is the public game-rules page — guests browsing the landing should be
+// able to read what they would be signing up for.
+const PUBLIC_PATHS = ["", "login", "signup", "rules"];
 
 function isLocale(value: string | undefined): value is (typeof LOCALES)[number] {
   return !!value && (LOCALES as readonly string[]).includes(value);

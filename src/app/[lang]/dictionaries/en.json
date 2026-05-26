@@ -52,11 +52,11 @@
     "home": "Home",
     "play": "Bets",
     "leaders": "Leaders",
-    "club": "Club",
-    "worldCup": "World Cup",
+    "tournament": "World Cup Zone",
     "pay": "Pay",
     "admin": "Admin",
     "profile": "Profile",
+    "rules": "How it works",
     "more": "More",
     "openMenu": "Open user menu",
     "signin": "Sign in",
@@ -146,6 +146,17 @@
     "submit": "Save all groups",
     "savedBadge": "Saved"
   },
+  "tournament": {
+    "title": "World Cup Zone",
+    "subtitle": "Everything happening at the World Cup, in one place. Stats, tables, teams and news.",
+    "tabSummary": "Summary",
+    "tabTables": "Tables",
+    "tabTeams": "Teams",
+    "tabNews": "News",
+    "tabBadgeSoon": "Soon",
+    "newsComingSoonTitle": "World Cup news, coming soon",
+    "newsComingSoonBody": "A live news feed pulling headlines from the major outlets is on the way. Check back."
+  },
   "bracket": {
     "title": "World champion",
     "subtitle": "Pick the top four",
@@ -162,12 +173,7 @@
   },
   "leaderboard": {
     "title": "Leaderboard",
-    "you": "You",
-    "filterWeek": "This week",
-    "filterStage": "Stage",
-    "filterAll": "All",
-    "delta": "Change",
-    "streak": "Streak"
+    "you": "You"
   },
   "matchDetail": {
     "final": "Final",
@@ -205,5 +211,25 @@
     "approve": "Approve",
     "reject": "Reject",
     "saveResult": "Save"
+  },
+  "rules": {
+    "title": "How it works",
+    "subtitle": "Short brief on how the pool runs. Enough to start betting without reading a rulebook.",
+    "whatTitle": "What is this?",
+    "whatBody": "A friends pool around the 2026 World Cup. Everyone predicts, points add up across the tournament, and the top four split the pot.",
+    "howTitle": "How to bet",
+    "howBody": "Open \"Bets\", pick a match day, then a match. Tap 1, X or 2 to drop in a default score, then tweak it with +/- for an exact prediction. There are also tournament-wide bets (champion, top scorer) and group-rankings bets.",
+    "scoringTitle": "Scoring",
+    "scoringExact": "Exact score",
+    "scoringExactValue": "3 pts",
+    "scoringDirection": "Correct outcome (1/X/2)",
+    "scoringDirectionValue": "1 pt",
+    "scoringExtras": "Tournament and group bets carry their own payouts, shown on each bet card.",
+    "bankTitle": "Points bank",
+    "bankBody": "Each player has a points bank. Every bet costs points up front. If you're right you get the stake back plus a payout; if you're wrong the stake stays in the pool. Your current balance is the pill in the top header.",
+    "prizesTitle": "Pot and prizes",
+    "prizesEntry": "Entry fee: 100 ILS via Paybox.",
+    "prizesBody": "The pot splits across places 1-4 by the percentages below. It grows every time the admin approves another payment.",
+    "ctaBack": "Back to home"
   }
 }

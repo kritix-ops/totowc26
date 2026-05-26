@@ -3,13 +3,13 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { LogOut, MoreHorizontal, Shield, Trophy, User as UserIcon, Wallet } from "lucide-react";
+import { BookOpen, LogOut, MoreHorizontal, Shield, User as UserIcon, Wallet } from "lucide-react";
 import { clsx } from "clsx";
 import type { Locale } from "@/app/[lang]/dictionaries";
 import { localePath } from "@/lib/paths";
 
 type SheetItem = {
-  key: "worldCup" | "pay" | "profile" | "admin";
+  key: "pay" | "profile" | "admin" | "rules";
   path: string;
   label: string;
   icon: React.ReactNode;
@@ -17,10 +17,10 @@ type SheetItem = {
 
 type Labels = {
   moreCell: string;
-  worldCup: string;
   pay: string;
   profile: string;
   admin: string;
+  rules: string;
   logout: string;
   openSheet: string;
   closeSheet: string;
@@ -42,12 +42,6 @@ export function MobileMoreSheet({
   const sheetRef = useRef<HTMLDivElement | null>(null);
 
   const items: SheetItem[] = [];
-  items.push({
-    key: "worldCup",
-    path: "standings",
-    label: labels.worldCup,
-    icon: <Trophy className="h-5 w-5" strokeWidth={1.75} />,
-  });
   if (showPay) {
     items.push({
       key: "pay",
@@ -69,6 +63,12 @@ export function MobileMoreSheet({
     path: "profile",
     label: labels.profile,
     icon: <UserIcon className="h-5 w-5" strokeWidth={1.75} />,
+  });
+  items.push({
+    key: "rules",
+    path: "rules",
+    label: labels.rules,
+    icon: <BookOpen className="h-5 w-5" strokeWidth={1.75} />,
   });
 
   const triggerActive = items.some((i) => {

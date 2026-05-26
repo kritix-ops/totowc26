@@ -57,7 +57,7 @@ export default async function TeamPage({
           <div className="flex items-center gap-2 flex-wrap">
             {team.groupId && (
               <Link
-                href={localePath(locale, "standings")}
+                href={`${localePath(locale, "tournament")}?tab=tables`}
                 className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-surface-variant text-on-surface text-xs font-bold hover:bg-surface-container transition-colors"
               >
                 <Trophy

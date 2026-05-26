@@ -33,26 +33,6 @@ export default async function LeaderboardPage({
         <h1 className="font-[family-name:var(--font-display)] text-[28px] leading-9 md:text-[48px] md:leading-[52px] font-bold text-primary">
           {dict.leaderboard.title}
         </h1>
-        <div className="flex gap-2 flex-wrap">
-          {[
-            { label: dict.leaderboard.filterWeek, active: false },
-            { label: dict.leaderboard.filterStage, active: false },
-            { label: dict.leaderboard.filterAll, active: true },
-          ].map((f) => (
-            <button
-              key={f.label}
-              type="button"
-              className={clsx(
-                "min-h-[36px] px-4 py-1.5 rounded-full text-sm font-bold border transition-colors",
-                f.active
-                  ? "bg-primary text-on-primary border-primary"
-                  : "bg-surface-container-lowest text-on-surface-variant border-outline-variant hover:bg-surface-container",
-              )}
-            >
-              {f.label}
-            </button>
-          ))}
-        </div>
       </header>
 
       {rows.length === 0 ? (

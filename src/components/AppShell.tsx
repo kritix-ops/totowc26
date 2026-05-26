@@ -4,7 +4,7 @@ import {
   Home,
   ListChecks,
   Trophy,
-  Users,
+  Globe2,
   LogIn,
 } from "lucide-react";
 import type { Dictionary, Locale } from "@/app/[lang]/dictionaries";
@@ -111,8 +111,7 @@ export async function AppShell({
             <NavLink locale={locale} path="" label={dict.nav.home} exact />
             <NavLink locale={locale} path="play" label={dict.nav.play} />
             <NavLink locale={locale} path="leaderboard" label={dict.nav.leaders} />
-            <NavLink locale={locale} path="club" label={dict.nav.club} />
-            <NavLink locale={locale} path="standings" label={dict.nav.worldCup} />
+            <NavLink locale={locale} path="tournament" label={dict.nav.tournament} />
             {showPay && (
               <NavLink locale={locale} path="pay" label={dict.nav.pay} />
             )}
@@ -148,6 +147,7 @@ export async function AppShell({
                 labels={{
                   profile: dict.nav.profile,
                   admin: dict.nav.admin,
+                  rules: dict.nav.rules,
                   logout: dict.profile.logout,
                   openMenu: dict.nav.openMenu,
                 }}
@@ -194,17 +194,17 @@ export async function AppShell({
           <BottomNavLink locale={locale} path="" label={dict.nav.home} icon={<Home className="h-5 w-5" strokeWidth={1.75} />} exact />
           <BottomNavLink locale={locale} path="play" label={dict.nav.play} icon={<ListChecks className="h-5 w-5" strokeWidth={1.75} />} />
           <BottomNavLink locale={locale} path="leaderboard" label={dict.nav.leaders} icon={<Trophy className="h-5 w-5" strokeWidth={1.75} />} />
-          <BottomNavLink locale={locale} path="club" label={dict.nav.club} icon={<Users className="h-5 w-5" strokeWidth={1.75} />} />
+          <BottomNavLink locale={locale} path="tournament" label={dict.nav.tournament} icon={<Globe2 className="h-5 w-5" strokeWidth={1.75} />} />
           <MobileMoreSheet
             locale={locale}
             showPay={showPay}
             isAdmin={admin}
             labels={{
               moreCell: dict.nav.more,
-              worldCup: dict.nav.worldCup,
               pay: dict.nav.pay,
               profile: dict.nav.profile,
               admin: dict.nav.admin,
+              rules: dict.nav.rules,
               logout: dict.profile.logout,
               openSheet: isHebrew ? "פתח עוד" : "Open more menu",
               closeSheet: isHebrew ? "סגור" : "Close",

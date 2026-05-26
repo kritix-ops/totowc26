@@ -2,13 +2,14 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import { LogOut, Shield, User as UserIcon } from "lucide-react";
+import { BookOpen, LogOut, Shield, User as UserIcon } from "lucide-react";
 import type { Locale } from "@/app/[lang]/dictionaries";
 import { localePath } from "@/lib/paths";
 
 type Labels = {
   profile: string;
   admin: string;
+  rules: string;
   logout: string;
   openMenu: string;
 };
@@ -105,6 +106,16 @@ export function ProfileMenu({
               <span className="font-bold text-sm">{labels.admin}</span>
             </Link>
           )}
+
+          <Link
+            href={localePath(locale, "rules")}
+            onClick={close}
+            role="menuitem"
+            className="flex items-center gap-3 px-4 min-h-[48px] text-on-surface hover:bg-surface-container transition-colors border-t border-outline-variant"
+          >
+            <BookOpen className="h-5 w-5 text-on-surface-variant" strokeWidth={1.75} />
+            <span className="font-bold text-sm">{labels.rules}</span>
+          </Link>
 
           <form action="/auth/signout" method="POST" className="border-t border-outline-variant">
             <button
