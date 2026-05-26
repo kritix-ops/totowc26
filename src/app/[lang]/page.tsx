@@ -83,7 +83,6 @@ export default async function HomePage({
       <GuestLanding
         locale={locale}
         dict={dict}
-        pool={pool}
         tournamentStart={tournamentStart}
         prize={prize}
       />
@@ -148,13 +147,11 @@ async function loadDashboard(userId: string) {
 function GuestLanding({
   locale,
   dict,
-  pool,
   tournamentStart,
   prize,
 }: {
   locale: Locale;
   dict: Awaited<ReturnType<typeof getDictionary>>;
-  pool: { potIls: number; participants: number };
   tournamentStart: string | null;
   prize: PrizeBreakdown;
 }) {
@@ -217,12 +214,6 @@ function GuestLanding({
             </div>
           )}
 
-          <p
-            className={`${displayFont} text-xl md:text-[26px] leading-8 md:leading-9 text-on-surface max-w-md`}
-          >
-            {dict.landing.tagline}
-          </p>
-
           <div>
             <Link
               href={localePath(locale, "login")}
@@ -233,27 +224,6 @@ function GuestLanding({
           </div>
 
           <InstallHint locale={locale as "he" | "en"} />
-
-          <div className="pt-5 md:pt-6 border-t border-outline-variant flex flex-col gap-3">
-            <p className="font-[family-name:var(--font-label)] text-[12px] font-bold tracking-[0.05em] text-on-surface-variant">
-              {dict.landing.friendsPoolLabel}
-            </p>
-            <div className="flex flex-wrap gap-2 md:gap-3">
-              <span className="text-sm md:text-base text-on-surface bg-surface-variant px-3 py-1.5 rounded-full border border-outline-variant inline-flex items-center gap-2">
-                <CircleDollarSign className="h-4 w-4 text-surface-tint shrink-0" strokeWidth={1.75} />
-                <span>{dict.landing.potLabel}:</span>
-                <bdi className="font-bold">
-                  {pool.potIls.toLocaleString(isHebrew ? "he-IL" : "en-US")}{" "}
-                  {dict.common.currency}
-                </bdi>
-              </span>
-              <span className="text-sm md:text-base text-on-surface bg-surface-variant px-3 py-1.5 rounded-full border border-outline-variant inline-flex items-center gap-2">
-                <Users className="h-4 w-4 text-surface-tint shrink-0" strokeWidth={1.75} />
-                <bdi className="font-bold">{pool.participants}</bdi>
-                <span>{dict.landing.participantsLabel}</span>
-              </span>
-            </div>
-          </div>
 
           {prize.potIls > 0 && (
             <div className="pt-2">
@@ -568,7 +538,7 @@ function UpcomingSection({
           <span id="upcoming-heading">{dict.dashboard.upcomingTitle}</span>
         </SectionHeading>
         <Link
-          href={localePath(locale, "bets")}
+          href={localePath(locale, "play")}
           className="font-[family-name:var(--font-label)] text-[12px] font-bold tracking-[0.05em] text-primary hover:underline inline-flex items-center gap-1 min-h-[40px]"
         >
           {dict.dashboard.viewAll}
@@ -898,7 +868,7 @@ function LeaderboardSection({
       <div className="flex justify-between items-end">
         <SectionHeading as="h3">
           <span id="leaderboard-heading">
-            {isHebrew ? "טבלת המובילים" : "Standings"}
+            {isHebrew ? "מובילים" : "Leaders"}
           </span>
         </SectionHeading>
         <Link
