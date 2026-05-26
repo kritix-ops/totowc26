@@ -2,11 +2,7 @@ import { notFound, redirect } from "next/navigation";
 import { getDictionary, hasLocale, type Locale } from "../dictionaries";
 import { getUser } from "@/lib/supabase/auth";
 import { localePath } from "@/lib/paths";
-import {
-  TournamentTabs,
-  TOURNAMENT_TABS,
-  type TournamentTabKey,
-} from "./TournamentTabs";
+import { TournamentTabs, type TournamentTabKey } from "./TournamentTabs";
 import { SummaryTab } from "./SummaryTab";
 import { TablesTab } from "./TablesTab";
 import { TeamsTab } from "./TeamsTab";
@@ -69,7 +65,11 @@ export default async function TournamentPage({
   );
 }
 
+// Inlined rather than importing TOURNAMENT_TABS from TournamentTabs.tsx
+// because that module is "use client": non-component exports become client
+// reference proxies in RSC bundles, and `.includes` on a proxy throws.
 function isTabKey(v: string | null): v is TournamentTabKey {
-  if (!v) return false;
-  return (TOURNAMENT_TABS as ReadonlyArray<string>).includes(v);
+  return (
+    v === "summary" || v === "tables" || v === "teams" || v === "news"
+  );
 }
