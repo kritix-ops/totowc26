@@ -36,28 +36,8 @@ export function bankBalanceSql(userId: string): SQL {
   return sql`(
     (select starting_bank from public.settings where id = 1)::int
     + coalesce((
-        select sum(
-          coalesce(mb.points_earned,      0) +
-          coalesce(mb.points_btts,        0) +
-          coalesce(mb.points_over_25,     0) +
-          coalesce(mb.points_ht,          0) -
-          coalesce(mb.stake_paid_btts,    0) -
-          coalesce(mb.stake_paid_over_25, 0) -
-          coalesce(mb.stake_paid_ht,      0)
-        )::int
+        select sum(coalesce(mb.points_earned, 0))::int
         from public.match_bets mb where mb.user_id = ${userId}
-      ), 0)
-    + coalesce((
-        select sum(coalesce(gp.points_earned, 0) - gp.stake_paid)::int
-        from public.group_predictions gp where gp.user_id = ${userId}
-      ), 0)
-    + coalesce((
-        select sum(coalesce(bp.points_earned, 0) - bp.stake_paid)::int
-        from public.bracket_predictions bp where bp.user_id = ${userId}
-      ), 0)
-    + coalesce((
-        select sum(coalesce(sb.points_earned, 0) - sb.stake_paid)::int
-        from public.special_bets sb where sb.user_id = ${userId}
       ), 0)
     + coalesce((
         select sum(coalesce(pk.points_earned, 0) - pk.stake_paid)::int
@@ -101,26 +81,9 @@ export async function getBankBreakdown(
       (select starting_bank from public.settings where id = 1)::int as "starting",
 
       coalesce((
-        select sum(
-          coalesce(mb.points_earned,   0) +
-          coalesce(mb.points_btts,     0) +
-          coalesce(mb.points_over_25,  0) +
-          coalesce(mb.points_ht,       0)
-        )::int
+        select sum(coalesce(mb.points_earned, 0))::int
         from public.match_bets mb where mb.user_id = ${userId}
       ), 0)
-      + coalesce((
-          select sum(coalesce(gp.points_earned, 0))::int
-          from public.group_predictions gp where gp.user_id = ${userId}
-        ), 0)
-      + coalesce((
-          select sum(coalesce(bp.points_earned, 0))::int
-          from public.bracket_predictions bp where bp.user_id = ${userId}
-        ), 0)
-      + coalesce((
-          select sum(coalesce(sb.points_earned, 0))::int
-          from public.special_bets sb where sb.user_id = ${userId}
-        ), 0)
       + coalesce((
           select sum(coalesce(pk.points_earned, 0))::int
           from public.user_custom_bet_picks pk where pk.user_id = ${userId}
@@ -128,30 +91,9 @@ export async function getBankBreakdown(
       as "payouts",
 
       coalesce((
-        select sum(
-          coalesce(mb.stake_paid_btts,    0) +
-          coalesce(mb.stake_paid_over_25, 0) +
-          coalesce(mb.stake_paid_ht,      0)
-        )::int
-        from public.match_bets mb where mb.user_id = ${userId}
-      ), 0)
-      + coalesce((
-          select sum(gp.stake_paid)::int
-          from public.group_predictions gp where gp.user_id = ${userId}
-        ), 0)
-      + coalesce((
-          select sum(bp.stake_paid)::int
-          from public.bracket_predictions bp where bp.user_id = ${userId}
-        ), 0)
-      + coalesce((
-          select sum(sb.stake_paid)::int
-          from public.special_bets sb where sb.user_id = ${userId}
-        ), 0)
-      + coalesce((
-          select sum(pk.stake_paid)::int
-          from public.user_custom_bet_picks pk where pk.user_id = ${userId}
-        ), 0)
-      as "stakes",
+        select sum(pk.stake_paid)::int
+        from public.user_custom_bet_picks pk where pk.user_id = ${userId}
+      ), 0) as "stakes",
 
       coalesce((
         select sum(pa.delta)::int
@@ -190,61 +132,24 @@ export async function lockUserForBetting(
   );
 }
 
-// All stake costs and gross payouts in one shot, snapshotted for a page
-// render. The bet forms use this to show "cost X, +Y if right" labels
-// without needing to know which DB column maps to which UI element.
+// Settings snapshot used by the main-bet form and the bank widget.
+// After the legacy cleanup the only knobs left here are the starting
+// bank and the main 1/X/2 scoring values; per-bet pricing lives on
+// custom_bets.stake_snapshot / payout_snapshot instead.
 export type StakeConfig = {
   startingBank: number;
-  stakeBtts: number;
-  stakeOver25: number;
-  stakeHt: number;
-  stakeGroupTeam: number;
-  stakeBracketChampion: number;
-  stakeBracketRunnerUp: number;
-  stakeBracketThird: number;
-  stakeBracketFourth: number;
-  stakeTopScorer: number;
-  stakeFinalPenalties: number;
-  scoringBtts: number;
-  scoringOver25: number;
-  scoringHtExact: number;
-  scoringHtOutcome: number;
-  scoringGroupTeam: number;
-  scoringGroupPerfect: number;
-  scoringChampion: number;
-  scoringRunnerUp: number;
-  scoringThird: number;
-  scoringFourth: number;
-  scoringTopScorer: number;
-  scoringFinalPenalties: number;
+  scoringExact: number;
+  scoringOutcome: number;
+  stakeMain: number;
 };
 
 export async function getStakeConfig(): Promise<StakeConfig> {
   const rows = await db.execute<StakeConfig>(sql`
     select
-      starting_bank             as "startingBank",
-      stake_btts                as "stakeBtts",
-      stake_over_25             as "stakeOver25",
-      stake_ht                  as "stakeHt",
-      stake_group_team          as "stakeGroupTeam",
-      stake_bracket_champion    as "stakeBracketChampion",
-      stake_bracket_runner_up   as "stakeBracketRunnerUp",
-      stake_bracket_third       as "stakeBracketThird",
-      stake_bracket_fourth      as "stakeBracketFourth",
-      stake_top_scorer          as "stakeTopScorer",
-      stake_final_penalties     as "stakeFinalPenalties",
-      scoring_btts              as "scoringBtts",
-      scoring_over_25           as "scoringOver25",
-      scoring_ht_exact          as "scoringHtExact",
-      scoring_ht_outcome        as "scoringHtOutcome",
-      scoring_group_team        as "scoringGroupTeam",
-      scoring_group_perfect     as "scoringGroupPerfect",
-      scoring_champion          as "scoringChampion",
-      scoring_runner_up         as "scoringRunnerUp",
-      scoring_third             as "scoringThird",
-      scoring_fourth            as "scoringFourth",
-      scoring_top_scorer        as "scoringTopScorer",
-      scoring_final_penalties   as "scoringFinalPenalties"
+      starting_bank     as "startingBank",
+      scoring_exact     as "scoringExact",
+      scoring_outcome   as "scoringOutcome",
+      stake_main        as "stakeMain"
     from public.settings where id = 1
   `);
   const list = rows as unknown as StakeConfig[];

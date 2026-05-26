@@ -4,7 +4,6 @@ import { getDictionary, hasLocale, type Locale } from "../../dictionaries";
 import { getUser } from "@/lib/supabase/auth";
 import { getUserAccess } from "@/lib/access";
 import { getFixtureWithBets, getMyBet } from "@/db/queries";
-import { getBankBalance, getStakeConfig } from "@/lib/bank";
 import { Card, LabelCaps } from "@/components/ui";
 import { PayGateBanner } from "@/components/PayGateBanner";
 import { localePath } from "@/lib/paths";
@@ -24,11 +23,9 @@ export default async function MatchBetPage({
 
   const match = await getFixtureWithBets(matchId);
   if (!match) notFound();
-  const [myBet, access, stakes, balance] = await Promise.all([
+  const [myBet, access] = await Promise.all([
     getMyBet(matchId, user.id),
     getUserAccess(user.id),
-    getStakeConfig(),
-    getBankBalance(user.id),
   ]);
 
   const isHebrew = locale === "he";
@@ -81,33 +78,9 @@ export default async function MatchBetPage({
           awayName,
         }}
         initialBet={
-          myBet
-            ? {
-                home: myBet.homeScore,
-                away: myBet.awayScore,
-                btts: myBet.betBtts,
-                over25: myBet.betOver25,
-                htHome: myBet.betHtHome,
-                htAway: myBet.betHtAway,
-                stakePaidBtts: myBet.stakePaidBtts,
-                stakePaidOver25: myBet.stakePaidOver25,
-                stakePaidHt: myBet.stakePaidHt,
-              }
-            : null
+          myBet ? { home: myBet.homeScore, away: myBet.awayScore } : null
         }
         editable={lockable}
-        stakes={{
-          btts: stakes.stakeBtts,
-          over25: stakes.stakeOver25,
-          ht: stakes.stakeHt,
-        }}
-        payouts={{
-          btts: stakes.scoringBtts,
-          over25: stakes.scoringOver25,
-          htExact: stakes.scoringHtExact,
-          htOutcome: stakes.scoringHtOutcome,
-        }}
-        balance={balance}
       />
 
       {!lockable && access.canEdit && (
@@ -123,6 +96,10 @@ export default async function MatchBetPage({
 
 function Countdown({ to }: { to: string }) {
   const t = new Date(to).getTime();
+  // Server component renders once per request; reading the wall clock is
+  // intentional. The lint rule targets client components, where it would
+  // cause hydration mismatches.
+  // eslint-disable-next-line react-hooks/purity
   const now = Date.now();
   const diff = Math.max(0, t - now);
   const h = Math.floor(diff / 3_600_000);

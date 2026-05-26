@@ -10,6 +10,7 @@ import { saveScoringSettings, type ScoringPayload } from "./actions";
 
 type Group = {
   title: { he: string; en: string };
+  hint?: { he: string; en: string };
   fields: Array<{
     key: keyof ScoringPayload;
     label: { he: string; en: string };
@@ -32,72 +33,43 @@ const GROUPS: Group[] = [
     ],
   },
   {
-    title: { he: "הימור משחק (1/X/2 חינם)", en: "Match bet (1/X/2 free)" },
-    fields: [
-      { key: "scoringExact", label: { he: "תוצאה מדויקת", en: "Exact score" } },
-      { key: "scoringOutcome", label: { he: "כיוון נכון", en: "Correct outcome" } },
-    ],
-  },
-  {
-    title: { he: "BTTS / Over 2.5 / מחצית", en: "BTTS / Over 2.5 / HT" },
-    fields: [
-      { key: "stakeBtts", label: { he: "עלות BTTS", en: "BTTS stake" } },
-      { key: "scoringBtts", label: { he: "תשלום BTTS", en: "BTTS payout" } },
-      { key: "stakeOver25", label: { he: "עלות Over 2.5", en: "Over 2.5 stake" } },
-      { key: "scoringOver25", label: { he: "תשלום Over 2.5", en: "Over 2.5 payout" } },
-      { key: "stakeHt", label: { he: "עלות מחצית", en: "Halftime stake" } },
-      { key: "scoringHtExact", label: { he: "תשלום מחצית מדויק", en: "HT exact payout" } },
-      { key: "scoringHtOutcome", label: { he: "תשלום כיוון מחצית", en: "HT outcome payout" } },
-    ],
-  },
-  {
-    title: { he: "דירוג קבוצות", en: "Group ranking" },
+    title: {
+      he: "הימור משחק (1/X/2 חינם)",
+      en: "Match bet (1/X/2 free)",
+    },
     fields: [
       {
-        key: "stakeGroupTeam",
-        label: { he: "עלות לכל קבוצה", en: "Stake per team" },
-        hint: {
-          he: "המשתתף משלם פעם אחת לכל קבוצה שמדרג",
-          en: "Charged once per team in a group prediction",
-        },
+        key: "scoringExact",
+        label: { he: "תוצאה מדויקת", en: "Exact score" },
       },
-      { key: "scoringGroupTeam", label: { he: "תשלום קבוצה נכונה", en: "Per-team payout" } },
       {
-        key: "scoringGroupPerfect",
-        label: { he: "בונוס בית מושלם", en: "Perfect group bonus" },
-        hint: {
-          he: "בונוס נוסף כשכל 4 הקבוצות בבית נכונות",
-          en: "Extra when all 4 ranks are correct",
-        },
+        key: "scoringOutcome",
+        label: { he: "כיוון נכון", en: "Correct outcome" },
       },
     ],
   },
   {
-    title: { he: "ארבעת הגדולים", en: "Bracket" },
+    title: {
+      he: "ברירות מחדל להימורים מותאמים",
+      en: "Custom-bet defaults",
+    },
+    hint: {
+      he: "כשתיצור הימור חדש דרך /admin/bets/new הטופס יציע את ערכי ברירת המחדל לפי סוג התשובה. ניתן לשנות פר-הימור.",
+      en: "Used as the starting stake/payout when you author a new custom bet. You can override per bet at creation time.",
+    },
     fields: [
-      { key: "stakeBracketChampion", label: { he: "עלות אלוף", en: "Champion stake" } },
-      { key: "scoringChampion", label: { he: "תשלום אלוף", en: "Champion payout" } },
-      { key: "stakeBracketRunnerUp", label: { he: "עלות סגן", en: "Runner-up stake" } },
-      { key: "scoringRunnerUp", label: { he: "תשלום סגן", en: "Runner-up payout" } },
-      { key: "stakeBracketThird", label: { he: "עלות שלישי", en: "Third stake" } },
-      { key: "scoringThird", label: { he: "תשלום שלישי", en: "Third payout" } },
-      { key: "stakeBracketFourth", label: { he: "עלות רביעי", en: "Fourth stake" } },
-      { key: "scoringFourth", label: { he: "תשלום רביעי", en: "Fourth payout" } },
-    ],
-  },
-  {
-    title: { he: "הימורי על", en: "Special bets" },
-    fields: [
-      { key: "stakeTopScorer", label: { he: "עלות מלך שערים", en: "Top scorer stake" } },
-      { key: "scoringTopScorer", label: { he: "תשלום מלך שערים", en: "Top scorer payout" } },
-      { key: "stakeFinalPenalties", label: { he: "עלות פנדלים בגמר", en: "Final penalties stake" } },
-      { key: "scoringFinalPenalties", label: { he: "תשלום פנדלים בגמר", en: "Final penalties payout" } },
+      { key: "stakeYesNo",        label: { he: "עלות כן/לא", en: "Yes/No stake" } },
+      { key: "payoutYesNo",       label: { he: "תשלום כן/לא", en: "Yes/No payout" } },
+      { key: "stakeNumber",       label: { he: "עלות מספר", en: "Number stake" } },
+      { key: "payoutNumber",      label: { he: "תשלום מספר", en: "Number payout" } },
+      { key: "stakeMultiChoice",  label: { he: "עלות בחירה", en: "Choice stake" } },
+      { key: "payoutMultiChoice", label: { he: "תשלום בחירה", en: "Choice payout" } },
+      { key: "stakeFreeText",     label: { he: "עלות טקסט", en: "Text stake" } },
+      { key: "payoutFreeText",    label: { he: "תשלום טקסט", en: "Text payout" } },
     ],
   },
 ];
 
-// Prize-split is rendered separately so it can show a live ILS preview
-// next to each percentage based on the live pot.
 const PRIZE_FIELDS: Array<{
   key: keyof ScoringPayload;
   label: { he: string; en: string };
@@ -149,9 +121,16 @@ export function ScoringForm({
     <form onSubmit={submit} className="flex flex-col gap-6">
       {GROUPS.map((group) => (
         <Card key={group.title.en} className="p-5 md:p-6 flex flex-col gap-4">
-          <SectionHeading underline="thin" as="h2">
-            {isHebrew ? group.title.he : group.title.en}
-          </SectionHeading>
+          <div className="flex flex-col gap-1">
+            <SectionHeading underline="thin" as="h2">
+              {isHebrew ? group.title.he : group.title.en}
+            </SectionHeading>
+            {group.hint && (
+              <p className="text-xs text-on-surface-variant">
+                {isHebrew ? group.hint.he : group.hint.en}
+              </p>
+            )}
+          </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {group.fields.map((f) => (
               <div key={f.key} className="flex flex-col gap-1.5">
@@ -212,12 +191,8 @@ export function ScoringForm({
           className={clsx("px-10 py-3", pending && "opacity-60 cursor-not-allowed")}
         >
           {pending
-            ? isHebrew
-              ? "שומר..."
-              : "Saving..."
-            : isHebrew
-              ? "שמור הגדרות"
-              : "Save settings"}
+            ? isHebrew ? "שומר..." : "Saving..."
+            : isHebrew ? "שמור הגדרות" : "Save settings"}
         </PillButton>
       </div>
     </form>
@@ -227,19 +202,16 @@ export function ScoringForm({
 function translateError(code: string, isHebrew: boolean): string {
   const map: Record<string, [string, string]> = {
     invalid: [
-      "ערכים לא תקינים. כל ערך חייב להיות מספר שלם בין 0 ל-32000. סכום אחוזי הזכייה צריך להיות עד 100.",
-      "Invalid values. Each must be an integer between 0 and 32000. Prize percentages must sum to <= 100.",
+      "ערכים לא תקינים. כל ערך חייב להיות מספר שלם בין 0 ל-32000. תשלומים חייבים להיות ≥ 1. סכום אחוזי הזכייה ≤ 100.",
+      "Invalid values. Each must be an integer between 0 and 32000. Payouts must be ≥ 1. Prize percentages must sum to ≤ 100.",
     ],
-    unauth: ["יש להתחבר", "Sign in required"],
+    unauth:    ["יש להתחבר", "Sign in required"],
     forbidden: ["אין הרשאות אדמין", "Admin role required"],
-    db: ["שגיאת שמירה", "Save failed"],
+    db:        ["שגיאת שמירה", "Save failed"],
   };
   return (map[code] ?? map.db)[isHebrew ? 0 : 1];
 }
 
-// Live preview card: shows each prize % alongside the ILS amount it would
-// award given the current pot. The sum bar warns if the percentages exceed
-// 100 (the server-side validation would reject the submit).
 function PrizeSplitCard({
   values,
   update,

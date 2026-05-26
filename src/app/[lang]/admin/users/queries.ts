@@ -47,22 +47,13 @@ export async function fetchAdminUsers(): Promise<AdminUserRow[]> {
       (
         (select starting_bank from public.settings where id = 1)::int
         + coalesce((
-            select sum(
-              coalesce(mb.points_earned,      0) +
-              coalesce(mb.points_btts,        0) +
-              coalesce(mb.points_over_25,     0) +
-              coalesce(mb.points_ht,          0) -
-              coalesce(mb.stake_paid_btts,    0) -
-              coalesce(mb.stake_paid_over_25, 0) -
-              coalesce(mb.stake_paid_ht,      0)
-            )::int from public.match_bets mb where mb.user_id = p.id
+            select sum(coalesce(mb.points_earned, 0))::int
+            from public.match_bets mb where mb.user_id = p.id
           ), 0)
-        + coalesce((select sum(coalesce(gp.points_earned, 0) - gp.stake_paid)::int
-            from public.group_predictions gp where gp.user_id = p.id), 0)
-        + coalesce((select sum(coalesce(bp.points_earned, 0) - bp.stake_paid)::int
-            from public.bracket_predictions bp where bp.user_id = p.id), 0)
-        + coalesce((select sum(coalesce(sb.points_earned, 0) - sb.stake_paid)::int
-            from public.special_bets sb where sb.user_id = p.id), 0)
+        + coalesce((
+            select sum(coalesce(pk.points_earned, 0) - pk.stake_paid)::int
+            from public.user_custom_bet_picks pk where pk.user_id = p.id
+          ), 0)
         + coalesce((select sum(pa.delta)::int
             from public.point_adjustments pa where pa.user_id = p.id), 0)
       )::int                         as "totalPoints"

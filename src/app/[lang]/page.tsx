@@ -14,10 +14,8 @@ import { getDictionary, hasLocale, type Locale } from "./dictionaries";
 import { localePath } from "@/lib/paths";
 import { BrandLogo } from "@/components/BrandLogo";
 import { InstallHint } from "@/components/InstallHint";
-import { BankResetBanner } from "@/components/BankResetBanner";
 import { PrizeStrip } from "@/components/PrizeStrip";
 import { getUser } from "@/lib/supabase/auth";
-import { getUserAccess } from "@/lib/access";
 import {
   getLatestFinalForUser,
   getLeaderboard,
@@ -63,14 +61,8 @@ export default async function HomePage({
   ]);
 
   let dashboard: DashboardData | null = null;
-  let userIsPaid = false;
   if (user) {
-    const [data, access] = await Promise.all([
-      loadDashboard(user.id),
-      getUserAccess(user.id),
-    ]);
-    dashboard = data;
-    userIsPaid = access.isPaid;
+    dashboard = await loadDashboard(user.id);
   } else if (previewPlayer) {
     dashboard = mockDashboard();
   }
@@ -105,8 +97,6 @@ export default async function HomePage({
       pool={pool}
       tournamentStart={tournamentStart}
       data={dashboard!}
-      userId={user?.id ?? null}
-      isPaid={userIsPaid}
       prize={prize}
     />
   );
@@ -289,8 +279,6 @@ function PlayerHome({
   pool,
   tournamentStart,
   data,
-  userId,
-  isPaid,
   prize,
 }: {
   locale: Locale;
@@ -298,8 +286,6 @@ function PlayerHome({
   pool: { potIls: number; participants: number };
   tournamentStart: string | null;
   data: DashboardData;
-  userId: string | null;
-  isPaid: boolean;
   prize: PrizeBreakdown;
 }) {
   const isHebrew = locale === "he";
@@ -315,9 +301,6 @@ function PlayerHome({
       />
 
       <div className="mx-auto w-full max-w-6xl px-4 md:px-8 lg:px-16 pt-8 md:pt-12 flex flex-col gap-8 md:gap-12">
-        {userId && (
-          <BankResetBanner userId={userId} locale={locale} isPaid={isPaid} />
-        )}
         <PrizeStrip prize={prize} locale={locale} dict={dict} />
         <StatusRow locale={locale} dict={dict} rankInfo={data.rankInfo} />
 

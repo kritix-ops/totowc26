@@ -134,26 +134,9 @@ export async function getLeaderboard(
       select
         p.id as user_id,
         coalesce((
-          select sum(
-            coalesce(mb.points_earned,   0) +
-            coalesce(mb.points_btts,     0) +
-            coalesce(mb.points_over_25,  0) +
-            coalesce(mb.points_ht,       0)
-          )::int
+          select sum(coalesce(mb.points_earned, 0))::int
           from public.match_bets mb where mb.user_id = p.id
         ), 0)
-        + coalesce((
-            select sum(coalesce(gp.points_earned, 0))::int
-            from public.group_predictions gp where gp.user_id = p.id
-          ), 0)
-        + coalesce((
-            select sum(coalesce(bp.points_earned, 0))::int
-            from public.bracket_predictions bp where bp.user_id = p.id
-          ), 0)
-        + coalesce((
-            select sum(coalesce(sb.points_earned, 0))::int
-            from public.special_bets sb where sb.user_id = p.id
-          ), 0)
         + coalesce((
             select sum(coalesce(pk.points_earned, 0))::int
             from public.user_custom_bet_picks pk where pk.user_id = p.id
@@ -164,37 +147,13 @@ export async function getLeaderboard(
       select
         p.id as user_id,
         coalesce((
-          select sum(
-            coalesce(mb.stake_paid_btts,    0) +
-            coalesce(mb.stake_paid_over_25, 0) +
-            coalesce(mb.stake_paid_ht,      0)
-          )::int
-          from public.match_bets mb where mb.user_id = p.id
-        ), 0)
-        + coalesce((select sum(gp.stake_paid)::int
-            from public.group_predictions gp where gp.user_id = p.id), 0)
-        + coalesce((select sum(bp.stake_paid)::int
-            from public.bracket_predictions bp where bp.user_id = p.id), 0)
-        + coalesce((select sum(sb.stake_paid)::int
-            from public.special_bets sb where sb.user_id = p.id), 0)
-        + coalesce((select sum(pk.stake_paid)::int
-            from public.user_custom_bet_picks pk where pk.user_id = p.id), 0) as total_stakes,
+          select sum(pk.stake_paid)::int
+          from public.user_custom_bet_picks pk where pk.user_id = p.id
+        ), 0) as total_stakes,
         coalesce((
-          select sum(
-            case when mb.points_btts    = 0 then coalesce(mb.stake_paid_btts,    0) else 0 end +
-            case when mb.points_over_25 = 0 then coalesce(mb.stake_paid_over_25, 0) else 0 end +
-            case when mb.points_ht      = 0 then coalesce(mb.stake_paid_ht,      0) else 0 end
-          )::int
-          from public.match_bets mb where mb.user_id = p.id
-        ), 0)
-        + coalesce((select sum(case when gp.points_earned = 0 then gp.stake_paid else 0 end)::int
-            from public.group_predictions gp where gp.user_id = p.id), 0)
-        + coalesce((select sum(case when bp.points_earned = 0 then bp.stake_paid else 0 end)::int
-            from public.bracket_predictions bp where bp.user_id = p.id), 0)
-        + coalesce((select sum(case when sb.points_earned = 0 then sb.stake_paid else 0 end)::int
-            from public.special_bets sb where sb.user_id = p.id), 0)
-        + coalesce((select sum(case when pk.points_earned = 0 then pk.stake_paid else 0 end)::int
-            from public.user_custom_bet_picks pk where pk.user_id = p.id), 0) as wasted_stakes
+          select sum(case when pk.points_earned = 0 then pk.stake_paid else 0 end)::int
+          from public.user_custom_bet_picks pk where pk.user_id = p.id
+        ), 0) as wasted_stakes
       from public.profiles p
     ),
     adjustments as (
@@ -271,12 +230,7 @@ export async function getMyRankSummary(
 // tournament without us needing a separate matchday column.
 export async function getPointsTrend(userId: string): Promise<number[]> {
   const rows = await db.execute<{ points: number }>(sql`
-    select coalesce(sum(
-      coalesce(mb.points_earned, 0) +
-      coalesce(mb.points_btts, 0) +
-      coalesce(mb.points_over_25, 0) +
-      coalesce(mb.points_ht, 0)
-    ), 0)::int as "points"
+    select coalesce(sum(coalesce(mb.points_earned, 0)), 0)::int as "points"
     from public.matches m
     join public.match_bets mb
       on mb.match_id = m.id and mb.user_id = ${userId}
@@ -356,16 +310,6 @@ export type MyBet = {
   pointsEarned: number | null;
   wasExact: boolean | null;
   locked: boolean;
-  betBtts: boolean | null;
-  betOver25: boolean | null;
-  betHtHome: number | null;
-  betHtAway: number | null;
-  pointsBtts: number | null;
-  pointsOver25: number | null;
-  pointsHt: number | null;
-  stakePaidBtts: number | null;
-  stakePaidOver25: number | null;
-  stakePaidHt: number | null;
 };
 
 export async function getMyBet(
@@ -374,21 +318,11 @@ export async function getMyBet(
 ): Promise<MyBet | null> {
   const rows = await db.execute<MyBet>(sql`
     select
-      home_score          as "homeScore",
-      away_score          as "awayScore",
-      points_earned       as "pointsEarned",
-      was_exact           as "wasExact",
-      locked              as "locked",
-      bet_btts            as "betBtts",
-      bet_over_25         as "betOver25",
-      bet_ht_home         as "betHtHome",
-      bet_ht_away         as "betHtAway",
-      points_btts         as "pointsBtts",
-      points_over_25      as "pointsOver25",
-      points_ht           as "pointsHt",
-      stake_paid_btts     as "stakePaidBtts",
-      stake_paid_over_25  as "stakePaidOver25",
-      stake_paid_ht       as "stakePaidHt"
+      home_score    as "homeScore",
+      away_score    as "awayScore",
+      points_earned as "pointsEarned",
+      was_exact     as "wasExact",
+      locked        as "locked"
     from public.match_bets
     where match_id = ${matchId}::uuid and user_id = ${userId}
     limit 1
@@ -426,28 +360,8 @@ export async function getProfileStats(userId: string): Promise<ProfileStats> {
       (
         (select starting_bank from public.settings where id = 1)::int
         + coalesce((
-            select sum(
-              coalesce(mb.points_earned,   0) +
-              coalesce(mb.points_btts,     0) +
-              coalesce(mb.points_over_25,  0) +
-              coalesce(mb.points_ht,       0) -
-              coalesce(mb.stake_paid_btts,    0) -
-              coalesce(mb.stake_paid_over_25, 0) -
-              coalesce(mb.stake_paid_ht,      0)
-            )::int
+            select sum(coalesce(mb.points_earned, 0))::int
             from public.match_bets mb where mb.user_id = ${userId}
-          ), 0)
-        + coalesce((
-            select sum(coalesce(gp.points_earned, 0) - gp.stake_paid)::int
-            from public.group_predictions gp where gp.user_id = ${userId}
-          ), 0)
-        + coalesce((
-            select sum(coalesce(bp.points_earned, 0) - bp.stake_paid)::int
-            from public.bracket_predictions bp where bp.user_id = ${userId}
-          ), 0)
-        + coalesce((
-            select sum(coalesce(sb.points_earned, 0) - sb.stake_paid)::int
-            from public.special_bets sb where sb.user_id = ${userId}
           ), 0)
         + coalesce((
             select sum(coalesce(pk.points_earned, 0) - pk.stake_paid)::int
@@ -559,126 +473,6 @@ export async function getMyHistory(
     limit ${limit}
   `);
   return rows as unknown as HistoryRow[];
-}
-
-// Standings predictor: groups with teams and the user's current ordering.
-export type GroupWithRanks = {
-  id: string;
-  displayOrder: number;
-  teams: Array<{
-    code: string;
-    nameHe: string;
-    nameEn: string;
-    flag: string;
-    predictedRank: number | null;
-  }>;
-};
-
-export async function getGroupsWithPredictions(
-  userId: string,
-): Promise<GroupWithRanks[]> {
-  const rows = await db.execute<{
-    group_id: string;
-    display_order: number;
-    team_code: string;
-    name_he: string;
-    name_en: string;
-    flag: string;
-    predicted_rank: number | null;
-  }>(sql`
-    select
-      g.id                       as group_id,
-      g.display_order             as display_order,
-      t.code                     as team_code,
-      t.name_he                  as name_he,
-      t.name_en                  as name_en,
-      t.flag                     as flag,
-      gp.predicted_rank          as predicted_rank
-    from public.groups g
-    join public.teams t on t.group_id = g.id
-    left join public.group_predictions gp
-      on gp.user_id = ${userId} and gp.group_id = g.id and gp.team_code = t.code
-    order by g.display_order asc, coalesce(gp.predicted_rank, 99) asc, t.code asc
-  `);
-
-  const grouped = new Map<string, GroupWithRanks>();
-  for (const r of rows as unknown as Array<{
-    group_id: string;
-    display_order: number;
-    team_code: string;
-    name_he: string;
-    name_en: string;
-    flag: string;
-    predicted_rank: number | null;
-  }>) {
-    let entry = grouped.get(r.group_id);
-    if (!entry) {
-      entry = { id: r.group_id, displayOrder: Number(r.display_order), teams: [] };
-      grouped.set(r.group_id, entry);
-    }
-    entry.teams.push({
-      code: r.team_code,
-      nameHe: r.name_he,
-      nameEn: r.name_en,
-      flag: r.flag,
-      predictedRank: r.predicted_rank == null ? null : Number(r.predicted_rank),
-    });
-  }
-  return Array.from(grouped.values()).sort((a, b) => a.displayOrder - b.displayOrder);
-}
-
-// Bracket predictor: user's picks for champion / runner-up / third / fourth.
-export type BracketSlot = "champion" | "runner_up" | "third" | "fourth";
-
-export type BracketRow = {
-  slot: BracketSlot;
-  teamCode: string | null;
-  teamNameHe: string | null;
-  teamNameEn: string | null;
-  teamFlag: string | null;
-};
-
-export async function getBracketPredictions(
-  userId: string,
-): Promise<Record<BracketSlot, BracketRow>> {
-  const rows = await db.execute<{
-    slot: BracketSlot;
-    team_code: string | null;
-    name_he: string | null;
-    name_en: string | null;
-    flag: string | null;
-  }>(sql`
-    select
-      bp.slot::text as slot,
-      bp.team_code  as team_code,
-      t.name_he     as name_he,
-      t.name_en     as name_en,
-      t.flag        as flag
-    from public.bracket_predictions bp
-    left join public.teams t on t.code = bp.team_code
-    where bp.user_id = ${userId}
-  `);
-  const slots: BracketSlot[] = ["champion", "runner_up", "third", "fourth"];
-  const result = {} as Record<BracketSlot, BracketRow>;
-  for (const s of slots) {
-    result[s] = { slot: s, teamCode: null, teamNameHe: null, teamNameEn: null, teamFlag: null };
-  }
-  for (const r of rows as unknown as Array<{
-    slot: BracketSlot;
-    team_code: string | null;
-    name_he: string | null;
-    name_en: string | null;
-    flag: string | null;
-  }>) {
-    result[r.slot] = {
-      slot: r.slot,
-      teamCode: r.team_code,
-      teamNameHe: r.name_he,
-      teamNameEn: r.name_en,
-      teamFlag: r.flag,
-    };
-  }
-  return result;
 }
 
 export type TeamRow = {
@@ -1065,14 +859,9 @@ export async function getPrizeBreakdown(): Promise<PrizeBreakdown> {
 
 export type BankEventKind =
   | "start"
-  | "stake_match"
   | "payout_match"
-  | "stake_group"
-  | "payout_group"
-  | "stake_bracket"
-  | "payout_bracket"
-  | "stake_special"
-  | "payout_special"
+  | "stake_custom"
+  | "payout_custom"
   | "adjustment";
 
 export type BankEvent = {
@@ -1093,96 +882,45 @@ export async function getBankHistory(userId: string): Promise<BankEvent[]> {
       from public.profiles p
       where p.id = ${userId}
     ),
-    match_stakes as (
-      -- One row per opted-in side bet (each charged at submit time).
-      select mb.created_at::text as "at", 'stake_match'::text as "kind",
-        -coalesce(mb.stake_paid_btts, 0) as "delta",
-        ('BTTS · ' || mb.match_id::text) as "detail"
-      from public.match_bets mb
-      where mb.user_id = ${userId} and mb.stake_paid_btts is not null and mb.stake_paid_btts > 0
-      union all
-      select mb.created_at::text, 'stake_match',
-        -coalesce(mb.stake_paid_over_25, 0),
-        ('Over 2.5 · ' || mb.match_id::text)
-      from public.match_bets mb
-      where mb.user_id = ${userId} and mb.stake_paid_over_25 is not null and mb.stake_paid_over_25 > 0
-      union all
-      select mb.created_at::text, 'stake_match',
-        -coalesce(mb.stake_paid_ht, 0),
-        ('HT · ' || mb.match_id::text)
-      from public.match_bets mb
-      where mb.user_id = ${userId} and mb.stake_paid_ht is not null and mb.stake_paid_ht > 0
-    ),
     match_payouts as (
-      -- Net payout per match (main + side bets) once the match goes final.
-      select mb.updated_at::text as "at", 'payout_match'::text as "kind",
-        (coalesce(mb.points_earned, 0)
-         + coalesce(mb.points_btts, 0)
-         + coalesce(mb.points_over_25, 0)
-         + coalesce(mb.points_ht, 0)) as "delta",
-        mb.match_id::text as "detail"
+      -- Payout for the main 1/X/2 prediction once the match goes final.
+      select mb.updated_at::text       as "at",
+             'payout_match'::text      as "kind",
+             coalesce(mb.points_earned, 0) as "delta",
+             mb.match_id::text         as "detail"
       from public.match_bets mb
       where mb.user_id = ${userId} and mb.points_earned is not null
     ),
-    group_stakes as (
-      select gp.created_at::text as "at", 'stake_group'::text as "kind",
-        -gp.stake_paid as "delta",
-        gp.group_id as "detail"
-      from public.group_predictions gp
-      where gp.user_id = ${userId} and gp.stake_paid > 0
+    custom_stakes as (
+      -- One row per custom-bet pick at the moment it was placed.
+      select pk.created_at::text       as "at",
+             'stake_custom'::text      as "kind",
+             -pk.stake_paid            as "delta",
+             pk.custom_bet_id::text    as "detail"
+      from public.user_custom_bet_picks pk
+      where pk.user_id = ${userId} and pk.stake_paid > 0
     ),
-    group_payouts as (
-      select gp.created_at::text as "at", 'payout_group'::text as "kind",
-        gp.points_earned as "delta",
-        gp.group_id as "detail"
-      from public.group_predictions gp
-      where gp.user_id = ${userId} and gp.points_earned is not null
-    ),
-    bracket_stakes as (
-      select bp.created_at::text as "at", 'stake_bracket'::text as "kind",
-        -bp.stake_paid as "delta",
-        bp.slot::text as "detail"
-      from public.bracket_predictions bp
-      where bp.user_id = ${userId} and bp.stake_paid > 0
-    ),
-    bracket_payouts as (
-      select bp.created_at::text as "at", 'payout_bracket'::text as "kind",
-        bp.points_earned as "delta",
-        bp.slot::text as "detail"
-      from public.bracket_predictions bp
-      where bp.user_id = ${userId} and bp.points_earned is not null
-    ),
-    special_stakes as (
-      select sb.created_at::text as "at", 'stake_special'::text as "kind",
-        -sb.stake_paid as "delta",
-        sb.bet_type::text as "detail"
-      from public.special_bets sb
-      where sb.user_id = ${userId} and sb.stake_paid > 0
-    ),
-    special_payouts as (
-      select sb.updated_at::text as "at", 'payout_special'::text as "kind",
-        sb.points_earned as "delta",
-        sb.bet_type::text as "detail"
-      from public.special_bets sb
-      where sb.user_id = ${userId} and sb.points_earned is not null
+    custom_payouts as (
+      select pk.updated_at::text       as "at",
+             'payout_custom'::text     as "kind",
+             coalesce(pk.points_earned, 0) as "delta",
+             pk.custom_bet_id::text    as "detail"
+      from public.user_custom_bet_picks pk
+      where pk.user_id = ${userId} and pk.points_earned is not null
     ),
     adjustments as (
-      select pa.created_at::text as "at", 'adjustment'::text as "kind",
-        pa.delta as "delta",
-        pa.reason as "detail"
+      select pa.created_at::text       as "at",
+             'adjustment'::text        as "kind",
+             pa.delta                  as "delta",
+             pa.reason                 as "detail"
       from public.point_adjustments pa
       where pa.user_id = ${userId}
     ),
     all_events as (
       select * from start_event
-      union all select * from match_stakes
       union all select * from match_payouts
-      union all select * from group_stakes
-      union all select * from group_payouts
-      union all select * from bracket_stakes
-      union all select * from bracket_payouts
-      union all select * from special_stakes
-      union all select * from special_payouts
+      union all select * from custom_stakes
+      union all select * from custom_payouts
       union all select * from adjustments
     )
     select "at", "kind"::text as "kind", "delta"::int as "delta", "detail"

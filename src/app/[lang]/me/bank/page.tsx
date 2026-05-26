@@ -201,16 +201,11 @@ function EventRow({
 
 function describeKind(kind: BankEvent["kind"], isHebrew: boolean): string {
   const labels: Record<BankEvent["kind"], [string, string]> = {
-    start: ["בנק התחלתי", "Starting bank"],
-    stake_match: ["השקעה בהימור משחק", "Match side-bet stake"],
-    payout_match: ["תשלום הימור משחק", "Match bet payout"],
-    stake_group: ["השקעה בדירוג קבוצה", "Group prediction stake"],
-    payout_group: ["תשלום דירוג קבוצה", "Group prediction payout"],
-    stake_bracket: ["השקעה בארבעת הגדולים", "Bracket pick stake"],
-    payout_bracket: ["תשלום ארבעת הגדולים", "Bracket pick payout"],
-    stake_special: ["השקעה בהימור על", "Special bet stake"],
-    payout_special: ["תשלום הימור על", "Special bet payout"],
-    adjustment: ["התאמת אדמין", "Admin adjustment"],
+    start:         ["בנק התחלתי", "Starting bank"],
+    payout_match:  ["תשלום הימור משחק", "Match bet payout"],
+    stake_custom:  ["השקעה בהימור מותאם", "Custom bet stake"],
+    payout_custom: ["תשלום הימור מותאם", "Custom bet payout"],
+    adjustment:    ["התאמת אדמין", "Admin adjustment"],
   };
   return labels[kind][isHebrew ? 0 : 1];
 }

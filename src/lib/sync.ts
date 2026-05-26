@@ -7,10 +7,7 @@ import {
   matchBets,
   settings,
   teams,
-  specialBets,
-  tournamentResults,
   syncRuns,
-  groupPredictions,
   customBets,
   userCustomBetPicks,
 } from "@/db/schema";
@@ -46,8 +43,6 @@ export type SyncReport = {
   skipped: number;
   scoredBets: number;
   scoredMatches: number;
-  scoredSpecials: number;
-  scoredGroupPredictions: number;
   scoredAutoCustomBets: number;
   unknownTeams: string[];
 };
@@ -100,7 +95,6 @@ export async function syncFixtures(
         skipped: report.skipped,
         scoredBets: report.scoredBets,
         scoredMatches: report.scoredMatches,
-        scoredSpecials: report.scoredSpecials,
         unknownTeams: report.unknownTeams.length ? report.unknownTeams : null,
       })
       .where(eq(syncRuns.id, run.id));
@@ -132,8 +126,6 @@ async function _runSync(season: number): Promise<SyncReport> {
     skipped: 0,
     scoredBets: 0,
     scoredMatches: 0,
-    scoredSpecials: 0,
-    scoredGroupPredictions: 0,
     scoredAutoCustomBets: 0,
     unknownTeams: [],
   };
@@ -196,18 +188,10 @@ async function _runSync(season: number): Promise<SyncReport> {
   // Sync team→group assignments from the actual group-stage matches.
   await syncTeamGroups();
 
-  // Auto-score newly finalised matches.
+  // Auto-score newly finalised match-bets (the main 1/X/2 prediction).
   const scoring = await scoreFinalMatches();
   report.scoredBets = scoring.scoredBets;
   report.scoredMatches = scoring.scoredMatches;
-
-  // Score group predictions for any group whose 6 group-stage matches are
-  // all final. Idempotent: only rows with points_earned IS NULL get a value.
-  report.scoredGroupPredictions = await scoreGroupPredictions();
-
-  // Tournament-wide special bets (top scorer, final penalties). Idempotent —
-  // re-running rescores everyone against the latest tournament_results row.
-  report.scoredSpecials = await scoreSpecialBets();
 
   // Auto-grade any custom_bets with grading_source='auto_football_data'
   // whose underlying matches are now final. Idempotent: only touches bets
@@ -271,10 +255,6 @@ export async function scoreFinalMatches(): Promise<{
     .select({
       scoringExact: settings.scoringExact,
       scoringOutcome: settings.scoringOutcome,
-      scoringBtts: settings.scoringBtts,
-      scoringOver25: settings.scoringOver25,
-      scoringHtExact: settings.scoringHtExact,
-      scoringHtOutcome: settings.scoringHtOutcome,
     })
     .from(settings)
     .where(eq(settings.id, 1));
@@ -284,10 +264,8 @@ export async function scoreFinalMatches(): Promise<{
     id: string;
     home_score: number;
     away_score: number;
-    ht_home_score: number | null;
-    ht_away_score: number | null;
   }>(drizzleSql`
-    select m.id::text as id, m.home_score, m.away_score, m.ht_home_score, m.ht_away_score
+    select m.id::text as id, m.home_score, m.away_score
     from public.matches m
     where m.status = 'final'
       and m.home_score is not null
@@ -301,27 +279,17 @@ export async function scoreFinalMatches(): Promise<{
     id: string;
     home_score: number;
     away_score: number;
-    ht_home_score: number | null;
-    ht_away_score: number | null;
   }>;
 
   let scoredBets = 0;
   for (const m of matchesList) {
     const actual = outcome(m.home_score, m.away_score);
-    const actualBtts = m.home_score > 0 && m.away_score > 0;
-    const actualOver25 = m.home_score + m.away_score > 2;
-    const haveHt = m.ht_home_score !== null && m.ht_away_score !== null;
-    const actualHtOutcome = haveHt ? outcome(m.ht_home_score!, m.ht_away_score!) : null;
 
     const bets = await db
       .select({
         id: matchBets.id,
         homeScore: matchBets.homeScore,
         awayScore: matchBets.awayScore,
-        betBtts: matchBets.betBtts,
-        betOver25: matchBets.betOver25,
-        betHtHome: matchBets.betHtHome,
-        betHtAway: matchBets.betHtAway,
       })
       .from(matchBets)
       .where(and(eq(matchBets.matchId, m.id), isNull(matchBets.pointsEarned)));
@@ -331,25 +299,12 @@ export async function scoreFinalMatches(): Promise<{
       const correctOutcome = outcome(b.homeScore, b.awayScore) === actual;
       const points = exact ? s.scoringExact : correctOutcome ? s.scoringOutcome : 0;
 
-      const pointsBtts = b.betBtts === null ? null : b.betBtts === actualBtts ? s.scoringBtts : 0;
-      const pointsOver25 = b.betOver25 === null ? null : b.betOver25 === actualOver25 ? s.scoringOver25 : 0;
-
-      let pointsHt: number | null = null;
-      if (haveHt && b.betHtHome !== null && b.betHtAway !== null) {
-        const htExact = b.betHtHome === m.ht_home_score && b.betHtAway === m.ht_away_score;
-        const htOutcomeRight = outcome(b.betHtHome, b.betHtAway) === actualHtOutcome;
-        pointsHt = htExact ? s.scoringHtExact : htOutcomeRight ? s.scoringHtOutcome : 0;
-      }
-
       await db
         .update(matchBets)
         .set({
           pointsEarned: points,
           wasExact: exact,
           wasCorrectOutcome: correctOutcome,
-          pointsBtts,
-          pointsOver25,
-          pointsHt,
           locked: true,
         })
         .where(eq(matchBets.id, b.id));
@@ -360,210 +315,14 @@ export async function scoreFinalMatches(): Promise<{
   return { scoredMatches: matchesList.length, scoredBets };
 }
 
-// Score group_predictions rows once every group-stage match for that group
-// is final. Awards `scoringGroupTeam` per correctly placed team, plus a
-// `scoringGroupPerfect` bonus attached to the rank-1 prediction row when
-// all four ranks are correct.
-//
-// Idempotent: only touches rows where points_earned IS NULL, so re-running
-// after a partial group rolls out leaves earlier groups untouched.
-export async function scoreGroupPredictions(): Promise<number> {
-  const [s] = await db
-    .select({
-      scoringGroupTeam: settings.scoringGroupTeam,
-      scoringGroupPerfect: settings.scoringGroupPerfect,
-    })
-    .from(settings)
-    .where(eq(settings.id, 1));
-  if (!s) return 0;
-
-  // For every finalized group, compute the actual ranking using the same
-  // FIFA tiebreakers as the live standings view (points → GD → GF → code).
-  // Then mark each user's predictions: scoringGroupTeam where predicted_rank
-  // matches actual_rank, 0 otherwise.
-  const rows = await db.execute<{
-    group_id: string;
-    user_id: string;
-    pred_id: string;
-    is_correct: boolean;
-    perfect: boolean;
-    predicted_rank: number;
-  }>(drizzleSql`
-    with finalized_groups as (
-      select g.id as group_id
-      from public.groups g
-      where exists (
-        select 1 from public.matches m
-        where m.stage = 'group' and m.group_id = g.id
-      )
-      and not exists (
-        select 1 from public.matches m
-        where m.stage = 'group'
-          and m.group_id = g.id
-          and m.status <> 'final'
-      )
-    ),
-    leg as (
-      select m.group_id, m.home_team as team_code, m.home_score as gf, m.away_score as ga,
-        case when m.home_score > m.away_score then 3
-             when m.home_score = m.away_score then 1 else 0 end as pts
-      from public.matches m
-      join finalized_groups fg on fg.group_id = m.group_id
-      where m.stage = 'group' and m.status = 'final'
-        and m.home_score is not null and m.away_score is not null
-      union all
-      select m.group_id, m.away_team, m.away_score, m.home_score,
-        case when m.away_score > m.home_score then 3
-             when m.home_score = m.away_score then 1 else 0 end
-      from public.matches m
-      join finalized_groups fg on fg.group_id = m.group_id
-      where m.stage = 'group' and m.status = 'final'
-        and m.home_score is not null and m.away_score is not null
-    ),
-    agg as (
-      select group_id, team_code,
-        sum(pts)::int        as points,
-        sum(gf - ga)::int    as goal_diff,
-        sum(gf)::int         as goals_for
-      from leg
-      group by group_id, team_code
-    ),
-    actual_ranks as (
-      select group_id, team_code,
-        row_number() over (
-          partition by group_id
-          order by points desc, goal_diff desc, goals_for desc, team_code asc
-        )::int as actual_rank
-      from agg
-    ),
-    per_pred as (
-      select
-        gp.id           as pred_id,
-        gp.user_id      as user_id,
-        gp.group_id     as group_id,
-        gp.predicted_rank,
-        (ar.actual_rank = gp.predicted_rank) as is_correct
-      from public.group_predictions gp
-      join actual_ranks ar
-        on ar.group_id = gp.group_id and ar.team_code = gp.team_code
-      where gp.points_earned is null
-    ),
-    perfect_groups as (
-      select user_id, group_id
-      from per_pred
-      group by user_id, group_id
-      having count(*) = 4 and bool_and(is_correct)
-    )
-    select
-      pp.pred_id::text     as "pred_id",
-      pp.user_id::text     as "user_id",
-      pp.group_id          as "group_id",
-      pp.predicted_rank::int as "predicted_rank",
-      pp.is_correct        as "is_correct",
-      (pg.user_id is not null) as "perfect"
-    from per_pred pp
-    left join perfect_groups pg
-      on pg.user_id = pp.user_id and pg.group_id = pp.group_id
-  `);
-
-  const list = rows as unknown as Array<{
-    pred_id: string;
-    user_id: string;
-    group_id: string;
-    predicted_rank: number;
-    is_correct: boolean;
-    perfect: boolean;
-  }>;
-
-  let scored = 0;
-  for (const r of list) {
-    const teamPts = r.is_correct ? s.scoringGroupTeam : 0;
-    // Attach the perfect-group bonus to the rank-1 row so the leaderboard
-    // sum captures it without an extra column.
-    const bonus = r.perfect && r.predicted_rank === 1 ? s.scoringGroupPerfect : 0;
-    await db
-      .update(groupPredictions)
-      .set({ pointsEarned: teamPts + bonus })
-      .where(eq(groupPredictions.id, r.pred_id));
-    scored += 1;
-  }
-  return scored;
-}
-
-function normalizeName(s: string): string {
-  // Case-insensitive, whitespace-collapsed, diacritic-stripped comparison so
-  // "Kylian Mbappé" vs "kylian mbappe " both match.
-  return s
-    .normalize("NFD")
-    .replace(/\p{Diacritic}/gu, "")
-    .toLowerCase()
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-export async function scoreSpecialBets(): Promise<number> {
-  const [s] = await db
-    .select({
-      scoringTopScorer: settings.scoringTopScorer,
-      scoringFinalPenalties: settings.scoringFinalPenalties,
-    })
-    .from(settings)
-    .where(eq(settings.id, 1));
-  if (!s) return 0;
-
-  const [results] = await db
-    .select({
-      topScorer: tournamentResults.topScorer,
-      finalWentToPenalties: tournamentResults.finalWentToPenalties,
-    })
-    .from(tournamentResults)
-    .where(eq(tournamentResults.id, 1));
-  if (!results) return 0;
-
-  let scored = 0;
-  const topScorerNorm = results.topScorer ? normalizeName(results.topScorer) : null;
-
-  if (topScorerNorm !== null) {
-    const picks = await db
-      .select({ id: specialBets.id, value: specialBets.value })
-      .from(specialBets)
-      .where(eq(specialBets.betType, "top_scorer"));
-    for (const p of picks) {
-      const pts = normalizeName(p.value) === topScorerNorm ? s.scoringTopScorer : 0;
-      await db
-        .update(specialBets)
-        .set({ pointsEarned: pts })
-        .where(eq(specialBets.id, p.id));
-      scored += 1;
-    }
-  }
-
-  if (results.finalWentToPenalties !== null) {
-    const want = results.finalWentToPenalties ? "yes" : "no";
-    const picks = await db
-      .select({ id: specialBets.id, value: specialBets.value })
-      .from(specialBets)
-      .where(eq(specialBets.betType, "final_penalties"));
-    for (const p of picks) {
-      const pts = p.value.toLowerCase() === want ? s.scoringFinalPenalties : 0;
-      await db
-        .update(specialBets)
-        .set({ pointsEarned: pts })
-        .where(eq(specialBets.id, p.id));
-      scored += 1;
-    }
-  }
-
-  return scored;
-}
 
 // ---------- Auto-grading custom_bets from football-data ----------
 //
-// Sister pass to scoreFinalMatches / scoreGroupPredictions / scoreSpecialBets:
-// finds every custom_bets row that opted into auto_football_data and is
-// still in (open, locked) state, then grades it deterministically from
-// the matches table. The function is idempotent — graded rows are skipped
-// on subsequent runs because we only touch status in ('open', 'locked').
+// Sister pass to scoreFinalMatches: finds every custom_bets row that
+// opted into auto_football_data and is still in (open, locked) state,
+// then grades it deterministically from the matches table. The function
+// is idempotent — graded rows are skipped on subsequent runs because we
+// only touch status in ('open', 'locked').
 //
 // Data-readiness rules per scope:
 //   match scope → matches.status = 'final'
@@ -571,8 +330,7 @@ export async function scoreSpecialBets(): Promise<number> {
 //   stage scope → every match in that stage is final
 //   group scope → every group-stage match in that group is final
 //   tournament  → not auto-graded here (would need "every match final"
-//                 which is roughly equivalent to scoreSpecialBets's
-//                 trigger). Left for manual / future iteration.
+//                 semantics). Left for manual / future iteration.
 //
 // Field semantics: the resolved value's TYPE has to match the bet's
 // answer_type or the bet is skipped (admin authored an unwhitelisted

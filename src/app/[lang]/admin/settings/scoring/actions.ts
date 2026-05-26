@@ -8,34 +8,24 @@ import { getUser } from "@/lib/supabase/auth";
 
 type Field = keyof ScoringPayload;
 
+// After the legacy cleanup the settings surface only carries:
+//   • startingBank — every player's opening points
+//   • scoringExact / scoringOutcome — the main 1/X/2 payout (free pick)
+//   • stake*/payout* per custom-bet answer type (defaults that the
+//     admin can override per bet at creation)
+//   • prizePct1..4 — pot split (must sum to ≤ 100)
 export type ScoringPayload = {
   startingBank: number;
-  stakeBtts: number;
-  stakeOver25: number;
-  stakeHt: number;
-  stakeGroupTeam: number;
-  stakeBracketChampion: number;
-  stakeBracketRunnerUp: number;
-  stakeBracketThird: number;
-  stakeBracketFourth: number;
-  stakeTopScorer: number;
-  stakeFinalPenalties: number;
   scoringExact: number;
   scoringOutcome: number;
-  scoringBtts: number;
-  scoringOver25: number;
-  scoringHtExact: number;
-  scoringHtOutcome: number;
-  scoringGroupTeam: number;
-  scoringGroupPerfect: number;
-  scoringChampion: number;
-  scoringRunnerUp: number;
-  scoringThird: number;
-  scoringFourth: number;
-  scoringTopScorer: number;
-  scoringFinalPenalties: number;
-  // Prize split for the top 4 finishers. Must sum to <= 100 (enforced by
-  // a CHECK constraint on settings as well).
+  stakeYesNo: number;
+  payoutYesNo: number;
+  stakeNumber: number;
+  payoutNumber: number;
+  stakeMultiChoice: number;
+  payoutMultiChoice: number;
+  stakeFreeText: number;
+  payoutFreeText: number;
   prizePct1: number;
   prizePct2: number;
   prizePct3: number;
@@ -64,34 +54,20 @@ export async function saveScoringSettings(
   const adminId = await isAdminUser();
   if (!adminId) return { ok: false, error: "forbidden" };
 
-  // Validate: all integers, all non-negative, starting_bank > 0,
-  // payouts must be > stakes so a correct bet is at least net-zero.
+  // Validate: all integers, all non-negative, startingBank > 0,
+  // payouts must be > 0 so a correct bet is at least net-zero.
   const integerKeys: Field[] = [
     "startingBank",
-    "stakeBtts",
-    "stakeOver25",
-    "stakeHt",
-    "stakeGroupTeam",
-    "stakeBracketChampion",
-    "stakeBracketRunnerUp",
-    "stakeBracketThird",
-    "stakeBracketFourth",
-    "stakeTopScorer",
-    "stakeFinalPenalties",
     "scoringExact",
     "scoringOutcome",
-    "scoringBtts",
-    "scoringOver25",
-    "scoringHtExact",
-    "scoringHtOutcome",
-    "scoringGroupTeam",
-    "scoringGroupPerfect",
-    "scoringChampion",
-    "scoringRunnerUp",
-    "scoringThird",
-    "scoringFourth",
-    "scoringTopScorer",
-    "scoringFinalPenalties",
+    "stakeYesNo",
+    "payoutYesNo",
+    "stakeNumber",
+    "payoutNumber",
+    "stakeMultiChoice",
+    "payoutMultiChoice",
+    "stakeFreeText",
+    "payoutFreeText",
     "prizePct1",
     "prizePct2",
     "prizePct3",
@@ -104,9 +80,17 @@ export async function saveScoringSettings(
     }
   }
   if (payload.startingBank < 1) return { ok: false, error: "invalid" };
+  if (
+    payload.payoutYesNo < 1 ||
+    payload.payoutNumber < 1 ||
+    payload.payoutMultiChoice < 1 ||
+    payload.payoutFreeText < 1
+  ) {
+    return { ok: false, error: "invalid" };
+  }
 
-  // Prize percentages: each must be 0-100, sum <= 100 (a fraction held
-  // back is allowed — admin may want to reserve some of the pot for ops).
+  // Prize percentages: each ≤ 100, sum ≤ 100 (a fraction held back is
+  // fine — admin may reserve some of the pot for ops).
   const pctSum =
     payload.prizePct1 + payload.prizePct2 + payload.prizePct3 + payload.prizePct4;
   if (
@@ -124,30 +108,16 @@ export async function saveScoringSettings(
       .update(settings)
       .set({
         startingBank: payload.startingBank,
-        stakeBtts: payload.stakeBtts,
-        stakeOver25: payload.stakeOver25,
-        stakeHt: payload.stakeHt,
-        stakeGroupTeam: payload.stakeGroupTeam,
-        stakeBracketChampion: payload.stakeBracketChampion,
-        stakeBracketRunnerUp: payload.stakeBracketRunnerUp,
-        stakeBracketThird: payload.stakeBracketThird,
-        stakeBracketFourth: payload.stakeBracketFourth,
-        stakeTopScorer: payload.stakeTopScorer,
-        stakeFinalPenalties: payload.stakeFinalPenalties,
         scoringExact: payload.scoringExact,
         scoringOutcome: payload.scoringOutcome,
-        scoringBtts: payload.scoringBtts,
-        scoringOver25: payload.scoringOver25,
-        scoringHtExact: payload.scoringHtExact,
-        scoringHtOutcome: payload.scoringHtOutcome,
-        scoringGroupTeam: payload.scoringGroupTeam,
-        scoringGroupPerfect: payload.scoringGroupPerfect,
-        scoringChampion: payload.scoringChampion,
-        scoringRunnerUp: payload.scoringRunnerUp,
-        scoringThird: payload.scoringThird,
-        scoringFourth: payload.scoringFourth,
-        scoringTopScorer: payload.scoringTopScorer,
-        scoringFinalPenalties: payload.scoringFinalPenalties,
+        stakeYesNo: payload.stakeYesNo,
+        payoutYesNo: payload.payoutYesNo,
+        stakeNumber: payload.stakeNumber,
+        payoutNumber: payload.payoutNumber,
+        stakeMultiChoice: payload.stakeMultiChoice,
+        payoutMultiChoice: payload.payoutMultiChoice,
+        stakeFreeText: payload.stakeFreeText,
+        payoutFreeText: payload.payoutFreeText,
         prizePct1: payload.prizePct1,
         prizePct2: payload.prizePct2,
         prizePct3: payload.prizePct3,
@@ -163,3 +133,4 @@ export async function saveScoringSettings(
     return { ok: false, error: "db" };
   }
 }
+

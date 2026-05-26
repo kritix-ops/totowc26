@@ -109,8 +109,8 @@ export function SyncPanel({
               value={result.report.scoredMatches}
             />
             <Stat
-              label={isHebrew ? "הימורי על" : "Specials"}
-              value={result.report.scoredSpecials}
+              label={isHebrew ? "הימורים מותאמים שנוקדו" : "Custom bets graded"}
+              value={result.report.scoredAutoCustomBets}
             />
             <Stat
               label={isHebrew ? "דולגו" : "Skipped"}

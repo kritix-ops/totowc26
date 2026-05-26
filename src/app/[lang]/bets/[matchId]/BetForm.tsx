@@ -2,43 +2,21 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import {
-  Check,
-  Stamp,
-  Clock,
-  AlertCircle,
-  Plus,
-  Minus,
-  ChevronDown,
-  Sparkles,
-} from "lucide-react";
+import { Check, Stamp, Clock, AlertCircle, Plus, Minus } from "lucide-react";
 import { clsx } from "clsx";
-import { PillButton, LabelCaps } from "@/components/ui";
+import { PillButton } from "@/components/ui";
 import { Flag } from "@/components/Flag";
 import type { Dictionary, Locale } from "../../dictionaries";
 import { saveBet, type SaveBetResult } from "./actions";
 
+// 1/X/2 score predictor for a single match. The "extra bets" (BTTS / Over
+// 2.5 / halftime) used to live here behind an "Advanced" section; those
+// concepts moved out into the admin-authored custom-bets system on
+// /play/[date], so this form is now just the scoreboard.
+
 type Pick = "1" | "X" | "2" | null;
 
-export type InitialBet = {
-  home: number;
-  away: number;
-  btts: boolean | null;
-  over25: boolean | null;
-  htHome: number | null;
-  htAway: number | null;
-  stakePaidBtts: number | null;
-  stakePaidOver25: number | null;
-  stakePaidHt: number | null;
-} | null;
-
-type Stakes = { btts: number; over25: number; ht: number };
-type Payouts = {
-  btts: number;
-  over25: number;
-  htExact: number;
-  htOutcome: number;
-};
+export type InitialBet = { home: number; away: number } | null;
 
 export function BetForm({
   locale,
@@ -46,9 +24,6 @@ export function BetForm({
   match,
   initialBet,
   editable,
-  stakes,
-  payouts,
-  balance,
 }: {
   locale: Locale;
   dict: Dictionary;
@@ -61,25 +36,11 @@ export function BetForm({
   };
   initialBet: InitialBet;
   editable: boolean;
-  stakes: Stakes;
-  payouts: Payouts;
-  balance: number;
 }) {
   const isHebrew = locale === "he";
   const router = useRouter();
   const [home, setHome] = useState(initialBet?.home ?? 0);
   const [away, setAway] = useState(initialBet?.away ?? 0);
-  const [btts, setBtts] = useState<boolean | null>(initialBet?.btts ?? null);
-  const [over25, setOver25] = useState<boolean | null>(initialBet?.over25 ?? null);
-  const [htHome, setHtHome] = useState<number | null>(initialBet?.htHome ?? null);
-  const [htAway, setHtAway] = useState<number | null>(initialBet?.htAway ?? null);
-  // Advanced section starts open if the user has any extra picks saved.
-  const [advancedOpen, setAdvancedOpen] = useState(
-    initialBet?.btts !== null ||
-      initialBet?.over25 !== null ||
-      initialBet?.htHome !== null,
-  );
-
   const [error, setError] = useState<
     Exclude<SaveBetResult, { ok: true }>["error"] | null
   >(null);
@@ -89,33 +50,12 @@ export function BetForm({
   const pick: Pick = home === away ? "X" : home > away ? "1" : "2";
   const clamp = (n: number) => Math.max(0, Math.min(99, n));
 
-  // Points-bank math. Cost of submission = sum of stakes for currently
-  // opted-in side bets. Refund = sum of stakes already snapshotted on
-  // the existing row (those are about to be replaced). Effective bank =
-  // current balance plus that refund. Submit is blocked if effective < cost.
-  const newCost =
-    (btts !== null ? stakes.btts : 0) +
-    (over25 !== null ? stakes.over25 : 0) +
-    (htHome !== null && htAway !== null ? stakes.ht : 0);
-  const refund =
-    (initialBet?.stakePaidBtts ?? 0) +
-    (initialBet?.stakePaidOver25 ?? 0) +
-    (initialBet?.stakePaidHt ?? 0);
-  const effectiveBalance = balance + refund;
-  const bankAfter = effectiveBalance - newCost;
-  const overdrawn = bankAfter < 0;
-
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
     setSaved(false);
     startTransition(async () => {
-      const res = await saveBet(match.id, home, away, {
-        btts,
-        over25,
-        htHome,
-        htAway,
-      });
+      const res = await saveBet(match.id, home, away);
       if (!res.ok) {
         setError(res.error);
         return;
@@ -216,44 +156,7 @@ export function BetForm({
         </div>
       </aside>
 
-      <div className="md:col-span-12">
-        <AdvancedSection
-          isHebrew={isHebrew}
-          open={advancedOpen}
-          onToggle={() => setAdvancedOpen((v) => !v)}
-          btts={btts}
-          setBtts={setBtts}
-          over25={over25}
-          setOver25={setOver25}
-          htHome={htHome}
-          htAway={htAway}
-          setHtHome={setHtHome}
-          setHtAway={setHtAway}
-          disabled={!editable || pending}
-          stakes={stakes}
-          payouts={payouts}
-        />
-      </div>
-
       <div className="md:col-span-12 flex flex-col gap-3 items-stretch md:items-end">
-        {newCost > 0 && (
-          <p
-            className={clsx(
-              "self-start md:self-end inline-flex items-center gap-2 text-sm",
-              overdrawn ? "text-error font-bold" : "text-on-surface-variant",
-            )}
-            aria-live="polite"
-          >
-            <span>
-              {dict.bank.cost}: <bdi className="tabular-nums">{newCost}</bdi>
-            </span>
-            <span aria-hidden className="opacity-40">·</span>
-            <span>
-              {dict.bank.costAfter}:{" "}
-              <bdi className="tabular-nums">{bankAfter}</bdi>
-            </span>
-          </p>
-        )}
         {error && (
           <p className="inline-flex items-center gap-2 text-sm text-error self-start md:self-end">
             <AlertCircle className="h-4 w-4" strokeWidth={2} />
@@ -268,19 +171,16 @@ export function BetForm({
         )}
         <PillButton
           type="submit"
-          disabled={!editable || pending || overdrawn}
+          disabled={!editable || pending}
           className={clsx(
             "w-full md:w-auto px-10 md:px-12 py-4 text-base shadow-[0_8px_24px_rgba(28,20,15,0.15)]",
-            (!editable || pending || overdrawn) &&
-              "opacity-60 cursor-not-allowed",
+            (!editable || pending) && "opacity-60 cursor-not-allowed",
           )}
         >
           <Check className="h-5 w-5" strokeWidth={2.5} />
           {pending
             ? isHebrew ? "שומר..." : "Saving..."
-            : overdrawn
-              ? `${dict.bank.insufficient} (${dict.bank.needed} ${Math.abs(bankAfter)})`
-              : dict.matchBet.saveBet}
+            : dict.matchBet.saveBet}
         </PillButton>
       </div>
     </form>
@@ -298,8 +198,6 @@ function ScoreStepper({
   disabled?: boolean;
   isHebrew: boolean;
 }) {
-  // A scoreboard digit with ± buttons. Mobile-friendly (no tiny number arrows)
-  // and keyboard-accessible (the input still accepts typed numbers).
   return (
     <div className="flex items-center gap-2">
       <button
@@ -339,289 +237,21 @@ function ScoreStepper({
   );
 }
 
-function AdvancedSection({
-  isHebrew,
-  open,
-  onToggle,
-  btts,
-  setBtts,
-  over25,
-  setOver25,
-  htHome,
-  htAway,
-  setHtHome,
-  setHtAway,
-  disabled,
-  stakes,
-  payouts,
-}: {
-  isHebrew: boolean;
-  open: boolean;
-  onToggle: () => void;
-  btts: boolean | null;
-  setBtts: (v: boolean | null) => void;
-  over25: boolean | null;
-  setOver25: (v: boolean | null) => void;
-  htHome: number | null;
-  htAway: number | null;
-  setHtHome: (n: number | null) => void;
-  setHtAway: (n: number | null) => void;
-  disabled?: boolean;
-  stakes: Stakes;
-  payouts: Payouts;
-}) {
-  const placedCount = [btts !== null, over25 !== null, htHome !== null && htAway !== null]
-    .filter(Boolean).length;
-  return (
-    <div className="bg-[#FBF6EB] border border-outline rounded-xl shadow-[0_8px_24px_rgba(28,20,15,0.08)] overflow-hidden">
-      <button
-        type="button"
-        onClick={onToggle}
-        className="w-full px-5 md:px-6 py-4 flex items-center justify-between gap-3 hover:bg-surface-container-low transition-colors"
-        aria-expanded={open}
-      >
-        <span className="inline-flex items-center gap-2.5">
-          <Sparkles className="h-5 w-5 text-tertiary-fixed-dim" strokeWidth={1.75} />
-          <span className="font-[family-name:var(--font-display)] text-lg md:text-xl font-bold">
-            {isHebrew ? "ניחושים נוספים" : "Extra bets"}
-          </span>
-          {placedCount > 0 && (
-            <span className="font-[family-name:var(--font-label)] text-xs font-bold bg-primary-fixed text-on-primary-fixed-variant px-2 py-0.5 rounded-full">
-              <span className="bidi-ltr">{placedCount}</span>
-            </span>
-          )}
-        </span>
-        <ChevronDown
-          className={clsx("h-5 w-5 transition-transform", open && "rotate-180")}
-          strokeWidth={2}
-        />
-      </button>
-
-      {open && (
-        <div className="border-t border-outline-variant p-5 md:p-6 flex flex-col gap-6 md:gap-8">
-          <YesNoRow
-            title={isHebrew ? "שתי הקבוצות יבקיעו?" : "Both teams to score?"}
-            subtitle={costLabel(stakes.btts, payouts.btts, isHebrew)}
-            value={btts}
-            onChange={setBtts}
-            yes={isHebrew ? "כן" : "Yes"}
-            no={isHebrew ? "לא" : "No"}
-            disabled={disabled}
-          />
-          <YesNoRow
-            title={isHebrew ? "סך השערים מעל 2.5?" : "Total goals over 2.5?"}
-            subtitle={costLabel(stakes.over25, payouts.over25, isHebrew)}
-            value={over25}
-            onChange={setOver25}
-            yes={isHebrew ? "מעל 2.5" : "Over 2.5"}
-            no={isHebrew ? "מתחת 2.5" : "Under 2.5"}
-            disabled={disabled}
-          />
-          <div className="flex flex-col gap-3">
-            <div className="flex items-baseline justify-between gap-3">
-              <span className="font-[family-name:var(--font-display)] text-base md:text-lg font-bold">
-                {isHebrew ? "תוצאת מחצית" : "Halftime score"}
-              </span>
-              <LabelCaps>
-                {isHebrew
-                  ? `עלות ${stakes.ht} · מדויק +${payouts.htExact} · כיוון +${payouts.htOutcome}`
-                  : `Cost ${stakes.ht} · exact +${payouts.htExact} · outcome +${payouts.htOutcome}`}
-              </LabelCaps>
-            </div>
-            <div className="flex items-center justify-center gap-3">
-              <HtStepper
-                value={htHome}
-                onChange={setHtHome}
-                disabled={disabled}
-                isHebrew={isHebrew}
-                ariaLabel={isHebrew ? "בית מחצית" : "Home halftime"}
-              />
-              <span className="text-2xl text-on-surface-variant">:</span>
-              <HtStepper
-                value={htAway}
-                onChange={setHtAway}
-                disabled={disabled}
-                isHebrew={isHebrew}
-                ariaLabel={isHebrew ? "חוץ מחצית" : "Away halftime"}
-              />
-            </div>
-            {(htHome !== null || htAway !== null) && (
-              <button
-                type="button"
-                onClick={() => {
-                  setHtHome(null);
-                  setHtAway(null);
-                }}
-                disabled={disabled}
-                className="self-center text-xs text-on-surface-variant hover:text-error"
-              >
-                {isHebrew ? "נקה ניחוש מחצית" : "Clear halftime pick"}
-              </button>
-            )}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function YesNoRow({
-  title,
-  subtitle,
-  value,
-  onChange,
-  yes,
-  no,
-  disabled,
-}: {
-  title: string;
-  subtitle: string;
-  value: boolean | null;
-  onChange: (v: boolean | null) => void;
-  yes: string;
-  no: string;
-  disabled?: boolean;
-}) {
-  return (
-    <div className="flex flex-col gap-3">
-      <div className="flex items-baseline justify-between gap-3">
-        <span className="font-[family-name:var(--font-display)] text-base md:text-lg font-bold">
-          {title}
-        </span>
-        <LabelCaps>{subtitle}</LabelCaps>
-      </div>
-      <div className="grid grid-cols-2 gap-3">
-        <ChoicePill
-          active={value === true}
-          onClick={() => onChange(value === true ? null : true)}
-          disabled={disabled}
-        >
-          {yes}
-        </ChoicePill>
-        <ChoicePill
-          active={value === false}
-          onClick={() => onChange(value === false ? null : false)}
-          disabled={disabled}
-        >
-          {no}
-        </ChoicePill>
-      </div>
-    </div>
-  );
-}
-
-function ChoicePill({
-  active,
-  onClick,
-  disabled,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  disabled?: boolean;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      className={clsx(
-        "press-down min-h-[48px] py-3 px-4 rounded-full border text-base font-bold transition-colors",
-        active
-          ? "border-2 border-primary bg-primary-container text-on-primary-container shadow-sm"
-          : "border-outline bg-surface-container-lowest text-on-surface hover:bg-surface-container",
-        disabled && "opacity-60 cursor-not-allowed",
-      )}
-    >
-      {children}
-    </button>
-  );
-}
-
-function HtStepper({
-  value,
-  onChange,
-  disabled,
-  isHebrew,
-  ariaLabel,
-}: {
-  value: number | null;
-  onChange: (n: number | null) => void;
-  disabled?: boolean;
-  isHebrew: boolean;
-  ariaLabel: string;
-}) {
-  const n = value ?? 0;
-  return (
-    <div className="flex items-center gap-2">
-      <button
-        type="button"
-        aria-label={isHebrew ? "פחות" : "Less"}
-        onClick={() => onChange(Math.max(0, n - 1))}
-        disabled={disabled || n === 0}
-        className="min-w-[40px] min-h-[40px] flex items-center justify-center rounded-full bg-surface-container-lowest border border-outline-variant text-on-surface hover:bg-surface-container disabled:opacity-40"
-      >
-        <Minus className="h-4 w-4" strokeWidth={2.5} />
-      </button>
-      <input
-        type="number"
-        min={0}
-        max={99}
-        value={value ?? ""}
-        placeholder="—"
-        aria-label={ariaLabel}
-        onChange={(e) => {
-          const raw = e.target.value.trim();
-          if (raw === "") {
-            onChange(null);
-            return;
-          }
-          const v = parseInt(raw, 10);
-          if (isNaN(v)) onChange(null);
-          else onChange(Math.max(0, Math.min(99, v)));
-        }}
-        disabled={disabled}
-        className="w-14 md:w-16 h-14 md:h-16 text-center font-[family-name:var(--font-score)] text-2xl md:text-3xl font-bold bg-[#1C140F] border-2 border-outline rounded text-[#FBF6EB] focus:outline-none placeholder:text-[#FBF6EB]/40 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none disabled:opacity-60"
-        dir="ltr"
-      />
-      <button
-        type="button"
-        aria-label={isHebrew ? "יותר" : "More"}
-        onClick={() => onChange(Math.min(99, n + 1))}
-        disabled={disabled || n === 99}
-        className="min-w-[40px] min-h-[40px] flex items-center justify-center rounded-full bg-surface-container-lowest border border-outline-variant text-on-surface hover:bg-surface-container disabled:opacity-40"
-      >
-        <Plus className="h-4 w-4" strokeWidth={2.5} />
-      </button>
-    </div>
-  );
-}
-
 function translate(
   code: Exclude<SaveBetResult, { ok: true }>["error"],
   isHebrew: boolean,
 ): string {
   const map: Record<string, [string, string]> = {
-    unauth: ["יש להתחבר", "Sign in required"],
+    unauth:   ["יש להתחבר", "Sign in required"],
     not_paid: [
       "תשלום עדיין לא אושר. ההימור לא נשמר.",
       "Payment not approved yet. Bet not saved.",
     ],
-    locked: ["ההימור נסגר. לא ניתן לערוך עוד.", "Bet is locked. Cannot edit."],
-    invalid: ["תוצאה לא תקינה", "Invalid score"],
-    db: ["שגיאת שמירה", "Save failed"],
+    locked:   ["ההימור נסגר. לא ניתן לערוך עוד.", "Bet is locked. Cannot edit."],
+    invalid:  ["תוצאה לא תקינה", "Invalid score"],
+    db:       ["שגיאת שמירה", "Save failed"],
     not_found: ["המשחק לא נמצא", "Match not found"],
-    insufficient_bank: [
-      "אין מספיק נקודות בבנק להימור הזה",
-      "Not enough points in your bank for this bet",
-    ],
   };
-  return map[code][isHebrew ? 0 : 1];
+  return (map[code] ?? ["שגיאה", "Error"])[isHebrew ? 0 : 1];
 }
 
-function costLabel(stake: number, payout: number, isHebrew: boolean): string {
-  return isHebrew
-    ? `עלות ${stake} · ${payout > 0 ? `+${payout}` : payout} צודק`
-    : `Cost ${stake} · ${payout > 0 ? `+${payout}` : payout} right`;
-}

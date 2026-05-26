@@ -38,13 +38,11 @@ export const paymentStatusEnum = pgEnum("payment_status", [
   "approved",
   "rejected",
 ]);
-export const bracketSlotEnum = pgEnum("bracket_slot", [
-  "champion",
-  "runner_up",
-  "third",
-  "fourth",
+export const signupRequestStatusEnum = pgEnum("signup_request_status", [
+  "pending",
+  "approved",
+  "rejected",
 ]);
-
 // Custom-bets system enums. See _plans/2026-05-25-matchday-custom-bets-system.md.
 //
 // answer_type    — shape of the player's answer. Drives input widget + JSONB
@@ -82,6 +80,41 @@ export const gradingSourceEnum = pgEnum("grading_source", [
   "auto_football_data",
   "manual",
 ]);
+
+// signup_requests: public self-service join queue. A row is inserted from
+// the unauthenticated /signup form (via a server action — RLS is enabled
+// but only the postgres role writes here). The admin reviews each row and
+// either approves it — which triggers the existing invitePlayer flow to
+// create the auth.users row and email a recovery link — or rejects it.
+// No auth.users row exists for a pending request, so a pending registrant
+// cannot log in, cannot appear in profile lookups, and leaves no auth
+// footprint if abandoned or rejected. The unique partial index keeps a
+// single pending row per email; approved/rejected history rows are fine.
+export const signupRequests = pgTable(
+  "signup_requests",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    displayName: text("display_name").notNull(),
+    phone: text("phone").notNull(),
+    email: text("email").notNull(),
+    status: signupRequestStatusEnum("status").notNull().default("pending"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+    decidedBy: uuid("decided_by"),
+    note: text("note"),
+    // Ties an approved request to the auth user that resulted, so the
+    // admin can audit which signup became which member after the fact.
+    createdUserId: uuid("created_user_id"),
+  },
+  (t) => ({
+    statusIdx: index("signup_requests_status_idx").on(t.status),
+    pendingEmailUq: uniqueIndex("signup_requests_pending_email_uq")
+      .on(t.email)
+      .where(sql`status = 'pending'`),
+  }),
+);
 
 // profiles: extends Supabase auth.users (FK added via raw SQL migration)
 export const profiles = pgTable("profiles", {
@@ -167,19 +200,6 @@ export const matchBets = pgTable(
     pointsEarned: smallint("points_earned"),
     wasExact: boolean("was_exact"),
     wasCorrectOutcome: boolean("was_correct_outcome"),
-    // Optional per-match side bets. Null = the user didn't pick that bet.
-    betBtts: boolean("bet_btts"),
-    betOver25: boolean("bet_over_25"),
-    betHtHome: smallint("bet_ht_home"),
-    betHtAway: smallint("bet_ht_away"),
-    pointsBtts: smallint("points_btts"),
-    pointsOver25: smallint("points_over_25"),
-    pointsHt: smallint("points_ht"),
-    // Stake snapshots: the stake actually deducted when the user opted into
-    // the side bet. Null when the user did not opt in.
-    stakePaidBtts: smallint("stake_paid_btts"),
-    stakePaidOver25: smallint("stake_paid_over_25"),
-    stakePaidHt: smallint("stake_paid_ht"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -194,70 +214,6 @@ export const matchBets = pgTable(
     ),
     userIdx: index("match_bets_user_idx").on(t.userId),
     matchIdx: index("match_bets_match_idx").on(t.matchId),
-  }),
-);
-
-// group_predictions: ranking of 4 teams within one group
-export const groupPredictions = pgTable(
-  "group_predictions",
-  {
-    id: uuid("id").primaryKey().defaultRandom(),
-    userId: uuid("user_id")
-      .notNull()
-      .references(() => profiles.id, { onDelete: "cascade" }),
-    groupId: varchar("group_id", { length: 2 })
-      .notNull()
-      .references(() => groups.id, { onDelete: "cascade" }),
-    teamCode: varchar("team_code", { length: 3 })
-      .notNull()
-      .references(() => teams.code, { onDelete: "cascade" }),
-    predictedRank: smallint("predicted_rank").notNull(), // 1..4
-    pointsEarned: smallint("points_earned"),
-    // Stake snapshot — settings.stakeGroupTeam at submit time. Frozen so
-    // a later setting change doesn't retroactively re-price a saved pick.
-    stakePaid: smallint("stake_paid").notNull().default(0),
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-  },
-  (t) => ({
-    uniqUserGroupTeam: uniqueIndex("group_pred_user_group_team_uniq").on(
-      t.userId,
-      t.groupId,
-      t.teamCode,
-    ),
-    uniqUserGroupRank: uniqueIndex("group_pred_user_group_rank_uniq").on(
-      t.userId,
-      t.groupId,
-      t.predictedRank,
-    ),
-  }),
-);
-
-// bracket_predictions: champion / runner-up / third / fourth
-export const bracketPredictions = pgTable(
-  "bracket_predictions",
-  {
-    id: uuid("id").primaryKey().defaultRandom(),
-    userId: uuid("user_id")
-      .notNull()
-      .references(() => profiles.id, { onDelete: "cascade" }),
-    slot: bracketSlotEnum("slot").notNull(),
-    teamCode: varchar("team_code", { length: 3 })
-      .notNull()
-      .references(() => teams.code, { onDelete: "cascade" }),
-    pointsEarned: smallint("points_earned"),
-    // Stake snapshot — settings.stakeBracket<Slot> at submit time.
-    stakePaid: smallint("stake_paid").notNull().default(0),
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-  },
-  (t) => ({
-    uniqUserSlot: uniqueIndex("bracket_pred_user_slot_uniq").on(
-      t.userId,
-      t.slot,
-    ),
   }),
 );
 
@@ -296,7 +252,9 @@ export const payments = pgTable(
 // Net change on a wrong bet    = −stake_*
 //
 // The main 1/X/2 pick is intentionally free (stake_main = 0); every other
-// action costs. starting_bank seeds every user with the configured float.
+// action's stake comes from the per-answer-type defaults below or from the
+// per-bet override snapshotted on custom_bets. starting_bank seeds every
+// user with the configured float.
 export const settings = pgTable("settings", {
   id: smallint("id").primaryKey().default(1),
   entryFeeIls: integer("entry_fee_ils").notNull().default(100),
@@ -304,39 +262,18 @@ export const settings = pgTable("settings", {
   // Admin-controlled deep link to the pool's Paybox group. Null = fall
   // back to the marketing site so the button is never dead.
   payboxUrl: text("paybox_url"),
+  // Whether the public /signup page accepts new requests. When false, the
+  // page renders a friendly "signup closed" message and the link from
+  // /login is hidden. Default open so behaviour stays the same until the
+  // admin chooses to lock the queue (e.g. after the tournament starts).
+  publicSignupOpen: boolean("public_signup_open").notNull().default(true),
   betLockMinutes: smallint("bet_lock_minutes").notNull().default(5),
   // Points bank
   startingBank: smallint("starting_bank").notNull().default(100),
-  // Main bet (kept free — stake 0)
+  // Main bet (free — stake 0)
   scoringExact: smallint("scoring_exact").notNull().default(15),
   scoringOutcome: smallint("scoring_outcome").notNull().default(3),
   stakeMain: smallint("stake_main").notNull().default(0),
-  // Group-stage predictions
-  scoringGroupTeam: smallint("scoring_group_team").notNull().default(3),
-  scoringGroupPerfect: smallint("scoring_group_perfect").notNull().default(8),
-  stakeGroupTeam: smallint("stake_group_team").notNull().default(2),
-  // Bracket: champion / runner-up / third / fourth
-  scoringChampion: smallint("scoring_champion").notNull().default(30),
-  scoringRunnerUp: smallint("scoring_runner_up").notNull().default(18),
-  scoringThird: smallint("scoring_third").notNull().default(10),
-  scoringFourth: smallint("scoring_fourth").notNull().default(7),
-  stakeBracketChampion: smallint("stake_bracket_champion").notNull().default(5),
-  stakeBracketRunnerUp: smallint("stake_bracket_runner_up").notNull().default(3),
-  stakeBracketThird: smallint("stake_bracket_third").notNull().default(2),
-  stakeBracketFourth: smallint("stake_bracket_fourth").notNull().default(2),
-  // Per-match side bets
-  scoringBtts: smallint("scoring_btts").notNull().default(3),
-  scoringOver25: smallint("scoring_over_25").notNull().default(3),
-  scoringHtExact: smallint("scoring_ht_exact").notNull().default(8),
-  scoringHtOutcome: smallint("scoring_ht_outcome").notNull().default(5),
-  stakeBtts: smallint("stake_btts").notNull().default(1),
-  stakeOver25: smallint("stake_over_25").notNull().default(1),
-  stakeHt: smallint("stake_ht").notNull().default(2),
-  // Tournament special bets
-  scoringTopScorer: smallint("scoring_top_scorer").notNull().default(25),
-  scoringFinalPenalties: smallint("scoring_final_penalties").notNull().default(13),
-  stakeTopScorer: smallint("stake_top_scorer").notNull().default(5),
-  stakeFinalPenalties: smallint("stake_final_penalties").notNull().default(3),
   // Custom-bets defaults: stake / payout per answer type. Admin can override
   // per bet at creation time; the override snapshots onto custom_bets so a
   // later settings tweak does not retroactively re-price an existing bet.
@@ -360,53 +297,6 @@ export const settings = pgTable("settings", {
     .defaultNow(),
   // ensure singleton
   // CHECK constraint added in raw SQL migration: CHECK (id = 1)
-});
-
-// special_bets: tournament-wide one-shot picks (top scorer, will final go to
-// penalties, etc). Value is text so it can hold a player name, "yes"/"no",
-// or a number depending on bet_type.
-export const specialBetTypeEnum = pgEnum("special_bet_type", [
-  "top_scorer",
-  "final_penalties",
-]);
-
-export const specialBets = pgTable(
-  "special_bets",
-  {
-    id: uuid("id").primaryKey().defaultRandom(),
-    userId: uuid("user_id")
-      .notNull()
-      .references(() => profiles.id, { onDelete: "cascade" }),
-    betType: specialBetTypeEnum("bet_type").notNull(),
-    value: text("value").notNull(),
-    pointsEarned: smallint("points_earned"),
-    // Stake snapshot — settings.stake<Type> at submit time.
-    stakePaid: smallint("stake_paid").notNull().default(0),
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-  },
-  (t) => ({
-    uniqUserType: uniqueIndex("special_bets_user_type_uniq").on(
-      t.userId,
-      t.betType,
-    ),
-  }),
-);
-
-// tournament_results: singleton row with the final answers for special bets.
-// Admin fills this in at the end of the tournament; the scoring engine grades
-// every user's special_bets against it.
-export const tournamentResults = pgTable("tournament_results", {
-  id: smallint("id").primaryKey().default(1),
-  topScorer: text("top_scorer"),
-  finalWentToPenalties: boolean("final_went_to_penalties"),
-  updatedAt: timestamp("updated_at", { withTimezone: true })
-    .notNull()
-    .defaultNow(),
 });
 
 // point_adjustments: append-only audit log of admin-issued bank deltas.
@@ -646,7 +536,6 @@ export const syncRuns = pgTable(
     skipped: integer("skipped").default(0),
     scoredBets: integer("scored_bets").default(0),
     scoredMatches: integer("scored_matches").default(0),
-    scoredSpecials: integer("scored_specials").default(0),
     unknownTeams: jsonb("unknown_teams").$type<string[] | null>(),
     errorMessage: text("error_message"),
     errorStack: text("error_stack"),

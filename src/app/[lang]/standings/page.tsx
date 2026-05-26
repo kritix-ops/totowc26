@@ -1,13 +1,13 @@
 import { notFound, redirect } from "next/navigation";
-import { getDictionary, hasLocale, type Locale } from "../dictionaries";
+import { hasLocale, type Locale, getDictionary } from "../dictionaries";
 import { getUser } from "@/lib/supabase/auth";
-import { getUserAccess } from "@/lib/access";
-import { getGroupsWithPredictions, getLiveStandings } from "@/db/queries";
-import { Card, SectionHeading } from "@/components/ui";
-import { PayGateBanner } from "@/components/PayGateBanner";
+import { getLiveStandings } from "@/db/queries";
 import { localePath } from "@/lib/paths";
-import { GroupsEditor } from "./GroupsEditor";
 import { LiveStandings } from "./LiveStandings";
+
+// Live group-stage standings. The "predict the standings" half of this
+// page moved into the custom-bets system — admins author group-scope
+// bets at /admin/bets/new and players pick them on /play/groups.
 
 export default async function StandingsPage({
   params,
@@ -20,12 +20,7 @@ export default async function StandingsPage({
   const user = await getUser();
   if (!user) redirect(localePath(locale, "login"));
 
-  const [predictionGroups, liveGroups, access] = await Promise.all([
-    getGroupsWithPredictions(user.id),
-    getLiveStandings(),
-    getUserAccess(user.id),
-  ]);
-  const isHebrew = locale === "he";
+  const liveGroups = await getLiveStandings();
 
   return (
     <section className="px-4 md:px-16 py-6 md:py-12 flex flex-col gap-8 md:gap-12 max-w-5xl mx-auto w-full">
@@ -37,32 +32,6 @@ export default async function StandingsPage({
       </header>
 
       <LiveStandings groups={liveGroups} locale={locale} />
-
-      <section className="flex flex-col gap-4">
-        <header className="flex flex-col gap-1">
-          <SectionHeading as="h2" underline="thin">
-            {isHebrew ? "הניחוש שלך" : "Your prediction"}
-          </SectionHeading>
-          <p className="text-sm text-on-surface-variant">
-            {isHebrew
-              ? "סדר את הנבחרות בכל בית כפי שאתה חוזה שיסיימו."
-              : "Order each group the way you predict it will end."}
-          </p>
-        </header>
-        {!access.canEdit && <PayGateBanner locale={locale} dict={dict} />}
-        {predictionGroups.length === 0 ? (
-          <Card className="p-6 text-center text-on-surface-variant">
-            {isHebrew ? "אין עדיין בתים" : "No groups yet"}
-          </Card>
-        ) : (
-          <GroupsEditor
-            groups={predictionGroups}
-            locale={locale}
-            dict={dict}
-            canEdit={access.canEdit}
-          />
-        )}
-      </section>
     </section>
   );
 }

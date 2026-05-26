@@ -318,15 +318,17 @@ export async function adjustUserPoints(
   }
 }
 
-// Reset a user's bets, group predictions, and bracket. Useful before the
-// tournament starts if a user wants to redo their picks.
+// Reset a user's bets — main match picks plus every custom-bet pick.
+// Useful before the tournament starts if a player wants to redo their
+// picks. Adjustments and approved payment stay intact.
 export async function resetUserPicks(userId: string): Promise<Result> {
   const guard = await assertAdmin();
   if ("ok" in guard && guard.ok === false) return guard;
 
   await db.execute(sql`delete from public.match_bets where user_id = ${userId}`);
-  await db.execute(sql`delete from public.group_predictions where user_id = ${userId}`);
-  await db.execute(sql`delete from public.bracket_predictions where user_id = ${userId}`);
+  await db.execute(
+    sql`delete from public.user_custom_bet_picks where user_id = ${userId}`,
+  );
   revalidatePath("/", "layout");
   return { ok: true };
 }

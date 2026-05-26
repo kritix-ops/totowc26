@@ -86,8 +86,6 @@ export async function AppShell({
             <NavLink locale={locale} path="bets" label={dict.nav.myBets} />
             <NavLink locale={locale} path="play" label={dict.nav.play} />
             <NavLink locale={locale} path="standings" label={dict.nav.standings} />
-            <NavLink locale={locale} path="bracket" label={dict.nav.bracket} />
-            <NavLink locale={locale} path="specials" label={dict.nav.specials} />
             <span aria-hidden className="h-4 w-px bg-outline-variant" />
             <NavLink locale={locale} path="club" label={dict.nav.club} />
             {showPay && (

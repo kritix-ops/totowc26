@@ -3,7 +3,6 @@ import { notFound } from "next/navigation";
 import { ChevronLeft, ChevronRight, Settings } from "lucide-react";
 import { hasLocale, type Locale } from "../../../dictionaries";
 import { requireAdmin } from "@/lib/admin";
-import { getStakeConfig } from "@/lib/bank";
 import { getPrizeBreakdown } from "@/db/queries";
 import { db } from "@/db";
 import { settings } from "@/db/schema";
@@ -24,15 +23,20 @@ export default async function AdminScoringSettingsPage({
   const isHebrew = locale === "he";
   const ChevronBack = isHebrew ? ChevronRight : ChevronLeft;
 
-  // Read the full settings row including the main 1/X/2 scoring values
-  // (StakeConfig doesn't include the main payouts since the main pick is
-  // free, so we fetch them directly here).
-  const [stakeCfg, [mainCfg], prize] = await Promise.all([
-    getStakeConfig(),
+  const [[cfg], prize] = await Promise.all([
     db
       .select({
+        startingBank: settings.startingBank,
         scoringExact: settings.scoringExact,
         scoringOutcome: settings.scoringOutcome,
+        stakeYesNo: settings.stakeYesNo,
+        payoutYesNo: settings.payoutYesNo,
+        stakeNumber: settings.stakeNumber,
+        payoutNumber: settings.payoutNumber,
+        stakeMultiChoice: settings.stakeMultiChoice,
+        payoutMultiChoice: settings.payoutMultiChoice,
+        stakeFreeText: settings.stakeFreeText,
+        payoutFreeText: settings.payoutFreeText,
         prizePct1: settings.prizePct1,
         prizePct2: settings.prizePct2,
         prizePct3: settings.prizePct3,
@@ -44,35 +48,21 @@ export default async function AdminScoringSettingsPage({
   ]);
 
   const initial = {
-    startingBank: stakeCfg.startingBank,
-    stakeBtts: stakeCfg.stakeBtts,
-    stakeOver25: stakeCfg.stakeOver25,
-    stakeHt: stakeCfg.stakeHt,
-    stakeGroupTeam: stakeCfg.stakeGroupTeam,
-    stakeBracketChampion: stakeCfg.stakeBracketChampion,
-    stakeBracketRunnerUp: stakeCfg.stakeBracketRunnerUp,
-    stakeBracketThird: stakeCfg.stakeBracketThird,
-    stakeBracketFourth: stakeCfg.stakeBracketFourth,
-    stakeTopScorer: stakeCfg.stakeTopScorer,
-    stakeFinalPenalties: stakeCfg.stakeFinalPenalties,
-    scoringExact: mainCfg?.scoringExact ?? 15,
-    scoringOutcome: mainCfg?.scoringOutcome ?? 3,
-    scoringBtts: stakeCfg.scoringBtts,
-    scoringOver25: stakeCfg.scoringOver25,
-    scoringHtExact: stakeCfg.scoringHtExact,
-    scoringHtOutcome: stakeCfg.scoringHtOutcome,
-    scoringGroupTeam: stakeCfg.scoringGroupTeam,
-    scoringGroupPerfect: stakeCfg.scoringGroupPerfect,
-    scoringChampion: stakeCfg.scoringChampion,
-    scoringRunnerUp: stakeCfg.scoringRunnerUp,
-    scoringThird: stakeCfg.scoringThird,
-    scoringFourth: stakeCfg.scoringFourth,
-    scoringTopScorer: stakeCfg.scoringTopScorer,
-    scoringFinalPenalties: stakeCfg.scoringFinalPenalties,
-    prizePct1: mainCfg?.prizePct1 ?? 50,
-    prizePct2: mainCfg?.prizePct2 ?? 30,
-    prizePct3: mainCfg?.prizePct3 ?? 15,
-    prizePct4: mainCfg?.prizePct4 ?? 5,
+    startingBank: cfg?.startingBank ?? 100,
+    scoringExact: cfg?.scoringExact ?? 15,
+    scoringOutcome: cfg?.scoringOutcome ?? 3,
+    stakeYesNo: cfg?.stakeYesNo ?? 1,
+    payoutYesNo: cfg?.payoutYesNo ?? 3,
+    stakeNumber: cfg?.stakeNumber ?? 2,
+    payoutNumber: cfg?.payoutNumber ?? 6,
+    stakeMultiChoice: cfg?.stakeMultiChoice ?? 2,
+    payoutMultiChoice: cfg?.payoutMultiChoice ?? 5,
+    stakeFreeText: cfg?.stakeFreeText ?? 3,
+    payoutFreeText: cfg?.payoutFreeText ?? 10,
+    prizePct1: cfg?.prizePct1 ?? 50,
+    prizePct2: cfg?.prizePct2 ?? 30,
+    prizePct3: cfg?.prizePct3 ?? 15,
+    prizePct4: cfg?.prizePct4 ?? 5,
   };
 
   return (
@@ -91,8 +81,8 @@ export default async function AdminScoringSettingsPage({
         </h1>
         <p className="text-base text-on-surface-variant">
           {isHebrew
-            ? "ערוך את הסכום ההתחלתי של הבנק, את עלות ההשקעה לכל סוג הימור, ואת התשלום שמתקבל בהימור נכון."
-            : "Edit starting bank, per-action stake costs, and the payout awarded for a correct bet."}
+            ? "בנק התחלתי, ניקוד הימור 1/X/2, וברירות מחדל לעלות/תשלום עבור הימורים מותאמים שאתה יוצר."
+            : "Starting bank, 1/X/2 payouts, and the default stake/payout per custom-bet answer type."}
         </p>
       </header>
 
@@ -102,8 +92,8 @@ export default async function AdminScoringSettingsPage({
             {isHebrew ? "שים לב" : "Heads up"}
           </strong>
           {isHebrew
-            ? "שינויים לא ישפיעו על הימורים שכבר נשמרו - העלות מצולמת ברגע השמירה ונשמרת בשורת ההימור. שינוי כאן ישפיע רק על הימורים חדשים."
-            : "Changes do not affect bets already submitted — each bet's stake is snapshotted on save. This form only changes pricing for future submissions."}
+            ? "ברירות המחדל לעלות/תשלום משפיעות רק על הימורים חדשים שתיצור באדמין. הימורים קיימים שומרים את העלות והתשלום שלהם מרגע היצירה."
+            : "Default stake/payout values only affect bets you create from now on. Existing bets keep their snapshotted prices."}
         </p>
       </Card>
 
