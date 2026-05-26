@@ -387,7 +387,7 @@ function HeroStat({
   label: string;
 }) {
   return (
-    <div className="flex flex-col items-center md:items-start gap-1 md:flex-row md:gap-2 min-w-0 text-center md:text-start">
+    <div className="flex flex-col items-center gap-1 md:flex-row md:justify-center md:gap-2 min-w-0 text-center">
       <span aria-hidden className="shrink-0">
         {icon}
       </span>
