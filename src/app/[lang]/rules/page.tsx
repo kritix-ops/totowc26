@@ -7,13 +7,16 @@ import {
   BookOpen,
   Coins,
   Eye,
+  Home,
   ListChecks,
+  Map,
   Medal,
   Radio,
   Sparkles,
   Swords,
   Target,
   Trophy,
+  User as UserIcon,
   Wallet,
 } from "lucide-react";
 import { getDictionary, hasLocale, type Locale } from "../dictionaries";
@@ -189,6 +192,40 @@ export default async function RulesPage({
         <CategoryPrizeStrip prize={prize} locale={locale} />
       </RuleSection>
 
+      <RuleSection
+        icon={<Map className="h-5 w-5" strokeWidth={1.75} />}
+        title={dict.rules.pagesGuideTitle}
+      >
+        <p>{dict.rules.pagesGuideIntro}</p>
+        <ul className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {PAGE_GUIDE.map((p) => (
+            <li key={p.path}>
+              <Link
+                href={p.path === "" ? localePath(locale) : localePath(locale, p.path)}
+                className="press-down block h-full"
+              >
+                <Card className="p-3 md:p-4 h-full flex items-start gap-3 hover:bg-surface-container transition-colors">
+                  <span
+                    aria-hidden
+                    className="mt-0.5 inline-flex items-center justify-center w-9 h-9 rounded-full bg-tertiary-fixed text-on-tertiary-fixed-variant shrink-0"
+                  >
+                    {p.icon}
+                  </span>
+                  <div className="flex flex-col gap-1 min-w-0">
+                    <span className="font-bold text-on-surface">
+                      {isHebrew ? p.he.name : p.en.name}
+                    </span>
+                    <span className="text-xs text-on-surface-variant leading-relaxed">
+                      {isHebrew ? p.he.desc : p.en.desc}
+                    </span>
+                  </div>
+                </Card>
+              </Link>
+            </li>
+          ))}
+        </ul>
+      </RuleSection>
+
       <div>
         <Link
           href={localePath(locale)}
@@ -254,3 +291,164 @@ function ScoringRow({
     </div>
   );
 }
+
+// Static index of every public-facing page in the app, with short
+// bilingual descriptions for the pages-guide section. Kept inline here
+// rather than in the dictionary because the icon mapping lives with
+// the names and 20+ separate dictionary keys for one section would
+// crowd the JSON without making the copy any easier to edit.
+//
+// Hebrew copy is intentionally plain everyday language: no jargon,
+// short sentences, no em dashes. Anyone in the pool should be able to
+// read each line and know exactly what the page does.
+const PAGE_GUIDE: Array<{
+  path: string;
+  icon: React.ReactNode;
+  he: { name: string; desc: string };
+  en: { name: string; desc: string };
+}> = [
+  {
+    path: "",
+    icon: <Home className="h-5 w-5" strokeWidth={1.75} />,
+    he: {
+      name: "ראשי",
+      desc: "המסך הראשי. רואים פה את המקום שלך בטבלה, את המשחקים הבאים ואת הקופה.",
+    },
+    en: {
+      name: "Home",
+      desc: "The home screen. Shows your rank, your upcoming matches and the current pot.",
+    },
+  },
+  {
+    path: "bets",
+    icon: <ListChecks className="h-5 w-5" strokeWidth={1.75} />,
+    he: {
+      name: "מילוי מהיר",
+      desc: "רשימה של כל המשחקים שעוד אפשר להמר עליהם. ממלאים תוצאה ולוחצים שמור בלי להיכנס לעמוד נפרד לכל משחק.",
+    },
+    en: {
+      name: "Quick picks",
+      desc: "The full list of matches still open for picks. Fill the score and save without opening a separate page per match.",
+    },
+  },
+  {
+    path: "play",
+    icon: <Sparkles className="h-5 w-5" strokeWidth={1.75} />,
+    he: {
+      name: "הימורי לייב",
+      desc: "ההימורים שהאדמין פותח לכל יום משחקים. מסכנים נקודות ומקבלים תשלום אם צודקים.",
+    },
+    en: {
+      name: "Live bets",
+      desc: "Custom bets the admin opens for each match day. Stake points and get paid out when you are right.",
+    },
+  },
+  {
+    path: "live",
+    icon: <Radio className="h-5 w-5" strokeWidth={1.75} />,
+    he: {
+      name: "תוצאות חיות",
+      desc: "כל המשחקים שמתנהלים ברגע זה. מציג את הניחוש שלך ואת הנקודות הצפויות אם המשחק יסתיים עכשיו.",
+    },
+    en: {
+      name: "Live scores",
+      desc: "Every match currently in play. Shows your pick and the points you would earn if the match ended right now.",
+    },
+  },
+  {
+    path: "duels",
+    icon: <Swords className="h-5 w-5" strokeWidth={1.75} />,
+    he: {
+      name: "דו-קרב",
+      desc: "אתגרים 1 על 1 בין חברים. פותחים שאלה של כן או לא, מסכנים נקודות, ומי שצדק לוקח את הסטייק של השני.",
+    },
+    en: {
+      name: "Duels",
+      desc: "1v1 challenges between friends. Open a yes/no question, stake points, winner takes both stakes.",
+    },
+  },
+  {
+    path: "leaderboard",
+    icon: <Medal className="h-5 w-5" strokeWidth={1.75} />,
+    he: {
+      name: "מובילים",
+      desc: "טבלאות המובילים בארבע קטגוריות: כללי, ניחושי משחקים, הימורי לייב ודו-קרב.",
+    },
+    en: {
+      name: "Leaders",
+      desc: "Leaderboards across four tabs: overall, matches, live bets and duels.",
+    },
+  },
+  {
+    path: "transparency",
+    icon: <Eye className="h-5 w-5" strokeWidth={1.75} />,
+    he: {
+      name: "שקיפות",
+      desc: "רואים מי הימר על מה. כל הימור מוצג כאן אחרי שננעל. אפשר לסנן לפי משתתף, סוג הימור או תאריך.",
+    },
+    en: {
+      name: "Transparency",
+      desc: "See who picked what. Every bet shows up here after it locks. Filter by player, category or date.",
+    },
+  },
+  {
+    path: "me/bank",
+    icon: <Wallet className="h-5 w-5" strokeWidth={1.75} />,
+    he: {
+      name: "הבנק שלי",
+      desc: "כל התנועות בבנק שלך, היתרה הנוכחית והפילוח של מאיפה הרווחת או הפסדת נקודות.",
+    },
+    en: {
+      name: "My bank",
+      desc: "Every transaction in your bank, the current balance and a breakdown by category.",
+    },
+  },
+  {
+    path: "tournament",
+    icon: <Trophy className="h-5 w-5" strokeWidth={1.75} />,
+    he: {
+      name: "אזור מונדיאל",
+      desc: "כל המידע על הטורניר במקום אחד. טבלאות בתים, נבחרות וחדשות מהמונדיאל.",
+    },
+    en: {
+      name: "Tournament zone",
+      desc: "All World Cup info in one place. Group standings, teams and headlines.",
+    },
+  },
+  {
+    path: "pay",
+    icon: <Coins className="h-5 w-5" strokeWidth={1.75} />,
+    he: {
+      name: "תשלום",
+      desc: "תשלום של דמי ההשתתפות ובדיקת סטטוס. עד שהמנהל יאשר את התשלום אי אפשר לשמור הימורים חדשים.",
+    },
+    en: {
+      name: "Pay",
+      desc: "Pay the entry fee and see the approval status. New picks are blocked until your payment is approved.",
+    },
+  },
+  {
+    path: "profile",
+    icon: <UserIcon className="h-5 w-5" strokeWidth={1.75} />,
+    he: {
+      name: "הפרופיל שלי",
+      desc: "פרטים אישיים, החלפת שפה והגדרות חשבון.",
+    },
+    en: {
+      name: "Profile",
+      desc: "Personal details, language toggle and account settings.",
+    },
+  },
+  {
+    path: "rules",
+    icon: <BookOpen className="h-5 w-5" strokeWidth={1.75} />,
+    he: {
+      name: "חוקי המשחק",
+      desc: "העמוד הזה. כל החוקים, כל הניקוד וכל ההסברים על איך הטוטו עובד.",
+    },
+    en: {
+      name: "How it works",
+      desc: "This page. All the rules, all the payouts and how the pool works.",
+    },
+  },
+];
