@@ -1,6 +1,15 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  images: {
+    // News thumbnails are pulled from RSS feeds whose CDN hostnames are
+    // stable. Pinning here so next/image can serve them optimised, and
+    // so we never accept thumbnails from arbitrary hosts.
+    remotePatterns: [
+      { protocol: "https", hostname: "ichef.bbci.co.uk" },
+      { protocol: "https", hostname: "images.wcdn.co.il" },
+    ],
+  },
   async headers() {
     return [
       {

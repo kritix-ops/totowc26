@@ -39,11 +39,7 @@ export default async function TournamentPage({
     { key: "summary" as const, label: dict.tournament.tabSummary },
     { key: "tables" as const, label: dict.tournament.tabTables },
     { key: "teams" as const, label: dict.tournament.tabTeams },
-    {
-      key: "news" as const,
-      label: dict.tournament.tabNews,
-      badge: dict.tournament.tabBadgeSoon,
-    },
+    { key: "news" as const, label: dict.tournament.tabNews },
   ];
 
   return (
