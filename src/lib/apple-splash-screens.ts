@@ -138,4 +138,4 @@ export const APPLE_SPLASH_SCREENS: Record<SplashLocale, AppleSplashEntry[]> = {
 // fall back to Hebrew when a user's locale isn't in this list, since the
 // app is Hebrew-first and a Hebrew poster is better UX than a blank cream
 // rectangle.
-export const SPLASH_LOCALES_AVAILABLE: SplashLocale[] = ["he"];
+export const SPLASH_LOCALES_AVAILABLE: SplashLocale[] = ["he","en"];
