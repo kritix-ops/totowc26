@@ -94,8 +94,8 @@ export function InstallHint({ locale }: { locale: "he" | "en" }) {
           <LabelCaps>{isHebrew ? "טיפ" : "Tip"}</LabelCaps>
           <h3 className="font-bold text-base text-on-surface">
             {isHebrew
-              ? "התקן את הטוטו כאפליקציה"
-              : "Install Toto as an app"}
+              ? "התקן כאפליקציה"
+              : "Install as an app"}
           </h3>
           <p className="text-sm text-on-surface-variant">
             {installEvent

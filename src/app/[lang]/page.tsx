@@ -214,12 +214,18 @@ function GuestLanding({
             </div>
           )}
 
-          <div>
+          <div className="grid grid-cols-2 gap-3 md:gap-4">
             <Link
               href={localePath(locale, "login")}
-              className="press-down inline-flex items-center justify-center bg-primary text-on-primary font-[family-name:var(--font-label)] text-[14px] font-bold tracking-[0.05em] px-10 py-4 min-h-[48px] rounded-full shadow-md hover:bg-surface-tint hover:-translate-y-0.5 transition-all duration-200"
+              className="press-down inline-flex items-center justify-center bg-primary text-on-primary font-[family-name:var(--font-label)] text-[14px] font-bold tracking-[0.05em] px-6 py-4 min-h-[48px] rounded-full shadow-md hover:bg-surface-tint hover:-translate-y-0.5 transition-all duration-200"
             >
-              {dict.landing.cta}
+              {dict.nav.signin}
+            </Link>
+            <Link
+              href={localePath(locale, "signup")}
+              className="press-down inline-flex items-center justify-center bg-surface-container-lowest border border-primary text-primary font-[family-name:var(--font-label)] text-[14px] font-bold tracking-[0.05em] px-6 py-4 min-h-[48px] rounded-full shadow-sm hover:bg-primary-container hover:-translate-y-0.5 transition-all duration-200"
+            >
+              {dict.nav.signup}
             </Link>
           </div>
 

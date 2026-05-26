@@ -93,7 +93,7 @@ export async function AppShell({
         </div>
       )}
       <header
-        className={`bg-surface border-b border-outline-variant shadow-sm fixed left-0 right-0 w-full px-4 md:px-16 h-14 md:h-16 z-50 flex items-center justify-between gap-3 ${viewingAs ? "top-[40px]" : "top-0"}`}
+        className={`bg-surface border-b border-outline-variant shadow-sm fixed left-0 right-0 w-full px-3 md:px-16 h-14 md:h-16 z-50 flex items-center justify-between gap-2 md:gap-3 ${viewingAs ? "top-[40px]" : "top-0"}`}
       >
         <Link
           href={home}
@@ -167,7 +167,7 @@ export async function AppShell({
                 href={localePath(locale, "login")}
                 className="press-down inline-flex items-center gap-1.5 min-h-[40px] px-3 md:px-4 rounded-full bg-primary text-on-primary font-[family-name:var(--font-label)] text-[12px] md:text-[13px] font-bold tracking-[0.05em] hover:bg-surface-tint transition-colors"
               >
-                <LogIn className="h-4 w-4" strokeWidth={2} />
+                <LogIn className="hidden md:block h-4 w-4" strokeWidth={2} />
                 {dict.nav.signin}
               </Link>
             </>
