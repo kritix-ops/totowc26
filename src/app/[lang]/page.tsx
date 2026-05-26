@@ -260,15 +260,59 @@ function PlayerHome({
 }) {
   const isHebrew = locale === "he";
   const countdown = tournamentStart ? computeCountdown(tournamentStart) : null;
+  console.info("[home overview render]", {
+    locale,
+    started: countdown?.started ?? null,
+    potIls: pool.potIls,
+    participants: pool.participants,
+  });
 
   return (
     <section className="flex flex-col">
-      <HeroBand
-        locale={locale}
-        dict={dict}
-        pool={pool}
-        countdown={countdown}
-      />
+      <HeroBand locale={locale} />
+
+      <div className="relative z-10 -mt-10 sm:-mt-14 md:-mt-20 px-4 md:px-8 lg:px-16 flex justify-center">
+        <div className="w-full max-w-6xl bg-surface-container-low border border-outline rounded-lg shadow-[0_8px_24px_rgba(28,20,15,0.12)] p-5 md:p-7 flex flex-col gap-5 md:gap-6">
+          <div className="flex justify-center">
+            <BrandLogo locale={locale} size="hero" />
+          </div>
+          <div aria-hidden className="h-px bg-outline/40" />
+          <div className="grid grid-cols-3 gap-x-3 md:gap-x-6 items-center">
+            <HeroStat
+              icon={<CalendarClock className="h-4 w-4 text-surface-tint" strokeWidth={1.75} />}
+              value={
+                countdown
+                  ? countdown.started
+                    ? (isHebrew ? "מתחיל!" : "Live")
+                    : formatCountdownShort(countdown, locale)
+                  : "—"
+              }
+              label={
+                countdown?.started
+                  ? (isHebrew ? "המונדיאל" : "Tournament")
+                  : dict.landing.countdownLabel
+              }
+            />
+            <HeroStat
+              icon={<CircleDollarSign className="h-4 w-4 text-surface-tint" strokeWidth={1.75} />}
+              value={
+                <>
+                  {pool.potIls.toLocaleString(isHebrew ? "he-IL" : "en-US")}
+                  <span className="text-on-surface-variant font-normal mr-0.5 ms-0.5">
+                    {dict.common.currency}
+                  </span>
+                </>
+              }
+              label={dict.landing.potLabel}
+            />
+            <HeroStat
+              icon={<Users className="h-4 w-4 text-surface-tint" strokeWidth={1.75} />}
+              value={String(pool.participants)}
+              label={dict.landing.participantsLabel}
+            />
+          </div>
+        </div>
+      </div>
 
       <div className="mx-auto w-full max-w-6xl px-4 md:px-8 lg:px-16 pt-8 md:pt-12 flex flex-col gap-8 md:gap-12">
         <PrizeStrip prize={prize} locale={locale} dict={dict} />
@@ -313,24 +357,8 @@ function PlayerHome({
   );
 }
 
-function HeroBand({
-  locale,
-  dict,
-  pool,
-  countdown,
-}: {
-  locale: Locale;
-  dict: Awaited<ReturnType<typeof getDictionary>>;
-  pool: { potIls: number; participants: number };
-  countdown: ReturnType<typeof computeCountdown> | null;
-}) {
+function HeroBand({ locale }: { locale: Locale }) {
   const isHebrew = locale === "he";
-  console.info("[home hero-band render]", {
-    locale,
-    started: countdown?.started ?? null,
-    potIls: pool.potIls,
-    participants: pool.participants,
-  });
   return (
     <div className="relative w-full h-[300px] sm:h-[400px] md:h-[520px] lg:h-[600px] overflow-hidden">
       <Image
@@ -345,44 +373,6 @@ function HeroBand({
         aria-hidden
         className="absolute inset-x-0 bottom-0 h-2/5 bg-gradient-to-b from-transparent via-background/55 to-background pointer-events-none"
       />
-      <div className="absolute inset-x-0 bottom-0 z-10">
-        <div className="mx-auto w-full max-w-6xl px-4 md:px-8 lg:px-16 pb-3 md:pb-5">
-          <div className="bg-surface-container-low/95 backdrop-blur-sm border border-outline rounded-lg shadow-[0_8px_24px_rgba(28,20,15,0.12)] px-4 md:px-6 py-3 md:py-4 grid grid-cols-3 gap-x-3 md:gap-x-6 items-center">
-            <HeroStat
-              icon={<CalendarClock className="h-4 w-4 text-surface-tint" strokeWidth={1.75} />}
-              value={
-                countdown
-                  ? countdown.started
-                    ? (isHebrew ? "מתחיל!" : "Live")
-                    : formatCountdownShort(countdown, locale)
-                  : "—"
-              }
-              label={
-                countdown?.started
-                  ? (isHebrew ? "המונדיאל" : "Tournament")
-                  : dict.landing.countdownLabel
-              }
-            />
-            <HeroStat
-              icon={<CircleDollarSign className="h-4 w-4 text-surface-tint" strokeWidth={1.75} />}
-              value={
-                <>
-                  {pool.potIls.toLocaleString(isHebrew ? "he-IL" : "en-US")}
-                  <span className="text-on-surface-variant font-normal mr-0.5 ms-0.5">
-                    {dict.common.currency}
-                  </span>
-                </>
-              }
-              label={dict.landing.potLabel}
-            />
-            <HeroStat
-              icon={<Users className="h-4 w-4 text-surface-tint" strokeWidth={1.75} />}
-              value={String(pool.participants)}
-              label={dict.landing.participantsLabel}
-            />
-          </div>
-        </div>
-      </div>
     </div>
   );
 }
