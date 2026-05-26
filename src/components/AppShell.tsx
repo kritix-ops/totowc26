@@ -166,6 +166,8 @@ export async function AppShell({
                   profile: dict.nav.profile,
                   admin: dict.nav.admin,
                   rules: dict.nav.rules,
+                  language: dict.profile.language,
+                  languageOther: dict.profile.languageOther,
                   logout: dict.profile.logout,
                   openMenu: dict.nav.openMenu,
                 }}
@@ -188,9 +190,9 @@ export async function AppShell({
                 <LogIn className="hidden md:block h-4 w-4" strokeWidth={2} />
                 {dict.nav.signin}
               </Link>
+              <LanguageToggle currentLocale={locale} label={dict.common.languageToggle} />
             </>
           )}
-          <LanguageToggle currentLocale={locale} label={dict.common.languageToggle} />
         </div>
       </header>
 

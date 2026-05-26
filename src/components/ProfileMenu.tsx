@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
-import { BookOpen, LogOut, Shield, User as UserIcon } from "lucide-react";
+import { usePathname, useRouter } from "next/navigation";
+import { useEffect, useRef, useState, useTransition } from "react";
+import { BookOpen, Globe2, LogOut, Shield, User as UserIcon } from "lucide-react";
 import type { Locale } from "@/app/[lang]/dictionaries";
 import { localePath } from "@/lib/paths";
 
@@ -10,9 +11,13 @@ type Labels = {
   profile: string;
   admin: string;
   rules: string;
+  language: string;
+  languageOther: string;
   logout: string;
   openMenu: string;
 };
+
+const LOCALES = ["he", "en"] as const;
 
 export function ProfileMenu({
   locale,
@@ -27,6 +32,9 @@ export function ProfileMenu({
 }) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
+  const pathname = usePathname() ?? "/";
+  const router = useRouter();
+  const [, startTransition] = useTransition();
   const isHebrew = locale === "he";
   const initial = (displayName.trim()[0] ?? "?").toUpperCase();
 
@@ -60,6 +68,22 @@ export function ProfileMenu({
   };
 
   const close = () => setOpen(false);
+
+  const switchLanguage = () => {
+    const next: Locale = locale === "he" ? "en" : "he";
+    const segments = pathname.split("/").filter(Boolean);
+    if (LOCALES.includes(segments[0] as Locale)) {
+      segments[0] = next;
+    } else {
+      segments.unshift(next);
+    }
+    const target = "/" + segments.join("/");
+    console.info("[profile menu language switch]", { from: locale, to: next, target });
+    setOpen(false);
+    startTransition(() => {
+      router.push(target);
+    });
+  };
 
   return (
     <div ref={rootRef} className="relative">
@@ -116,6 +140,19 @@ export function ProfileMenu({
             <BookOpen className="h-5 w-5 text-on-surface-variant" strokeWidth={1.75} />
             <span className="font-bold text-sm">{labels.rules}</span>
           </Link>
+
+          <button
+            type="button"
+            onClick={switchLanguage}
+            role="menuitem"
+            className="w-full flex items-center gap-3 px-4 min-h-[48px] text-on-surface hover:bg-surface-container transition-colors border-t border-outline-variant cursor-pointer"
+          >
+            <Globe2 className="h-5 w-5 text-on-surface-variant" strokeWidth={1.75} />
+            <span className="font-bold text-sm">{labels.language}</span>
+            <span className="ms-auto font-[family-name:var(--font-label)] text-[12px] font-bold tracking-[0.05em] text-on-surface-variant">
+              {labels.languageOther}
+            </span>
+          </button>
 
           <form action="/auth/signout" method="POST" className="border-t border-outline-variant">
             <button

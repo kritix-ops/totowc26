@@ -308,6 +308,7 @@
     "history": "History",
     "settings": "Settings",
     "language": "Language",
+    "languageOther": "עברית",
     "logout": "Log out"
   },
   "admin": {
