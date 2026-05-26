@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { eq } from "drizzle-orm";
 import {
   LayoutDashboard,
   ListChecks,
@@ -15,11 +16,14 @@ import { getUser } from "@/lib/supabase/auth";
 import { getUserAccess } from "@/lib/access";
 import { getMyRankSummary } from "@/db/queries";
 import { getBankBreakdown } from "@/lib/bank";
+import { db } from "@/db";
+import { profiles } from "@/db/schema";
 import { LanguageToggle } from "./LanguageToggle";
 import { NavLink, BottomNavLink } from "./NavLink";
 import { BrandLogo } from "./BrandLogo";
 import { BankPill } from "./BankPill";
 import { ViewAsBanner } from "./ViewAsBanner";
+import { ProfileMenu } from "./ProfileMenu";
 
 export async function AppShell({
   locale,
@@ -35,13 +39,21 @@ export async function AppShell({
 
   const user = await getUser();
   const signedIn = !!user;
-  const [rankSummary, access, bank] = signedIn
+  const [rankSummary, access, bank, profileRow] = signedIn
     ? await Promise.all([
         getMyRankSummary(user.id),
         getUserAccess(user.id),
         getBankBreakdown(user.id),
+        db
+          .select({ displayName: profiles.displayName })
+          .from(profiles)
+          .where(eq(profiles.id, user.id))
+          .limit(1)
+          .then((r) => r[0] ?? null),
       ])
-    : [null, null, null];
+    : [null, null, null, null];
+  const displayName =
+    profileRow?.displayName ?? user?.email ?? "";
   // `access.isAdmin` is the EFFECTIVE role — it's false while an admin
   // impersonates a player, so the nav swaps to the player layout. The
   // banner + the action server-side gates already pick up the same
@@ -116,6 +128,17 @@ export async function AppShell({
                   {dict.common.rankShort} <bdi>#{rankSummary.myRank}</bdi>
                 </span>
               ) : null}
+              <ProfileMenu
+                locale={locale}
+                displayName={displayName}
+                isAdmin={admin}
+                labels={{
+                  profile: dict.nav.profile,
+                  admin: dict.nav.admin,
+                  logout: dict.profile.logout,
+                  openMenu: dict.nav.openMenu,
+                }}
+              />
             </>
           ) : (
             <Link

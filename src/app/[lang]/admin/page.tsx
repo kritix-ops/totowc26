@@ -8,6 +8,7 @@ import {
   ChevronRight,
   Coins,
   Sparkles,
+  Mail,
 } from "lucide-react";
 import { eq } from "drizzle-orm";
 import { hasLocale, type Locale } from "../dictionaries";
@@ -102,6 +103,12 @@ export default async function AdminPage({
           path="standings"
           icon={<Settings className="h-5 w-5" strokeWidth={1.75} />}
           label={isHebrew ? "טבלת הבתים" : "Standings"}
+        />
+        <SectionLink
+          locale={locale}
+          path="admin/email-test"
+          icon={<Mail className="h-5 w-5" strokeWidth={1.75} />}
+          label={isHebrew ? "בדיקת אימייל" : "Email test"}
         />
       </nav>
 

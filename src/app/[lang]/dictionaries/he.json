@@ -59,7 +59,8 @@
     "predictions": "ניחושים",
     "leaderboard": "טבלה",
     "profile": "פרופיל",
-    "pay": "תשלום"
+    "pay": "תשלום",
+    "openMenu": "פתח תפריט משתמש"
   },
   "landing": {
     "countdownLabel": "המונדיאל מתחיל בעוד",

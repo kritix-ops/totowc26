@@ -59,7 +59,8 @@
     "predictions": "Picks",
     "leaderboard": "Leaderboard",
     "profile": "Profile",
-    "pay": "Pay"
+    "pay": "Pay",
+    "openMenu": "Open user menu"
   },
   "landing": {
     "countdownLabel": "Kickoff in",
