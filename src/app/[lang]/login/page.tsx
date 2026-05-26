@@ -33,9 +33,6 @@ export default async function LoginPage({
       <div className="w-full max-w-md flex flex-col gap-6 md:gap-10">
         <div className="text-center flex flex-col items-center gap-3">
           <BrandLogo locale={locale} size="hero" />
-          <p className="text-base md:text-lg text-on-surface-variant">
-            {dict.landing.tagline}
-          </p>
         </div>
         <LoginForm locale={locale} dict={dict} />
         {signupOpen && (
