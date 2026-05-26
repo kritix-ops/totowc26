@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { eq } from "drizzle-orm";
 import {
   ArrowRight,
   ArrowLeft,
@@ -12,6 +13,8 @@ import {
 } from "lucide-react";
 import { getDictionary, hasLocale, type Locale } from "../dictionaries";
 import { getPrizeBreakdown } from "@/db/queries";
+import { db } from "@/db";
+import { settings } from "@/db/schema";
 import { getUser } from "@/lib/supabase/auth";
 import { localePath } from "@/lib/paths";
 import { Card, LabelCaps, SectionHeading } from "@/components/ui";
@@ -27,14 +30,42 @@ export default async function RulesPage({
   const isHebrew = locale === "he";
   // The page is public — guests browsing the landing should be able to
   // read what they would be signing up for. We still fetch the live
-  // prize breakdown so signed-in players see today's pot amounts.
-  const [user, prize] = await Promise.all([getUser(), getPrizeBreakdown()]);
+  // prize breakdown so signed-in players see today's pot amounts, and
+  // the live scoring config so the page never drifts from the source
+  // of truth (admin can flip the risk toggle and the page reflects it).
+  const [user, prize, [scoringCfg]] = await Promise.all([
+    getUser(),
+    getPrizeBreakdown(),
+    db
+      .select({
+        scoringExact: settings.scoringExact,
+        scoringOutcome: settings.scoringOutcome,
+        matchRiskEnabled: settings.matchRiskEnabled,
+        matchRiskPenalty: settings.matchRiskPenalty,
+        startingBank: settings.startingBank,
+      })
+      .from(settings)
+      .where(eq(settings.id, 1)),
+  ]);
   const signedIn = !!user;
+  const scoring = scoringCfg ?? {
+    scoringExact: 15,
+    scoringOutcome: 5,
+    matchRiskEnabled: false,
+    matchRiskPenalty: 5,
+    startingBank: 30,
+  };
+  const pts = dict.rules.scoringPointsUnit;
+  const bankBody = dict.rules.bankBody.replace(
+    "{startingBank}",
+    String(scoring.startingBank),
+  );
 
   console.info("[rules render]", {
     isHebrew,
     potIls: prize.potIls,
     signedIn,
+    matchRiskEnabled: scoring.matchRiskEnabled,
   });
 
   const BackArrow = isHebrew ? ArrowRight : ArrowLeft;
@@ -75,14 +106,28 @@ export default async function RulesPage({
         <Card className="p-4 md:p-5 grid grid-cols-1 sm:grid-cols-2 gap-3">
           <ScoringRow
             label={dict.rules.scoringExact}
-            value={dict.rules.scoringExactValue}
+            value={`+${scoring.scoringExact} ${pts}`}
             tone="primary"
           />
           <ScoringRow
             label={dict.rules.scoringDirection}
-            value={dict.rules.scoringDirectionValue}
+            value={`+${scoring.scoringOutcome} ${pts}`}
+          />
+          <ScoringRow
+            label={dict.rules.scoringWrong}
+            value={
+              scoring.matchRiskEnabled
+                ? `−${scoring.matchRiskPenalty} ${pts}`
+                : `0 ${pts}`
+            }
+            tone={scoring.matchRiskEnabled ? "error" : undefined}
           />
         </Card>
+        <p className="text-sm text-on-surface-variant">
+          {scoring.matchRiskEnabled
+            ? dict.rules.scoringRiskOnNote
+            : dict.rules.scoringRiskOffNote}
+        </p>
         <p className="text-sm text-on-surface-variant">
           {dict.rules.scoringExtras}
         </p>
@@ -92,7 +137,7 @@ export default async function RulesPage({
         icon={<Wallet className="h-5 w-5" strokeWidth={1.75} />}
         title={dict.rules.bankTitle}
       >
-        <p>{dict.rules.bankBody}</p>
+        <p>{bankBody}</p>
       </RuleSection>
 
       <RuleSection
@@ -150,14 +195,18 @@ function ScoringRow({
 }: {
   label: string;
   value: string;
-  tone?: "primary";
+  tone?: "primary" | "error";
 }) {
   return (
     <div className="flex items-center justify-between gap-3 py-2 px-3 rounded-lg bg-surface-container-lowest border border-outline-variant">
       <span className="text-sm font-bold text-on-surface">{label}</span>
       <span
         className={`font-[family-name:var(--font-display)] text-xl leading-none font-bold tabular-nums bidi-ltr ${
-          tone === "primary" ? "text-surface-tint" : "text-on-surface"
+          tone === "primary"
+            ? "text-surface-tint"
+            : tone === "error"
+              ? "text-error"
+              : "text-on-surface"
         }`}
       >
         {value}

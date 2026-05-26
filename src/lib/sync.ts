@@ -253,10 +253,17 @@ export async function scoreFinalMatches(): Promise<{
   scoredMatches: number;
   scoredBets: number;
 }> {
+  // Pull the live scoring config in one shot. matchRiskEnabled is
+  // re-read each pass so an admin toggle takes effect on the next
+  // sync without redeploy. Previously-graded picks (points_earned IS
+  // NOT NULL) are never re-scored, so flipping the toggle does not
+  // retroactively rewrite history.
   const [s] = await db
     .select({
       scoringExact: settings.scoringExact,
       scoringOutcome: settings.scoringOutcome,
+      matchRiskEnabled: settings.matchRiskEnabled,
+      matchRiskPenalty: settings.matchRiskPenalty,
     })
     .from(settings)
     .where(eq(settings.id, 1));
@@ -290,6 +297,7 @@ export async function scoreFinalMatches(): Promise<{
     const bets = await db
       .select({
         id: matchBets.id,
+        userId: matchBets.userId,
         homeScore: matchBets.homeScore,
         awayScore: matchBets.awayScore,
       })
@@ -299,7 +307,13 @@ export async function scoreFinalMatches(): Promise<{
     for (const b of bets) {
       const exact = b.homeScore === m.home_score && b.awayScore === m.away_score;
       const correctOutcome = outcome(b.homeScore, b.awayScore) === actual;
-      const points = exact ? s.scoringExact : correctOutcome ? s.scoringOutcome : 0;
+      const points = exact
+        ? s.scoringExact
+        : correctOutcome
+          ? s.scoringOutcome
+          : s.matchRiskEnabled
+            ? -s.matchRiskPenalty
+            : 0;
 
       await db
         .update(matchBets)
@@ -311,6 +325,15 @@ export async function scoreFinalMatches(): Promise<{
         })
         .where(eq(matchBets.id, b.id));
       scoredBets += 1;
+
+      console.info("[match score]", {
+        userId: b.userId,
+        matchId: m.id,
+        exact,
+        direction: correctOutcome,
+        pointsEarned: points,
+        riskMode: s.matchRiskEnabled,
+      });
     }
   }
 

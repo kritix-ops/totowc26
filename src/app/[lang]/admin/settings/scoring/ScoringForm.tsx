@@ -8,14 +8,32 @@ import { Card, PillButton, SectionHeading } from "@/components/ui";
 import type { Locale } from "../../../dictionaries";
 import { saveScoringSettings, type ScoringPayload } from "./actions";
 
+// Field type — number input by default, toggle for boolean settings.
+// The kind discriminator lets the renderer pick the right widget while
+// keeping a single GROUPS source of truth.
+type Field =
+  | {
+      kind?: "number";
+      key: NumberKey;
+      label: { he: string; en: string };
+      hint?: { he: string; en: string };
+    }
+  | {
+      kind: "toggle";
+      key: BooleanKey;
+      label: { he: string; en: string };
+      hint?: { he: string; en: string };
+    };
+
+// Subset of ScoringPayload keys whose value is a number.
+type NumberKey = Exclude<keyof ScoringPayload, BooleanKey>;
+// Subset whose value is a boolean.
+type BooleanKey = "matchRiskEnabled" | "dailyRenewalEnabled";
+
 type Group = {
   title: { he: string; en: string };
   hint?: { he: string; en: string };
-  fields: Array<{
-    key: keyof ScoringPayload;
-    label: { he: string; en: string };
-    hint?: { he: string; en: string };
-  }>;
+  fields: Field[];
 };
 
 const GROUPS: Group[] = [
@@ -34,8 +52,12 @@ const GROUPS: Group[] = [
   },
   {
     title: {
-      he: "הימור משחק (1/X/2 חינם)",
-      en: "Match bet (1/X/2 free)",
+      he: "ניקוד משחקים (1/X/2)",
+      en: "Match scoring (1/X/2)",
+    },
+    hint: {
+      he: "תוצאה מדויקת מזכה במלוא הניקוד, כיוון נכון בלבד בניקוד נמוך יותר. אם תפעיל מצב סיכון, ניחוש שגוי יוריד נקודות מהבנק.",
+      en: "An exact score earns the full payout, the right direction earns less. With risk mode on, a wrong pick subtracts points from the bank.",
     },
     fields: [
       {
@@ -44,7 +66,91 @@ const GROUPS: Group[] = [
       },
       {
         key: "scoringOutcome",
-        label: { he: "כיוון נכון", en: "Correct outcome" },
+        label: { he: "כיוון נכון", en: "Correct direction" },
+      },
+      {
+        kind: "toggle",
+        key: "matchRiskEnabled",
+        label: { he: "מצב סיכון פעיל", en: "Risk mode enabled" },
+        hint: {
+          he: "כשמופעל, ניחוש שגוי גורר ניכוי של 'עונש סיכון' מהבנק. ברירת מחדל: כבוי.",
+          en: "When on, a wrong pick subtracts the risk penalty from the bank. Default: off.",
+        },
+      },
+      {
+        key: "matchRiskPenalty",
+        label: { he: "עונש סיכון (לכל משחק)", en: "Risk penalty (per match)" },
+        hint: {
+          he: "תקף רק כשמצב סיכון פעיל. הערך הזה גם נשמר על ההימור עצמו לצורך הצגה בבנק.",
+          en: "Used only when risk mode is on. Also snapshotted onto each pick for the bank breakdown display.",
+        },
+      },
+    ],
+  },
+  {
+    title: { he: "התחדשות יומית", en: "Daily renewal" },
+    hint: {
+      he: "כשמופעל, כל משתתף מקבל את הסכום הזה כתוספת לבנק בכל יום בחצות (Asia/Jerusalem). כל תוספת נרשמת כשורת התאמה באודיט.",
+      en: "When on, every player gets this many points added to their bank at 00:00 Asia/Jerusalem. Each tick lands as a point_adjustments audit row.",
+    },
+    fields: [
+      {
+        kind: "toggle",
+        key: "dailyRenewalEnabled",
+        label: { he: "התחדשות פעילה", en: "Renewal enabled" },
+      },
+      {
+        key: "dailyRenewalAmount",
+        label: { he: "תוספת יומית", en: "Daily amount" },
+      },
+    ],
+  },
+  {
+    title: { he: "דו-קרב", en: "Duels" },
+    hint: {
+      he: "מגבלות על הימור 1 על 1. הטבלה עצמה נוצרה במיגרציה 0014; הפיצ'ר יפעל ב-PR הבא.",
+      en: "Caps for 1v1 duels. The table itself lands in migration 0014; the feature ships in PR 3.",
+    },
+    fields: [
+      {
+        key: "duelMaxStake",
+        label: { he: "סטייק מקסימלי", en: "Max stake" },
+        hint: {
+          he: "סף עליון 1-20 (אכוף גם בבסיס הנתונים).",
+          en: "Hard ceiling 1-20 (DB CHECK mirrors this).",
+        },
+      },
+      {
+        key: "duelDefaultJoinWindowHours",
+        label: {
+          he: "חלון הצטרפות ברירת מחדל (שעות)",
+          en: "Default join window (hours)",
+        },
+      },
+    ],
+  },
+  {
+    title: { he: "הימורי לייב — יחסים", en: "Live bets — ratios" },
+    hint: {
+      he: "פרמטרי המרה מ-odds של בוקמייקרים ל-stake/payout בנקודות שלנו. בכל הימור אדמין יכול לעקוף את החישוב האוטומטי.",
+      en: "How bookmaker odds map to our stake/payout. Admin can override per bet at publish time.",
+    },
+    fields: [
+      {
+        key: "liveOddsBaseStake",
+        label: { he: "סטייק בסיס", en: "Base stake" },
+      },
+      {
+        key: "liveOddsMaxPayout",
+        label: { he: "תקרת תשלום", en: "Max payout cap" },
+      },
+      {
+        key: "liveOddsHouseEdgePct",
+        label: { he: "house edge (%)", en: "House edge (%)" },
+        hint: {
+          he: "מקטין את התשלום הגולמי באחוז הזה. 0 = יחס בוקמייקר מלא; 5 = ברירת מחדל.",
+          en: "Trims the raw bookmaker payout by this %. 0 = full bookmaker odds; 5 = default.",
+        },
       },
     ],
   },
@@ -70,14 +176,31 @@ const GROUPS: Group[] = [
   },
 ];
 
-const PRIZE_FIELDS: Array<{
-  key: keyof ScoringPayload;
+// Legacy top-4 split (still rendered for backwards compatibility with
+// the existing PrizeStrip until PR 5 swaps the public prize UI).
+const LEGACY_PRIZE_FIELDS: Array<{
+  key: NumberKey;
   label: { he: string; en: string };
 }> = [
   { key: "prizePct1", label: { he: "מקום ראשון %", en: "1st place %" } },
   { key: "prizePct2", label: { he: "מקום שני %", en: "2nd place %" } },
   { key: "prizePct3", label: { he: "מקום שלישי %", en: "3rd place %" } },
   { key: "prizePct4", label: { he: "מקום רביעי %", en: "4th place %" } },
+];
+
+// 7-way category split (must sum to exactly 100; the save button is
+// disabled while the sum is off and the form surfaces the delta).
+const CATEGORY_PRIZE_FIELDS: Array<{
+  key: NumberKey;
+  label: { he: string; en: string };
+}> = [
+  { key: "prizeKingFirstPct",     label: { he: "מלך - מקום 1", en: "King - 1st" } },
+  { key: "prizeKingSecondPct",    label: { he: "מלך - מקום 2", en: "King - 2nd" } },
+  { key: "prizeKingThirdPct",     label: { he: "מלך - מקום 3", en: "King - 3rd" } },
+  { key: "prizeMatchesWinnerPct", label: { he: "אלוף הניחושים", en: "Matches winner" } },
+  { key: "prizeLiveWinnerPct",    label: { he: "אלוף הלייב", en: "Live winner" } },
+  { key: "prizeDuelsWinnerPct",   label: { he: "אלוף הדו-קרב", en: "Duels winner" } },
+  { key: "prizeReservePct",       label: { he: "רזרבה", en: "Reserve" } },
 ];
 
 export function ScoringForm({
@@ -96,16 +219,33 @@ export function ScoringForm({
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
 
-  const update = (k: keyof ScoringPayload, v: string) => {
+  const updateNumber = (k: NumberKey, v: string) => {
     const n = v === "" ? 0 : Number(v);
     if (!Number.isFinite(n)) return;
     setValues((prev) => ({ ...prev, [k]: Math.max(0, Math.trunc(n)) }));
   };
+  const updateBoolean = (k: BooleanKey, v: boolean) => {
+    setValues((prev) => ({ ...prev, [k]: v }));
+  };
+
+  const categorySum =
+    values.prizeKingFirstPct +
+    values.prizeKingSecondPct +
+    values.prizeKingThirdPct +
+    values.prizeMatchesWinnerPct +
+    values.prizeLiveWinnerPct +
+    values.prizeDuelsWinnerPct +
+    values.prizeReservePct;
+  const categorySumOk = categorySum === 100;
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
     setSaved(false);
+    if (!categorySumOk) {
+      setError("invalid");
+      return;
+    }
     startTransition(async () => {
       const res = await saveScoringSettings(values);
       if (!res.ok) {
@@ -132,40 +272,40 @@ export function ScoringForm({
             )}
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {group.fields.map((f) => (
-              <div key={f.key} className="flex flex-col gap-1.5">
-                <label
-                  htmlFor={`set-${f.key}`}
-                  className="font-bold text-sm text-on-surface"
-                >
-                  {isHebrew ? f.label.he : f.label.en}
-                </label>
-                <input
-                  id={`set-${f.key}`}
-                  type="number"
-                  inputMode="numeric"
-                  min={0}
-                  max={32000}
-                  step={1}
+            {group.fields.map((f) =>
+              f.kind === "toggle" ? (
+                <ToggleField
+                  key={f.key}
+                  field={f}
                   value={values[f.key]}
-                  onChange={(e) => update(f.key, e.target.value)}
-                  className="h-12 px-3 bg-surface-container-lowest border border-outline rounded-lg text-on-surface text-base font-bold tabular-nums focus:outline-none focus:border-primary"
-                  dir="ltr"
+                  onChange={(v) => updateBoolean(f.key, v)}
+                  isHebrew={isHebrew}
                 />
-                {f.hint && (
-                  <p className="text-[11px] text-on-surface-variant">
-                    {isHebrew ? f.hint.he : f.hint.en}
-                  </p>
-                )}
-              </div>
-            ))}
+              ) : (
+                <NumberField
+                  key={f.key}
+                  field={f}
+                  value={values[f.key]}
+                  onChange={(v) => updateNumber(f.key, v)}
+                  isHebrew={isHebrew}
+                />
+              ),
+            )}
           </div>
         </Card>
       ))}
 
-      <PrizeSplitCard
+      <CategoryPrizeCard
         values={values}
-        update={update}
+        update={updateNumber}
+        potIls={potIls}
+        sum={categorySum}
+        isHebrew={isHebrew}
+      />
+
+      <LegacyPrizeSplitCard
+        values={values}
+        update={updateNumber}
         potIls={potIls}
         isHebrew={isHebrew}
       />
@@ -187,8 +327,11 @@ export function ScoringForm({
         </div>
         <PillButton
           type="submit"
-          disabled={pending}
-          className={clsx("px-10 py-3", pending && "opacity-60 cursor-not-allowed")}
+          disabled={pending || !categorySumOk}
+          className={clsx(
+            "px-10 py-3",
+            (pending || !categorySumOk) && "opacity-60 cursor-not-allowed",
+          )}
         >
           {pending
             ? isHebrew ? "שומר..." : "Saving..."
@@ -199,11 +342,104 @@ export function ScoringForm({
   );
 }
 
+function NumberField({
+  field,
+  value,
+  onChange,
+  isHebrew,
+}: {
+  field: { key: NumberKey; label: { he: string; en: string }; hint?: { he: string; en: string } };
+  value: number;
+  onChange: (v: string) => void;
+  isHebrew: boolean;
+}) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <label
+        htmlFor={`set-${field.key}`}
+        className="font-bold text-sm text-on-surface"
+      >
+        {isHebrew ? field.label.he : field.label.en}
+      </label>
+      <input
+        id={`set-${field.key}`}
+        type="number"
+        inputMode="numeric"
+        min={0}
+        max={32000}
+        step={1}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="h-12 px-3 bg-surface-container-lowest border border-outline rounded-lg text-on-surface text-base font-bold tabular-nums focus:outline-none focus:border-primary"
+        dir="ltr"
+      />
+      {field.hint && (
+        <p className="text-[11px] text-on-surface-variant">
+          {isHebrew ? field.hint.he : field.hint.en}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function ToggleField({
+  field,
+  value,
+  onChange,
+  isHebrew,
+}: {
+  field: { key: BooleanKey; label: { he: string; en: string }; hint?: { he: string; en: string } };
+  value: boolean;
+  onChange: (v: boolean) => void;
+  isHebrew: boolean;
+}) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <span className="font-bold text-sm text-on-surface">
+        {isHebrew ? field.label.he : field.label.en}
+      </span>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={value}
+        onClick={() => onChange(!value)}
+        className={clsx(
+          "h-12 min-w-[44px] px-4 inline-flex items-center justify-between gap-3 rounded-lg border text-sm font-bold transition-colors",
+          value
+            ? "bg-primary text-on-primary border-primary"
+            : "bg-surface-container-lowest text-on-surface border-outline",
+        )}
+      >
+        <span>{value ? (isHebrew ? "פעיל" : "On") : isHebrew ? "כבוי" : "Off"}</span>
+        <span
+          className={clsx(
+            "inline-block w-10 h-6 rounded-full relative transition-colors",
+            value ? "bg-on-primary/30" : "bg-outline-variant",
+          )}
+          aria-hidden
+        >
+          <span
+            className={clsx(
+              "absolute top-0.5 w-5 h-5 rounded-full bg-surface-container-lowest transition-all",
+              value ? (isHebrew ? "left-0.5" : "right-0.5") : isHebrew ? "right-0.5" : "left-0.5",
+            )}
+          />
+        </span>
+      </button>
+      {field.hint && (
+        <p className="text-[11px] text-on-surface-variant">
+          {isHebrew ? field.hint.he : field.hint.en}
+        </p>
+      )}
+    </div>
+  );
+}
+
 function translateError(code: string, isHebrew: boolean): string {
   const map: Record<string, [string, string]> = {
     invalid: [
-      "ערכים לא תקינים. כל ערך חייב להיות מספר שלם בין 0 ל-32000. תשלומים חייבים להיות ≥ 1. סכום אחוזי הזכייה ≤ 100.",
-      "Invalid values. Each must be an integer between 0 and 32000. Payouts must be ≥ 1. Prize percentages must sum to ≤ 100.",
+      "ערכים לא תקינים. כל ערך מספרי שלם בין 0-32000, תשלומים ≥ 1, מקסימום סטייק בדו-קרב 1-20. סכום אחוזי הקטגוריות חייב להיות בדיוק 100. אחוזי הליגה הישנים ≤ 100.",
+      "Invalid values. Integers 0-32000, payouts ≥ 1, duel stake 1-20. Category prize percentages must sum to exactly 100. Legacy split must sum to ≤ 100.",
     ],
     unauth:    ["יש להתחבר", "Sign in required"],
     forbidden: ["אין הרשאות אדמין", "Admin role required"],
@@ -212,14 +448,115 @@ function translateError(code: string, isHebrew: boolean): string {
   return (map[code] ?? map.db)[isHebrew ? 0 : 1];
 }
 
-function PrizeSplitCard({
+function CategoryPrizeCard({
+  values,
+  update,
+  potIls,
+  sum,
+  isHebrew,
+}: {
+  values: ScoringPayload;
+  update: (k: NumberKey, v: string) => void;
+  potIls: number;
+  sum: number;
+  isHebrew: boolean;
+}) {
+  const over = sum > 100;
+  const under = sum < 100;
+  const ok = sum === 100;
+  return (
+    <Card className="p-5 md:p-6 flex flex-col gap-4">
+      <div className="flex flex-col gap-1">
+        <SectionHeading underline="thin" as="h2">
+          {isHebrew ? "פרסים — חלוקה לפי קטגוריות" : "Prizes — category split"}
+        </SectionHeading>
+        <p className="text-xs text-on-surface-variant">
+          {isHebrew
+            ? "מלך המונדיאל זוכה במקומות 1/2/3, ובנוסף יש אלוף בודד לכל קטגוריה (משחקים/לייב/דו-קרב). הסכום חייב להיות בדיוק 100%."
+            : "The overall king gets 1st/2nd/3rd; each category (matches/live/duels) also has a single winner. Total must be exactly 100%."}
+        </p>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {CATEGORY_PRIZE_FIELDS.map((f) => {
+          const pct = Number(values[f.key]) || 0;
+          const ils = Math.floor((potIls * pct) / 100);
+          return (
+            <div key={f.key} className="flex flex-col gap-1.5">
+              <label
+                htmlFor={`set-${f.key}`}
+                className="font-bold text-sm text-on-surface"
+              >
+                {isHebrew ? f.label.he : f.label.en}
+              </label>
+              <div className="flex items-stretch gap-2">
+                <input
+                  id={`set-${f.key}`}
+                  type="number"
+                  inputMode="numeric"
+                  min={0}
+                  max={100}
+                  step={1}
+                  value={values[f.key]}
+                  onChange={(e) => update(f.key, e.target.value)}
+                  className="w-24 h-12 px-3 bg-surface-container-lowest border border-outline rounded-lg text-on-surface text-base font-bold tabular-nums text-center focus:outline-none focus:border-primary"
+                  dir="ltr"
+                />
+                <span className="flex-1 h-12 px-3 flex items-center justify-between rounded-lg bg-surface-container-low border border-outline-variant">
+                  <span className="text-xs text-on-surface-variant">
+                    {isHebrew ? "מקופה נוכחית" : "of current pot"}
+                  </span>
+                  <span className="font-[family-name:var(--font-score)] text-lg font-bold tabular-nums">
+                    <bdi>
+                      {ils.toLocaleString()} {isHebrew ? "ש״ח" : "ILS"}
+                    </bdi>
+                  </span>
+                </span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <div
+        className={clsx(
+          "flex items-center justify-between gap-3 p-3 rounded-lg border",
+          ok
+            ? "bg-secondary-container text-on-secondary-container border-secondary-fixed"
+            : "bg-error-container text-on-error-container border-error",
+        )}
+      >
+        <span className="text-sm font-bold">
+          {isHebrew ? "סה״כ אחוזים" : "Total %"}
+        </span>
+        <span className="font-[family-name:var(--font-score)] text-lg font-bold tabular-nums">
+          <bdi>{sum}%</bdi>
+          {under && (
+            <span>
+              {" "}
+              · {isHebrew ? "חסר" : "missing"} {100 - sum}%
+            </span>
+          )}
+          {over && (
+            <span>
+              {" "}
+              · {isHebrew ? "עודף" : "excess"} {sum - 100}%
+            </span>
+          )}
+        </span>
+      </div>
+    </Card>
+  );
+}
+
+function LegacyPrizeSplitCard({
   values,
   update,
   potIls,
   isHebrew,
 }: {
   values: ScoringPayload;
-  update: (k: keyof ScoringPayload, v: string) => void;
+  update: (k: NumberKey, v: string) => void;
   potIls: number;
   isHebrew: boolean;
 }) {
@@ -229,17 +566,19 @@ function PrizeSplitCard({
   const remainder = 100 - total;
   return (
     <Card className="p-5 md:p-6 flex flex-col gap-4">
-      <SectionHeading underline="thin" as="h2">
-        {isHebrew ? "חלוקת הקופה (1-4)" : "Prize split (1st-4th)"}
-      </SectionHeading>
-      <p className="text-sm text-on-surface-variant">
-        {isHebrew
-          ? "האחוז של כל מקום מהקופה הנוכחית. הסכומים מתעדכנים אוטומטית כל פעם שמתקבל תשלום חדש."
-          : "Each rank's share of the current pot. Amounts auto-update whenever a payment is approved."}
-      </p>
+      <div className="flex flex-col gap-1">
+        <SectionHeading underline="thin" as="h2">
+          {isHebrew ? "חלוקת הקופה הישנה (1-4)" : "Legacy prize split (1st-4th)"}
+        </SectionHeading>
+        <p className="text-xs text-on-surface-variant">
+          {isHebrew
+            ? "נשמר זמנית לתאימות עם תצוגת הפרסים הקיימת. ייעלם בעדכון תצוגת הפרסים."
+            : "Kept temporarily for the existing PrizeStrip. Will be removed once the new prize UI ships."}
+        </p>
+      </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {PRIZE_FIELDS.map((f) => {
+        {LEGACY_PRIZE_FIELDS.map((f) => {
           const pct = Number(values[f.key]) || 0;
           const ils = Math.floor((potIls * pct) / 100);
           return (

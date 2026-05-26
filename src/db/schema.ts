@@ -84,6 +84,16 @@ export const gradingSourceEnum = pgEnum("grading_source", [
   "auto_football_data",
   "manual",
 ]);
+// duel_status — 1v1 binary bet lifecycle. open is awaiting a joiner;
+// matched has both sides locked in (stakes deducted); settled is graded
+// and the winner credited; cancelled is no-joiner-by-deadline or admin
+// override (both stakes refunded). See _plans/2026-05-27-betting-overhaul.md §7.
+export const duelStatusEnum = pgEnum("duel_status", [
+  "open",
+  "matched",
+  "settled",
+  "cancelled",
+]);
 
 // profiles: extends Supabase auth.users (FK added via raw SQL migration)
 export const profiles = pgTable("profiles", {
@@ -172,6 +182,12 @@ export const matchBets = pgTable(
     pointsEarned: smallint("points_earned"),
     wasExact: boolean("was_exact"),
     wasCorrectOutcome: boolean("was_correct_outcome"),
+    // Snapshot of settings.match_risk_penalty at submit time when the
+    // admin had risk mode on. Null = risk-off (default) — wrong picks
+    // earn 0 net rather than -penalty. Kept on the row for audit and
+    // for the /me/bank breakdown; the actual net points are still
+    // written to pointsEarned by scoreFinalMatches().
+    stakePaidMain: smallint("stake_paid_main"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -271,11 +287,43 @@ export const settings = pgTable("settings", {
   payboxUrl: text("paybox_url"),
   betLockMinutes: smallint("bet_lock_minutes").notNull().default(5),
   // Points bank
-  startingBank: smallint("starting_bank").notNull().default(100),
-  // Main bet (free — stake 0)
+  startingBank: smallint("starting_bank").notNull().default(30),
+  // Main bet payouts. Default mode: exact = +15, direction = +5, wrong = 0.
+  // When match_risk_enabled is true, wrong picks earn -match_risk_penalty
+  // (default 5) instead of 0. See _plans/2026-05-27-betting-overhaul.md §5.
   scoringExact: smallint("scoring_exact").notNull().default(15),
-  scoringOutcome: smallint("scoring_outcome").notNull().default(3),
+  scoringOutcome: smallint("scoring_outcome").notNull().default(5),
   stakeMain: smallint("stake_main").notNull().default(0),
+  matchRiskEnabled: boolean("match_risk_enabled").notNull().default(false),
+  matchRiskPenalty: smallint("match_risk_penalty").notNull().default(5),
+  // Daily renewal. When enabled, the cron inserts a point_adjustments
+  // row per active player at 00:00 Asia/Jerusalem with the configured
+  // delta. Off by default — admin opts in.
+  dailyRenewalEnabled: boolean("daily_renewal_enabled").notNull().default(false),
+  dailyRenewalAmount:  smallint("daily_renewal_amount").notNull().default(3),
+  // Duel limits. The actual feature (server actions + UI) lands in PR 3;
+  // the knobs live here from PR 1 so the admin settings surface ships at
+  // the same time as the schema.
+  duelMaxStake: smallint("duel_max_stake").notNull().default(5),
+  duelDefaultJoinWindowHours: smallint("duel_default_join_window_hours").notNull().default(24),
+  // Live-bet odds → stake/payout normalization. Used by PR 2's
+  // src/lib/odds-normalize.ts when converting bookmaker decimal odds into
+  // our point system. The house edge trims a slice off the bookmaker
+  // payout so the pool's expected value sums to less than 100% over time.
+  liveOddsBaseStake: smallint("live_odds_base_stake").notNull().default(3),
+  liveOddsMaxPayout: smallint("live_odds_max_payout").notNull().default(25),
+  liveOddsHouseEdgePct: smallint("live_odds_house_edge_pct").notNull().default(5),
+  // 7-way prize split (king 1/2/3, matches/live/duels winner, reserve).
+  // Sum MUST be 100 — DB CHECK constraint enforces this. The legacy
+  // prizePct1-4 columns below are kept for backwards compatibility until
+  // PR 5 swaps the UI; they will be dropped in a follow-up migration.
+  prizeKingFirstPct: smallint("prize_king_first_pct").notNull().default(30),
+  prizeKingSecondPct: smallint("prize_king_second_pct").notNull().default(12),
+  prizeKingThirdPct: smallint("prize_king_third_pct").notNull().default(6),
+  prizeMatchesWinnerPct: smallint("prize_matches_winner_pct").notNull().default(15),
+  prizeLiveWinnerPct: smallint("prize_live_winner_pct").notNull().default(15),
+  prizeDuelsWinnerPct: smallint("prize_duels_winner_pct").notNull().default(12),
+  prizeReservePct: smallint("prize_reserve_pct").notNull().default(10),
   // Custom-bets defaults: stake / payout per answer type. Admin can override
   // per bet at creation time; the override snapshots onto custom_bets so a
   // later settings tweak does not retroactively re-price an existing bet.
@@ -521,6 +569,82 @@ export const betGradingAudit = pgTable(
   }),
 );
 
+// duels: 1v1 binary bet between two pool members.
+//
+// Lifecycle (mirrors customBets but specialised for the 1v1 case):
+//   open      → posted by opener, awaiting a joiner
+//   matched   → joiner accepted; both stakes deducted from their banks
+//   settled   → graded, winner credited 2x stake (net +stake)
+//   cancelled → no joiner by deadline or admin override (stakes refunded)
+//
+// Scoping mirrors customBets but only match / day / tournament are
+// supported. Opener picks their answer (yes/no boolean); joiner implicitly
+// takes the opposite. The DB enforces opener ≠ joiner and the scope-key
+// consistency via CHECK constraints (see migration 0014).
+//
+// Bank accounting is computed at query time from the duels table itself,
+// not via point_adjustments rows — see src/lib/bank.ts in PR 3 for the
+// formula extension. This keeps the adjustments log reserved for genuine
+// admin-issued bank changes.
+export const duels = pgTable(
+  "duels",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+
+    // Opener
+    openerId: uuid("opener_id")
+      .notNull()
+      .references(() => profiles.id, { onDelete: "restrict" }),
+    openerAnswer: boolean("opener_answer").notNull(),
+    stake: smallint("stake").notNull(),
+
+    // Question text
+    questionHe: text("question_he").notNull(),
+    questionEn: text("question_en").notNull(),
+    gradingRuleHe: text("grading_rule_he").notNull(),
+    gradingRuleEn: text("grading_rule_en").notNull(),
+
+    // Scoping
+    scope: betScopeEnum("scope").notNull(),
+    matchId: uuid("match_id").references(() => matches.id, {
+      onDelete: "cascade",
+    }),
+    matchdayId: uuid("matchday_id").references(() => matchdays.id, {
+      onDelete: "cascade",
+    }),
+
+    // Lifecycle
+    status: duelStatusEnum("status").notNull().default("open"),
+    joinDeadlineAt: timestamp("join_deadline_at", { withTimezone: true }).notNull(),
+    resolveAt: timestamp("resolve_at", { withTimezone: true }).notNull(),
+
+    // Joiner (null until matched)
+    joinerId: uuid("joiner_id").references(() => profiles.id, {
+      onDelete: "restrict",
+    }),
+    joinedAt: timestamp("joined_at", { withTimezone: true }),
+
+    // Settlement
+    resolvedValue: boolean("resolved_value"),
+    settledAt: timestamp("settled_at", { withTimezone: true }),
+    settledBy: uuid("settled_by").references(() => profiles.id, {
+      onDelete: "set null",
+    }),
+
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    openerIdx:   index("duels_opener_idx").on(t.openerId),
+    joinerIdx:   index("duels_joiner_idx").on(t.joinerId),
+    statusIdx:   index("duels_status_idx").on(t.status),
+    deadlineIdx: index("duels_deadline_idx").on(t.joinDeadlineAt),
+    matchIdx:    index("duels_match_idx").on(t.matchId),
+    matchdayIdx: index("duels_matchday_idx").on(t.matchdayId),
+  }),
+);
+
 // sync_runs: audit log of every football-data sync attempt.
 export const syncRuns = pgTable(
   "sync_runs",
@@ -571,5 +695,7 @@ export type UserCustomBetPick = typeof userCustomBetPicks.$inferSelect;
 export type NewUserCustomBetPick = typeof userCustomBetPicks.$inferInsert;
 export type BetGradingAudit = typeof betGradingAudit.$inferSelect;
 export type NewBetGradingAudit = typeof betGradingAudit.$inferInsert;
+export type Duel = typeof duels.$inferSelect;
+export type NewDuel = typeof duels.$inferInsert;
 
 export const _useSql = sql; // re-export to silence unused if any

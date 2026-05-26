@@ -7,8 +7,13 @@ import { matchBets } from "@/db/schema";
 import { getUser } from "@/lib/supabase/auth";
 import { getUserAccess } from "@/lib/access";
 
-// 1/X/2 match-bet submission. The main pick is free (stake_main = 0),
-// so this action never touches the bank — no advisory lock needed.
+// 1/X/2 match-bet submission. The main pick still does not debit the
+// bank at submit time — points (positive or negative) are credited by
+// scoreFinalMatches() once the match is final. What we DO snapshot here
+// is the risk-penalty currently in force: if the admin has flipped
+// match_risk_enabled on, we record the penalty value on the row so
+// /me/bank can display "5 pts at risk on this pick". The actual scoring
+// math reads live settings at grade time — see src/lib/sync.ts §5.
 // Custom side bets live in the user_custom_bet_picks system instead.
 
 export type SaveBetResult =
@@ -42,26 +47,52 @@ export async function saveBet(
   const h = Math.max(0, Math.min(99, Math.floor(home)));
   const a = Math.max(0, Math.min(99, Math.floor(away)));
 
-  const row = await db.execute<{ ok: boolean }>(sql`
-    select (
-      m.status = 'scheduled'
-      and m.kickoff_at > now() + ((s.bet_lock_minutes || ' minutes')::interval)
-    ) as "ok"
+  // Fetch the lock gate AND the live risk-mode flags in a single round
+  // trip. risk_enabled is consumed below to decide what to snapshot
+  // into match_bets.stake_paid_main; risk_penalty is the snapshot value.
+  const row = await db.execute<{
+    ok: boolean;
+    risk_enabled: boolean;
+    risk_penalty: number;
+  }>(sql`
+    select
+      (
+        m.status = 'scheduled'
+        and m.kickoff_at > now() + ((s.bet_lock_minutes || ' minutes')::interval)
+      ) as "ok",
+      s.match_risk_enabled as "risk_enabled",
+      s.match_risk_penalty as "risk_penalty"
     from public.matches m, public.settings s
     where m.id = ${matchId}::uuid and s.id = 1
     limit 1
   `);
-  const list = row as unknown as Array<{ ok: boolean }>;
+  const list = row as unknown as Array<{
+    ok: boolean;
+    risk_enabled: boolean;
+    risk_penalty: number;
+  }>;
   if (list.length === 0) return { ok: false, error: "not_found" };
   if (!list[0].ok) return { ok: false, error: "locked" };
+  const stakeSnapshot = list[0].risk_enabled ? list[0].risk_penalty : null;
 
   try {
     await db
       .insert(matchBets)
-      .values({ userId: user.id, matchId, homeScore: h, awayScore: a })
+      .values({
+        userId: user.id,
+        matchId,
+        homeScore: h,
+        awayScore: a,
+        stakePaidMain: stakeSnapshot,
+      })
       .onConflictDoUpdate({
         target: [matchBets.userId, matchBets.matchId],
-        set: { homeScore: h, awayScore: a, updatedAt: new Date() },
+        set: {
+          homeScore: h,
+          awayScore: a,
+          stakePaidMain: stakeSnapshot,
+          updatedAt: new Date(),
+        },
       });
 
     console.info("[match-bet save]", {
@@ -69,6 +100,7 @@ export async function saveBet(
       matchId,
       home: h,
       away: a,
+      stakePaidMain: stakeSnapshot,
     });
     revalidatePath("/", "layout");
     return { ok: true };
