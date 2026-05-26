@@ -16,6 +16,10 @@ import { BrandLogo } from "@/components/BrandLogo";
 import { InstallHint } from "@/components/InstallHint";
 import { PrizeStrip } from "@/components/PrizeStrip";
 import { getUser } from "@/lib/supabase/auth";
+import { getUserAccess } from "@/lib/access";
+import { db } from "@/db";
+import { sql } from "drizzle-orm";
+import { DashboardPickCard } from "@/components/DashboardPickCard";
 import {
   getLatestFinalForUser,
   getLeaderboard,
@@ -29,6 +33,14 @@ import {
   type LeaderboardEntry,
   type PrizeBreakdown,
 } from "@/db/queries";
+
+async function getBetLockMinutes(): Promise<number> {
+  const rows = await db.execute<{ bet_lock_minutes: number }>(sql`
+    select bet_lock_minutes from public.settings where id = 1
+  `);
+  const r = (rows as unknown as Array<{ bet_lock_minutes: number }>)[0];
+  return r?.bet_lock_minutes ?? 5;
+}
 import {
   Card,
   Chip,
@@ -36,7 +48,6 @@ import {
   ScoreDigit,
   SectionHeading,
 } from "@/components/ui";
-import { Flag } from "@/components/Flag";
 
 export default async function HomePage({
   params,
@@ -54,10 +65,12 @@ export default async function HomePage({
   const user = await getUser();
   const signedIn = !!user || previewPlayer;
 
-  const [pool, tournamentStart, prize] = await Promise.all([
+  const [pool, tournamentStart, prize, lockMinutes, access] = await Promise.all([
     getPoolStats(),
     getTournamentStart(),
     getPrizeBreakdown(),
+    getBetLockMinutes(),
+    getUserAccess(user?.id ?? null),
   ]);
 
   let dashboard: DashboardData | null = null;
@@ -97,6 +110,8 @@ export default async function HomePage({
       tournamentStart={tournamentStart}
       data={dashboard!}
       prize={prize}
+      canEdit={access.canEdit}
+      lockMinutes={lockMinutes}
     />
   );
 }
@@ -256,6 +271,8 @@ function PlayerHome({
   tournamentStart,
   data,
   prize,
+  canEdit,
+  lockMinutes,
 }: {
   locale: Locale;
   dict: Awaited<ReturnType<typeof getDictionary>>;
@@ -263,6 +280,8 @@ function PlayerHome({
   tournamentStart: string | null;
   data: DashboardData;
   prize: PrizeBreakdown;
+  canEdit: boolean;
+  lockMinutes: number;
 }) {
   const isHebrew = locale === "he";
   const countdown = tournamentStart ? computeCountdown(tournamentStart) : null;
@@ -328,6 +347,8 @@ function PlayerHome({
           locale={locale}
           dict={dict}
           upcoming={data.upcoming}
+          canEdit={canEdit}
+          lockMinutes={lockMinutes}
         />
 
         <div className="flex flex-col gap-8 md:gap-12 lg:grid lg:grid-cols-12 lg:gap-x-12 lg:gap-y-12">
@@ -507,10 +528,14 @@ function UpcomingSection({
   locale,
   dict,
   upcoming,
+  lockMinutes,
+  canEdit,
 }: {
   locale: Locale;
   dict: Awaited<ReturnType<typeof getDictionary>>;
   upcoming: FixtureWithMyBet[];
+  lockMinutes: number;
+  canEdit: boolean;
 }) {
   const isHebrew = locale === "he";
   return (
@@ -539,11 +564,25 @@ function UpcomingSection({
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {upcoming.slice(0, 3).map((m) => (
-            <UpcomingCard
+            <DashboardPickCard
               key={m.id}
-              match={m}
               locale={locale}
-              dict={dict}
+              match={{
+                id: m.id,
+                homeCode: m.homeCode,
+                homeNameHe: m.homeNameHe,
+                homeNameEn: m.homeNameEn,
+                awayCode: m.awayCode,
+                awayNameHe: m.awayNameHe,
+                awayNameEn: m.awayNameEn,
+                kickoffAt: m.kickoffAt,
+                status: m.status,
+                myHome: m.myHome,
+                myAway: m.myAway,
+              }}
+              countdownLabel={formatRelative(m.kickoffAt, locale)}
+              canEdit={canEdit}
+              lockMinutes={lockMinutes}
             />
           ))}
         </div>
@@ -552,74 +591,6 @@ function UpcomingSection({
   );
 }
 
-function UpcomingCard({
-  match,
-  locale,
-  dict,
-}: {
-  match: FixtureWithMyBet;
-  locale: Locale;
-  dict: Awaited<ReturnType<typeof getDictionary>>;
-}) {
-  const isHebrew = locale === "he";
-  const homeName = isHebrew ? match.homeNameHe : match.homeNameEn;
-  const awayName = isHebrew ? match.awayNameHe : match.awayNameEn;
-  const countdown = formatRelative(match.kickoffAt, locale);
-  const hasBet = match.myHome !== null && match.myAway !== null;
-
-  return (
-    <Card className="p-5 md:p-6 relative flex flex-col gap-5 min-h-[200px]">
-      <div className="flex items-center justify-between gap-2">
-        <Chip tone={hasBet ? "secondary" : "default"}>
-          <CalendarClock className="h-3.5 w-3.5" strokeWidth={1.75} />
-          <span className="text-xs font-bold">{countdown}</span>
-        </Chip>
-        {hasBet && (
-          <LabelCaps className="text-secondary">
-            {isHebrew ? "הימור נשמר" : "Bet saved"}
-          </LabelCaps>
-        )}
-      </div>
-
-      <div className="flex justify-between items-center">
-        <TeamMini name={homeName} code={match.homeCode} />
-        <span className="font-[family-name:var(--font-display)] text-xl text-on-surface-variant px-2">
-          VS
-        </span>
-        <TeamMini name={awayName} code={match.awayCode} />
-      </div>
-
-      <div className="mt-auto border-t border-outline-variant pt-4 text-center">
-        {hasBet ? (
-          <>
-            <LabelCaps as="div" className="mb-1">{dict.dashboard.yourBet}</LabelCaps>
-            <span className="font-[family-name:var(--font-score)] text-[32px] md:text-[36px] leading-none tracking-[0.1em] font-bold text-primary">
-              <span className="bidi-ltr">{match.myHome} - {match.myAway}</span>
-            </span>
-          </>
-        ) : (
-          <Link
-            href={localePath(locale, `bets/${match.id}`)}
-            className="press-down inline-flex items-center justify-center bg-primary text-on-primary font-[family-name:var(--font-label)] text-[12px] font-bold tracking-[0.05em] px-5 py-2.5 min-h-[40px] rounded-full hover:bg-surface-tint transition-colors"
-          >
-            {dict.matchBet.saveBet}
-          </Link>
-        )}
-      </div>
-    </Card>
-  );
-}
-
-function TeamMini({ name, code }: { name: string; code: string }) {
-  return (
-    <div className="flex flex-col items-center gap-2 flex-1 min-w-0">
-      <Flag code={code} size={44} />
-      <span className="text-sm font-bold text-on-surface text-center truncate max-w-full">
-        {name}
-      </span>
-    </div>
-  );
-}
 
 function TrendSection({
   locale,

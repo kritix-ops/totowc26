@@ -10,14 +10,20 @@ import type { Locale } from "../dictionaries";
 import { formatDateTime } from "@/lib/format";
 import { saveBet, type SaveBetResult } from "./[matchId]/actions";
 
-// One match row on the quick-fill /bets page. Self-contained: pre-fills
-// from the existing pick if any, runs the same saveBet server action
-// the per-match form uses, and shows inline feedback (saving / saved /
-// error) without leaving the page.
+// One match row on the quick-picks /bets page. Self-contained: pre-
+// fills from the existing pick if any, runs the same saveBet server
+// action the per-match form uses, and shows inline feedback (saving /
+// saved / error) without leaving the page.
 //
-// The row stays editable until 5 min before kickoff (or whatever
-// bet_lock_minutes is). Past that we render a disabled state with the
-// last-saved score; the saveBet action would reject anyway.
+// Layout is responsive by hand instead of via a single flex row.
+// On mobile we stack:
+//   1. Header (flags + names + kickoff time)
+//   2. Scoreboard (home stepper, direction, away stepper)
+//   3. Save button (full width)
+// On md+ we collapse back to a single row so the desktop list stays
+// dense. The earlier single-row layout was the right call for a wide
+// viewport but fell apart at 360px because the flag + steppers + save
+// button all competed for the same horizontal budget.
 
 export type QuickPickRowData = {
   id: string;
@@ -56,9 +62,6 @@ export function QuickPickRow({
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
-  // Hide the "Saved" affirm after a few seconds so a long list isn't
-  // littered with green ticks. Returns to the "Save" CTA so the user
-  // can re-save (e.g. they noticed a typo).
   useEffect(() => {
     if (!saved || dirty) return;
     const t = setTimeout(() => setSaved(false), 2500);
@@ -68,10 +71,9 @@ export function QuickPickRow({
   const homeName = isHebrew ? match.homeNameHe : match.homeNameEn;
   const awayName = isHebrew ? match.awayNameHe : match.awayNameEn;
 
-  // Reading the clock during render breaks the pure-render rule and
-  // would freeze the locked state to mount time. Read it in an effect
-  // and re-check every 30s so the row disables itself as kickoff
-  // approaches without a manual refresh.
+  // Read the clock in an effect so the locked state re-checks every
+  // 30 seconds without forcing the user to refresh. Reading Date.now
+  // during render would freeze the value to mount time.
   const [now, setNow] = useState<number | null>(null);
   useEffect(() => {
     const tick = () => setNow(Date.now());
@@ -113,42 +115,25 @@ export function QuickPickRow({
   return (
     <Card
       className={clsx(
-        "p-3 md:p-4 flex items-center gap-3 transition-colors",
+        "p-3 md:p-4 flex flex-col gap-3 md:gap-2 transition-colors",
         disabled && "opacity-70",
       )}
     >
-      <div className="flex items-center gap-2 flex-1 min-w-0">
-        <Flag code={match.homeCode} size={28} />
-        <span className="text-xs md:text-sm font-bold truncate">{homeName}</span>
-      </div>
-
-      <div className="flex items-center gap-1 shrink-0 tabular-nums bidi-ltr">
-        <Stepper
-          value={home}
-          onBump={(d) => onBump("home", d)}
-          disabled={disabled}
-          ariaLabel={isHebrew ? "שערי בית" : "Home score"}
-        />
-        <span className="font-[family-name:var(--font-score)] text-base md:text-lg font-bold w-6 text-center text-on-surface-variant">
-          {pickDirection}
-        </span>
-        <Stepper
-          value={away}
-          onBump={(d) => onBump("away", d)}
-          disabled={disabled}
-          ariaLabel={isHebrew ? "שערי חוץ" : "Away score"}
-        />
-      </div>
-
-      <div className="flex items-center gap-2 flex-1 min-w-0 justify-end">
-        <span className="text-xs md:text-sm font-bold truncate text-end">
-          {awayName}
-        </span>
-        <Flag code={match.awayCode} size={28} />
-      </div>
-
-      <div className="flex flex-col items-end gap-1 shrink-0">
-        <span className="text-[10px] text-on-surface-variant tabular-nums">
+      {/* Top row: flags + names + kickoff. On md+ this row stays a
+          flex container; on mobile it splits into a fixture header. */}
+      <div className="flex items-center gap-2 md:gap-3">
+        <div className="flex items-center gap-2 flex-1 min-w-0">
+          <Flag code={match.homeCode} size={28} />
+          <span className="text-sm font-bold truncate">{homeName}</span>
+        </div>
+        <span className="text-on-surface-variant text-xs font-bold px-1">vs</span>
+        <div className="flex items-center gap-2 flex-1 min-w-0 justify-end">
+          <span className="text-sm font-bold truncate text-end">
+            {awayName}
+          </span>
+          <Flag code={match.awayCode} size={28} />
+        </div>
+        <span className="hidden md:inline text-[10px] text-on-surface-variant tabular-nums ms-2 shrink-0">
           {formatDateTime(match.kickoffAt, locale, {
             day: "numeric",
             month: "short",
@@ -156,12 +141,45 @@ export function QuickPickRow({
             minute: "2-digit",
           })}
         </span>
+      </div>
+
+      <div className="md:hidden text-[10px] text-on-surface-variant tabular-nums">
+        {formatDateTime(match.kickoffAt, locale, {
+          weekday: "short",
+          day: "numeric",
+          month: "short",
+          hour: "2-digit",
+          minute: "2-digit",
+        })}
+      </div>
+
+      {/* Scoreboard + save button row. On mobile it occupies the
+          whole width; on md+ it sits inside the same logical row. */}
+      <div className="flex items-center justify-between gap-3 flex-wrap md:flex-nowrap">
+        <div className="flex items-center gap-2 tabular-nums bidi-ltr">
+          <Stepper
+            value={home}
+            onBump={(d) => onBump("home", d)}
+            disabled={disabled}
+            ariaLabel={isHebrew ? "שערי בית" : "Home score"}
+          />
+          <span className="font-[family-name:var(--font-score)] text-base font-bold w-6 text-center text-on-surface-variant">
+            {pickDirection}
+          </span>
+          <Stepper
+            value={away}
+            onBump={(d) => onBump("away", d)}
+            disabled={disabled}
+            ariaLabel={isHebrew ? "שערי חוץ" : "Away score"}
+          />
+        </div>
+
         <button
           type="button"
           onClick={submit}
           disabled={disabled || pending || !dirty}
           className={clsx(
-            "press-down min-h-[40px] px-3 inline-flex items-center justify-center gap-1.5 rounded-full text-xs font-bold",
+            "press-down min-h-[44px] px-5 inline-flex items-center justify-center gap-1.5 rounded-full text-sm font-bold flex-1 md:flex-none md:min-w-[120px]",
             saved && !dirty
               ? "bg-secondary-container text-on-secondary-container border border-secondary-fixed"
               : dirty
@@ -175,20 +193,21 @@ export function QuickPickRow({
             isHebrew ? "שומר..." : "Saving..."
           ) : saved && !dirty ? (
             <>
-              <Check className="h-3.5 w-3.5" strokeWidth={2.5} />
+              <Check className="h-4 w-4" strokeWidth={2.5} />
               {isHebrew ? "נשמר" : "Saved"}
             </>
           ) : (
             <span>{isHebrew ? "שמור" : "Save"}</span>
           )}
         </button>
-        {error && (
-          <span className="inline-flex items-center gap-1 text-[10px] text-error">
-            <AlertCircle className="h-3 w-3" strokeWidth={2} />
-            {translateError(error, isHebrew)}
-          </span>
-        )}
       </div>
+
+      {error && (
+        <span className="inline-flex items-center gap-1 text-[11px] text-error">
+          <AlertCircle className="h-3 w-3" strokeWidth={2} />
+          {translateError(error, isHebrew)}
+        </span>
+      )}
     </Card>
   );
 }
@@ -205,17 +224,17 @@ function Stepper({
   ariaLabel: string;
 }) {
   return (
-    <div className="inline-flex items-center gap-0.5 bg-surface-container-lowest border border-outline rounded-md px-1">
+    <div className="inline-flex items-center bg-surface-container-lowest border border-outline rounded-lg">
       <button
         type="button"
         onClick={() => onBump(-1)}
         disabled={disabled}
-        aria-label={`${ariaLabel} −`}
-        className="h-9 w-7 inline-flex items-center justify-center text-on-surface hover:text-primary disabled:opacity-50"
+        aria-label={`${ariaLabel} -`}
+        className="h-11 w-11 inline-flex items-center justify-center text-on-surface hover:text-primary disabled:opacity-50"
       >
-        <Minus className="h-3.5 w-3.5" strokeWidth={2.5} />
+        <Minus className="h-4 w-4" strokeWidth={2.5} />
       </button>
-      <span className="font-[family-name:var(--font-score)] text-base md:text-lg font-bold w-5 text-center">
+      <span className="font-[family-name:var(--font-score)] text-lg md:text-xl font-bold w-7 text-center">
         {value}
       </span>
       <button
@@ -223,9 +242,9 @@ function Stepper({
         onClick={() => onBump(1)}
         disabled={disabled}
         aria-label={`${ariaLabel} +`}
-        className="h-9 w-7 inline-flex items-center justify-center text-on-surface hover:text-primary disabled:opacity-50"
+        className="h-11 w-11 inline-flex items-center justify-center text-on-surface hover:text-primary disabled:opacity-50"
       >
-        <Plus className="h-3.5 w-3.5" strokeWidth={2.5} />
+        <Plus className="h-4 w-4" strokeWidth={2.5} />
       </button>
     </div>
   );
