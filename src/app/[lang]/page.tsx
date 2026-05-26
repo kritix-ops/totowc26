@@ -10,15 +10,12 @@ import {
 } from "lucide-react";
 import { clsx } from "clsx";
 import { notFound } from "next/navigation";
-import { eq } from "drizzle-orm";
 import { getDictionary, hasLocale, type Locale } from "./dictionaries";
 import { localePath } from "@/lib/paths";
 import { BrandLogo } from "@/components/BrandLogo";
 import { InstallHint } from "@/components/InstallHint";
 import { PrizeStrip } from "@/components/PrizeStrip";
 import { getUser } from "@/lib/supabase/auth";
-import { db } from "@/db";
-import { settings } from "@/db/schema";
 import {
   getLatestFinalForUser,
   getLeaderboard,
@@ -57,20 +54,10 @@ export default async function HomePage({
   const user = await getUser();
   const signedIn = !!user || previewPlayer;
 
-  const [pool, tournamentStart, prize, signupOpen] = await Promise.all([
+  const [pool, tournamentStart, prize] = await Promise.all([
     getPoolStats(),
     getTournamentStart(),
     getPrizeBreakdown(),
-    // Guest landing only — used to decide whether to surface the
-    // "Request to join" link. Signed-in users never see this branch.
-    signedIn
-      ? Promise.resolve(true)
-      : db
-          .select({ open: settings.publicSignupOpen })
-          .from(settings)
-          .where(eq(settings.id, 1))
-          .limit(1)
-          .then((r) => r[0]?.open ?? true),
   ]);
 
   let dashboard: DashboardData | null = null;
@@ -99,7 +86,6 @@ export default async function HomePage({
         pool={pool}
         tournamentStart={tournamentStart}
         prize={prize}
-        signupOpen={signupOpen}
       />
     );
   }
@@ -165,14 +151,12 @@ function GuestLanding({
   pool,
   tournamentStart,
   prize,
-  signupOpen,
 }: {
   locale: Locale;
   dict: Awaited<ReturnType<typeof getDictionary>>;
   pool: { potIls: number; participants: number };
   tournamentStart: string | null;
   prize: PrizeBreakdown;
-  signupOpen: boolean;
 }) {
   const isHebrew = locale === "he";
   const displayFont = isHebrew
@@ -239,25 +223,13 @@ function GuestLanding({
             {dict.landing.tagline}
           </p>
 
-          <div className="flex flex-col gap-3">
+          <div>
             <Link
               href={localePath(locale, "login")}
-              className="press-down inline-flex items-center justify-center bg-primary text-on-primary font-[family-name:var(--font-label)] text-[14px] font-bold tracking-[0.05em] px-10 py-4 min-h-[48px] rounded-full shadow-md hover:bg-surface-tint hover:-translate-y-0.5 transition-all duration-200 self-start"
+              className="press-down inline-flex items-center justify-center bg-primary text-on-primary font-[family-name:var(--font-label)] text-[14px] font-bold tracking-[0.05em] px-10 py-4 min-h-[48px] rounded-full shadow-md hover:bg-surface-tint hover:-translate-y-0.5 transition-all duration-200"
             >
               {dict.landing.cta}
             </Link>
-            {signupOpen && (
-              <p className="text-sm text-on-surface-variant inline-flex items-center gap-2 flex-wrap">
-                <span>{dict.landing.signupHint}</span>
-                <Link
-                  href={localePath(locale, "signup")}
-                  className="text-primary font-bold hover:underline inline-flex items-center gap-1"
-                >
-                  {dict.landing.signupCta}
-                  <ArrowUpRight className="h-4 w-4 rtl:-scale-x-100" strokeWidth={2} />
-                </Link>
-              </p>
-            )}
           </div>
 
           <InstallHint locale={locale as "he" | "en"} />

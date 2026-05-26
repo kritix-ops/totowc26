@@ -60,7 +60,9 @@
     "leaderboard": "Leaderboard",
     "profile": "Profile",
     "pay": "Pay",
-    "openMenu": "Open user menu"
+    "openMenu": "Open user menu",
+    "signin": "Sign in",
+    "signup": "Sign up"
   },
   "landing": {
     "countdownLabel": "Kickoff in",

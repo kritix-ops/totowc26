@@ -60,7 +60,9 @@
     "leaderboard": "טבלה",
     "profile": "פרופיל",
     "pay": "תשלום",
-    "openMenu": "פתח תפריט משתמש"
+    "openMenu": "פתח תפריט משתמש",
+    "signin": "התחבר",
+    "signup": "הרשמה"
   },
   "landing": {
     "countdownLabel": "המונדיאל מתחיל בעוד",

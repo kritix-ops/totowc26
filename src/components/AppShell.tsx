@@ -17,7 +17,7 @@ import { getUserAccess } from "@/lib/access";
 import { getMyRankSummary } from "@/db/queries";
 import { getBankBreakdown } from "@/lib/bank";
 import { db } from "@/db";
-import { profiles } from "@/db/schema";
+import { profiles, settings } from "@/db/schema";
 import { LanguageToggle } from "./LanguageToggle";
 import { NavLink, BottomNavLink } from "./NavLink";
 import { BrandLogo } from "./BrandLogo";
@@ -39,7 +39,7 @@ export async function AppShell({
 
   const user = await getUser();
   const signedIn = !!user;
-  const [rankSummary, access, bank, profileRow] = signedIn
+  const [rankSummary, access, bank, profileRow, signupOpen] = signedIn
     ? await Promise.all([
         getMyRankSummary(user.id),
         getUserAccess(user.id),
@@ -50,8 +50,22 @@ export async function AppShell({
           .where(eq(profiles.id, user.id))
           .limit(1)
           .then((r) => r[0] ?? null),
+        Promise.resolve(true),
       ])
-    : [null, null, null, null];
+    : await Promise.all([
+        Promise.resolve(null),
+        Promise.resolve(null),
+        Promise.resolve(null),
+        Promise.resolve(null),
+        // Guest header: hide the "Sign up" pill when the admin has closed
+        // signups, so visitors are not led to a dead-end page.
+        db
+          .select({ open: settings.publicSignupOpen })
+          .from(settings)
+          .where(eq(settings.id, 1))
+          .limit(1)
+          .then((r) => r[0]?.open ?? true),
+      ]);
   const displayName =
     profileRow?.displayName ?? user?.email ?? "";
   // `access.isAdmin` is the EFFECTIVE role — it's false while an admin
@@ -141,13 +155,23 @@ export async function AppShell({
               />
             </>
           ) : (
-            <Link
-              href={localePath(locale, "login")}
-              className="press-down inline-flex items-center gap-1.5 min-h-[40px] px-3 md:px-4 rounded-full bg-primary text-on-primary font-[family-name:var(--font-label)] text-[12px] md:text-[13px] font-bold tracking-[0.05em] hover:bg-surface-tint transition-colors"
-            >
-              <LogIn className="h-4 w-4" strokeWidth={2} />
-              {isHebrew ? "התחבר" : "Sign in"}
-            </Link>
+            <>
+              {signupOpen && (
+                <Link
+                  href={localePath(locale, "signup")}
+                  className="press-down inline-flex items-center justify-center min-h-[40px] px-3 md:px-4 rounded-full bg-surface-container-lowest border border-primary text-primary font-[family-name:var(--font-label)] text-[12px] md:text-[13px] font-bold tracking-[0.05em] hover:bg-primary-container transition-colors"
+                >
+                  {dict.nav.signup}
+                </Link>
+              )}
+              <Link
+                href={localePath(locale, "login")}
+                className="press-down inline-flex items-center gap-1.5 min-h-[40px] px-3 md:px-4 rounded-full bg-primary text-on-primary font-[family-name:var(--font-label)] text-[12px] md:text-[13px] font-bold tracking-[0.05em] hover:bg-surface-tint transition-colors"
+              >
+                <LogIn className="h-4 w-4" strokeWidth={2} />
+                {dict.nav.signin}
+              </Link>
+            </>
           )}
           <LanguageToggle currentLocale={locale} label={dict.common.languageToggle} />
         </div>
