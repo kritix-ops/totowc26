@@ -32,6 +32,7 @@ export type ScoringPayload = {
   dailyRenewalAmount: number;
   duelMaxStake: number;
   duelDefaultJoinWindowHours: number;
+  duelDailyLimit: number;
   liveOddsBaseStake: number;
   liveOddsMaxPayout: number;
   liveOddsHouseEdgePct: number;
@@ -67,6 +68,7 @@ const INTEGER_KEYS = [
   "dailyRenewalAmount",
   "duelMaxStake",
   "duelDefaultJoinWindowHours",
+  "duelDailyLimit",
   "liveOddsBaseStake",
   "liveOddsMaxPayout",
   "liveOddsHouseEdgePct",
@@ -197,6 +199,7 @@ export async function saveScoringSettings(
         dailyRenewalAmount: payload.dailyRenewalAmount,
         duelMaxStake: payload.duelMaxStake,
         duelDefaultJoinWindowHours: payload.duelDefaultJoinWindowHours,
+        duelDailyLimit: payload.duelDailyLimit,
         liveOddsBaseStake: payload.liveOddsBaseStake,
         liveOddsMaxPayout: payload.liveOddsMaxPayout,
         liveOddsHouseEdgePct: payload.liveOddsHouseEdgePct,

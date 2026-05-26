@@ -306,6 +306,7 @@ export const settings = pgTable("settings", {
   // the same time as the schema.
   duelMaxStake: smallint("duel_max_stake").notNull().default(5),
   duelDefaultJoinWindowHours: smallint("duel_default_join_window_hours").notNull().default(24),
+  duelDailyLimit: smallint("duel_daily_limit").notNull().default(20),
   // Live-bet odds → stake/payout normalization. Used by PR 2's
   // src/lib/odds-normalize.ts when converting bookmaker decimal odds into
   // our point system. The house edge trims a slice off the bookmaker
@@ -631,17 +632,26 @@ export const duels = pgTable(
       onDelete: "set null",
     }),
 
+    // Optional auto-settle (added in 0015). When grading_source is
+    // 'auto_api_football' and scope='match', the sync pass evaluates
+    // grading_config = { stat, comparator, threshold } against the
+    // fixture stats and writes resolved_value automatically. Default
+    // 'manual' so existing duels keep the admin-settle behavior.
+    gradingSource: gradingSourceEnum("grading_source").notNull().default("manual"),
+    gradingConfig: jsonb("grading_config"),
+
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
   },
   (t) => ({
-    openerIdx:   index("duels_opener_idx").on(t.openerId),
-    joinerIdx:   index("duels_joiner_idx").on(t.joinerId),
-    statusIdx:   index("duels_status_idx").on(t.status),
-    deadlineIdx: index("duels_deadline_idx").on(t.joinDeadlineAt),
-    matchIdx:    index("duels_match_idx").on(t.matchId),
-    matchdayIdx: index("duels_matchday_idx").on(t.matchdayId),
+    openerIdx:        index("duels_opener_idx").on(t.openerId),
+    joinerIdx:        index("duels_joiner_idx").on(t.joinerId),
+    statusIdx:        index("duels_status_idx").on(t.status),
+    deadlineIdx:      index("duels_deadline_idx").on(t.joinDeadlineAt),
+    matchIdx:         index("duels_match_idx").on(t.matchId),
+    matchdayIdx:      index("duels_matchday_idx").on(t.matchdayId),
+    gradingSourceIdx: index("duels_grading_source_idx").on(t.gradingSource),
   }),
 );
 

@@ -127,6 +127,17 @@ const GROUPS: Group[] = [
           en: "Default join window (hours)",
         },
       },
+      {
+        key: "duelDailyLimit",
+        label: {
+          he: "מגבלת דו-קרבים ליום",
+          en: "Daily duels per user",
+        },
+        hint: {
+          he: "מקסימום דו-קרבים שמשתמש יכול לפתוח ב-24 שעות.",
+          en: "Cap on duels one user can open in any 24h window.",
+        },
+      },
     ],
   },
   {

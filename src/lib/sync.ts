@@ -47,6 +47,7 @@ export type SyncReport = {
   scoredMatches: number;
   scoredAutoCustomBets: number;
   cancelledDuels: number;
+  settledAutoDuels: number;
   unknownTeams: string[];
 };
 
@@ -131,6 +132,7 @@ async function _runSync(season: number): Promise<SyncReport> {
     scoredMatches: 0,
     scoredAutoCustomBets: 0,
     cancelledDuels: 0,
+    settledAutoDuels: 0,
     unknownTeams: [],
   };
 
@@ -208,6 +210,11 @@ async function _runSync(season: number): Promise<SyncReport> {
   // delta, so the opener's stake is effectively refunded once we flip
   // the status here.
   report.cancelledDuels = await cancelExpiredOpenDuels();
+
+  // Auto-settle matched duels that opted into API-Football grading
+  // and whose underlying fixture is now final. The bank formula
+  // handles the credit math from the resulting +stake / -stake delta.
+  report.settledAutoDuels = await scoreAutoSettleDuels();
 
   return report;
 }
@@ -800,3 +807,120 @@ function isAutoPickCorrect(
 // public surface of this module small so callers don't need to know about
 // football-data internals.
 export type { FDMatch };
+
+// ---------- Auto-settle for duels ----------
+//
+// Sister pass to cancelExpiredOpenDuels: finds matched duels that
+// opted into API-Football grading (`grading_source='auto_api_football'`)
+// and whose underlying match is final + mapped. Pulls combined stats,
+// evaluates the configured comparator against the threshold, and
+// writes resolved_value + status='settled'. The bank formula in
+// src/lib/bank.ts then folds the ±stake delta into both sides'
+// balances automatically.
+//
+// Idempotent: only touches rows still in 'matched' state.
+//
+// Falls back silently when stats are not available yet (API stubbed,
+// fixture not mapped, upstream 5xx). The next sync run retries.
+
+type DuelGradingConfig = {
+  stat: string;
+  comparator: ">" | ">=" | "<" | "<=" | "=";
+  threshold: number;
+};
+
+export async function scoreAutoSettleDuels(): Promise<number> {
+  const rows = await db.execute<{
+    id: string;
+    match_id: string;
+    grading_config: DuelGradingConfig | null;
+    api_football_fixture_id: number | null;
+    match_status: string;
+  }>(drizzleSql`
+    select
+      d.id::text                       as "id",
+      d.match_id::text                 as "match_id",
+      d.grading_config                 as "grading_config",
+      m.api_football_fixture_id        as "api_football_fixture_id",
+      m.status::text                   as "match_status"
+    from public.duels d
+    join public.matches m on m.id = d.match_id
+    where d.status = 'matched'
+      and d.scope = 'match'
+      and d.grading_source = 'auto_api_football'
+  `);
+  const list = rows as unknown as Array<{
+    id: string;
+    match_id: string;
+    grading_config: DuelGradingConfig | null;
+    api_football_fixture_id: number | null;
+    match_status: string;
+  }>;
+
+  let settled = 0;
+  for (const r of list) {
+    if (r.match_status !== "final") continue;
+    if (r.api_football_fixture_id === null) continue;
+    if (!r.grading_config) continue;
+
+    const stats = await fetchFixtureStats(r.api_football_fixture_id);
+    if (!stats) continue;
+
+    const statKey = r.grading_config.stat as keyof typeof stats.combined;
+    const value = stats.combined[statKey];
+    if (value === undefined) {
+      console.warn("[duel auto-settle skipped]", {
+        duelId: r.id,
+        reason: "stat_not_in_combined",
+        stat: r.grading_config.stat,
+      });
+      continue;
+    }
+
+    const resolved = evaluateComparator(
+      value,
+      r.grading_config.comparator,
+      r.grading_config.threshold,
+    );
+
+    try {
+      await db.execute(drizzleSql`
+        update public.duels
+        set status = 'settled',
+            resolved_value = ${resolved},
+            settled_at = now(),
+            settled_by = null
+        where id = ${r.id}::uuid
+          and status = 'matched'
+      `);
+      console.info("[duel settle]", {
+        duelId: r.id,
+        source: "auto_api_football",
+        resolvedValue: resolved,
+        stat: r.grading_config.stat,
+        comparator: r.grading_config.comparator,
+        threshold: r.grading_config.threshold,
+        observedValue: value,
+      });
+      settled += 1;
+    } catch (err) {
+      console.error("[duel auto-settle failed]", { duelId: r.id, err });
+    }
+  }
+
+  return settled;
+}
+
+function evaluateComparator(
+  value: number,
+  comparator: ">" | ">=" | "<" | "<=" | "=",
+  threshold: number,
+): boolean {
+  switch (comparator) {
+    case ">":  return value >  threshold;
+    case ">=": return value >= threshold;
+    case "<":  return value <  threshold;
+    case "<=": return value <= threshold;
+    case "=":  return value === threshold;
+  }
+}

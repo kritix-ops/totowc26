@@ -22,6 +22,39 @@ type MatchdayOption = {
 
 type Scope = "match" | "day" | "tournament";
 
+// Subset of AutoApiFootballStat exposed in the duel UI. Excludes
+// `possession` and `pass_accuracy` because the combined sum across
+// both teams isn't meaningful — same exclusion already lives in
+// api-football.ts' combineStats. Labels mirror the player-facing copy.
+type AutoStat =
+  | "corners"
+  | "yellow_cards"
+  | "red_cards"
+  | "shots"
+  | "shots_on_goal"
+  | "shots_inside_box"
+  | "shots_outside_box"
+  | "fouls"
+  | "offsides"
+  | "saves"
+  | "total_passes";
+
+type Comparator = "<" | "<=" | "=" | ">=" | ">";
+
+const STAT_LABELS: Record<AutoStat, { he: string; en: string }> = {
+  corners:           { he: "קרנות", en: "Corners" },
+  yellow_cards:      { he: "כרטיסים צהובים", en: "Yellow cards" },
+  red_cards:         { he: "כרטיסים אדומים", en: "Red cards" },
+  shots:             { he: "בעיטות סה״כ", en: "Total shots" },
+  shots_on_goal:     { he: "בעיטות למסגרת", en: "Shots on goal" },
+  shots_inside_box:  { he: "בעיטות מתוך הרחבה", en: "Shots inside box" },
+  shots_outside_box: { he: "בעיטות מחוץ לרחבה", en: "Shots outside box" },
+  fouls:             { he: "עבירות", en: "Fouls" },
+  offsides:          { he: "נבדלים", en: "Offsides" },
+  saves:             { he: "הצלות שוערים", en: "Goalkeeper saves" },
+  total_passes:      { he: "מסירות סה״כ", en: "Total passes" },
+};
+
 export function NewDuelForm({
   locale,
   balance,
@@ -54,6 +87,16 @@ export function NewDuelForm({
   const [ruleEn, setRuleEn] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+
+  // Optional auto-settle config (only when scope='match'). When the
+  // toggle is on, the duel grades automatically from API-Football
+  // stats after the fixture ends. Off by default — most duels are
+  // narrative questions that need a human read.
+  const [autoGradeOn, setAutoGradeOn] = useState(false);
+  const [autoGradeStat, setAutoGradeStat] = useState<AutoStat>("corners");
+  const [autoGradeComparator, setAutoGradeComparator] =
+    useState<Comparator>(">");
+  const [autoGradeThreshold, setAutoGradeThreshold] = useState<number>(2);
 
   const dict = {
     title: isHebrew ? "דו-קרב חדש" : "New duel",
@@ -117,6 +160,14 @@ export function NewDuelForm({
         questionEn,
         gradingRuleHe: ruleHe,
         gradingRuleEn: ruleEn,
+        autoGrade:
+          scope === "match" && autoGradeOn
+            ? {
+                stat: autoGradeStat,
+                comparator: autoGradeComparator,
+                threshold: autoGradeThreshold,
+              }
+            : null,
       });
       if (!res.ok) {
         setError(res.error);
@@ -307,6 +358,103 @@ export function NewDuelForm({
         </div>
       </Card>
 
+      {scope === "match" && (
+        <Card className="p-5 md:p-6 flex flex-col gap-4">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex flex-col gap-1 min-w-0">
+              <SectionHeading underline="thin" as="h2">
+                {isHebrew
+                  ? "הכרעה אוטומטית מסטטיסטיקות"
+                  : "Auto-settle from match stats"}
+              </SectionHeading>
+              <p className="text-xs text-on-surface-variant">
+                {isHebrew
+                  ? "במקום שאדמין יכריע ידנית, הדו-קרב יוכרע אוטומטית מהסטטיסטיקות של API-Football אחרי שהמשחק יסתיים. רק לדו-קרב על משחק יחיד."
+                  : "Instead of an admin settling manually, the duel resolves automatically from the fixture's API-Football stats once the match ends. Match-scope only."}
+              </p>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={autoGradeOn}
+              onClick={() => setAutoGradeOn((v) => !v)}
+              className={clsx(
+                "shrink-0 min-h-[44px] px-4 inline-flex items-center gap-2 rounded-lg border text-sm font-bold",
+                autoGradeOn
+                  ? "bg-primary text-on-primary border-primary"
+                  : "bg-surface-container-lowest text-on-surface border-outline",
+              )}
+            >
+              {autoGradeOn
+                ? isHebrew ? "פעיל" : "On"
+                : isHebrew ? "כבוי" : "Off"}
+            </button>
+          </div>
+
+          {autoGradeOn && (
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <label className="flex flex-col gap-1.5 text-xs font-bold text-on-surface">
+                {isHebrew ? "סטטיסטיקה" : "Stat"}
+                <select
+                  value={autoGradeStat}
+                  onChange={(e) => setAutoGradeStat(e.target.value as AutoStat)}
+                  className="h-12 px-3 rounded-lg border border-outline bg-surface-container-lowest text-sm"
+                  dir="ltr"
+                >
+                  {(Object.keys(STAT_LABELS) as AutoStat[]).map((s) => (
+                    <option key={s} value={s}>
+                      {isHebrew ? STAT_LABELS[s].he : STAT_LABELS[s].en}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="flex flex-col gap-1.5 text-xs font-bold text-on-surface">
+                {isHebrew ? "השוואה" : "Comparator"}
+                <select
+                  value={autoGradeComparator}
+                  onChange={(e) =>
+                    setAutoGradeComparator(e.target.value as Comparator)
+                  }
+                  className="h-12 px-3 rounded-lg border border-outline bg-surface-container-lowest text-sm tabular-nums"
+                  dir="ltr"
+                >
+                  <option value=">">&gt;</option>
+                  <option value=">=">&ge;</option>
+                  <option value="=">=</option>
+                  <option value="<=">&le;</option>
+                  <option value="<">&lt;</option>
+                </select>
+              </label>
+              <label className="flex flex-col gap-1.5 text-xs font-bold text-on-surface">
+                {isHebrew ? "סף" : "Threshold"}
+                <input
+                  type="number"
+                  min={0}
+                  max={500}
+                  step={1}
+                  value={autoGradeThreshold}
+                  onChange={(e) =>
+                    setAutoGradeThreshold(
+                      Math.max(
+                        0,
+                        Math.min(500, Math.trunc(Number(e.target.value) || 0)),
+                      ),
+                    )
+                  }
+                  className="h-12 px-3 rounded-lg border border-outline bg-surface-container-lowest text-base tabular-nums"
+                  dir="ltr"
+                />
+              </label>
+              <p className="sm:col-span-3 text-xs text-on-surface-variant">
+                {isHebrew
+                  ? "כן יזכה אם הערך של הסטטיסטיקה (סכום שני הצדדים) מקיים את ההשוואה."
+                  : "Yes wins if the combined stat across both teams satisfies the comparator."}
+              </p>
+            </div>
+          )}
+        </Card>
+      )}
+
       {error && (
         <p className="inline-flex items-center gap-1.5 text-sm text-error">
           <AlertCircle className="h-4 w-4" strokeWidth={2} />
@@ -347,6 +495,10 @@ function translateError(code: string, isHebrew: boolean): string {
     insufficient_funds: [
       "אין מספיק נקודות בבנק.",
       "Not enough points in your bank.",
+    ],
+    rate_limited: [
+      "פתחת יותר מדי דו-קרבים בעת האחרונה. נסה שוב מאוחר יותר.",
+      "You've opened too many duels recently. Try again later.",
     ],
     match_not_found: ["המשחק לא נמצא.", "Match not found."],
     match_locked: ["המשחק כבר נעול.", "Match is locked."],

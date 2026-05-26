@@ -8,6 +8,8 @@ import { getUser } from "@/lib/supabase/auth";
 import { isAdmin } from "@/lib/admin";
 import { getUserAccess } from "@/lib/access";
 import { bankBalanceSql, lockUserForBetting } from "@/lib/bank";
+import { sendEmail } from "@/lib/email/client";
+import { DuelJoinedEmail } from "@/lib/email/templates/DuelJoinedEmail";
 
 // 1v1 duel server actions. See _plans/2026-05-27-betting-overhaul.md §7
 // for the design rationale.
@@ -27,6 +29,7 @@ type DuelErr =
   | "stake_too_high"
   | "stake_too_low"
   | "insufficient_funds"
+  | "rate_limited"
   | "match_not_found"
   | "match_locked"
   | "matchday_empty"
@@ -38,6 +41,15 @@ type DuelErr =
   | "already_settled"
   | "db";
 
+// Optional auto-settle config. The sync pass evaluates
+// `stat <comparator> threshold` against API-Football combined stats
+// for the anchored fixture. Only valid when scope='match'.
+export type DuelAutoGradeConfig = {
+  stat: string;
+  comparator: ">" | ">=" | "<" | "<=" | "=";
+  threshold: number;
+};
+
 export type OpenDuelInput = {
   scope: "match" | "day" | "tournament";
   matchId?: string | null;
@@ -48,6 +60,11 @@ export type OpenDuelInput = {
   questionEn: string;
   gradingRuleHe: string;
   gradingRuleEn: string;
+  // Optional auto-settle. When non-null + scope='match', the duel
+  // settles from API-Football stats after the fixture goes final.
+  // Players can opt in for stat-based questions like "more than 2
+  // yellow cards"; everything else stays manual.
+  autoGrade?: DuelAutoGradeConfig | null;
   // Optional override; defaults to min(earliest-kickoff − 5min, now + duelDefaultJoinWindowHours).
   joinDeadlineAt?: string | null;     // ISO 8601
 };
@@ -83,12 +100,50 @@ export async function openDuel(input: OpenDuelInput): Promise<OpenDuelResult> {
     .select({
       duelMaxStake: settings.duelMaxStake,
       duelDefaultJoinWindowHours: settings.duelDefaultJoinWindowHours,
+      duelDailyLimit: settings.duelDailyLimit,
     })
     .from(settings)
     .where(eq(settings.id, 1));
   if (!s) return { ok: false, error: "db" };
   if (input.stake > s.duelMaxStake) {
     return { ok: false, error: "stake_too_high" };
+  }
+
+  // Per-user daily rate limit. Counts every duel the user opened in
+  // the last 24h (including those that auto-cancelled with no joiner)
+  // so a script that hammers openDuel can't flood the feed even at
+  // stake=1. Bound mirrors settings.duel_daily_limit.
+  const recentRows = await db.execute<{ count: number }>(sql`
+    select count(*)::int as "count"
+    from public.duels d
+    where d.opener_id = ${user.id}
+      and d.created_at > now() - interval '24 hours'
+  `);
+  const recentCount =
+    (recentRows as unknown as Array<{ count: number }>)[0]?.count ?? 0;
+  if (recentCount >= s.duelDailyLimit) {
+    return { ok: false, error: "rate_limited" };
+  }
+
+  // 2b) Validate auto-grade config shape. Only allowed for match
+  // scope; any other scope drops the config to null so the DB row
+  // stays consistent with grading_source='manual'.
+  let autoGrade: DuelAutoGradeConfig | null = null;
+  if (input.autoGrade && input.scope === "match") {
+    const ag = input.autoGrade;
+    if (
+      typeof ag.stat !== "string" ||
+      ag.stat.trim().length === 0 ||
+      !Number.isFinite(ag.threshold) ||
+      !["<", "<=", "=", ">=", ">"].includes(ag.comparator)
+    ) {
+      return { ok: false, error: "invalid_input" };
+    }
+    autoGrade = {
+      stat: ag.stat,
+      comparator: ag.comparator,
+      threshold: Number(ag.threshold),
+    };
   }
 
   let matchId: string | null = null;
@@ -168,6 +223,8 @@ export async function openDuel(input: OpenDuelInput): Promise<OpenDuelResult> {
           status: "open",
           joinDeadlineAt,
           resolveAt: resolveAt!,
+          gradingSource: autoGrade ? "auto_api_football" : "manual",
+          gradingConfig: autoGrade,
         })
         .returning({ id: duels.id });
       return row.id;
@@ -259,11 +316,86 @@ export async function joinDuel(id: string): Promise<JoinDuelResult> {
       joinerId: user.id,
       stake: result.stake,
     });
+
+    // Best-effort notification to the opener. Outside the txn so a
+    // Resend hiccup never rolls back the join. notifyDuelJoined logs
+    // its own failures and returns void.
+    void notifyDuelJoined(id, user.id);
+
     revalidatePath("/", "layout");
     return { ok: true };
   } catch (err) {
     console.error("[duel join] failed:", err);
     return { ok: false, error: "db" };
+  }
+}
+
+// Send the opener an email letting them know somebody joined their
+// duel. Reads the opener's email from auth.users; if anything is
+// missing (no email, Resend not configured, send fails) we log and
+// return — joining is the source of truth, the email is gravy.
+async function notifyDuelJoined(
+  duelId: string,
+  joinerId: string,
+): Promise<void> {
+  try {
+    const rows = await db.execute<{
+      opener_email: string | null;
+      opener_name: string;
+      joiner_name: string;
+      question_he: string;
+      question_en: string;
+      stake: number;
+    }>(sql`
+      select
+        ou.email                  as "opener_email",
+        op.display_name           as "opener_name",
+        jp.display_name           as "joiner_name",
+        d.question_he             as "question_he",
+        d.question_en             as "question_en",
+        d.stake                   as "stake"
+      from public.duels d
+      join public.profiles op on op.id = d.opener_id
+      join public.profiles jp on jp.id = ${joinerId}::uuid
+      left join auth.users ou on ou.id = d.opener_id
+      where d.id = ${duelId}::uuid
+      limit 1
+    `);
+    const r = (rows as unknown as Array<{
+      opener_email: string | null;
+      opener_name: string;
+      joiner_name: string;
+      question_he: string;
+      question_en: string;
+      stake: number;
+    }>)[0];
+    if (!r || !r.opener_email) {
+      console.warn("[duel email skipped]", {
+        duelId,
+        reason: r ? "no_opener_email" : "duel_row_missing",
+      });
+      return;
+    }
+
+    const base =
+      process.env.NEXT_PUBLIC_SITE_URL ??
+      (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "");
+    const duelUrl = base ? `${base}/he/duels/${duelId}` : `/he/duels/${duelId}`;
+
+    await sendEmail({
+      to: r.opener_email,
+      subject: `מישהו הצטרף לדו-קרב שלך: ${r.question_he.slice(0, 60)}`,
+      react: DuelJoinedEmail({
+        openerName: r.opener_name,
+        joinerName: r.joiner_name,
+        questionHe: r.question_he,
+        questionEn: r.question_en,
+        stake: r.stake,
+        duelUrl,
+      }),
+    });
+  } catch (err) {
+    console.error("[duel email failed]", { duelId, err });
   }
 }
 
