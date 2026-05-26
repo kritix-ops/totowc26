@@ -46,6 +46,7 @@ export type SyncReport = {
   scoredBets: number;
   scoredMatches: number;
   scoredAutoCustomBets: number;
+  cancelledDuels: number;
   unknownTeams: string[];
 };
 
@@ -129,6 +130,7 @@ async function _runSync(season: number): Promise<SyncReport> {
     scoredBets: 0,
     scoredMatches: 0,
     scoredAutoCustomBets: 0,
+    cancelledDuels: 0,
     unknownTeams: [],
   };
 
@@ -201,7 +203,41 @@ async function _runSync(season: number): Promise<SyncReport> {
   // queue without raising errors.
   report.scoredAutoCustomBets = await scoreAutoCustomBets();
 
+  // Auto-cancel any duel that hit its join deadline without a joiner.
+  // The duel-delta formula in bank.ts treats cancelled rows as zero
+  // delta, so the opener's stake is effectively refunded once we flip
+  // the status here.
+  report.cancelledDuels = await cancelExpiredOpenDuels();
+
   return report;
+}
+
+// Find every duel with status='open' whose join deadline has passed
+// and flip it to 'cancelled'. The bank formula in src/lib/bank.ts
+// excludes cancelled duels from the per-user delta, so this single
+// status flip refunds the opener's stake.
+export async function cancelExpiredOpenDuels(): Promise<number> {
+  const result = await db.execute<{ id: string; opener_id: string; stake: number }>(drizzleSql`
+    update public.duels
+    set status = 'cancelled'
+    where status = 'open'
+      and join_deadline_at <= now()
+    returning id::text as id, opener_id::text as opener_id, stake
+  `);
+  const rows = result as unknown as Array<{
+    id: string;
+    opener_id: string;
+    stake: number;
+  }>;
+  for (const r of rows) {
+    console.info("[duel cancel]", {
+      duelId: r.id,
+      reason: "join_deadline_passed",
+      openerId: r.opener_id,
+      stake: r.stake,
+    });
+  }
+  return rows.length;
 }
 
 async function syncTeamGroups() {

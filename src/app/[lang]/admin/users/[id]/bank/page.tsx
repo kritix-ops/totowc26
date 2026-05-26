@@ -68,6 +68,12 @@ export default async function AdminUserBankPage({
             negative
           />
           <Cell
+            label={dict.bank.duels}
+            value={breakdown.duelDelta}
+            positive={breakdown.duelDelta > 0}
+            negative={breakdown.duelDelta < 0}
+          />
+          <Cell
             label={dict.bank.adjustments}
             value={breakdown.adjustments}
             positive={breakdown.adjustments > 0}

@@ -7,17 +7,28 @@ import { db } from "@/db";
 // is no materialised balance column. Every read is one SQL roundtrip.
 //
 // balance = settings.starting_bank
-//         + Σ scoring payouts (match_bets, group_predictions,
-//           bracket_predictions, special_bets)
-//         − Σ stake_paid_* snapshots from the same tables
+//         + Σ match_bets.points_earned                 (1/X/2 scoring)
+//         + Σ user_custom_bet_picks(payout − stake)    (live-bet net)
+//         + duelDelta                                  (see §7.3)
 //         + Σ point_adjustments.delta
 //
-// See _plans/2026-05-25-points-bank-system.md §5 for the design rationale.
+// duelDelta sums every duel the user is on either side of:
+//   open + opener=me                    →  -stake (in-flight debit)
+//   matched + (opener=me OR joiner=me)  →  -stake (in-flight debit)
+//   settled, opener=me  + resolved=opener_answer →  +stake
+//                       + resolved!=opener_answer →  −stake
+//   settled, joiner=me  + resolved=opener_answer →  −stake
+//                       + resolved!=opener_answer →  +stake
+//   cancelled  →  0 (refunded)
+//
+// See _plans/2026-05-25-points-bank-system.md §5 and
+// _plans/2026-05-27-betting-overhaul.md §7.3 for the design rationale.
 
 export type BankBreakdown = {
   starting: number;
   payoutsEarned: number;
   stakesPaid: number;
+  duelDelta: number;
   adjustments: number;
   balance: number;
 };
@@ -43,11 +54,34 @@ export function bankBalanceSql(userId: string): SQL {
         select sum(coalesce(pk.points_earned, 0) - pk.stake_paid)::int
         from public.user_custom_bet_picks pk where pk.user_id = ${userId}
       ), 0)
+    + ${duelDeltaSql(userId)}
     + coalesce((
         select sum(pa.delta)::int
         from public.point_adjustments pa where pa.user_id = ${userId}
       ), 0)
   )::int`;
+}
+
+// SQL expression returning the user's net change from every duel they
+// are on either side of. See _plans/2026-05-27-betting-overhaul.md §7.3
+// for the rule table this CASE mirrors.
+function duelDeltaSql(userId: string): SQL {
+  return sql`coalesce((
+    select sum(
+      case
+        when d.status = 'open' and d.opener_id = ${userId} then -d.stake
+        when d.status = 'matched' and (d.opener_id = ${userId} or d.joiner_id = ${userId}) then -d.stake
+        when d.status = 'settled' and d.opener_id = ${userId}
+          then case when d.resolved_value = d.opener_answer then d.stake else -d.stake end
+        when d.status = 'settled' and d.joiner_id = ${userId}
+          then case when d.resolved_value = d.opener_answer then -d.stake else d.stake end
+        else 0
+      end
+    )::int
+    from public.duels d
+    where (d.opener_id = ${userId} or d.joiner_id = ${userId})
+      and d.status <> 'cancelled'
+  ), 0)`;
 }
 
 // Read the user's current balance using whichever client is passed (db or
@@ -75,6 +109,7 @@ export async function getBankBreakdown(
     starting: number;
     payouts: number;
     stakes: number;
+    duel_delta: number;
     adjustments: number;
   }>(sql`
     select
@@ -95,6 +130,8 @@ export async function getBankBreakdown(
         from public.user_custom_bet_picks pk where pk.user_id = ${userId}
       ), 0) as "stakes",
 
+      ${duelDeltaSql(userId)} as "duel_delta",
+
       coalesce((
         select sum(pa.delta)::int
         from public.point_adjustments pa where pa.user_id = ${userId}
@@ -104,19 +141,22 @@ export async function getBankBreakdown(
     starting: number;
     payouts: number;
     stakes: number;
+    duel_delta: number;
     adjustments: number;
   }>)[0];
 
   const starting = Number(r?.starting ?? 0);
   const payouts = Number(r?.payouts ?? 0);
   const stakes = Number(r?.stakes ?? 0);
+  const duelDelta = Number(r?.duel_delta ?? 0);
   const adjustments = Number(r?.adjustments ?? 0);
   return {
     starting,
     payoutsEarned: payouts,
     stakesPaid: stakes,
+    duelDelta,
     adjustments,
-    balance: starting + payouts - stakes + adjustments,
+    balance: starting + payouts - stakes + duelDelta + adjustments,
   };
 }
 

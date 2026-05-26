@@ -62,6 +62,17 @@ export default async function BankHistoryPage({
             tone="negative"
           />
           <BreakdownCell
+            label={dict.bank.duels}
+            value={breakdown.duelDelta}
+            tone={
+              breakdown.duelDelta > 0
+                ? "positive"
+                : breakdown.duelDelta < 0
+                  ? "negative"
+                  : undefined
+            }
+          />
+          <BreakdownCell
             label={dict.bank.adjustments}
             value={breakdown.adjustments}
             tone={breakdown.adjustments >= 0 ? "positive" : "negative"}

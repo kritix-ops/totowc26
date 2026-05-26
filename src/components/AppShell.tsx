@@ -110,6 +110,7 @@ export async function AppShell({
           >
             <NavLink locale={locale} path="" label={dict.nav.home} exact />
             <NavLink locale={locale} path="play" label={dict.nav.play} />
+            <NavLink locale={locale} path="duels" label={dict.nav.duels} />
             <NavLink locale={locale} path="leaderboard" label={dict.nav.leaders} />
             <NavLink locale={locale} path="tournament" label={dict.nav.tournament} />
             {showPay && (
@@ -201,6 +202,7 @@ export async function AppShell({
             isAdmin={admin}
             labels={{
               moreCell: dict.nav.more,
+              duels: dict.nav.duels,
               pay: dict.nav.pay,
               profile: dict.nav.profile,
               admin: dict.nav.admin,

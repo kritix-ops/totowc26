@@ -8,6 +8,7 @@ import {
   Coins,
   ListChecks,
   Sparkles,
+  Swords,
   Target,
   Trophy,
   Wallet,
@@ -139,6 +140,13 @@ export default async function RulesPage({
         title={dict.rules.liveTitle}
       >
         <p>{dict.rules.liveBody}</p>
+      </RuleSection>
+
+      <RuleSection
+        icon={<Swords className="h-5 w-5" strokeWidth={1.75} />}
+        title={dict.rules.duelsTitle}
+      >
+        <p>{dict.rules.duelsBody}</p>
       </RuleSection>
 
       <RuleSection
