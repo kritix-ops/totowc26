@@ -203,6 +203,7 @@ export async function AppShell({
             labels={{
               moreCell: dict.nav.more,
               duels: dict.nav.duels,
+              transparency: dict.nav.transparency,
               pay: dict.nav.pay,
               profile: dict.nav.profile,
               admin: dict.nav.admin,

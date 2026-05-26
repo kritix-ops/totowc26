@@ -54,6 +54,7 @@
     "play": "Live bets",
     "duels": "Duels",
     "leaders": "Leaders",
+    "transparency": "Transparency",
     "tournament": "World Cup Zone",
     "pay": "Pay",
     "admin": "Admin",
@@ -236,9 +237,33 @@
     "pickTeam": "Pick a team",
     "save": "Save bracket"
   },
+  "transparency": {
+    "title": "Full transparency",
+    "subtitle": "Who picked what. Each pick becomes public the moment it locks — not before.",
+    "filterUser": "Player",
+    "filterCategory": "Category",
+    "filterDate": "Date",
+    "filterAny": "Any",
+    "filterApply": "Filter",
+    "filterClear": "Clear",
+    "empty": "No bets match the current filters.",
+    "categoryMatch": "Match pick",
+    "categoryLive": "Live bet",
+    "categoryDuel": "Duel",
+    "pickedLabel": "Picked",
+    "stakeLabel": "Stake"
+  },
   "leaderboard": {
     "title": "Leaderboard",
-    "you": "You"
+    "you": "You",
+    "tabOverall": "Overall",
+    "tabMatches": "Matches",
+    "tabLive": "Live",
+    "tabDuels": "Duels",
+    "subtitleOverall": "King of the Mundial — full bank balance across matches, live bets, duels and adjustments.",
+    "subtitleMatches": "Matches winner — points from 1/X/2 picks only. Tie-break: count of exact-score hits.",
+    "subtitleLive": "Live-bets winner — net profit/loss from live bets (payouts minus stakes).",
+    "subtitleDuels": "Duels winner — cumulative delta from duels. Tie-break: count of duels participated."
   },
   "matchDetail": {
     "final": "Final",
@@ -296,6 +321,10 @@
     "liveBody": "The admin opens a fresh set of bets every matchday, priced from real bookmaker odds and normalised to our point scale. Every bet shows its stake and payout up front: get it right and you keep your stake plus the payout, get it wrong and the stake stays in the pool. Bets lock 5 minutes before kickoff.",
     "duelsTitle": "1v1 duels",
     "duelsBody": "Any player can open a duel: a yes/no question, a stake up to the admin-configured cap, and the side you take. Another player can join and take the opposite side — both stakes lock in the bank until the match or day resolves, and the winner takes both. If nobody joins by the deadline, the duel auto-cancels and each side keeps their stake.",
+    "leaderboardTitle": "Leaderboards — four categories",
+    "leaderboardBody": "The leaderboard splits into 4 tabs: Overall (full bank balance — King of the Mundial), Matches (best 1/X/2 picker), Live (best live-bet net), and Duels (best duel delta). Each tab has its own tie-breaker.",
+    "transparencyTitle": "Full transparency",
+    "transparencyBody": "Every pick becomes public the moment it locks — match picks after kickoff, live bets after their lock_at, duels from creation. Filter the feed by player, category, and date.",
     "bankTitle": "Points bank",
     "bankBody": "Every player starts with {startingBank} points. Live bets and duels stake part of the bank — get it right and you keep your stake plus a payout; get it wrong and the stake stays in the pool. Match picks are mostly upside (see above). Your balance is the pill in the top header.",
     "prizesTitle": "Pot and prizes",

@@ -1,11 +1,16 @@
 import { notFound, redirect } from "next/navigation";
-import { ArrowDownLeft, ArrowUpRight, Coins, Scale } from "lucide-react";
+import { ArrowDownLeft, ArrowUpRight, Coins, Scale, Target } from "lucide-react";
 import { clsx } from "clsx";
 import { getDictionary, hasLocale, type Locale } from "../../dictionaries";
 import { getUser } from "@/lib/supabase/auth";
 import { getBankBreakdown } from "@/lib/bank";
-import { getBankHistory, type BankEvent } from "@/db/queries";
-import { Card, SectionHeading } from "@/components/ui";
+import {
+  getBankHistory,
+  getBankStats,
+  type BankEvent,
+  type BankStats,
+} from "@/db/queries";
+import { Card, LabelCaps, SectionHeading } from "@/components/ui";
 import { localePath } from "@/lib/paths";
 import { formatDateTime } from "@/lib/format";
 
@@ -23,9 +28,10 @@ export default async function BankHistoryPage({
   const user = await getUser();
   if (!user) redirect(localePath(locale, "login"));
 
-  const [breakdown, events] = await Promise.all([
+  const [breakdown, events, stats] = await Promise.all([
     getBankBreakdown(user.id),
     getBankHistory(user.id),
+    getBankStats(user.id),
   ]);
 
   return (
@@ -93,6 +99,8 @@ export default async function BankHistoryPage({
           </span>
         </div>
       </Card>
+
+      <StatsCard stats={stats} isHebrew={isHebrew} />
 
       <div className="flex flex-col gap-2">
         <SectionHeading underline="thin" as="h2">
@@ -219,4 +227,131 @@ function describeKind(kind: BankEvent["kind"], isHebrew: boolean): string {
     adjustment:    ["התאמת אדמין", "Admin adjustment"],
   };
   return labels[kind][isHebrew ? 0 : 1];
+}
+
+function StatsCard({ stats, isHebrew }: { stats: BankStats; isHebrew: boolean }) {
+  const totalEarned = stats.matchPoints + stats.livePoints + stats.duelDelta;
+  const duelWinRate =
+    stats.duelsParticipated > 0
+      ? Math.round((stats.duelsWon / stats.duelsParticipated) * 100)
+      : null;
+  const exactRate =
+    stats.matchHits > 0
+      ? Math.round((stats.exactHits / stats.matchHits) * 100)
+      : null;
+  const labels = {
+    title: isHebrew ? "הסטטיסטיקות שלי" : "My stats",
+    totalEarned: isHebrew ? "סך כל הרווח (נטו)" : "Total net earned",
+    breakdown: isHebrew ? "פילוח לפי קטגוריה" : "By category",
+    matches: isHebrew ? "משחקים" : "Matches",
+    live: isHebrew ? "לייב" : "Live bets",
+    duels: isHebrew ? "דו-קרב" : "Duels",
+    accuracy: isHebrew ? "דיוק" : "Accuracy",
+    matchHits: isHebrew ? "פגיעות במשחקים" : "Match hits",
+    exactHits: isHebrew ? "תוצאות מדויקות" : "Exact scores",
+    duelStats: isHebrew ? "פעילות דו-קרב" : "Duel activity",
+    duelsOpened: isHebrew ? "פתחת" : "Opened",
+    duelsJoined: isHebrew ? "הצטרפת" : "Joined",
+    duelsWon: isHebrew ? "ניצחונות" : "Wins",
+    duelWinRate: isHebrew ? "אחוז ניצחון" : "Win rate",
+  };
+  return (
+    <Card className="p-5 md:p-6 flex flex-col gap-4">
+      <SectionHeading underline="thin" as="h2">
+        <span className="inline-flex items-center gap-2">
+          <Target className="h-5 w-5 text-tertiary-fixed-dim" strokeWidth={1.75} />
+          {labels.title}
+        </span>
+      </SectionHeading>
+
+      <div className="flex items-center justify-between gap-3 pb-2 border-b border-outline-variant">
+        <span className="font-bold text-on-surface">{labels.totalEarned}</span>
+        <span
+          className={clsx(
+            "font-[family-name:var(--font-score)] text-3xl font-bold tabular-nums",
+            totalEarned > 0
+              ? "text-secondary"
+              : totalEarned < 0
+                ? "text-error"
+                : "text-on-surface",
+          )}
+        >
+          <bdi>
+            {totalEarned > 0 ? "+" : ""}
+            {totalEarned}
+          </bdi>
+        </span>
+      </div>
+
+      <div className="grid grid-cols-3 gap-3">
+        <StatTile label={labels.matches} value={stats.matchPoints} signed />
+        <StatTile label={labels.live} value={stats.livePoints} signed />
+        <StatTile label={labels.duels} value={stats.duelDelta} signed />
+      </div>
+
+      <div className="grid grid-cols-2 gap-3 pt-2 border-t border-outline-variant">
+        <StatTile
+          label={labels.matchHits}
+          value={stats.matchHits}
+        />
+        <StatTile
+          label={labels.exactHits}
+          value={stats.exactHits}
+          subtitle={exactRate !== null ? `${exactRate}%` : undefined}
+        />
+      </div>
+
+      {(stats.duelsOpened > 0 || stats.duelsJoined > 0) && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 pt-2 border-t border-outline-variant">
+          <StatTile label={labels.duelsOpened} value={stats.duelsOpened} />
+          <StatTile label={labels.duelsJoined} value={stats.duelsJoined} />
+          <StatTile label={labels.duelsWon} value={stats.duelsWon} />
+          <StatTile
+            label={labels.duelWinRate}
+            value={duelWinRate ?? 0}
+            suffix={duelWinRate !== null ? "%" : "—"}
+          />
+        </div>
+      )}
+    </Card>
+  );
+}
+
+function StatTile({
+  label,
+  value,
+  signed,
+  suffix,
+  subtitle,
+}: {
+  label: string;
+  value: number;
+  signed?: boolean;
+  suffix?: string;
+  subtitle?: string;
+}) {
+  return (
+    <div className="flex flex-col gap-1 p-3 rounded-lg bg-surface-container-low border border-outline-variant">
+      <LabelCaps as="div">{label}</LabelCaps>
+      <span
+        className={clsx(
+          "font-[family-name:var(--font-score)] text-xl md:text-2xl font-bold tabular-nums",
+          signed && value > 0 && "text-secondary",
+          signed && value < 0 && "text-error",
+        )}
+      >
+        <bdi>
+          {signed && value > 0 ? "+" : ""}
+          {value}
+          {suffix && suffix !== "—" ? suffix : ""}
+          {suffix === "—" ? suffix : ""}
+        </bdi>
+      </span>
+      {subtitle && (
+        <span className="text-[11px] text-on-surface-variant tabular-nums">
+          {subtitle}
+        </span>
+      )}
+    </div>
+  );
 }

@@ -1,31 +1,58 @@
+import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { Flame, Trophy } from "lucide-react";
 import { clsx } from "clsx";
 import { getDictionary, hasLocale, type Locale } from "../dictionaries";
 import { getUser } from "@/lib/supabase/auth";
-import { getLeaderboard, getPrizeBreakdown } from "@/db/queries";
+import {
+  getLeaderboard,
+  getPrizeBreakdown,
+  type LeaderboardTab,
+} from "@/db/queries";
 import { Card, LabelCaps } from "@/components/ui";
 import { localePath } from "@/lib/paths";
 
+type SearchSP = { tab?: string | string[] };
+
+type PageParams = {
+  params: Promise<{ lang: string }>;
+  searchParams: Promise<SearchSP>;
+};
+
+const TABS: LeaderboardTab[] = ["overall", "matches", "live", "duels"];
+
 export default async function LeaderboardPage({
   params,
-}: PageProps<"/[lang]/leaderboard">) {
+  searchParams,
+}: PageParams) {
   const { lang } = await params;
   if (!hasLocale(lang)) notFound();
   const locale = lang as Locale;
   const dict = await getDictionary(locale);
+  const isHebrew = locale === "he";
 
   const user = await getUser();
   if (!user) redirect(localePath(locale, "login"));
 
+  const sp = await searchParams;
+  const rawTab = Array.isArray(sp.tab) ? sp.tab[0] : sp.tab;
+  const tab: LeaderboardTab =
+    rawTab && (TABS as string[]).includes(rawTab)
+      ? (rawTab as LeaderboardTab)
+      : "overall";
+
   const [rows, prize] = await Promise.all([
-    getLeaderboard(user.id),
+    getLeaderboard(user.id, tab),
     getPrizeBreakdown(),
   ]);
-  const prizeByRank = new Map<number, number>(
-    prize.prizes.map((p) => [p.rank, p.ils]),
-  );
-  const isHebrew = locale === "he";
+
+  // Prizes only render alongside the overall tab — the category tabs
+  // each carry their own single-winner prize, surfaced by PR 5's prize
+  // UI rather than the legacy 1-4 split that PrizeStrip still drives.
+  const prizeByRank =
+    tab === "overall"
+      ? new Map<number, number>(prize.prizes.map((p) => [p.rank, p.ils]))
+      : new Map<number, number>();
 
   return (
     <section className="px-4 md:px-16 py-6 md:py-12 flex flex-col gap-6 md:gap-8 max-w-3xl mx-auto w-full">
@@ -33,7 +60,25 @@ export default async function LeaderboardPage({
         <h1 className="font-[family-name:var(--font-display)] text-[28px] leading-9 md:text-[48px] md:leading-[52px] font-bold text-primary">
           {dict.leaderboard.title}
         </h1>
+        <p className="text-sm text-on-surface-variant">
+          {tabSubtitle(tab, dict)}
+        </p>
       </header>
+
+      <nav
+        aria-label={dict.leaderboard.title}
+        className="flex gap-2 overflow-x-auto snap-x snap-mandatory -mx-1 px-1"
+      >
+        {TABS.map((t) => (
+          <TabPill
+            key={t}
+            locale={locale}
+            label={tabLabel(t, dict)}
+            tabKey={t}
+            active={t === tab}
+          />
+        ))}
+      </nav>
 
       {rows.length === 0 ? (
         <Card className="p-6 text-center text-on-surface-variant">
@@ -108,4 +153,66 @@ export default async function LeaderboardPage({
       )}
     </section>
   );
+}
+
+function TabPill({
+  locale,
+  label,
+  tabKey,
+  active,
+}: {
+  locale: Locale;
+  label: string;
+  tabKey: LeaderboardTab;
+  active: boolean;
+}) {
+  const href =
+    tabKey === "overall"
+      ? localePath(locale, "leaderboard")
+      : `${localePath(locale, "leaderboard")}?tab=${tabKey}`;
+  return (
+    <Link
+      href={href}
+      className={clsx(
+        "snap-start press-down inline-flex items-center justify-center h-10 px-4 rounded-full border text-sm font-bold whitespace-nowrap",
+        active
+          ? "bg-primary text-on-primary border-primary"
+          : "bg-surface-container-lowest text-on-surface border-outline-variant hover:bg-surface-container",
+      )}
+    >
+      {label}
+    </Link>
+  );
+}
+
+function tabLabel(
+  tab: LeaderboardTab,
+  dict: Awaited<ReturnType<typeof getDictionary>>,
+): string {
+  switch (tab) {
+    case "overall":
+      return dict.leaderboard.tabOverall;
+    case "matches":
+      return dict.leaderboard.tabMatches;
+    case "live":
+      return dict.leaderboard.tabLive;
+    case "duels":
+      return dict.leaderboard.tabDuels;
+  }
+}
+
+function tabSubtitle(
+  tab: LeaderboardTab,
+  dict: Awaited<ReturnType<typeof getDictionary>>,
+): string {
+  switch (tab) {
+    case "overall":
+      return dict.leaderboard.subtitleOverall;
+    case "matches":
+      return dict.leaderboard.subtitleMatches;
+    case "live":
+      return dict.leaderboard.subtitleLive;
+    case "duels":
+      return dict.leaderboard.subtitleDuels;
+  }
 }

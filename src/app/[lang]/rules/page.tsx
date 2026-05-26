@@ -6,7 +6,9 @@ import {
   ArrowLeft,
   BookOpen,
   Coins,
+  Eye,
   ListChecks,
+  Medal,
   Sparkles,
   Swords,
   Target,
@@ -154,6 +156,20 @@ export default async function RulesPage({
         title={dict.rules.bankTitle}
       >
         <p>{bankBody}</p>
+      </RuleSection>
+
+      <RuleSection
+        icon={<Medal className="h-5 w-5" strokeWidth={1.75} />}
+        title={dict.rules.leaderboardTitle}
+      >
+        <p>{dict.rules.leaderboardBody}</p>
+      </RuleSection>
+
+      <RuleSection
+        icon={<Eye className="h-5 w-5" strokeWidth={1.75} />}
+        title={dict.rules.transparencyTitle}
+      >
+        <p>{dict.rules.transparencyBody}</p>
       </RuleSection>
 
       <RuleSection

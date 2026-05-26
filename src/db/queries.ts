@@ -113,47 +113,88 @@ export type LeaderboardEntry = {
   rank: number;
   userId: string;
   displayName: string;
-  points: number;        // bank balance — primary leaderboard number
+  points: number;        // category-specific score (see tab semantics below)
   grossPoints: number;   // sum of payouts before stake deduction (skill proxy)
   betCount: number;
   wastedStakes: number;  // stakes paid on bets that returned zero (tie-break)
   isYou: boolean;
 };
 
-// Leaderboard = bank balance:
-//   starting_bank + Σ payouts − Σ stakes + Σ adjustments
+export type LeaderboardTab = "overall" | "matches" | "live" | "duels";
+
+// Per-tab leaderboard. The four tabs match the betting surfaces:
 //
-// Tie-breaker order:
-//   1. Fewest stakes wasted (highest hit rate among risky bets)
-//   2. display_name ASC (stable)
+//   overall  — full bank balance (starting + match payouts + live net +
+//              duel delta + admin adjustments). Tie-break: fewest wasted
+//              stakes (highest hit rate) then display_name.
+//   matches  — Σ match_bets.points_earned only. Tie-break: count of
+//              exact-score hits desc.
+//   live     — Σ user_custom_bet_picks.points_earned − Σ stake_paid.
+//              Tie-break: total stakes paid asc (fewer stakes = more
+//              efficient hits).
+//   duels    — Σ duel-delta only (see src/lib/bank.ts §7.3 for the
+//              CASE rules). Tie-break: count of duels participated desc.
+//
+// All four return the same LeaderboardEntry shape so the UI doesn't
+// branch on tab-specific columns. `points` carries the tab-specific
+// score; `grossPoints` always carries the user's total gross payouts
+// (across every surface) so the secondary column stays comparable.
 export async function getLeaderboard(
   currentUserId: string,
+  tab: LeaderboardTab = "overall",
 ): Promise<LeaderboardEntry[]> {
   const rows = await db.execute<LeaderboardEntry>(sql`
-    with payouts as (
-      select
-        p.id as user_id,
+    with match_points as (
+      select p.id as user_id,
         coalesce((
           select sum(coalesce(mb.points_earned, 0))::int
           from public.match_bets mb where mb.user_id = p.id
-        ), 0)
-        + coalesce((
-            select sum(coalesce(pk.points_earned, 0))::int
-            from public.user_custom_bet_picks pk where pk.user_id = p.id
-          ), 0) as gross_points
+        ), 0) as score,
+        coalesce((
+          select count(*)::int from public.match_bets mb
+          where mb.user_id = p.id and mb.was_exact = true
+        ), 0) as exact_count
       from public.profiles p
     ),
-    stakes as (
-      select
-        p.id as user_id,
+    live_net as (
+      select p.id as user_id,
+        coalesce((
+          select sum(coalesce(pk.points_earned, 0))::int
+          from public.user_custom_bet_picks pk where pk.user_id = p.id
+        ), 0) as payouts,
         coalesce((
           select sum(pk.stake_paid)::int
           from public.user_custom_bet_picks pk where pk.user_id = p.id
-        ), 0) as total_stakes,
+        ), 0) as stakes,
         coalesce((
           select sum(case when pk.points_earned = 0 then pk.stake_paid else 0 end)::int
           from public.user_custom_bet_picks pk where pk.user_id = p.id
         ), 0) as wasted_stakes
+      from public.profiles p
+    ),
+    duel_stats as (
+      select p.id as user_id,
+        coalesce((
+          select sum(
+            case
+              when d.status = 'open' and d.opener_id = p.id then -d.stake
+              when d.status = 'matched' and (d.opener_id = p.id or d.joiner_id = p.id) then -d.stake
+              when d.status = 'settled' and d.opener_id = p.id
+                then case when d.resolved_value = d.opener_answer then d.stake else -d.stake end
+              when d.status = 'settled' and d.joiner_id = p.id
+                then case when d.resolved_value = d.opener_answer then -d.stake else d.stake end
+              else 0
+            end
+          )::int
+          from public.duels d
+          where (d.opener_id = p.id or d.joiner_id = p.id)
+            and d.status <> 'cancelled'
+        ), 0) as delta,
+        coalesce((
+          select count(*)::int from public.duels d
+          where (d.opener_id = p.id or d.joiner_id = p.id)
+            and d.status in ('matched', 'settled')
+        ), 0) as duel_count
       from public.profiles p
     ),
     adjustments as (
@@ -171,34 +212,58 @@ export async function getLeaderboard(
     ),
     base as (
       select
-        p.id::text                    as user_id,
-        p.display_name                as display_name,
-        po.gross_points               as gross_points,
-        st.total_stakes               as total_stakes,
-        st.wasted_stakes              as wasted_stakes,
-        adj.total_adj                 as adjustments,
-        bc.bet_count                  as bet_count,
-        (select starting_bank from public.settings where id = 1)::int as starting_bank
+        p.id::text                                            as user_id,
+        p.display_name                                        as display_name,
+        mp.score                                              as match_score,
+        mp.exact_count                                        as exact_count,
+        ln.payouts                                            as live_payouts,
+        ln.stakes                                             as live_stakes,
+        ln.wasted_stakes                                      as wasted_stakes,
+        ds.delta                                              as duel_delta,
+        ds.duel_count                                         as duel_count,
+        adj.total_adj                                         as adjustments,
+        bc.bet_count                                          as bet_count,
+        (select starting_bank from public.settings where id = 1)::int as starting_bank,
+        (mp.score + ln.payouts)::int                          as gross_points
       from public.profiles p
-      join payouts po     on po.user_id  = p.id
-      join stakes st      on st.user_id  = p.id
+      join match_points mp on mp.user_id  = p.id
+      join live_net ln     on ln.user_id  = p.id
+      join duel_stats ds   on ds.user_id  = p.id
       join adjustments adj on adj.user_id = p.id
-      join bet_counts bc  on bc.user_id  = p.id
+      join bet_counts bc   on bc.user_id  = p.id
+    ),
+    scored as (
+      select
+        base.*,
+        case ${tab}::text
+          when 'matches' then match_score
+          when 'live'    then (live_payouts - live_stakes)::int
+          when 'duels'   then duel_delta
+          else (starting_bank + match_score + live_payouts - live_stakes
+                + duel_delta + adjustments)::int
+        end as score,
+        case ${tab}::text
+          when 'matches' then -exact_count               -- desc on hits
+          when 'live'    then live_stakes                -- asc on stakes
+          when 'duels'   then -duel_count                -- desc on count
+          else wasted_stakes                             -- asc on waste
+        end as tiebreak
+      from base
     )
     select
       rank() over (
-        order by (starting_bank + gross_points - total_stakes + adjustments) desc,
-                 wasted_stakes asc,
+        order by score desc,
+                 tiebreak asc,
                  display_name asc
-      )::int                                                                   as "rank",
-      user_id                                                                  as "userId",
-      display_name                                                             as "displayName",
-      (starting_bank + gross_points - total_stakes + adjustments)::int         as "points",
-      gross_points                                                             as "grossPoints",
-      bet_count                                                                as "betCount",
-      wasted_stakes                                                            as "wastedStakes",
-      (user_id = ${currentUserId})                                             as "isYou"
-    from base
+      )::int                                              as "rank",
+      user_id                                             as "userId",
+      display_name                                        as "displayName",
+      score::int                                          as "points",
+      gross_points::int                                   as "grossPoints",
+      bet_count::int                                      as "betCount",
+      wasted_stakes::int                                  as "wastedStakes",
+      (user_id = ${currentUserId})                        as "isYou"
+    from scored
     order by "rank", display_name asc
   `);
   return rows as unknown as LeaderboardEntry[];
@@ -1274,3 +1339,299 @@ export async function getTournamentStart(): Promise<string | null> {
   const r = (rows as unknown as Array<{ kickoff_at: string | null }>)[0];
   return r?.kickoff_at ?? null;
 }
+
+// Transparency feed surfaces every locked bet across the pool so
+// players can audit who picked what once a bet stops being editable.
+// Drives /[lang]/transparency.
+//
+// Visibility rules (mirror §9 of the betting overhaul plan):
+//   match bets    → visible once the match status is live or final
+//   live bets     → visible once custom_bets.lock_at has passed
+//   duels         → visible from creation; opener identity is part of
+//                   the challenge UX so we never hide it
+
+export type TransparencyCategory = "match" | "live" | "duel";
+
+export type TransparencyRow = {
+  category: TransparencyCategory;
+  eventTime: string;
+  userId: string;
+  displayName: string;
+  question: string;
+  pickLabel: string;
+  stake: number;
+  pointsEarned: number | null;
+  status: string;
+  bookId: string;
+};
+
+export type TransparencyFilters = {
+  userId?: string;
+  category?: TransparencyCategory;
+  date?: string;
+  locale: "he" | "en";
+};
+
+export async function getTransparencyFeed(
+  filters: TransparencyFilters,
+  limit = 100,
+): Promise<TransparencyRow[]> {
+  const homeNameCol = filters.locale === "he" ? sql`ht.name_he` : sql`ht.name_en`;
+  const awayNameCol = filters.locale === "he" ? sql`at.name_he` : sql`at.name_en`;
+  const questionCol = filters.locale === "he" ? sql`cb.question_he` : sql`cb.question_en`;
+  const duelQuestionCol = filters.locale === "he" ? sql`d.question_he` : sql`d.question_en`;
+  const yesLabel = filters.locale === "he" ? sql`'כן'` : sql`'Yes'`;
+  const noLabel = filters.locale === "he" ? sql`'לא'` : sql`'No'`;
+
+  // Build the WHERE clause from optional filters. Each one is an AND
+  // condition; if none are supplied we omit the WHERE entirely.
+  const conds: ReturnType<typeof sql>[] = [];
+  if (filters.category) conds.push(sql`src.category = ${filters.category}`);
+  if (filters.userId) conds.push(sql`src.user_id = ${filters.userId}::uuid`);
+  if (filters.date) {
+    conds.push(
+      sql`(src.event_time at time zone 'Asia/Jerusalem')::date = ${filters.date}::date`,
+    );
+  }
+  let whereClause = sql``;
+  if (conds.length > 0) {
+    whereClause = sql`where ${conds[0]}`;
+    for (let i = 1; i < conds.length; i += 1) {
+      whereClause = sql`${whereClause} and ${conds[i]}`;
+    }
+  }
+
+  const rows = await db.execute<TransparencyRow>(sql`
+    with combined as (
+      select
+        'match'::text                                              as category,
+        m.kickoff_at::text                                         as event_time,
+        mb.user_id::text                                           as user_id,
+        p.display_name                                             as display_name,
+        (${homeNameCol} || ' vs ' || ${awayNameCol})               as question,
+        (mb.home_score || '-' || mb.away_score)                    as pick_label,
+        coalesce(mb.stake_paid_main, 0)::int                       as stake,
+        mb.points_earned                                           as points_earned,
+        m.status::text                                             as status,
+        mb.id::text                                                as book_id
+      from public.match_bets mb
+      join public.matches m  on m.id  = mb.match_id
+      join public.teams ht   on ht.code = m.home_team
+      join public.teams at   on at.code = m.away_team
+      join public.profiles p on p.id  = mb.user_id
+      where m.status in ('live', 'final')
+
+      union all
+
+      select
+        'live'::text                                               as category,
+        cb.lock_at::text                                           as event_time,
+        pk.user_id::text                                           as user_id,
+        p.display_name                                             as display_name,
+        ${questionCol}                                             as question,
+        case pk.answer->>'value'
+          when 'true'  then ${yesLabel}
+          when 'false' then ${noLabel}
+          else coalesce(pk.answer->>'value', '?')
+        end                                                        as pick_label,
+        pk.stake_paid::int                                         as stake,
+        pk.points_earned                                           as points_earned,
+        cb.status::text                                            as status,
+        pk.id::text                                                as book_id
+      from public.user_custom_bet_picks pk
+      join public.custom_bets cb on cb.id = pk.custom_bet_id
+      join public.profiles p     on p.id  = pk.user_id
+      where cb.lock_at <= now()
+
+      union all
+
+      select
+        'duel'::text                                               as category,
+        d.created_at::text                                         as event_time,
+        d.opener_id::text                                          as user_id,
+        po.display_name                                            as display_name,
+        ${duelQuestionCol}                                         as question,
+        case when d.opener_answer then ${yesLabel} else ${noLabel} end as pick_label,
+        d.stake::int                                               as stake,
+        case when d.status = 'settled'
+             then case when d.resolved_value = d.opener_answer then d.stake else -d.stake end
+             else null
+        end                                                        as points_earned,
+        d.status::text                                             as status,
+        d.id::text                                                 as book_id
+      from public.duels d
+      join public.profiles po on po.id = d.opener_id
+
+      union all
+
+      select
+        'duel'::text                                               as category,
+        coalesce(d.joined_at, d.created_at)::text                  as event_time,
+        d.joiner_id::text                                          as user_id,
+        pj.display_name                                            as display_name,
+        ${duelQuestionCol}                                         as question,
+        case when d.opener_answer then ${noLabel} else ${yesLabel} end as pick_label,
+        d.stake::int                                               as stake,
+        case when d.status = 'settled'
+             then case when d.resolved_value = d.opener_answer then -d.stake else d.stake end
+             else null
+        end                                                        as points_earned,
+        d.status::text                                             as status,
+        ('joiner:' || d.id::text)                                  as book_id
+      from public.duels d
+      join public.profiles pj on pj.id = d.joiner_id
+      where d.joiner_id is not null
+    )
+    select
+      src.category       as "category",
+      src.event_time     as "eventTime",
+      src.user_id        as "userId",
+      src.display_name   as "displayName",
+      src.question       as "question",
+      src.pick_label     as "pickLabel",
+      src.stake          as "stake",
+      src.points_earned  as "pointsEarned",
+      src.status         as "status",
+      src.book_id        as "bookId"
+    from combined src
+    ${whereClause}
+    order by src.event_time desc
+    limit ${limit}
+  `);
+  return rows as unknown as TransparencyRow[];
+}
+
+export async function getTransparencyUsers(): Promise<
+  Array<{ id: string; displayName: string }>
+> {
+  const rows = await db.execute<{ id: string; displayName: string }>(sql`
+    select distinct p.id::text as "id", p.display_name as "displayName"
+    from public.profiles p
+    where exists (select 1 from public.match_bets mb where mb.user_id = p.id)
+       or exists (select 1 from public.user_custom_bet_picks pk where pk.user_id = p.id)
+       or exists (select 1 from public.duels d where d.opener_id = p.id or d.joiner_id = p.id)
+    order by p.display_name asc
+  `);
+  return rows as unknown as Array<{ id: string; displayName: string }>;
+}
+
+// Aggregated per-user performance card for /me/bank.
+//
+// Splits earnings into the three surfaces (matches / live / duels)
+// plus accuracy counters. Every value is computed live from the
+// source tables — no materialised cache — so the numbers always
+// reflect the same balance the leaderboard uses.
+
+export type BankStats = {
+  matchPoints: number;        // Σ match_bets.points_earned (can be negative under risk mode)
+  livePoints: number;         // Σ (payouts − stake_paid) for live bets (net)
+  duelDelta: number;          // duel delta from the bank.ts formula
+  matchHits: number;          // count of match bets that were direction or exact
+  exactHits: number;          // count of match bets with exact-score correct
+  duelsOpened: number;
+  duelsJoined: number;
+  duelsWon: number;           // settled duels where the user was on the winning side
+  duelsParticipated: number;  // matched + settled regardless of outcome
+};
+
+export async function getBankStats(userId: string): Promise<BankStats> {
+  const rows = await db.execute<{
+    match_points: number;
+    live_points: number;
+    duel_delta: number;
+    match_hits: number;
+    exact_hits: number;
+    duels_opened: number;
+    duels_joined: number;
+    duels_won: number;
+    duels_participated: number;
+  }>(sql`
+    select
+      coalesce((
+        select sum(coalesce(mb.points_earned, 0))::int
+        from public.match_bets mb where mb.user_id = ${userId}
+      ), 0)                                                       as match_points,
+
+      coalesce((
+        select sum(coalesce(pk.points_earned, 0) - pk.stake_paid)::int
+        from public.user_custom_bet_picks pk where pk.user_id = ${userId}
+      ), 0)                                                       as live_points,
+
+      coalesce((
+        select sum(
+          case
+            when d.status = 'open' and d.opener_id = ${userId} then -d.stake
+            when d.status = 'matched' and (d.opener_id = ${userId} or d.joiner_id = ${userId}) then -d.stake
+            when d.status = 'settled' and d.opener_id = ${userId}
+              then case when d.resolved_value = d.opener_answer then d.stake else -d.stake end
+            when d.status = 'settled' and d.joiner_id = ${userId}
+              then case when d.resolved_value = d.opener_answer then -d.stake else d.stake end
+            else 0
+          end
+        )::int
+        from public.duels d
+        where (d.opener_id = ${userId} or d.joiner_id = ${userId})
+          and d.status <> 'cancelled'
+      ), 0)                                                       as duel_delta,
+
+      coalesce((
+        select count(*)::int from public.match_bets mb
+        where mb.user_id = ${userId}
+          and (mb.was_exact = true or mb.was_correct_outcome = true)
+      ), 0)                                                       as match_hits,
+
+      coalesce((
+        select count(*)::int from public.match_bets mb
+        where mb.user_id = ${userId} and mb.was_exact = true
+      ), 0)                                                       as exact_hits,
+
+      coalesce((
+        select count(*)::int from public.duels d
+        where d.opener_id = ${userId}
+      ), 0)                                                       as duels_opened,
+
+      coalesce((
+        select count(*)::int from public.duels d
+        where d.joiner_id = ${userId}
+      ), 0)                                                       as duels_joined,
+
+      coalesce((
+        select count(*)::int from public.duels d
+        where d.status = 'settled'
+          and (
+            (d.opener_id = ${userId} and d.resolved_value = d.opener_answer)
+            or
+            (d.joiner_id = ${userId} and d.resolved_value <> d.opener_answer)
+          )
+      ), 0)                                                       as duels_won,
+
+      coalesce((
+        select count(*)::int from public.duels d
+        where (d.opener_id = ${userId} or d.joiner_id = ${userId})
+          and d.status in ('matched', 'settled')
+      ), 0)                                                       as duels_participated
+  `);
+  const r = (rows as unknown as Array<{
+    match_points: number;
+    live_points: number;
+    duel_delta: number;
+    match_hits: number;
+    exact_hits: number;
+    duels_opened: number;
+    duels_joined: number;
+    duels_won: number;
+    duels_participated: number;
+  }>)[0];
+  return {
+    matchPoints: Number(r?.match_points ?? 0),
+    livePoints: Number(r?.live_points ?? 0),
+    duelDelta: Number(r?.duel_delta ?? 0),
+    matchHits: Number(r?.match_hits ?? 0),
+    exactHits: Number(r?.exact_hits ?? 0),
+    duelsOpened: Number(r?.duels_opened ?? 0),
+    duelsJoined: Number(r?.duels_joined ?? 0),
+    duelsWon: Number(r?.duels_won ?? 0),
+    duelsParticipated: Number(r?.duels_participated ?? 0),
+  };
+}
+

@@ -3,13 +3,13 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { BookOpen, LogOut, MoreHorizontal, Shield, Swords, User as UserIcon, Wallet } from "lucide-react";
+import { BookOpen, Eye, LogOut, MoreHorizontal, Shield, Swords, User as UserIcon, Wallet } from "lucide-react";
 import { clsx } from "clsx";
 import type { Locale } from "@/app/[lang]/dictionaries";
 import { localePath } from "@/lib/paths";
 
 type SheetItem = {
-  key: "duels" | "pay" | "profile" | "admin" | "rules";
+  key: "duels" | "transparency" | "pay" | "profile" | "admin" | "rules";
   path: string;
   label: string;
   icon: React.ReactNode;
@@ -18,6 +18,7 @@ type SheetItem = {
 type Labels = {
   moreCell: string;
   duels: string;
+  transparency: string;
   pay: string;
   profile: string;
   admin: string;
@@ -48,6 +49,12 @@ export function MobileMoreSheet({
     path: "duels",
     label: labels.duels,
     icon: <Swords className="h-5 w-5" strokeWidth={1.75} />,
+  });
+  items.push({
+    key: "transparency",
+    path: "transparency",
+    label: labels.transparency,
+    icon: <Eye className="h-5 w-5" strokeWidth={1.75} />,
   });
   if (showPay) {
     items.push({
