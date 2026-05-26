@@ -50,7 +50,7 @@
   },
   "nav": {
     "home": "Home",
-    "play": "Bets",
+    "play": "Live bets",
     "leaders": "Leaders",
     "tournament": "World Cup Zone",
     "pay": "Pay",
@@ -110,6 +110,15 @@
     "statusNotPaid": "Not paid yet.",
     "afterPayHint": "After sending the payment, come back here and tap 'I have paid'. The admin will see it and approve.",
     "previousMethod": "Previous payment was sent via"
+  },
+  "live": {
+    "title": "Live bets",
+    "subtitle": "Custom bets the admin publishes for each match day. Each one has a fixed stake and payout.",
+    "daysHeading": "Live-bet days",
+    "backToLive": "Back to live bets",
+    "dayWideTitle": "Day-wide live bets",
+    "dayWideHint": "These bets aggregate across all of today's matches.",
+    "emptyDay": "The admin hasn't published live bets for this day yet. Check back closer to kickoff."
   },
   "dashboard": {
     "welcome": "What is up",
@@ -234,6 +243,8 @@
     "scoringRiskOffNote": "Default mode: a wrong pick costs nothing. Admin can switch on \"risk mode\" at any time, which subtracts a penalty from your bank for wrong picks.",
     "scoringRiskOnNote": "Risk mode is on: wrong picks subtract the penalty above from your bank. Admin can switch it off at any time; historical scoring is not retroactively changed.",
     "scoringExtras": "Tournament bets, live bets and duels carry their own payouts, shown on each bet card.",
+    "liveTitle": "Live bets",
+    "liveBody": "The admin opens a fresh set of bets every matchday, priced from real bookmaker odds and normalised to our point scale. Every bet shows its stake and payout up front: get it right and you keep your stake plus the payout, get it wrong and the stake stays in the pool. Bets lock 5 minutes before kickoff.",
     "bankTitle": "Points bank",
     "bankBody": "Every player starts with {startingBank} points. Live bets and duels stake part of the bank — get it right and you keep your stake plus a payout; get it wrong and the stake stays in the pool. Match picks are mostly upside (see above). Your balance is the pill in the top header.",
     "prizesTitle": "Pot and prizes",

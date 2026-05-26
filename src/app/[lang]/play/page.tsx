@@ -84,7 +84,7 @@ export default async function PlayIndexPage({
         <div className="flex items-center justify-between gap-2">
           <h2 className="font-[family-name:var(--font-display)] text-xl md:text-2xl font-bold text-on-surface inline-flex items-center gap-2">
             <Calendar className="h-5 w-5 text-tertiary-fixed-dim" strokeWidth={1.75} />
-            {isHebrew ? "ימי משחק" : "Match days"}
+            {dict.live.daysHeading}
           </h2>
           <LabelCaps>{days.length}</LabelCaps>
         </div>

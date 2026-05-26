@@ -378,3 +378,71 @@ export async function getPaymentTotals(): Promise<PaymentTotals> {
     approvedSumIls: Number(r.approved_sum),
   };
 }
+
+// ---------- live-bet suggestions ----------
+//
+// Surfaces feeding /[lang]/admin/live-bets/suggestions. The page pulls
+// every fixture on a given Asia/Jerusalem date plus the list of dates
+// that have at least one upcoming fixture, so the admin can flick
+// between matchdays without manually editing the query string.
+
+export type LiveBetsFixtureRow = {
+  id: string;
+  apiFootballFixtureId: number | null;
+  kickoffAt: string;
+  homeCode: string;
+  homeNameHe: string;
+  homeNameEn: string;
+  awayCode: string;
+  awayNameHe: string;
+  awayNameEn: string;
+  status: "scheduled" | "live" | "final";
+};
+
+export async function listFixturesForDate(
+  date: string,
+): Promise<LiveBetsFixtureRow[]> {
+  // Accept only YYYY-MM-DD so we can interpolate safely below.
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return [];
+  const rows = await db.execute<LiveBetsFixtureRow>(sql`
+    select
+      m.id::text                   as "id",
+      m.api_football_fixture_id    as "apiFootballFixtureId",
+      m.kickoff_at::text           as "kickoffAt",
+      m.home_team                  as "homeCode",
+      ht.name_he                   as "homeNameHe",
+      ht.name_en                   as "homeNameEn",
+      m.away_team                  as "awayCode",
+      at.name_he                   as "awayNameHe",
+      at.name_en                   as "awayNameEn",
+      m.status::text               as "status"
+    from public.matches m
+    join public.teams ht on ht.code = m.home_team
+    join public.teams at on at.code = m.away_team
+    where (m.kickoff_at at time zone 'Asia/Jerusalem')::date = ${date}::date
+    order by m.kickoff_at asc
+  `);
+  return rows as unknown as LiveBetsFixtureRow[];
+}
+
+export type LiveBetsDateRow = {
+  date: string;
+  fixtureCount: number;
+};
+
+// Every Asia/Jerusalem date that has at least one scheduled or live
+// fixture, ordered earliest first. Drives the date picker on the
+// suggestions page.
+export async function listLiveBetsDates(): Promise<LiveBetsDateRow[]> {
+  const rows = await db.execute<LiveBetsDateRow>(sql`
+    select
+      to_char((m.kickoff_at at time zone 'Asia/Jerusalem')::date,
+              'YYYY-MM-DD')                          as "date",
+      count(*)::int                                  as "fixtureCount"
+    from public.matches m
+    where m.status in ('scheduled', 'live')
+    group by (m.kickoff_at at time zone 'Asia/Jerusalem')::date
+    order by 1 asc
+  `);
+  return rows as unknown as LiveBetsDateRow[];
+}

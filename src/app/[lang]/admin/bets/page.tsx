@@ -40,7 +40,7 @@ export default async function AdminBetsPage({
         <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
           <div className="flex flex-col gap-1">
             <h1 className="font-[family-name:var(--font-display)] text-[28px] leading-9 md:text-[40px] md:leading-[44px] font-bold text-primary">
-              {isHebrew ? "הימורים מותאמים" : "Custom bets"}
+              {isHebrew ? "הימורי לייב" : "Live bets"}
             </h1>
             <p className="text-sm text-on-surface-variant">
               {isHebrew
@@ -48,15 +48,23 @@ export default async function AdminBetsPage({
                 : "Create, publish, and manage every non‑1/X/2 bet."}
             </p>
           </div>
-          <Link
-            href={localePath(locale, "admin/bets/new")}
-            className="self-start sm:self-auto"
-          >
-            <PillButton type="button" className="min-h-[48px]">
-              <Plus className="h-5 w-5" strokeWidth={2.5} />
-              {isHebrew ? "הימור חדש" : "New bet"}
-            </PillButton>
-          </Link>
+          <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap">
+            <Link href={localePath(locale, "admin/live-bets/suggestions")}>
+              <PillButton
+                type="button"
+                variant="ghost"
+                className="min-h-[48px]"
+              >
+                {isHebrew ? "הצעות אוטומטיות" : "Suggestions"}
+              </PillButton>
+            </Link>
+            <Link href={localePath(locale, "admin/bets/new")}>
+              <PillButton type="button" className="min-h-[48px]">
+                <Plus className="h-5 w-5" strokeWidth={2.5} />
+                {isHebrew ? "הימור חדש" : "New bet"}
+              </PillButton>
+            </Link>
+          </div>
         </div>
       </header>
 

@@ -75,7 +75,7 @@ export default async function PlayDayPage({
           className="inline-flex items-center gap-1 text-sm text-on-surface-variant hover:text-on-surface w-fit"
         >
           <Chev className="h-4 w-4" strokeWidth={2} />
-          {isHebrew ? "חזרה לימי משחק" : "Back to match days"}
+          {dict.live.backToLive}
         </Link>
         <h1 className="font-[family-name:var(--font-display)] text-[28px] leading-9 md:text-[44px] md:leading-[48px] font-bold text-primary">
           {headerLabel}
@@ -170,13 +170,11 @@ export default async function PlayDayPage({
           <SectionTitle isHebrew={isHebrew}>
             <span className="inline-flex items-center gap-2">
               <Stamp className="h-5 w-5 text-tertiary-fixed-dim" strokeWidth={1.75} />
-              {isHebrew ? "הימורים על כל היום" : "Day-wide bets"}
+              {dict.live.dayWideTitle}
             </span>
           </SectionTitle>
           <p className="text-sm text-on-surface-variant -mt-1">
-            {isHebrew
-              ? "ההימורים האלה מתייחסים לסכום של כל משחקי היום, לא למשחק יחיד."
-              : "These bets aggregate across all of today's matches."}
+            {dict.live.dayWideHint}
           </p>
           <div className="flex flex-col gap-3">
             {dayBets.map((b) => (
@@ -194,9 +192,7 @@ export default async function PlayDayPage({
 
       {dayBets.length === 0 && matchBets.length === 0 && (
         <Card className="p-6 text-center text-on-surface-variant">
-          {isHebrew
-            ? "האדמין עוד לא פרסם הימורים מותאמים ליום הזה. בדוק שוב קרוב יותר לפתיחה."
-            : "The admin hasn't published custom bets for this day yet. Check back closer to kickoff."}
+          {dict.live.emptyDay}
         </Card>
       )}
     </section>

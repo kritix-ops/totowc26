@@ -7,6 +7,7 @@ import {
   BookOpen,
   Coins,
   ListChecks,
+  Sparkles,
   Target,
   Trophy,
   Wallet,
@@ -131,6 +132,13 @@ export default async function RulesPage({
         <p className="text-sm text-on-surface-variant">
           {dict.rules.scoringExtras}
         </p>
+      </RuleSection>
+
+      <RuleSection
+        icon={<Sparkles className="h-5 w-5" strokeWidth={1.75} />}
+        title={dict.rules.liveTitle}
+      >
+        <p>{dict.rules.liveBody}</p>
       </RuleSection>
 
       <RuleSection

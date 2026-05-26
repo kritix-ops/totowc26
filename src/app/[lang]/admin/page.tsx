@@ -90,7 +90,7 @@ export default async function AdminPage({
           locale={locale}
           path="admin/bets"
           icon={<Sparkles className="h-5 w-5" strokeWidth={1.75} />}
-          label={isHebrew ? "הימורים מותאמים" : "Custom bets"}
+          label={isHebrew ? "הימורי לייב" : "Live bets"}
         />
         <SectionLink
           locale={locale}
