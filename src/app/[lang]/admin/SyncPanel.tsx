@@ -274,7 +274,7 @@ function RunDetail({ run, isHebrew }: { run: SyncRunRow; isHebrew: boolean }) {
           label={isHebrew ? "הופעל ע״י" : "By"}
           value={
             run.triggeredByName ??
-            (run.source === "cron" ? (isHebrew ? "אוטומטי" : "automatic") : "—")
+            (run.source === "cron" ? (isHebrew ? "אוטומטי" : "automatic") : "-")
           }
         />
         <Field

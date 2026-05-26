@@ -8,7 +8,7 @@
 --   3. Indexes: status_idx + partial-unique (email) WHERE status='pending'
 --   4. settings.public_signup_open boolean (default true)
 --   5. RLS enabled. No INSERT/UPDATE/DELETE policies for anon or
---      authenticated — only the server's superuser-role DB connection
+--      authenticated - only the server's superuser-role DB connection
 --      (Drizzle via DATABASE_URL) writes here, which bypasses RLS by
 --      design. Admin-read policy is added in case a future admin page
 --      switches to the Supabase JS client.
@@ -38,7 +38,7 @@ CREATE TABLE IF NOT EXISTS "signup_requests" (
 );
 --> statement-breakpoint
 
--- 3a) Plain index on status — admin list filters by it constantly.
+-- 3a) Plain index on status - admin list filters by it constantly.
 CREATE INDEX IF NOT EXISTS "signup_requests_status_idx"
   ON "signup_requests" ("status");
 --> statement-breakpoint
@@ -61,7 +61,7 @@ ALTER TABLE "settings"
 -- 5) RLS. Enable with no public policies. The server connects as the
 -- table owner and bypasses RLS for inserts/updates; anon and
 -- authenticated roles have no policy and therefore no access. The admin
--- SELECT policy below is defensive — present so a future admin surface
+-- SELECT policy below is defensive - present so a future admin surface
 -- using the Supabase JS client (anon-key + JWT) can list requests
 -- without rewriting access. Today nothing relies on it.
 ALTER TABLE "signup_requests" ENABLE ROW LEVEL SECURITY;

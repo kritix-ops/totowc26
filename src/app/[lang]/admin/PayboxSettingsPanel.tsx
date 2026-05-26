@@ -70,8 +70,8 @@ export function PayboxSettingsPanel({
           </SectionHeading>
           <p className="text-sm text-on-surface-variant">
             {isHebrew
-              ? "הקישור שמופיע בכפתור 'פתח את קבוצת Paybox' אצל כל המשתתפים. שנה כאן ושמור — אין צורך לפרוס מחדש."
-              : "The URL behind the 'Open Paybox group' button for every player. Edit and save here — no redeploy needed."}
+              ? "הקישור שמופיע בכפתור 'פתח את קבוצת Paybox' אצל כל המשתתפים. שנה כאן ושמור - אין צורך לפרוס מחדש."
+              : "The URL behind the 'Open Paybox group' button for every player. Edit and save here - no redeploy needed."}
           </p>
         </div>
       </div>

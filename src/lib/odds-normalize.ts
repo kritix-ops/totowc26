@@ -2,16 +2,16 @@
 // point system uses.
 //
 // Inputs:
-//   decimalOdds  — what the bookmaker pays per unit staked. 2.50 means
+//   decimalOdds  - what the bookmaker pays per unit staked. 2.50 means
 //                  bet 1 unit, win 2.50 units (1.50 profit on a win).
-//   config       — the three settings.liveOdds* knobs (admin tunable).
+//   config       - the three settings.liveOdds* knobs (admin tunable).
 //
 // Output:
-//   { stake, payout } — integer stake the user puts down and integer
+//   { stake, payout } - integer stake the user puts down and integer
 //                       gross payout (stake + winnings) when the bet
 //                       resolves correctly. Net change is payout − stake.
 //
-// Pure function — no side effects, no DB calls, no fetch. Safe to run
+// Pure function - no side effects, no DB calls, no fetch. Safe to run
 // in client OR server contexts. Tests can call it directly with
 // hard-coded inputs.
 //
@@ -27,7 +27,7 @@ export type OddsNormConfig = {
   maxPayout: number;
   // Percentage trimmed off the bookmaker's raw payout. Default 5.
   // Builds in a small house edge so the pool's expected value sums to
-  // less than 100% over many bets — keeps the bank from inflating.
+  // less than 100% over many bets - keeps the bank from inflating.
   houseEdgePct: number;
 };
 

@@ -76,7 +76,7 @@ try {
       const correctOutcome = outcome(b.home_score, b.away_score) === actualOutcome;
       const points = exact ? wExact : correctOutcome ? wOutcome : 0;
 
-      // Side bets — only score when the user actually placed that bet.
+      // Side bets - only score when the user actually placed that bet.
       let pointsBtts = null;
       if (b.bet_btts !== null) {
         pointsBtts = b.bet_btts === actualBtts ? wBtts : 0;

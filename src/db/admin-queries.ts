@@ -123,7 +123,7 @@ export type AdminCustomBetRow = {
   createdAt: string;
 };
 
-// List all custom bets for the admin surface. Filterable by status/scope —
+// List all custom bets for the admin surface. Filterable by status/scope -
 // passing null on a filter means "no filter on this dimension".
 export async function listCustomBets(opts: {
   status?: AdminCustomBetRow["status"] | null;
@@ -289,7 +289,7 @@ export async function getAdminCustomBetDetail(
   };
 }
 
-// Matches that haven't kicked off yet — used by the admin form when scope
+// Matches that haven't kicked off yet - used by the admin form when scope
 // is "match" or "day" (the matchday anchor derives from the match's date).
 export type AdminAnchorMatch = {
   id: string;

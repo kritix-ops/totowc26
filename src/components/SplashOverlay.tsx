@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 
 // Full-screen poster shown during the first paint of a cold load. Server-
-// rendered so it lands on screen alongside the initial HTML — on Android,
+// rendered so it lands on screen alongside the initial HTML - on Android,
 // where the OS splash can't be customised, this covers the gap between
 // the OS splash dismissing and the app becoming interactive. On iOS,
 // `apple-touch-startup-image` (configured in the root layout) already
@@ -40,7 +40,7 @@ export function SplashOverlay({ locale }: { locale: "he" | "en" }) {
 
     function onLoad() {
       // Defer one frame so the new page paints under the overlay before we
-      // start fading — avoids a flash of "empty app" between overlay and
+      // start fading - avoids a flash of "empty app" between overlay and
       // content.
       fadeTimer = window.requestAnimationFrame(() => {
         fadeTimer = window.setTimeout(beginFade, 50);
@@ -89,8 +89,8 @@ export function SplashOverlay({ locale }: { locale: "he" | "en" }) {
     >
       {/* Use a plain img so the asset starts loading with the first HTML
           chunk and the browser doesn't wait on Next/Image's optimisation
-          pipeline. `object-contain` keeps the full poster — including the
-          brand strip — visible inside any viewport (tall phones letterbox
+          pipeline. `object-contain` keeps the full poster - including the
+          brand strip - visible inside any viewport (tall phones letterbox
           with cream above/below, tablets letterbox on the sides). */}
       <img
         src={src}

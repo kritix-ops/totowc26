@@ -1,19 +1,19 @@
 import "server-only";
 
-// API-Football data wrappers — slow-moving stuff that powers the
+// API-Football data wrappers - slow-moving stuff that powers the
 // "World Cup zone" pages (squads, top scorers, team stats, recent
 // fixtures). Kept in a separate file from src/lib/api-football.ts so
 // the live-grading wrapper and the odds wrapper (PR 2 of the betting
 // overhaul) can iterate independently without merge churn.
 //
 // Every export here returns null (not throws) when API_FOOTBALL_KEY is
-// missing or the upstream call fails — so the World Cup zone pages can
+// missing or the upstream call fails - so the World Cup zone pages can
 // render an empty-state card and the rest of the app stays alive.
 //
 // Caching: callers pass `next.revalidate` to fetch; the SSR pages set
 // 3600s (1 hour) by default for tournament-wide endpoints and 86400s
 // (24 hours) for slowly-changing team metadata. Budget headroom is
-// large — see _plans/2026-05-25-matchday-custom-bets-system.md §6.5
+// large - see _plans/2026-05-25-matchday-custom-bets-system.md §6.5
 // and the activation notes.
 
 const BASE = "https://v3.football.api-sports.io";

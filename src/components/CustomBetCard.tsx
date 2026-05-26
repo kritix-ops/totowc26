@@ -120,7 +120,7 @@ export function CustomBetCard({
         </div>
       </div>
 
-      {/* Grading rule — the contract */}
+      {/* Grading rule - the contract */}
       <div className="flex items-start gap-2 text-xs md:text-sm text-on-surface-variant bg-surface-container-low border border-outline-variant rounded p-3">
         <Info className="h-4 w-4 shrink-0 mt-0.5" strokeWidth={2} />
         <p className="flex-1">
@@ -286,7 +286,7 @@ function AnswerWidget({
               });
             }}
             disabled={disabled}
-            placeholder="—"
+            placeholder="-"
             className="w-20 h-14 text-center font-[family-name:var(--font-score)] text-3xl font-bold bg-[#1C140F] border-2 border-outline rounded text-[#FBF6EB] focus:outline-none placeholder:text-[#FBF6EB]/40 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none disabled:opacity-60 tabular-nums"
             dir="ltr"
           />

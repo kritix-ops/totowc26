@@ -1,4 +1,4 @@
-// Shared types for the custom-bets system. Pure types, no runtime — safe to
+// Shared types for the custom-bets system. Pure types, no runtime - safe to
 // import from server and client components. See
 // _plans/2026-05-25-matchday-custom-bets-system.md §4.8 for the full design.
 //
@@ -52,12 +52,12 @@ export type AnswerConfig =
 // Grading config tells the auto-grading pipeline where to read the resolved
 // value from. `null` means manual: admin types it in.
 //
-// auto_api_football  — pull from the API-Football v3 /fixtures/statistics
+// auto_api_football  - pull from the API-Football v3 /fixtures/statistics
 //                      endpoint. `stat` is one of the stat keys returned
 //                      by their API (see fields below). `aggregate` picks
 //                      how to combine across the matches covered by the
 //                      bet's scope.
-// auto_football_data — pull from the football-data API result we already
+// auto_football_data - pull from the football-data API result we already
 //                      store on matches (home_score, away_score, ht_*).
 export type AutoApiFootballStat =
   | "corners"
@@ -108,5 +108,5 @@ export type ResolvedValue =
   | ResolvedMultiChoice
   | ResolvedFreeText;
 
-// A user's pick is identical in shape to a resolved value — same union.
+// A user's pick is identical in shape to a resolved value - same union.
 export type PickAnswer = ResolvedValue;

@@ -256,14 +256,14 @@ function renderAnswer(
   isHebrew: boolean,
 ): string {
   if (!answer || typeof answer !== "object") {
-    return isHebrew ? "—" : "—";
+    return isHebrew ? "-" : "-";
   }
   const a = answer as { type?: string; value?: unknown };
   if (a.type === "yes_no") {
     return a.value ? (isHebrew ? "כן" : "Yes") : (isHebrew ? "לא" : "No");
   }
   if (a.type === "number") {
-    return String(a.value ?? "—");
+    return String(a.value ?? "-");
   }
   if (a.type === "multi_choice" && typeof a.value === "string") {
     const c = config as { options?: Array<{ value: string; labelHe: string; labelEn: string }> } | null;
@@ -274,5 +274,5 @@ function renderAnswer(
   if (a.type === "free_text" && typeof a.value === "string") {
     return a.value;
   }
-  return "—";
+  return "-";
 }

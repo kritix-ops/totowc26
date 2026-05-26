@@ -184,7 +184,7 @@ export function BetForm({
   // ---- Lock time ----
   // suggestDefaultLockAt reads Date.now() in its fallback branch, so the
   // React lint rule won't let us wrap this in useMemo. Compute it inline
-  // every render — it's a few field reads, not expensive — and rely on
+  // every render - it's a few field reads, not expensive - and rely on
   // the `lockTouched` flag below to avoid stomping admin's manual input.
   const defaultLockAt = initialBet?.lockAt
     ? toLocalDateTimeInputValue(new Date(initialBet.lockAt))
@@ -318,7 +318,7 @@ export function BetForm({
               <option key={m.id} value={m.id}>
                 {isHebrew ? m.homeNameHe : m.homeNameEn} vs{" "}
                 {isHebrew ? m.awayNameHe : m.awayNameEn}
-                {" — "}
+                {" - "}
                 {new Date(m.kickoffAt).toLocaleString(
                   isHebrew ? "he-IL" : "en-GB",
                   { timeZone: "Asia/Jerusalem", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" },
@@ -348,7 +348,7 @@ export function BetForm({
                     isHebrew ? "he-IL" : "en-GB",
                     { timeZone: "Asia/Jerusalem", weekday: "long", day: "numeric", month: "long" },
                   )}
-                  {" — "}
+                  {" - "}
                   {d.matchCount} {isHebrew ? "משחקים" : "matches"}
                 </option>
               ))}
@@ -423,8 +423,8 @@ export function BetForm({
       <Section
         title={isHebrew ? "איך מודדים את התשובה?" : "How is this graded?"}
         hint={isHebrew
-          ? "משפט אחד שאי-אפשר לפרש לרעה. מופיע לשחקנים לפני שהם מהמרים — זה המקום למנוע ויכוחים."
-          : "One sentence that can't be misread. Shown to players before they stake — this is where you prevent fights."}
+          ? "משפט אחד שאי-אפשר לפרש לרעה. מופיע לשחקנים לפני שהם מהמרים - זה המקום למנוע ויכוחים."
+          : "One sentence that can't be misread. Shown to players before they stake - this is where you prevent fights."}
       >
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <LabeledTextarea

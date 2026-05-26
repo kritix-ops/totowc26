@@ -119,7 +119,7 @@ export function GradeForm({
         </p>
       )}
 
-      {/* Answer widget — same shape as the player's, but with the admin
+      {/* Answer widget - same shape as the player's, but with the admin
           entering the official resolved value. */}
       <ResolvedValueInput
         locale={locale}
@@ -130,7 +130,7 @@ export function GradeForm({
         disabled={pending || canReverse}
       />
 
-      {/* Reason — required for both grade and reverse. The DB constraint
+      {/* Reason - required for both grade and reverse. The DB constraint
           enforces ≥3 chars; we mirror it client-side for a friendlier UX. */}
       <div className="flex flex-col gap-1.5">
         <LabelCaps>{isHebrew ? "סיבה / הערה" : "Reason / note"}</LabelCaps>
@@ -149,7 +149,7 @@ export function GradeForm({
         />
         <p className="text-xs text-on-surface-variant">
           {isHebrew
-            ? "נשמר באודיט פנימי. אל תכתוב מידע אישי — הטקסט נשמר לעד."
+            ? "נשמר באודיט פנימי. אל תכתוב מידע אישי - הטקסט נשמר לעד."
             : "Saved in the internal audit log. Do not enter personal info."}
         </p>
       </div>
@@ -292,7 +292,7 @@ function ResolvedValueInput({
             });
           }}
           disabled={disabled}
-          placeholder="—"
+          placeholder="-"
           className="w-24 h-14 text-center font-[family-name:var(--font-score)] text-3xl font-bold bg-[#1C140F] border-2 border-outline rounded text-[#FBF6EB] focus:outline-none placeholder:text-[#FBF6EB]/40 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none disabled:opacity-60 tabular-nums"
           dir="ltr"
         />

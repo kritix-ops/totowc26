@@ -23,7 +23,7 @@ export function UserSignupConfirmation({ displayName }: Props) {
           <Heading style={styles.heading}>שלום {displayName} 👋</Heading>
           <Text style={styles.paragraph}>
             קיבלנו את הבקשה שלך להצטרף לטוטו מונדיאל. הבקשה ממתינה עכשיו לאישור
-            של מנהל הקבוצה — נחזור אליך במייל ברגע שתאושר.
+            של מנהל הקבוצה - נחזור אליך במייל ברגע שתאושר.
           </Text>
           <Text style={styles.paragraph}>
             אין צורך לעשות שום דבר נוסף בינתיים. אם הגעת לכאן בטעות, אפשר להתעלם

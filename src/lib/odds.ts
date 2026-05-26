@@ -25,7 +25,7 @@ import "server-only";
 
 const BASE = "https://v3.football.api-sports.io";
 
-// Bet365 — chosen as the default odds source per the plan §6.2.
+// Bet365 - chosen as the default odds source per the plan §6.2.
 // Stable across seasons. Documented at api-football.com/documentation-v3
 // under the bookmakers endpoint.
 export const DEFAULT_BOOKMAKER_ID = 8;
@@ -51,13 +51,13 @@ export type MarketOdds = {
 // fixture, normalised into MarketOdds[].
 //
 // Returns:
-//   • null   — API_FOOTBALL_KEY unset, network error, or 4xx/5xx response.
+//   • null   - API_FOOTBALL_KEY unset, network error, or 4xx/5xx response.
 //              Caller should treat it as "try again later" and show the
 //              admin a non-blocking warning.
-//   • []     — request succeeded but the bookmaker has no markets for
+//   • []     - request succeeded but the bookmaker has no markets for
 //              this fixture yet (typical for fixtures > 14 days out).
 //              Caller should render an empty state, not an error.
-//   • MarketOdds[] — markets ready to display.
+//   • MarketOdds[] - markets ready to display.
 export async function fetchOddsForFixture(
   apiFootballFixtureId: number,
   bookmakerId: number = DEFAULT_BOOKMAKER_ID,

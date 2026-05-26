@@ -11,7 +11,7 @@
 -- /fixtures?league=15&season=2026 and back-fills the column for every
 -- World Cup fixture. Until that runs, the column stays null and
 -- scoreAutoCustomBets short-circuits the api_football branch for each
--- match — bets queue for manual grading, same as if the API key wasn't
+-- match - bets queue for manual grading, same as if the API key wasn't
 -- set.
 
 ALTER TABLE "matches"

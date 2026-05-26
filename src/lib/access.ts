@@ -11,7 +11,7 @@ export type UserAccess = {
   canEdit: boolean;
   // When non-null, this user is actually an admin currently impersonating
   // a player role for preview. UI uses it to render the "viewing as"
-  // banner; server actions don't need it — `canEdit` already reflects the
+  // banner; server actions don't need it - `canEdit` already reflects the
   // impersonated state.
   viewingAs: ViewAsRole | null;
 };
@@ -29,7 +29,7 @@ const NO_ACCESS: UserAccess = {
 //
 // Impersonation: if the caller is an admin AND the view-as cookie is set,
 // we return the IMPERSONATED access shape. The real-admin role is hidden
-// (isAdmin=false) so server actions go through the player path — that's
+// (isAdmin=false) so server actions go through the player path - that's
 // the whole point of the preview.
 export const getUserAccess = cache(async (userId: string | null | undefined): Promise<UserAccess> => {
   if (!userId) return NO_ACCESS;

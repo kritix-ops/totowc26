@@ -7,19 +7,19 @@ import { profiles, settings } from "@/db/schema";
 import { getUser } from "@/lib/supabase/auth";
 
 // Surface for the admin /admin/settings/scoring page. Carries:
-//   • startingBank — every new player's opening points
-//   • scoringExact / scoringOutcome — main 1/X/2 payouts
-//   • matchRiskEnabled / matchRiskPenalty — turns wrong picks into a
+//   • startingBank - every new player's opening points
+//   • scoringExact / scoringOutcome - main 1/X/2 payouts
+//   • matchRiskEnabled / matchRiskPenalty - turns wrong picks into a
 //     net negative; off by default so the pool is pure-upside
-//   • dailyRenewalEnabled / dailyRenewalAmount — admin-opt-in bank top-up
-//   • duelMaxStake / duelDefaultJoinWindowHours — 1v1 duel limits
-//   • liveOdds* — knobs converting bookmaker odds into our stake/payout
+//   • dailyRenewalEnabled / dailyRenewalAmount - admin-opt-in bank top-up
+//   • duelMaxStake / duelDefaultJoinWindowHours - 1v1 duel limits
+//   • liveOdds* - knobs converting bookmaker odds into our stake/payout
 //   • stake*/payout* per custom-bet answer type (defaults the admin can
 //     override per bet at creation)
 //   • prizeKing* / prizeMatchesWinnerPct / prizeLiveWinnerPct /
-//     prizeDuelsWinnerPct / prizeReservePct — 7-way prize split (must
+//     prizeDuelsWinnerPct / prizeReservePct - 7-way prize split (must
 //     sum to 100)
-//   • prizePct1..4 — legacy top-4 split (kept until PR 5 swaps the UI;
+//   • prizePct1..4 - legacy top-4 split (kept until PR 5 swaps the UI;
 //     allowed to be ≤ 100 to preserve the existing fractional-reserve
 //     semantics)
 export type ScoringPayload = {
@@ -163,7 +163,7 @@ export async function saveScoringSettings(
   }
 
   // 7-way category split: each ≤ 100, sum MUST be exactly 100 (the DB
-  // has a CHECK constraint mirroring this — the client also enforces
+  // has a CHECK constraint mirroring this - the client also enforces
   // it via a disabled save button so the user sees the delta).
   const categorySum =
     payload.prizeKingFirstPct +

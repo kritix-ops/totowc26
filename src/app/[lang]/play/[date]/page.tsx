@@ -41,7 +41,7 @@ export default async function PlayDayPage({
   // Compute "is this bet still editable?" once on the server so the
   // CustomBetCard client component doesn't have to call Date.now() during
   // its render (the rule flags it for client components). Server components
-  // run once per request, so reading the current time here is intentional —
+  // run once per request, so reading the current time here is intentional -
   // hence the targeted disable.
   // eslint-disable-next-line react-hooks/purity
   const nowMs = Date.now();

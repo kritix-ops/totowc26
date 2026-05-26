@@ -62,7 +62,7 @@ export async function generateMetadata({
   // Per-locale apple-touch-startup-image entries. Falls back to Hebrew if
   // the English source poster hasn't been generated yet, since iOS' choice
   // of splash is tied to whichever document the user added to home-screen
-  // from — an English installer with no English splash is better off with
+  // from - an English installer with no English splash is better off with
   // Hebrew letterboxing than a blank white screen.
   const startupImage =
     APPLE_SPLASH_SCREENS[locale]?.length > 0

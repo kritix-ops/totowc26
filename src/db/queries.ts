@@ -124,15 +124,15 @@ export type LeaderboardTab = "overall" | "matches" | "live" | "duels";
 
 // Per-tab leaderboard. The four tabs match the betting surfaces:
 //
-//   overall  — full bank balance (starting + match payouts + live net +
+//   overall  - full bank balance (starting + match payouts + live net +
 //              duel delta + admin adjustments). Tie-break: fewest wasted
 //              stakes (highest hit rate) then display_name.
-//   matches  — Σ match_bets.points_earned only. Tie-break: count of
+//   matches  - Σ match_bets.points_earned only. Tie-break: count of
 //              exact-score hits desc.
-//   live     — Σ user_custom_bet_picks.points_earned − Σ stake_paid.
+//   live     - Σ user_custom_bet_picks.points_earned − Σ stake_paid.
 //              Tie-break: total stakes paid asc (fewer stakes = more
 //              efficient hits).
-//   duels    — Σ duel-delta only (see src/lib/bank.ts §7.3 for the
+//   duels    - Σ duel-delta only (see src/lib/bank.ts §7.3 for the
 //              CASE rules). Tie-break: count of duels participated desc.
 //
 // All four return the same LeaderboardEntry shape so the UI doesn't
@@ -410,7 +410,7 @@ export type ProfileStats = {
 };
 
 export async function getProfileStats(userId: string): Promise<ProfileStats> {
-  // total_points is the user's current bank balance — same number that ranks
+  // total_points is the user's current bank balance - same number that ranks
   // them on the leaderboard. Other metrics (bets_placed, exact_count, ...)
   // stay tied to match_bets since they describe match-pick behaviour only.
   const rows = await db.execute<{
@@ -570,7 +570,7 @@ export function localizedTeam(
 // Derived in pure SQL from finished group-stage matches. Row order follows
 // FIFA group-stage tiebreakers: points DESC, goal difference DESC, goals for
 // DESC, then team name as a stable final tiebreak. We deliberately stop at
-// GF — the remaining tiebreakers (head-to-head + drawing of lots) are rare
+// GF - the remaining tiebreakers (head-to-head + drawing of lots) are rare
 // enough that the admin can resolve manually if it ever happens.
 
 export type LiveStandingRow = {
@@ -843,7 +843,7 @@ export async function getHeadToHead(a: string, b: string): Promise<H2HMatch[]> {
 //
 // Used by the landing/dashboard hero card. The pot is the sum of all
 // approved entry-fee payments; the player count is how many distinct users
-// have an approved payment (i.e. paid in). Both numbers must be live — the
+// have an approved payment (i.e. paid in). Both numbers must be live - the
 // hero card never shows a placeholder.
 
 export type PoolStats = {
@@ -1066,17 +1066,17 @@ export async function getBankHistory(userId: string): Promise<BankEvent[]> {
   return rows as unknown as BankEvent[];
 }
 
-// ---------- Custom bets — player surfaces ----------
+// ---------- Custom bets - player surfaces ----------
 //
 // Three queries power the play pages:
-//   listOpenPlayDays   → /play index — every date that has at least one open
+//   listOpenPlayDays   → /play index - every date that has at least one open
 //                        custom bet, plus the day's match count + a 1‑line
 //                        fixtures preview so the card is informative.
-//   getPlayDayDetail   → /play/[date] — the fixtures + every open custom bet
+//   getPlayDayDetail   → /play/[date] - the fixtures + every open custom bet
 //                        that targets that day (scope='day' OR scope='match'
 //                        anchored on a match that day), with the caller's
 //                        current pick (if any) folded onto each bet row.
-//   getOpenTournamentBetCount / getOpenGroupBetCount — counters for the
+//   getOpenTournamentBetCount / getOpenGroupBetCount - counters for the
 //                        pinned tournament / groups cards on the index.
 
 export type PlayDayRow = {
@@ -1160,7 +1160,7 @@ export type PlayBetRow = {
   gradingRuleHe: string;
   gradingRuleEn: string;
   answerType: "yes_no" | "number" | "multi_choice" | "free_text";
-  answerConfig: unknown;            // raw JSONB — caller casts via AnswerConfig
+  answerConfig: unknown;            // raw JSONB - caller casts via AnswerConfig
   stakeSnapshot: number;
   payoutSnapshot: number;
   lockAt: string;
@@ -1376,7 +1376,7 @@ export async function getGroupPlayBets(
   return rows as unknown as GroupPlayBetRow[];
 }
 
-// Counters for the pinned cards on /play. Cheap — single index scan each.
+// Counters for the pinned cards on /play. Cheap - single index scan each.
 export async function getOpenTournamentBetCount(): Promise<number> {
   const rows = await db.execute<{ n: number }>(sql`
     select count(*)::int as n
@@ -1397,7 +1397,7 @@ export async function getOpenGroupBetCount(): Promise<number> {
   return (rows as unknown as Array<{ n: number }>)[0]?.n ?? 0;
 }
 
-// Earliest scheduled match kickoff — i.e. when the tournament starts. Used
+// Earliest scheduled match kickoff - i.e. when the tournament starts. Used
 // by the landing hero countdown. Returns null if no fixtures have been
 // seeded yet, in which case the caller should hide the countdown rather
 // than show a placeholder.
@@ -1589,7 +1589,7 @@ export async function getTransparencyUsers(): Promise<
 //
 // Splits earnings into the three surfaces (matches / live / duels)
 // plus accuracy counters. Every value is computed live from the
-// source tables — no materialised cache — so the numbers always
+// source tables - no materialised cache - so the numbers always
 // reflect the same balance the leaderboard uses.
 
 export type BankStats = {

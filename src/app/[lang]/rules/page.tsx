@@ -36,7 +36,7 @@ export default async function RulesPage({
   const locale = lang as Locale;
   const dict = await getDictionary(locale);
   const isHebrew = locale === "he";
-  // The page is public — guests browsing the landing should be able to
+  // The page is public - guests browsing the landing should be able to
   // read what they would be signing up for. We still fetch the live
   // prize breakdown so signed-in players see today's pot amounts, and
   // the live scoring config so the page never drifts from the source
@@ -323,12 +323,12 @@ const PAGE_GUIDE: Array<{
     path: "bets",
     icon: <ListChecks className="h-5 w-5" strokeWidth={1.75} />,
     he: {
-      name: "מילוי מהיר",
-      desc: "רשימה של כל המשחקים שעוד אפשר להמר עליהם. ממלאים תוצאה ולוחצים שמור בלי להיכנס לעמוד נפרד לכל משחק.",
+      name: "ניחושי משחקים",
+      desc: "המקום הראשי שבו ממלאים תוצאות לכל משחקי המונדיאל. רשימה אחת של כל המשחקים שעוד אפשר להמר עליהם, ממלאים תוצאה ולוחצים שמור.",
     },
     en: {
-      name: "Quick picks",
-      desc: "The full list of matches still open for picks. Fill the score and save without opening a separate page per match.",
+      name: "Match picks",
+      desc: "The main place to fill match results for the whole tournament. One list of every match still open for picks. Fill the score and save.",
     },
   },
   {
@@ -336,11 +336,11 @@ const PAGE_GUIDE: Array<{
     icon: <Sparkles className="h-5 w-5" strokeWidth={1.75} />,
     he: {
       name: "הימורי לייב",
-      desc: "ההימורים שהאדמין פותח לכל יום משחקים. מסכנים נקודות ומקבלים תשלום אם צודקים.",
+      desc: "הימורי בונוס נפרדים שהאדמין פותח לכל יום משחקים, כמו 'יבקעו יותר מ-3 שערים' או 'יהיו פנדלים'. שונה לחלוטין מניחושי משחקים.",
     },
     en: {
       name: "Live bets",
-      desc: "Custom bets the admin opens for each match day. Stake points and get paid out when you are right.",
+      desc: "Bonus bets the admin opens for each match day, like 'more than 3 goals will be scored' or 'penalties will be taken'. Completely separate from match picks.",
     },
   },
   {

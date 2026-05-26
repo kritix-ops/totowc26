@@ -37,7 +37,7 @@ type Err =
 
 export type CreateCustomBetInput = {
   scope: "match" | "day" | "stage" | "group" | "tournament";
-  // Anchor IDs — exactly the set required by `scope` must be provided.
+  // Anchor IDs - exactly the set required by `scope` must be provided.
   matchId?: string | null;
   // Day-scope can either anchor on a YYYY-MM-DD date (Asia/Jerusalem) or
   // on the matchday derived from `matchId` (server figures it out).
@@ -673,8 +673,8 @@ export type ReverseGradingResult =
 
 // Undo a grading. Sets each pick's points_earned back to NULL (and clears
 // was_correct), flips bet status → 'reversed', clears resolved_value, and
-// inserts an audit row. The picks' stake_paid is preserved — only the
-// payout is reversed — so the bank formula naturally re-debits the stakes
+// inserts an audit row. The picks' stake_paid is preserved - only the
+// payout is reversed - so the bank formula naturally re-debits the stakes
 // when payouts disappear.
 export async function reverseCustomBetGrading(
   id: string,

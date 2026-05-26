@@ -50,7 +50,7 @@ AS $$
 $$;
 --> statement-breakpoint
 
--- 4) Settings is a singleton — enforce id = 1.
+-- 4) Settings is a singleton - enforce id = 1.
 ALTER TABLE "settings" ADD CONSTRAINT settings_singleton CHECK (id = 1);
 --> statement-breakpoint
 

@@ -10,14 +10,14 @@ import { isAdmin } from "@/lib/admin";
 // Server actions for the admin "Live bet suggestions" page.
 //
 // Two action surfaces:
-//   1) publishSuggestion — turn one bookmaker market+selection into an
+//   1) publishSuggestion - turn one bookmaker market+selection into an
 //      open custom_bets row. We publish straight to status='open' so the
 //      bet appears on /play/[date] without a separate "publish" step.
-//      Grading source is 'manual' for v1 — the admin grades the bet
+//      Grading source is 'manual' for v1 - the admin grades the bet
 //      after the match via the existing /admin/bets/[id]/grade flow.
 //      Auto-grading for binary markets (BTTS, Over/Under N goals) can
 //      land in a follow-up PR by extending sync.ts.
-//   2) refreshOddsForFixture — bust the cached fetch in src/lib/odds.ts
+//   2) refreshOddsForFixture - bust the cached fetch in src/lib/odds.ts
 //      for one fixture so the next page render pulls fresh odds.
 
 type Err =
@@ -33,7 +33,7 @@ export type PublishSuggestionInput = {
   // Identifier for the market+selection, used in the question text.
   marketName: string;
   selectionLabel: string;
-  // The decimal odds we showed the admin — kept for audit if we later
+  // The decimal odds we showed the admin - kept for audit if we later
   // want to graph how published payouts diverged from book odds.
   decimalOdds: number;
   // The stake / payout the admin saw on the row. The server re-asserts
@@ -44,7 +44,7 @@ export type PublishSuggestionInput = {
   // page so the admin can lightly edit them inline before publishing.
   questionHe: string;
   questionEn: string;
-  // Grading rule — same dual-locale requirement as custom_bets.
+  // Grading rule - same dual-locale requirement as custom_bets.
   gradingRuleHe: string;
   gradingRuleEn: string;
 };
@@ -149,7 +149,7 @@ export async function publishSuggestion(
 // Force the page to refetch odds for one fixture. The /odds wrapper
 // caches for 60s via next.revalidate; revalidatePath busts the whole
 // route's fetch cache. matchId is logged for observability but not
-// currently used to scope the invalidation — a future revalidateTag
+// currently used to scope the invalidation - a future revalidateTag
 // hook can tighten this when we tag the fetches per fixture.
 export async function refreshOddsForFixture(
   matchId: string,

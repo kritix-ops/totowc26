@@ -3,7 +3,7 @@ import "server-only";
 import type { Locale } from "@/app/[lang]/dictionaries";
 
 // Hand-rolled RSS 2.0 reader for the tournament News tab. Three feeds,
-// three slightly different item shapes — keeping the parser local means
+// three slightly different item shapes - keeping the parser local means
 // no extra dependency and a tiny attack surface (rule 13). Server-only:
 // runs inside the Next runtime, never on the client.
 
@@ -51,7 +51,7 @@ const MIN_TAG_URLS_TO_TRUST = 5;
 // those boundaries and extract title/link/date/image per block, so
 // adding or removing a variant in the future never bleeds one card's
 // fields into another. We deliberately keep only blocks whose title
-// sits inside a slotTitle <span> — that excludes the page's "תוכן
+// sits inside a slotTitle <span> - that excludes the page's "תוכן
 // גולשים" sidebar widgets, which use a plain anchor with no span and
 // are not Mundial articles.
 const YNET_MUNDIAL_TAG_URL =
@@ -67,7 +67,7 @@ const YNET_IMG_RE = /<img\s+[^>]*src="([^"]+)"/;
 // Ynet articles carry their primary category in the URL path
 // (/sport/<category>/article/<id>). The Mundial-2026 tag page also
 // mixes in editorially-curated "trending" sports articles that aren't
-// actually tagged Mundial at all — verified by fetching the articles
+// actually tagged Mundial at all - verified by fetching the articles
 // directly (zero "מונדיאל" mentions in their own body). So we do two
 // passes: (1) drop articles whose primary category is clearly off-
 // topic by URL path, (2) fetch each remaining article and require at
@@ -263,7 +263,7 @@ async function fetchYnetMundialArticles(): Promise<NewsItem[]> {
     const seen = new Set<string>();
     let droppedByPath = 0;
     // Use a local copy of the boundary regex to keep state across calls
-    // safe — the YNET_SLOT_BOUNDARY constant is /g and stateful.
+    // safe - the YNET_SLOT_BOUNDARY constant is /g and stateful.
     const boundary = new RegExp(YNET_SLOT_BOUNDARY.source, "g");
     let block: RegExpExecArray | null;
     while ((block = boundary.exec(html)) !== null) {

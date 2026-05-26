@@ -12,7 +12,7 @@ import type { H2HMatch } from "@/db/queries";
 //
 // In the World Cup specifically, two teams play each other at most once in
 // the group stage and then potentially again in the knockout bracket. So in
-// practice this list is rarely more than one or two rows — exactly the
+// practice this list is rarely more than one or two rows - exactly the
 // situations where seeing the prior result actually matters.
 
 export function HeadToHead({

@@ -35,7 +35,7 @@ export function PublicSignupSettingsPanel({
     if (next === open) return;
     setError(null);
     setSaved(false);
-    // Optimistic — flip the visual state immediately so the switch feels
+    // Optimistic - flip the visual state immediately so the switch feels
     // instant; if the server rejects, we revert.
     setOpen(next);
     startTransition(async () => {
@@ -86,11 +86,11 @@ export function PublicSignupSettingsPanel({
         <LabelCaps>
           {isHebrew
             ? open
-              ? "פתוח — מקבל בקשות"
-              : "סגור — בקשות לא מתקבלות"
+              ? "פתוח - מקבל בקשות"
+              : "סגור - בקשות לא מתקבלות"
             : open
-              ? "Open — accepting requests"
-              : "Closed — requests blocked"}
+              ? "Open - accepting requests"
+              : "Closed - requests blocked"}
         </LabelCaps>
       </div>
 
@@ -139,7 +139,7 @@ function Toggle({
         aria-hidden
         className={clsx(
           "inline-block w-6 h-6 bg-surface rounded-full shadow transition-transform",
-          // RTL flips left/right — knob travel direction stays "from off
+          // RTL flips left/right - knob travel direction stays "from off
           // (start) to on (end)" semantically regardless of locale.
           isHebrew
             ? checked

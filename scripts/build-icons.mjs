@@ -40,7 +40,7 @@ const CREAM = { r: 0xfb, g: 0xf6, b: 0xeb, alpha: 1 };
 
 // RGB distance below which a source pixel counts as "cream background" and
 // gets snapped to the exact CREAM color. Tuned to swallow the paper grain
-// while leaving the ochre trophy (~#C68A2D) and red "26" (~#A13217) intact —
+// while leaving the ochre trophy (~#C68A2D) and red "26" (~#A13217) intact -
 // both sit well past this distance from cream.
 const CREAM_TOLERANCE = 55;
 
@@ -102,7 +102,7 @@ async function flattenedSource() {
 }
 
 // Tight crop: trim the cream margins so the trophy fills the canvas.
-// Sharp's .trim() uses corner-pixel colour as the trim target — perfect for
+// Sharp's .trim() uses corner-pixel colour as the trim target - perfect for
 // the cream background here. Operates on the flattened buffer so the trimmed
 // subject already has a uniform-cream halo around the trophy.
 async function tightCrop(flat) {

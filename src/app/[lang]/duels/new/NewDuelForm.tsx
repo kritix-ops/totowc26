@@ -24,7 +24,7 @@ type Scope = "match" | "day" | "tournament";
 
 // Subset of AutoApiFootballStat exposed in the duel UI. Excludes
 // `possession` and `pass_accuracy` because the combined sum across
-// both teams isn't meaningful — same exclusion already lives in
+// both teams isn't meaningful - same exclusion already lives in
 // api-football.ts' combineStats. Labels mirror the player-facing copy.
 type AutoStat =
   | "corners"
@@ -90,7 +90,7 @@ export function NewDuelForm({
 
   // Optional auto-settle config (only when scope='match'). When the
   // toggle is on, the duel grades automatically from API-Football
-  // stats after the fixture ends. Off by default — most duels are
+  // stats after the fixture ends. Off by default - most duels are
   // narrative questions that need a human read.
   const [autoGradeOn, setAutoGradeOn] = useState(false);
   const [autoGradeStat, setAutoGradeStat] = useState<AutoStat>("corners");
@@ -126,7 +126,7 @@ export function NewDuelForm({
     submitPending: isHebrew ? "פותח..." : "Opening...",
     deadlineHint: isHebrew
       ? `הדדליין להצטרפות נקבע ל-${defaultJoinWindow} שעות (או דקות לפני המשחק - המוקדם מבניהם).`
-      : `Join deadline defaults to ${defaultJoinWindow}h from now or the kickoff — whichever is earlier.`,
+      : `Join deadline defaults to ${defaultJoinWindow}h from now or the kickoff - whichever is earlier.`,
     bankWarning: isHebrew
       ? `הסטייק יינעל בבנק עד שהדו-קרב יוכרע או יבוטל. יתרה נוכחית: ${balance}.`
       : `Your stake is locked in the bank until the duel resolves or cancels. Current balance: ${balance}.`,
@@ -215,7 +215,7 @@ export function NewDuelForm({
               className="h-12 px-3 rounded-lg border border-outline bg-surface-container-lowest text-sm"
               dir="ltr"
             >
-              <option value="">—</option>
+              <option value="">-</option>
               {upcomingMatches.map((m) => (
                 <option key={m.id} value={m.id}>
                   {m.label}
@@ -234,7 +234,7 @@ export function NewDuelForm({
               className="h-12 px-3 rounded-lg border border-outline bg-surface-container-lowest text-sm"
               dir="ltr"
             >
-              <option value="">—</option>
+              <option value="">-</option>
               {upcomingMatchdays.map((d) => (
                 <option key={d.date} value={d.date}>
                   {d.label} · {d.fixtureCount}

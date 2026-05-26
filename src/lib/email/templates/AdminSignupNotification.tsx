@@ -27,7 +27,7 @@ export function AdminSignupNotification({
   return (
     <Html lang="he" dir="rtl">
       <Head />
-      <Preview>{`בקשת הרשמה חדשה — ${displayName}`}</Preview>
+      <Preview>{`בקשת הרשמה חדשה - ${displayName}`}</Preview>
       <Body style={styles.body}>
         <Container style={styles.container}>
           <Heading style={styles.heading}>בקשת הרשמה חדשה</Heading>

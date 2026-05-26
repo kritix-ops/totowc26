@@ -44,7 +44,7 @@ export default async function BankHistoryPage({
         <p className="text-base text-on-surface-variant">
           {isHebrew
             ? "כל תנועה שהשפיעה על הבנק שלך - מתחילה מהיתרה הראשונית, דרך השקעות ותשלומים, ועד התאמות אדמין."
-            : "Every event that touched your bank — from the starting balance through stakes, payouts, and admin adjustments."}
+            : "Every event that touched your bank - from the starting balance through stakes, payouts, and admin adjustments."}
         </p>
       </header>
 
@@ -309,7 +309,7 @@ function StatsCard({ stats, isHebrew }: { stats: BankStats; isHebrew: boolean })
           <StatTile
             label={labels.duelWinRate}
             value={duelWinRate ?? 0}
-            suffix={duelWinRate !== null ? "%" : "—"}
+            suffix={duelWinRate !== null ? "%" : "-"}
           />
         </div>
       )}
@@ -343,8 +343,8 @@ function StatTile({
         <bdi>
           {signed && value > 0 ? "+" : ""}
           {value}
-          {suffix && suffix !== "—" ? suffix : ""}
-          {suffix === "—" ? suffix : ""}
+          {suffix && suffix !== "-" ? suffix : ""}
+          {suffix === "-" ? suffix : ""}
         </bdi>
       </span>
       {subtitle && (

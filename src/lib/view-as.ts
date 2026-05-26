@@ -7,7 +7,7 @@ import { cookies } from "next/headers";
 // the gate and every form pulls from.
 //
 // Safety: this cookie ONLY downgrades an admin's access. A non-admin
-// setting it (via devtools, browser extension, etc.) gains nothing —
+// setting it (via devtools, browser extension, etc.) gains nothing -
 // `getUserAccess` requires admin role before honoring it. There is no
 // path through this cookie that grants extra privileges.
 

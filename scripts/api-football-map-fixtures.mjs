@@ -9,7 +9,7 @@
 //
 // Matching strategy:
 //   1. Compare team 3-letter codes (their `team.code` ↔ our teams.code).
-//      Some federations may report null codes — fall back to name match
+//      Some federations may report null codes - fall back to name match
 //      against teams.name_en.
 //   2. Same Asia/Jerusalem calendar date (kickoff within the same TZ day).
 //

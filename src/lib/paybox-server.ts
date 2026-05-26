@@ -10,7 +10,7 @@ import { PAYBOX_FALLBACK_URL } from "./paybox";
 // importable from Client Components without dragging in `server-only`
 // and the postgres driver.
 //
-// Settings is a singleton (id = 1). Cached per request — the URL is read
+// Settings is a singleton (id = 1). Cached per request - the URL is read
 // on every payment-related page render and we don't want a DB round-trip
 // each time.
 export const getPayboxUrl = cache(async (): Promise<string> => {

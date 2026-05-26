@@ -4,7 +4,6 @@ import {
   Calendar,
   ChevronLeft,
   ChevronRight,
-  ListChecks,
   Sparkles,
   Trophy,
 } from "lucide-react";
@@ -45,37 +44,16 @@ export default async function PlayIndexPage({
     <section className="px-4 md:px-16 py-6 md:py-12 flex flex-col gap-6 md:gap-8 max-w-3xl mx-auto w-full pb-24">
       <header className="flex flex-col gap-2">
         <h1 className="font-[family-name:var(--font-display)] text-[28px] leading-9 md:text-[48px] md:leading-[52px] font-bold text-primary">
-          {isHebrew ? "הימורים" : "Play"}
+          {dict.nav.play}
         </h1>
         <p className="text-sm md:text-base text-on-surface-variant">
           {isHebrew
-            ? "ניחושים יומיים, הימורי בתים והימורי טורניר במקום אחד."
-            : "Daily picks, group bets, and tournament-wide bets in one place."}
+            ? "הימורי בונוס שהאדמין פותח לכל יום משחקים, וגם דירוגי בתים והימורי טורניר. ניחושי משחקים רגילים נמצאים בעמוד \"ניחושי משחקים\"."
+            : "Bonus bets the admin opens for each match day, plus group rankings and tournament bets. Regular match picks live on the \"Match picks\" page."}
         </p>
       </header>
 
       {!access.canEdit && <PayGateBanner locale={locale} dict={dict} />}
-
-      {/* Quick-fill shortcut — full list of upcoming matches one tap away. */}
-      <Link
-        href={localePath(locale, "bets")}
-        className="press-down block"
-      >
-        <Card className="p-4 md:p-5 flex items-center gap-3 hover:bg-surface-container transition-colors bg-primary-fixed border-primary text-on-primary-fixed-variant">
-          <div className="w-10 h-10 rounded-full bg-primary text-on-primary flex items-center justify-center shrink-0">
-            <ListChecks className="h-5 w-5" strokeWidth={1.75} />
-          </div>
-          <div className="flex-1 min-w-0">
-            <span className="block font-[family-name:var(--font-display)] text-base font-bold truncate">
-              {dict.quickBets.title}
-            </span>
-            <span className="block text-xs opacity-80 truncate mt-0.5">
-              {dict.quickBets.subtitle}
-            </span>
-          </div>
-          <Chev className="h-5 w-5 shrink-0" />
-        </Card>
-      </Link>
 
       {/* Pinned: tournament + groups */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

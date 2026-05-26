@@ -43,7 +43,7 @@ export function DuelActions({
   const dict = {
     joinCta: isHebrew
       ? "הצטרף וקח את הצד ההפוך"
-      : "Join — take the opposite side",
+      : "Join - take the opposite side",
     joinSelfBlocked: isHebrew
       ? "אי אפשר להצטרף לדו-קרב שאתה פתחת."
       : "You can't join a duel you opened yourself.",
@@ -58,8 +58,8 @@ export function DuelActions({
     no: isHebrew ? "לא" : "No",
     confirm: isHebrew ? "אשר" : "Confirm",
     notPaid: isHebrew
-      ? "התשלום שלך לא אושר עדיין — אי אפשר להצטרף."
-      : "Your entry payment is not approved yet — you can't join.",
+      ? "התשלום שלך לא אושר עדיין - אי אפשר להצטרף."
+      : "Your entry payment is not approved yet - you can't join.",
     pending: isHebrew ? "שולח..." : "Sending...",
     closedLabel: isHebrew
       ? "ההצטרפות נסגרה. הדו-קרב יתבטל אוטומטית."
@@ -112,7 +112,7 @@ export function DuelActions({
 
   const sections: React.ReactNode[] = [];
 
-  // Join CTA — only when status='open', viewer isn't opener, deadline
+  // Join CTA - only when status='open', viewer isn't opener, deadline
   // not passed, and viewer is paid up.
   if (status === "open" && !iAmOpener && !joinDeadlinePassed) {
     sections.push(
@@ -153,7 +153,7 @@ export function DuelActions({
     );
   }
 
-  // Cancel CTA — opener on open duel, OR admin on any active duel.
+  // Cancel CTA - opener on open duel, OR admin on any active duel.
   const canCancel =
     (status === "open" && iAmOpener) ||
     (isAdmin && (status === "open" || status === "matched"));
@@ -212,7 +212,7 @@ export function DuelActions({
     );
   }
 
-  // Settle CTA — admin only, status='matched'.
+  // Settle CTA - admin only, status='matched'.
   if (isAdmin && status === "matched") {
     sections.push(
       <Card key="settle" className="p-5 md:p-6 flex flex-col gap-3">

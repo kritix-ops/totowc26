@@ -9,7 +9,7 @@
 
 if (!process.env.VERCEL) {
   console.log(
-    "[prebuild] local build — skipping db:migrate. Run `pnpm db:migrate` manually if you need it.",
+    "[prebuild] local build - skipping db:migrate. Run `pnpm db:migrate` manually if you need it.",
   );
   process.exit(0);
 }

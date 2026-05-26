@@ -8,7 +8,7 @@ import { Card, PillButton, SectionHeading } from "@/components/ui";
 import type { Locale } from "../../../dictionaries";
 import { saveScoringSettings, type ScoringPayload } from "./actions";
 
-// Field type — number input by default, toggle for boolean settings.
+// Field type - number input by default, toggle for boolean settings.
 // The kind discriminator lets the renderer pick the right widget while
 // keeping a single GROUPS source of truth.
 type Field =
@@ -141,7 +141,7 @@ const GROUPS: Group[] = [
     ],
   },
   {
-    title: { he: "הימורי לייב — יחסים", en: "Live bets — ratios" },
+    title: { he: "הימורי לייב - יחסים", en: "Live bets - ratios" },
     hint: {
       he: "פרמטרי המרה מ-odds של בוקמייקרים ל-stake/payout בנקודות שלנו. בכל הימור אדמין יכול לעקוף את החישוב האוטומטי.",
       en: "How bookmaker odds map to our stake/payout. Admin can override per bet at publish time.",
@@ -479,7 +479,7 @@ function CategoryPrizeCard({
     <Card className="p-5 md:p-6 flex flex-col gap-4">
       <div className="flex flex-col gap-1">
         <SectionHeading underline="thin" as="h2">
-          {isHebrew ? "פרסים — חלוקה לפי קטגוריות" : "Prizes — category split"}
+          {isHebrew ? "פרסים - חלוקה לפי קטגוריות" : "Prizes - category split"}
         </SectionHeading>
         <p className="text-xs text-on-surface-variant">
           {isHebrew

@@ -7,7 +7,7 @@ import type { AutoApiFootballStat } from "@/lib/bets/types";
 // The Pro tier ($19/mo) covers every national-team competition we care
 // about (friendlies, qualifiers, World Cup, Nations League, Copa America,
 // Euros) plus full match statistics. We use it only for the auto-grading
-// pipeline — scores and lineups still come from football-data.org via
+// pipeline - scores and lineups still come from football-data.org via
 // the existing match sync. This file is the single integration point;
 // nothing else in the codebase should hit api-sports.io directly.
 //
@@ -23,7 +23,7 @@ import type { AutoApiFootballStat } from "@/lib/bets/types";
 const BASE = "https://v3.football.api-sports.io";
 
 // FIFA World Cup competition ID on API-Football. Their numbering is
-// stable across seasons — only the `season` query param changes.
+// stable across seasons - only the `season` query param changes.
 export const API_FOOTBALL_WC_LEAGUE_ID = 15;
 
 export type ApiFootballStats = Partial<Record<AutoApiFootballStat, number>>;
@@ -37,7 +37,7 @@ export type TeamStats = {
 };
 
 // Fetch team-level statistics for a single fixture. Returns null when:
-//   1. API_FOOTBALL_KEY is not set (stub mode — current production state).
+//   1. API_FOOTBALL_KEY is not set (stub mode - current production state).
 //   2. The fixture has not been mapped to an API-Football fixture ID yet.
 //   3. The API returned 4xx/5xx (the caller should leave the bet in the
 //      manual queue and try again on the next sync).
@@ -83,7 +83,7 @@ export async function fetchFixtureStats(
   }
 }
 
-// Lightweight fixture shape — enough to map API-Football fixtures to our
+// Lightweight fixture shape - enough to map API-Football fixtures to our
 // matches table by (homeTla, awayTla, kickoffAt) at activation time.
 export type ApiFootballFixture = {
   fixtureId: number;
@@ -222,7 +222,7 @@ function normaliseTeamStats(items: ApiFootballStatItem[]): ApiFootballStats {
 
 // API-Football encodes possession + pass accuracy as percentage strings
 // ("53%"). Other counters arrive as raw numbers, but the API also returns
-// null occasionally — collapse both to null so callers can branch on it.
+// null occasionally - collapse both to null so callers can branch on it.
 function parseStatValue(raw: string | number | null): number | null {
   if (raw === null) return null;
   if (typeof raw === "number") return raw;
@@ -247,7 +247,7 @@ function combineStats(
   for (const k of keys) {
     const av = a[k] ?? 0;
     const bv = b[k] ?? 0;
-    // Possession + pass accuracy are percentages — summing them is not
+    // Possession + pass accuracy are percentages - summing them is not
     // meaningful, so we leave the combined slot empty for those.
     if (k === "possession" || k === "pass_accuracy") continue;
     out[k] = av + bv;

@@ -3,13 +3,21 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { BookOpen, Eye, LogOut, MoreHorizontal, Radio, Shield, Swords, User as UserIcon, Wallet } from "lucide-react";
+import { BookOpen, Eye, Globe2, LogOut, MoreHorizontal, Radio, Shield, Swords, User as UserIcon, Wallet } from "lucide-react";
 import { clsx } from "clsx";
 import type { Locale } from "@/app/[lang]/dictionaries";
 import { localePath } from "@/lib/paths";
 
 type SheetItem = {
-  key: "live" | "duels" | "transparency" | "pay" | "profile" | "admin" | "rules";
+  key:
+    | "tournament"
+    | "live"
+    | "duels"
+    | "transparency"
+    | "pay"
+    | "profile"
+    | "admin"
+    | "rules";
   path: string;
   label: string;
   icon: React.ReactNode;
@@ -17,6 +25,7 @@ type SheetItem = {
 
 type Labels = {
   moreCell: string;
+  tournament: string;
   liveScores: string;
   duels: string;
   transparency: string;
@@ -45,6 +54,12 @@ export function MobileMoreSheet({
   const sheetRef = useRef<HTMLDivElement | null>(null);
 
   const items: SheetItem[] = [];
+  items.push({
+    key: "tournament",
+    path: "tournament",
+    label: labels.tournament,
+    icon: <Globe2 className="h-5 w-5" strokeWidth={1.75} />,
+  });
   items.push({
     key: "live",
     path: "live",

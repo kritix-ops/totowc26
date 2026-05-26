@@ -17,7 +17,7 @@ type BeforeInstallPromptEvent = Event & {
 //   - The app is NOT already running as a standalone PWA
 //   - The user hasn't tapped the dismiss X this session
 //   - One of: Android/Chrome fired `beforeinstallprompt`, OR the browser is
-//     iOS Safari (no programmatic prompt — we explain the share-sheet flow).
+//     iOS Safari (no programmatic prompt - we explain the share-sheet flow).
 export function InstallHint({ locale }: { locale: "he" | "en" }) {
   const isHebrew = locale === "he";
   const [installEvent, setInstallEvent] =
@@ -63,7 +63,7 @@ export function InstallHint({ locale }: { locale: "he" | "en" }) {
     try {
       window.localStorage.setItem(DISMISS_KEY, "1");
     } catch {
-      // Storage unavailable — fine, the state still hides the card.
+      // Storage unavailable - fine, the state still hides the card.
     }
   };
 

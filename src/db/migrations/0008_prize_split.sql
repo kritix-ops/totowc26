@@ -2,7 +2,7 @@
 --
 -- The pot = sum of approved entry-fee payments. Each prize amount is
 -- derived dynamically as floor(pot * prize_pct_N / 100), so the admin
--- only has to maintain the percentages — never the cash amounts.
+-- only has to maintain the percentages - never the cash amounts.
 --
 -- Defaults: 50 / 30 / 15 / 5 (sums to 100, full pot is distributed).
 -- Admin can tune in the scoring settings page; the CHECK enforces the

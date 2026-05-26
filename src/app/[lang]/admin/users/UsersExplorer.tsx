@@ -700,7 +700,7 @@ function UserDrawer({
                 )}
                 <span className="inline-flex items-center gap-1.5 bidi-ltr">
                   <Phone className="h-3.5 w-3.5" />
-                  {user.phone || "—"}
+                  {user.phone || "-"}
                 </span>
               </div>
             </div>

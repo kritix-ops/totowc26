@@ -4,8 +4,8 @@ import {
   BookOpen,
   Home,
   ListChecks,
+  Sparkles,
   Trophy,
-  Globe2,
   LogIn,
 } from "lucide-react";
 import type { Dictionary, Locale } from "@/app/[lang]/dictionaries";
@@ -67,7 +67,7 @@ export async function AppShell({
       ]);
   const displayName =
     profileRow?.displayName ?? user?.email ?? "";
-  // `access.isAdmin` is the EFFECTIVE role — it's false while an admin
+  // `access.isAdmin` is the EFFECTIVE role - it's false while an admin
   // impersonates a player, so the nav swaps to the player layout. The
   // banner + the action server-side gates already pick up the same
   // impersonation through the cookie.
@@ -104,7 +104,7 @@ export async function AppShell({
           <BrandLogo locale={locale} size="header" />
         </Link>
 
-        {/* "How it works" CTA. Discoverable from every page — text on
+        {/* "How it works" CTA. Discoverable from every page - text on
             md+ for a clear call-to-action, icon-only on mobile so it
             does not crowd the bank pill on narrow screens. */}
         <Link
@@ -125,6 +125,7 @@ export async function AppShell({
             className="hidden md:flex items-center gap-6 h-full"
           >
             <NavLink locale={locale} path="" label={dict.nav.home} exact />
+            <NavLink locale={locale} path="bets" label={dict.nav.matchPicks} />
             <NavLink locale={locale} path="play" label={dict.nav.play} />
             <NavLink locale={locale} path="duels" label={dict.nav.duels} />
             <NavLink locale={locale} path="leaderboard" label={dict.nav.leaders} />
@@ -209,15 +210,16 @@ export async function AppShell({
           className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-surface-container rounded-t-xl border-t border-outline-variant shadow-[0_-4px_12px_rgba(28,20,15,0.05)] grid grid-cols-5 items-stretch min-h-[64px] pb-[env(safe-area-inset-bottom)]"
         >
           <BottomNavLink locale={locale} path="" label={dict.nav.home} icon={<Home className="h-5 w-5" strokeWidth={1.75} />} exact />
-          <BottomNavLink locale={locale} path="play" label={dict.nav.play} icon={<ListChecks className="h-5 w-5" strokeWidth={1.75} />} />
+          <BottomNavLink locale={locale} path="bets" label={dict.nav.matchPicks} icon={<ListChecks className="h-5 w-5" strokeWidth={1.75} />} />
+          <BottomNavLink locale={locale} path="play" label={dict.nav.play} icon={<Sparkles className="h-5 w-5" strokeWidth={1.75} />} />
           <BottomNavLink locale={locale} path="leaderboard" label={dict.nav.leaders} icon={<Trophy className="h-5 w-5" strokeWidth={1.75} />} />
-          <BottomNavLink locale={locale} path="tournament" label={dict.nav.tournament} icon={<Globe2 className="h-5 w-5" strokeWidth={1.75} />} />
           <MobileMoreSheet
             locale={locale}
             showPay={showPay}
             isAdmin={admin}
             labels={{
               moreCell: dict.nav.more,
+              tournament: dict.nav.tournament,
               liveScores: dict.nav.liveScores,
               duels: dict.nav.duels,
               transparency: dict.nav.transparency,

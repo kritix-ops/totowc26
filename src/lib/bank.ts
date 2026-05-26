@@ -3,7 +3,7 @@ import "server-only";
 import { sql, type SQL } from "drizzle-orm";
 import { db } from "@/db";
 
-// Points bank helper. The bank is computed live from existing tables — there
+// Points bank helper. The bank is computed live from existing tables - there
 // is no materialised balance column. Every read is one SQL roundtrip.
 //
 // balance = settings.starting_bank

@@ -24,12 +24,12 @@ import { RefreshFixtureButton } from "./RefreshFixtureButton";
 //   - Match Winner is already covered by the main 1/X/2 bet, so
 //     republishing it as a custom bet would duplicate. Two API-Football
 //     market IDs alias the same concept (1 and 19); skip both.
-//   - Home/Away (no draw) is a Match Winner subset — skip 2 as well.
+//   - Home/Away (no draw) is a Match Winner subset - skip 2 as well.
 const SKIPPED_MARKET_IDS = new Set<number>([1, 2, 19]);
 
 type SearchSP = { date?: string | string[] };
 
-// Explicit prop typing — this route lives under [lang] so the auto-
+// Explicit prop typing - this route lives under [lang] so the auto-
 // generated AppRoutes typing doesn't always pick it up until after a
 // `next build`. Defining the shape here avoids a build-order coupling.
 type PageParams = {
@@ -326,7 +326,7 @@ function MarketGroup({
 }
 
 // Generate plain-language question + grading rule copy for a market+selection.
-// Kept dumb on purpose — the admin can edit the strings inline before
+// Kept dumb on purpose - the admin can edit the strings inline before
 // publishing if a market needs special phrasing.
 function buildBetCopy({
   marketName,
@@ -347,8 +347,8 @@ function buildBetCopy({
   const fixtureHe = `${homeName} נגד ${awayName}`;
   const fixtureEn = `${homeName} vs ${awayName}`;
   return {
-    questionHe: `${marketName} — ${selectionLabel} (${fixtureHe})`,
-    questionEn: `${marketName} — ${selectionLabel} (${fixtureEn})`,
+    questionHe: `${marketName} - ${selectionLabel} (${fixtureHe})`,
+    questionEn: `${marketName} - ${selectionLabel} (${fixtureEn})`,
     gradingRuleHe: `כן אם השוק "${marketName}" סגר על "${selectionLabel}" במשחק ${fixtureHe}, אחרת לא.`,
     gradingRuleEn: `Yes if market "${marketName}" settles on "${selectionLabel}" for ${fixtureEn}, otherwise no.`,
   };

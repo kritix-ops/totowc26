@@ -5,7 +5,7 @@ import { localePath } from "@/lib/paths";
 import type { Locale } from "../dictionaries";
 import type { LiveGroup } from "@/db/queries";
 
-// Live group standings — derived from finished group-stage matches. Rendered
+// Live group standings - derived from finished group-stage matches. Rendered
 // as one Card per group with a compact, mobile-first table inside. Team rows
 // are clickable links to /teams/[code].
 //

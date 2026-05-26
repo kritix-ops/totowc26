@@ -81,7 +81,7 @@ function TeamCard({
           <span className="text-[11px] text-on-surface-variant bidi-ltr">
             {team.played > 0
               ? `${team.won}-${team.drawn}-${team.lost} · ${team.points}${isHebrew ? "נק׳" : "p"}`
-              : isHebrew ? "טרם שיחקה" : "—"}
+              : isHebrew ? "טרם שיחקה" : "-"}
           </span>
         </div>
       </Card>

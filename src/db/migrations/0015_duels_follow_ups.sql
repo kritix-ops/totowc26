@@ -4,10 +4,10 @@
 --    grading_source enum (auto_api_football / auto_football_data /
 --    manual). A non-null grading_config carries the comparator +
 --    threshold the sync pass evaluates against API-Football stats.
--- 2) Per-user rate limit on opening duels — daily cap stored in
+-- 2) Per-user rate limit on opening duels - daily cap stored in
 --    settings.duel_daily_limit so the admin can tune it mid-tournament.
 --
--- All additive — no existing column dropped.
+-- All additive - no existing column dropped.
 
 ALTER TABLE "duels"
   ADD COLUMN IF NOT EXISTS "grading_source" grading_source NOT NULL DEFAULT 'manual',

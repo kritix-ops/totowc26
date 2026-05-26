@@ -7,13 +7,13 @@ import type { ReactElement } from "react";
 // transactional email the app sends.
 //
 // Configuration (env):
-//   RESEND_API_KEY   — required for actually sending. When missing in dev
+//   RESEND_API_KEY   - required for actually sending. When missing in dev
 //                      we log a warning and return { ok: false, error:
 //                      "not_configured" }. The caller decides whether
 //                      that's fatal; sign-up best-effort flows shrug it
 //                      off so devs can run /signup without Resend wired.
-//   EMAIL_FROM       — e.g. "Toto Mundial <noreply@kritix.io>". Required.
-//   EMAIL_REPLY_TO   — e.g. "yoav@kritix.io". Optional. When set, every
+//   EMAIL_FROM       - e.g. "Toto Mundial <noreply@kritix.io>". Required.
+//   EMAIL_REPLY_TO   - e.g. "yoav@kritix.io". Optional. When set, every
 //                      send threads replies back to the admin inbox so a
 //                      registrant who hits Reply lands in the right place.
 
@@ -46,12 +46,12 @@ export async function sendEmail({
 }: SendArgs): Promise<SendResult> {
   const from = process.env.EMAIL_FROM;
   if (!from) {
-    console.warn("[email] EMAIL_FROM not set — skipping send", { to, subject });
+    console.warn("[email] EMAIL_FROM not set - skipping send", { to, subject });
     return { ok: false, error: "not_configured" };
   }
   const client = getClient();
   if (!client) {
-    console.warn("[email] RESEND_API_KEY not set — skipping send", {
+    console.warn("[email] RESEND_API_KEY not set - skipping send", {
       to,
       subject,
     });

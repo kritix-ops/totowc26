@@ -5,7 +5,7 @@
 // live, so the rest of the app doesn't render "TBD" rows or fall
 // silently back to manual grading.
 //
-// Read-only — does NOT mutate the DB. Just prints a report.
+// Read-only - does NOT mutate the DB. Just prints a report.
 //
 // Usage:
 //   node --env-file=.env.local scripts/api-football-verify-teams.mjs

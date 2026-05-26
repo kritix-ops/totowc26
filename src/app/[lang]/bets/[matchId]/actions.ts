@@ -8,12 +8,12 @@ import { getUser } from "@/lib/supabase/auth";
 import { getUserAccess } from "@/lib/access";
 
 // 1/X/2 match-bet submission. The main pick still does not debit the
-// bank at submit time — points (positive or negative) are credited by
+// bank at submit time - points (positive or negative) are credited by
 // scoreFinalMatches() once the match is final. What we DO snapshot here
 // is the risk-penalty currently in force: if the admin has flipped
 // match_risk_enabled on, we record the penalty value on the row so
 // /me/bank can display "5 pts at risk on this pick". The actual scoring
-// math reads live settings at grade time — see src/lib/sync.ts §5.
+// math reads live settings at grade time - see src/lib/sync.ts §5.
 // Custom side bets live in the user_custom_bet_picks system instead.
 
 export type SaveBetResult =

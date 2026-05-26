@@ -20,24 +20,24 @@ export type SignupErrorCode =
 export type SignupResult = { ok: true } | { ok: false; error: SignupErrorCode };
 
 // Public self-service signup. The flow:
-//   1) Honeypot — bots typically fill every field; humans skip the hidden
+//   1) Honeypot - bots typically fill every field; humans skip the hidden
 //      one. If "website" is non-empty we silently succeed without writing
 //      a row so the bot has nothing to retry.
-//   2) Rate limit — 10 attempts per hour per IP. Stops a single source
+//   2) Rate limit - 10 attempts per hour per IP. Stops a single source
 //      from flooding the admin queue.
-//   3) Validate — name >= 2, phone >= 7, email contains "@". Mirrors the
+//   3) Validate - name >= 2, phone >= 7, email contains "@". Mirrors the
 //      invitePlayer admin action validation exactly.
-//   4) Settings gate — if publicSignupOpen is false, refuse politely.
-//   5) Duplicate guard — refuse if the email is already a Supabase auth
+//   4) Settings gate - if publicSignupOpen is false, refuse politely.
+//   5) Duplicate guard - refuse if the email is already a Supabase auth
 //      user (already a member) OR is already pending. Error code stays
 //      generic ("duplicate") to avoid leaking account enumeration.
 //   6) Insert + fire admin notification + fire registrant confirmation.
-//      Email failures are logged but do not fail the request — the row
+//      Email failures are logged but do not fail the request - the row
 //      is the source of truth and the admin can still see and act on it.
 export async function submitSignupRequest(
   formData: FormData,
 ): Promise<SignupResult> {
-  // 1) Honeypot. Pretend success — do not give the bot a signal.
+  // 1) Honeypot. Pretend success - do not give the bot a signal.
   const honey = String(formData.get("website") ?? "").trim();
   if (honey.length > 0) {
     console.info("[signup honeypot tripped]", { length: honey.length });
@@ -80,7 +80,7 @@ export async function submitSignupRequest(
     return { ok: false, error: "unknown" };
   }
 
-  // 5a) Duplicate — already a Supabase auth user?
+  // 5a) Duplicate - already a Supabase auth user?
   try {
     const admin = getSupabaseAdmin();
     // listUsers does not have a "filter by email" param in v2; we use the
@@ -101,7 +101,7 @@ export async function submitSignupRequest(
     return { ok: false, error: "unknown" };
   }
 
-  // 5b) Duplicate — already a pending request?
+  // 5b) Duplicate - already a pending request?
   try {
     const [pending] = await db
       .select({ id: signupRequests.id })
@@ -123,7 +123,7 @@ export async function submitSignupRequest(
   }
 
   // 6) Insert. The partial unique index will throw on a concurrent dupe
-  // — we map the postgres unique-violation code to "duplicate".
+  // - we map the postgres unique-violation code to "duplicate".
   let requestId: string;
   try {
     const [row] = await db
@@ -149,7 +149,7 @@ export async function submitSignupRequest(
     return { ok: false, error: "unknown" };
   }
 
-  // 6a) Fire admin notification email — best effort.
+  // 6a) Fire admin notification email - best effort.
   const origin =
     h.get("origin") ??
     (h.get("host") ? `https://${h.get("host")}` : "http://localhost:3000");
@@ -161,7 +161,7 @@ export async function submitSignupRequest(
   if (adminTo) {
     const r = await sendEmail({
       to: adminTo,
-      subject: `בקשת הרשמה חדשה — ${displayName}`,
+      subject: `בקשת הרשמה חדשה - ${displayName}`,
       react: AdminSignupNotification({ displayName, phone, email, adminUrl }),
     });
     console.info("[signup email] admin_notification", {
@@ -170,10 +170,10 @@ export async function submitSignupRequest(
       messageId: r.ok ? r.messageId : null,
     });
   } else {
-    console.warn("[signup] ADMIN_NOTIFICATION_EMAIL not set — skipped admin email");
+    console.warn("[signup] ADMIN_NOTIFICATION_EMAIL not set - skipped admin email");
   }
 
-  // 6b) Fire registrant confirmation email — best effort.
+  // 6b) Fire registrant confirmation email - best effort.
   const r2 = await sendEmail({
     to: email,
     subject: "קיבלנו את הבקשה שלך לטוטו מונדיאל",

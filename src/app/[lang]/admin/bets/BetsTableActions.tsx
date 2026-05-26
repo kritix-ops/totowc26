@@ -59,7 +59,7 @@ export function BetsTableActions({
     });
   };
 
-  // Terminal states get no actions — only the visual chip telling the
+  // Terminal states get no actions - only the visual chip telling the
   // admin where the bet is in its lifecycle.
   if (status === "graded" || status === "cancelled") {
     return null;

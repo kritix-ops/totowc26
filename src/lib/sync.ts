@@ -389,7 +389,7 @@ export async function scoreFinalMatches(): Promise<{
 // Sister pass to scoreFinalMatches: finds every custom_bets row that
 // opted into auto_football_data OR auto_api_football and is still in
 // (open, locked) state, then grades it deterministically against the
-// relevant data source. The function is idempotent — graded rows are
+// relevant data source. The function is idempotent - graded rows are
 // skipped on subsequent runs because we only touch status in
 // ('open', 'locked').
 //
@@ -511,7 +511,7 @@ export async function scoreAutoCustomBets(): Promise<number> {
             status: "graded",
             resolvedValue: resolved,
             gradedAt: new Date(),
-            // graded_by stays null — this was a system-driven grade. The
+            // graded_by stays null - this was a system-driven grade. The
             // FK is `on delete set null` so the column accepts NULL.
             updatedAt: new Date(),
           })
@@ -728,7 +728,7 @@ async function resolveDayScopeApiFootball(
     if (v === undefined) {
       // Wrapper drops % stats from combined (possession, pass_accuracy)
       // because summing them across teams is meaningless. Reaching here
-      // means admin chose a non-aggregable stat — return skip so the
+      // means admin chose a non-aggregable stat - return skip so the
       // bet drops into the manual queue with a clear warn.
       return "skip";
     }

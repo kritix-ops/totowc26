@@ -29,7 +29,7 @@ export default async function SignupThanksPage({
 
         <div className="flex flex-col gap-3">
           <h1 className="text-2xl font-semibold text-on-surface">
-            {isHebrew ? "תודה, קיבלנו את הבקשה" : "Thanks — we got your request"}
+            {isHebrew ? "תודה, קיבלנו את הבקשה" : "Thanks - we got your request"}
           </h1>
           <p className="text-base text-on-surface-variant leading-7">
             {isHebrew

@@ -4,7 +4,7 @@ import { useEffect } from "react";
 
 // Mount this near the root of the tree exactly once. It registers the PWA
 // service worker on supported browsers. Failures are logged but never thrown
-// — a broken SW must never break the page.
+// - a broken SW must never break the page.
 export function ServiceWorkerRegistrar() {
   useEffect(() => {
     if (typeof window === "undefined") return;

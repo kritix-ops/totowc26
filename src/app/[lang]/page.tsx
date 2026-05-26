@@ -139,7 +139,7 @@ async function loadDashboard(userId: string) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Guest landing — the marketing-style entry. The hero is the centerpiece;
+// Guest landing - the marketing-style entry. The hero is the centerpiece;
 // everything important sits in a single centered card so a first-time visitor
 // reads it in one pass and knows what to do (sign in) without scrolling.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -243,7 +243,7 @@ function GuestLanding({
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Player home — the integrated dashboard. The hero is now a short, decorative
+// Player home - the integrated dashboard. The hero is now a short, decorative
 // band whose only job is to carry the tournament-context strip (logo,
 // countdown, pot, participants) at its bottom edge. The rest of the screen is
 // a single-container dashboard so widths align and nothing floats.
@@ -291,7 +291,7 @@ function PlayerHome({
                   ? countdown.started
                     ? (isHebrew ? "מתחיל!" : "Live")
                     : formatCountdownShort(countdown, locale)
-                  : "—"
+                  : "-"
               }
               label={
                 countdown?.started
@@ -429,7 +429,7 @@ function StatusRow({
       </span>
     </>
   ) : (
-    <span className="text-on-surface-variant">—</span>
+    <span className="text-on-surface-variant">-</span>
   );
 
   return (
@@ -461,7 +461,7 @@ function StatusRow({
                 </span>
               </>
             ) : (
-              <span className="text-on-surface-variant">—</span>
+              <span className="text-on-surface-variant">-</span>
             )
           }
         />
@@ -523,7 +523,7 @@ function UpcomingSection({
           <span id="upcoming-heading">{dict.dashboard.upcomingTitle}</span>
         </SectionHeading>
         <Link
-          href={localePath(locale, "play")}
+          href={localePath(locale, "bets")}
           className="font-[family-name:var(--font-label)] text-[12px] font-bold tracking-[0.05em] text-primary hover:underline inline-flex items-center gap-1 min-h-[40px]"
         >
           {dict.dashboard.viewAll}
@@ -752,7 +752,7 @@ function LastBetCard({
           <LabelCaps>{dict.dashboard.yourBet}</LabelCaps>
           <span className="font-[family-name:var(--font-score)] text-[24px] md:text-[28px] leading-none tracking-[0.1em] font-bold text-on-surface">
             <span className="bidi-ltr">
-              {hasBet ? `${match.myHome} - ${match.myAway}` : "—"}
+              {hasBet ? `${match.myHome} - ${match.myAway}` : "-"}
             </span>
           </span>
         </div>

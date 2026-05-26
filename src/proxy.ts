@@ -10,7 +10,7 @@ const LOCALE_COOKIE_MAX_AGE = 60 * 60 * 24 * 365;
 // path AFTER the locale segment (no leading slash). Empty string = landing.
 // "signup" covers both /signup (the request form) and /signup/thanks (the
 // post-submit confirmation) via the prefix match in isPublic(). "rules"
-// is the public game-rules page — guests browsing the landing should be
+// is the public game-rules page - guests browsing the landing should be
 // able to read what they would be signing up for.
 const PUBLIC_PATHS = ["", "login", "signup", "rules"];
 

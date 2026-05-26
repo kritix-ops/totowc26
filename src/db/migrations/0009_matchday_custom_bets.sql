@@ -4,7 +4,7 @@
 -- (Asia/Jerusalem calendar date) and by tournament-wide scope. This
 -- migration is purely additive: no existing column is dropped here.
 -- Legacy BTTS / Over 2.5 / halftime columns on match_bets stay live
--- until call sites have been migrated to read from custom_bets — they
+-- until call sites have been migrated to read from custom_bets - they
 -- will be dropped in a follow-up migration once nothing reads them.
 --
 -- New objects:
@@ -71,7 +71,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS "matchdays_date_uniq" ON "matchdays" ("date");
 --> statement-breakpoint
 
 -- 3b) custom_bets: the bet itself. One row per admin-authored bet.
--- The scope CHECK keeps the anchor columns consistent — exactly the
+-- The scope CHECK keeps the anchor columns consistent - exactly the
 -- subset required by the chosen scope must be non-null.
 CREATE TABLE IF NOT EXISTS "custom_bets" (
   "id"               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -215,7 +215,7 @@ CREATE POLICY "matchdays admin write" ON "matchdays"
 
 -- custom_bets: drafts are admin-only. Once published (status != 'draft')
 -- every authenticated user can read so they can place picks and see
--- grading history. Players never INSERT / UPDATE / DELETE — the admin
+-- grading history. Players never INSERT / UPDATE / DELETE - the admin
 -- owns the lifecycle. Admin has full access.
 CREATE POLICY "custom_bets read published" ON "custom_bets"
   FOR SELECT TO authenticated USING (status <> 'draft');

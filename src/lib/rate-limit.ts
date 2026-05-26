@@ -2,7 +2,7 @@ import "server-only";
 
 // In-memory token bucket. Used by the public signup endpoint to slow a
 // single source from flooding the queue. Per-instance (each Vercel Lambda
-// has its own bucket and a cold start resets it) — that is *fine* for a
+// has its own bucket and a cold start resets it) - that is *fine* for a
 // friends pool where ~50 honest users hit the form ever, but anything
 // touching real money or wide public traffic should use Upstash/Redis
 // instead. Don't reach for this helper for those cases.

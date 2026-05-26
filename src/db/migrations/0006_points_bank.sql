@@ -39,7 +39,7 @@ ALTER TABLE "settings"
 
 -- 2) Bump existing scoring payouts so net (payout − stake) preserves the
 -- pre-migration feel of a correct bet. Only update rows that still hold the
--- OLD default — if the admin has already tuned a value, leave it alone.
+-- OLD default - if the admin has already tuned a value, leave it alone.
 UPDATE "settings" SET "scoring_btts"             = 3  WHERE id = 1 AND "scoring_btts"             = 2;
 UPDATE "settings" SET "scoring_over_25"          = 3  WHERE id = 1 AND "scoring_over_25"          = 2;
 UPDATE "settings" SET "scoring_ht_exact"         = 8  WHERE id = 1 AND "scoring_ht_exact"         = 5;
@@ -72,7 +72,7 @@ ALTER TABLE "settings" ALTER COLUMN "scoring_group_perfect"   SET DEFAULT 8;
 -- settings value at submit time so future setting changes do not rewrite
 -- the cost of a bet already on the books.
 
--- match_bets: side bets are optional, so each stake column is nullable —
+-- match_bets: side bets are optional, so each stake column is nullable -
 -- null means "user did not opt into this side bet".
 ALTER TABLE "match_bets"
   ADD COLUMN IF NOT EXISTS "stake_paid_btts"     smallint,

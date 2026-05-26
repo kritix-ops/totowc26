@@ -14,7 +14,7 @@
 --      (the live row was already updated to 30 manually).
 --   4. match_bets.stake_paid_main column for the optional risk-on mode.
 --   5. duels table with RLS, scope CHECK, and supporting indexes. The
---      feature itself ships in PR 3 — this PR only adds the schema room.
+--      feature itself ships in PR 3 - this PR only adds the schema room.
 
 -- 1) Duel status enum.
 DO $$ BEGIN
@@ -25,7 +25,7 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 -- 2) Settings: every tunable for the overhaul. All additive; existing
 -- columns stay put. Defaults match the plan §3-§4.
 ALTER TABLE "settings"
-  -- Match-guessing risk toggle. Default OFF — wrong picks earn 0 net.
+  -- Match-guessing risk toggle. Default OFF - wrong picks earn 0 net.
   -- When ON, scoreFinalMatches() writes -match_risk_penalty for wrong picks.
   ADD COLUMN IF NOT EXISTS "match_risk_enabled"             boolean  NOT NULL DEFAULT false,
   ADD COLUMN IF NOT EXISTS "match_risk_penalty"             smallint NOT NULL DEFAULT 5,
@@ -45,7 +45,7 @@ ALTER TABLE "settings"
   ADD COLUMN IF NOT EXISTS "live_odds_max_payout"           smallint NOT NULL DEFAULT 25,
   ADD COLUMN IF NOT EXISTS "live_odds_house_edge_pct"       smallint NOT NULL DEFAULT 5,
 
-  -- 7-way prize split. Sum must always be 100 — enforced by the CHECK
+  -- 7-way prize split. Sum must always be 100 - enforced by the CHECK
   -- added below in its own statement. The ADD COLUMN defaults already
   -- sum to 100 so the existing settings row picks them up cleanly.
   ADD COLUMN IF NOT EXISTS "prize_king_first_pct"           smallint NOT NULL DEFAULT 30,
@@ -77,7 +77,7 @@ ALTER TABLE "settings" ALTER COLUMN "scoring_outcome" SET DEFAULT 5;
 
 -- Starting bank default goes from 100 to 30 for fresh installs. The live
 -- settings row was already updated to 30 manually so we do not UPDATE it
--- here — that would clobber any value the admin has tuned in between.
+-- here - that would clobber any value the admin has tuned in between.
 ALTER TABLE "settings" ALTER COLUMN "starting_bank" SET DEFAULT 30;
 --> statement-breakpoint
 
@@ -110,7 +110,7 @@ CREATE TABLE IF NOT EXISTS "duels" (
   "grading_rule_he"     text NOT NULL,
   "grading_rule_en"     text NOT NULL,
 
-  -- Scoping. Only match / day / tournament are supported for duels —
+  -- Scoping. Only match / day / tournament are supported for duels -
   -- stage / group can be added later if a real use case appears.
   "scope"               bet_scope NOT NULL,
   "match_id"            uuid REFERENCES "matches"("id")   ON DELETE CASCADE,

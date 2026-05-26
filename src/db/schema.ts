@@ -48,14 +48,14 @@ export const signupRequestStatusEnum = pgEnum("signup_request_status", [
 ]);
 // Custom-bets system enums. See _plans/2026-05-25-matchday-custom-bets-system.md.
 //
-// answer_type    — shape of the player's answer. Drives input widget + JSONB
+// answer_type    - shape of the player's answer. Drives input widget + JSONB
 //                  validation. yes_no / number / multi_choice / free_text.
-// bet_scope      — what the bet attaches to. Drives which player surface it
+// bet_scope      - what the bet attaches to. Drives which player surface it
 //                  shows up on (matchday page vs tournament page vs group page).
-// bet_status     — lifecycle. draft is admin-only; open is pickable; locked
+// bet_status     - lifecycle. draft is admin-only; open is pickable; locked
 //                  has closed for picks but is not yet graded; graded is
 //                  resolved; reversed re-opens a wrong grade; cancelled voids.
-// grading_source — who/what fills resolved_value. auto_api_football is
+// grading_source - who/what fills resolved_value. auto_api_football is
 //                  wired but stubbed until API_FOOTBALL_KEY is set in
 //                  env (see plan §6.5).
 export const answerTypeEnum = pgEnum("answer_type", [
@@ -84,7 +84,7 @@ export const gradingSourceEnum = pgEnum("grading_source", [
   "auto_football_data",
   "manual",
 ]);
-// duel_status — 1v1 binary bet lifecycle. open is awaiting a joiner;
+// duel_status - 1v1 binary bet lifecycle. open is awaiting a joiner;
 // matched has both sides locked in (stakes deducted); settled is graded
 // and the winner credited; cancelled is no-joiner-by-deadline or admin
 // override (both stakes refunded). See _plans/2026-05-27-betting-overhaul.md §7.
@@ -183,7 +183,7 @@ export const matchBets = pgTable(
     wasExact: boolean("was_exact"),
     wasCorrectOutcome: boolean("was_correct_outcome"),
     // Snapshot of settings.match_risk_penalty at submit time when the
-    // admin had risk mode on. Null = risk-off (default) — wrong picks
+    // admin had risk mode on. Null = risk-off (default) - wrong picks
     // earn 0 net rather than -penalty. Kept on the row for audit and
     // for the /me/bank breakdown; the actual net points are still
     // written to pointsEarned by scoreFinalMatches().
@@ -234,7 +234,7 @@ export const payments = pgTable(
 // signup_requests: public-signup queue. A non-member submits a request from
 // /[lang]/signup; admin approves (which then provisions the auth user +
 // profile via the existing invite flow) or rejects. We deliberately do NOT
-// create a Supabase auth user until approval — pending rows have no auth
+// create a Supabase auth user until approval - pending rows have no auth
 // footprint and cannot log in.
 export const signupRequests = pgTable(
   "signup_requests",
@@ -258,7 +258,7 @@ export const signupRequests = pgTable(
   },
   (t) => ({
     statusIdx: index("signup_requests_status_idx").on(t.status),
-    // Partial unique index — at most one pending request per email at a
+    // Partial unique index - at most one pending request per email at a
     // time. Approved/rejected history rows can repeat freely.
     pendingEmailUq: uniqueIndex("signup_requests_pending_email_uq")
       .on(t.email)
@@ -298,7 +298,7 @@ export const settings = pgTable("settings", {
   matchRiskPenalty: smallint("match_risk_penalty").notNull().default(5),
   // Daily renewal. When enabled, the cron inserts a point_adjustments
   // row per active player at 00:00 Asia/Jerusalem with the configured
-  // delta. Off by default — admin opts in.
+  // delta. Off by default - admin opts in.
   dailyRenewalEnabled: boolean("daily_renewal_enabled").notNull().default(false),
   dailyRenewalAmount:  smallint("daily_renewal_amount").notNull().default(3),
   // Duel limits. The actual feature (server actions + UI) lands in PR 3;
@@ -315,7 +315,7 @@ export const settings = pgTable("settings", {
   liveOddsMaxPayout: smallint("live_odds_max_payout").notNull().default(25),
   liveOddsHouseEdgePct: smallint("live_odds_house_edge_pct").notNull().default(5),
   // 7-way prize split (king 1/2/3, matches/live/duels winner, reserve).
-  // Sum MUST be 100 — DB CHECK constraint enforces this. The legacy
+  // Sum MUST be 100 - DB CHECK constraint enforces this. The legacy
   // prizePct1-4 columns below are kept for backwards compatibility until
   // PR 5 swaps the UI; they will be dropped in a follow-up migration.
   prizeKingFirstPct: smallint("prize_king_first_pct").notNull().default(30),
@@ -383,7 +383,7 @@ export const pointAdjustments = pgTable(
 );
 
 // matchdays: calendar-day container (Asia/Jerusalem) used to group per-day
-// custom bets. Materialised on demand — created the first time the admin
+// custom bets. Materialised on demand - created the first time the admin
 // opens a bet for that date. The PG `date` type is timezone-less; the
 // server derives the date from `matches.kickoff_at AT TIME ZONE 'Asia/Jerusalem'`
 // before insert so a 23:00 IL kickoff and a 01:00 IL kickoff land on
@@ -541,7 +541,7 @@ export const userCustomBetPicks = pgTable(
 // bet_grading_audit: append-only log of every grade / reverse / cancel
 // performed on a custom_bets row. The migration REVOKEs UPDATE/DELETE so
 // the trail is physically immutable; corrections happen as new rows. This
-// pairs with the reversal flow (§6.4) — when admin reverses a wrong grade,
+// pairs with the reversal flow (§6.4) - when admin reverses a wrong grade,
 // the original row stays put and a new row with action='reverse' records
 // who, when, and why.
 export const betGradingAudit = pgTable(
@@ -584,7 +584,7 @@ export const betGradingAudit = pgTable(
 // consistency via CHECK constraints (see migration 0014).
 //
 // Bank accounting is computed at query time from the duels table itself,
-// not via point_adjustments rows — see src/lib/bank.ts in PR 3 for the
+// not via point_adjustments rows - see src/lib/bank.ts in PR 3 for the
 // formula extension. This keeps the adjustments log reserved for genuine
 // admin-issued bank changes.
 export const duels = pgTable(

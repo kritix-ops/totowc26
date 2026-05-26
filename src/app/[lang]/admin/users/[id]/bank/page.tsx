@@ -99,12 +99,12 @@ export default async function AdminUserBankPage({
         <p className="text-sm text-on-surface-variant">
           {isHebrew
             ? "הוסף או הורד נקודות מהבנק של המשתמש. סיבה חובה. המגבלה לרשומה אחת היא ±500 - לתיקון גדול יותר, כתוב כמה רשומות."
-            : "Add or subtract from this user's bank. Reason is required. Single-row cap is ±500 — for larger corrections, write multiple rows."}
+            : "Add or subtract from this user's bank. Reason is required. Single-row cap is ±500 - for larger corrections, write multiple rows."}
         </p>
         <p className="text-xs text-on-surface-variant border-s-4 border-tertiary-fixed-dim ps-3 py-1">
           {isHebrew
             ? "אל תכתוב מידע אישי בסיבה - הטקסט נשמר לעד ולא ניתן לעריכה."
-            : "Do not paste sensitive info in the reason — text is permanent and uneditable."}
+            : "Do not paste sensitive info in the reason - text is permanent and uneditable."}
         </p>
         <AdjustmentForm targetUserId={id} locale={locale} />
       </Card>

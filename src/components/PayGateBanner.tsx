@@ -6,7 +6,7 @@ import { localePath } from "@/lib/paths";
 // Read-only banner shown to players whose payment has not yet been
 // approved. Action surfaces (bets, bracket, standings, specials) render
 // this above their forms; the forms themselves are disabled in parallel.
-// The server-side gate in each action is the actual security boundary —
+// The server-side gate in each action is the actual security boundary -
 // this banner is just UX.
 export function PayGateBanner({
   locale,

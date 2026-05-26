@@ -66,7 +66,7 @@ export default async function MatchDetailPage({
             >
               <Flag code={match.homeCode} size={48} />
               <span className="text-base md:text-lg text-on-surface-variant">{homeName}</span>
-              <ScoreDigit value={match.homeScore ?? "—"} dark />
+              <ScoreDigit value={match.homeScore ?? "-"} dark />
             </Link>
             <span className="text-2xl text-on-surface-variant mb-3">:</span>
             <Link
@@ -75,7 +75,7 @@ export default async function MatchDetailPage({
             >
               <Flag code={match.awayCode} size={48} />
               <span className="text-base md:text-lg text-on-surface-variant">{awayName}</span>
-              <ScoreDigit value={match.awayScore ?? "—"} dark />
+              <ScoreDigit value={match.awayScore ?? "-"} dark />
             </Link>
           </div>
         </div>
@@ -83,7 +83,7 @@ export default async function MatchDetailPage({
           <div className="flex justify-between items-center">
             <LabelCaps>{dict.matchDetail.yourBet}</LabelCaps>
             <span className="font-[family-name:var(--font-score)] text-2xl md:text-3xl font-bold text-on-surface bidi-ltr">
-              {myBet ? `${myBet.homeScore} - ${myBet.awayScore}` : "—"}
+              {myBet ? `${myBet.homeScore} - ${myBet.awayScore}` : "-"}
             </span>
           </div>
           <div className="border-t border-outline-variant pt-4 flex justify-between items-end gap-3">

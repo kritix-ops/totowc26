@@ -173,7 +173,7 @@ export async function openDuel(input: OpenDuelInput): Promise<OpenDuelResult> {
     matchdayId = await upsertMatchdayByDate(input.matchdayDate);
     resolveAt = earliest;
   } else {
-    // tournament — no anchor; resolve_at is set to "kickoff + 60d" as
+    // tournament - no anchor; resolve_at is set to "kickoff + 60d" as
     // a safe far-future fallback. Admin can settle manually anytime.
     resolveAt = new Date(Date.now() + 60 * 24 * 60 * 60 * 1000);
   }
@@ -333,7 +333,7 @@ export async function joinDuel(id: string): Promise<JoinDuelResult> {
 // Send the opener an email letting them know somebody joined their
 // duel. Reads the opener's email from auth.users; if anything is
 // missing (no email, Resend not configured, send fails) we log and
-// return — joining is the source of truth, the email is gravy.
+// return - joining is the source of truth, the email is gravy.
 async function notifyDuelJoined(
   duelId: string,
   joinerId: string,
@@ -472,7 +472,7 @@ export type CancelDuelResult =
   | { ok: false; error: DuelErr };
 
 // Open duel can be cancelled by its opener (no joiner yet) OR by admin.
-// Matched / settled duels can only be cancelled by admin — that path
+// Matched / settled duels can only be cancelled by admin - that path
 // should be rare and is captured via console.info so we know it ran.
 export async function cancelDuel(
   id: string,

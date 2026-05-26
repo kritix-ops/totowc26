@@ -21,7 +21,7 @@ type PaymentMethod = "bit" | "paybox" | null;
 
 // Universal payment surface. Every signed-in user has access to /pay so
 // they can re-open the Paybox group link, see their current status, and
-// mark "I paid". Admin sees an info card instead — they bypass the gate
+// mark "I paid". Admin sees an info card instead - they bypass the gate
 // so they have nothing to pay.
 export function PayPanel({
   locale,
@@ -74,8 +74,8 @@ export function PayPanel({
           </SectionHeading>
           <p className="text-sm text-on-surface-variant">
             {isHebrew
-              ? "אתה מנהל הטוטו — אין צורך לשלם דמי השתתפות."
-              : "You run the pool — no entry fee required."}
+              ? "אתה מנהל הטוטו - אין צורך לשלם דמי השתתפות."
+              : "You run the pool - no entry fee required."}
           </p>
         </div>
       </Card>

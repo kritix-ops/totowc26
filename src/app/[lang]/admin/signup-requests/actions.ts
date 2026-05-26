@@ -33,7 +33,7 @@ async function assertAdmin(): Promise<{ adminId: string } | Err> {
 //   3) Belt-and-suspenders upsert into profiles in case the trigger races.
 //   4) Generate a recovery link so the registrant can set their password.
 //   5) Update the signup_requests row to approved + audit fields.
-//   6) Email the registrant with the recovery link. Best-effort — failure
+//   6) Email the registrant with the recovery link. Best-effort - failure
 //      is logged but does not roll back the approval (the admin can
 //      always re-send via the existing resendMagicLink action).
 export async function approveSignupRequest(

@@ -42,7 +42,7 @@ export default async function ProfilePage({
         month: "short",
         year: "numeric",
       })
-    : "—";
+    : "-";
 
   const statBlocks = [
     { label: dict.profile.totalPoints, value: stats.totalPoints, primary: true },

@@ -60,7 +60,7 @@ export function DuelJoinedEmail({
           <Hr style={styles.divider} />
 
           <Text style={styles.muted}>
-            English: {joinerName} accepted your duel — &quot;{questionEn}&quot;,{" "}
+            English: {joinerName} accepted your duel - &quot;{questionEn}&quot;,{" "}
             {stake} pts per side. Winner takes both stakes.
           </Text>
 

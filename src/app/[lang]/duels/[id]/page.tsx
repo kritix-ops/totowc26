@@ -105,7 +105,7 @@ export default async function DuelDetailPage({ params }: PageParams) {
           />
           <Side
             label={dict.duels.joinerLabel}
-            name={duel.joinerName ?? "—"}
+            name={duel.joinerName ?? "-"}
             answer={duel.joinerName ? !duel.openerAnswer : null}
             stake={duel.stake}
             isWinner={
@@ -159,7 +159,7 @@ export default async function DuelDetailPage({ params }: PageParams) {
         iAmOpener={iAmOpener}
         isAdmin={admin}
         canEdit={access.canEdit}
-        // Server component, one render per request — reading the clock
+        // Server component, one render per request - reading the clock
         // is intentional here. The rule flags it because Date.now is
         // non-pure but the page is non-cached.
         // eslint-disable-next-line react-hooks/purity
@@ -202,7 +202,7 @@ function Side({
           {dict.duels.yourAnswer}
         </span>
         <span className="text-sm font-bold">
-          {answer === null ? "—" : answer ? dict.duels.yes : dict.duels.no}
+          {answer === null ? "-" : answer ? dict.duels.yes : dict.duels.no}
         </span>
       </div>
       <div className="flex items-center justify-between gap-2">
@@ -265,7 +265,7 @@ function statusTone(
 async function loadDuel(id: string): Promise<DuelDetail | null> {
   // Validate UUID shape before interpolating into SQL. The query already
   // parameter-binds the value, but a non-UUID input would throw at the
-  // cast — returning null instead is cleaner for the notFound() path.
+  // cast - returning null instead is cleaner for the notFound() path.
   if (!/^[0-9a-f-]{36}$/i.test(id)) return null;
   const rows = await db.execute<DuelDetail>(sql`
     select

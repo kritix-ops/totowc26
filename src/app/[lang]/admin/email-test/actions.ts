@@ -88,7 +88,7 @@ export async function sendTestEmail(
   const subjectAndReact =
     template === "admin_notification"
       ? {
-          subject: `[בדיקה] בקשת הרשמה חדשה — ${sample.displayName}`,
+          subject: `[בדיקה] בקשת הרשמה חדשה - ${sample.displayName}`,
           react: AdminSignupNotification({
             displayName: sample.displayName,
             phone: sample.phone,

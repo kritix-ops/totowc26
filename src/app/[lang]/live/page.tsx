@@ -12,7 +12,7 @@ import { settings } from "@/db/schema";
 import { localePath } from "@/lib/paths";
 import { formatDateTime } from "@/lib/format";
 
-// /[lang]/live — in-play scoreboard + projected earnings.
+// /[lang]/live - in-play scoreboard + projected earnings.
 //
 // Server-rendered with a short revalidate window so the page picks
 // up fresh scores from the regular sync cron without any client-side
@@ -132,7 +132,7 @@ function LiveMatchCard({
   const liveScoreLabel =
     match.homeScore !== null && match.awayScore !== null
       ? `${match.homeScore} - ${match.awayScore}`
-      : "—";
+      : "-";
 
   return (
     <Card className="p-4 md:p-5 flex flex-col gap-3">

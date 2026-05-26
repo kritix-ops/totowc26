@@ -40,7 +40,7 @@ export function OnboardingForm({
   const [profileSaved, setProfileSaved] = useState(
     initialName.length >= 2 && initialPhone.length >= 7,
   );
-  // Display only — Paybox is the only method now. Kept so legacy "bit"
+  // Display only - Paybox is the only method now. Kept so legacy "bit"
   // payments still render their badge correctly in the status row.
   const lastMethod: PaymentMethod = paymentMethod;
   const [submittedStatus, setSubmittedStatus] = useState<PaymentStatus>(

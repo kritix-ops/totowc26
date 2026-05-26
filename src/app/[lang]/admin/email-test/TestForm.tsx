@@ -53,8 +53,8 @@ export function TestForm({
         </SectionHeading>
         <p className="text-sm text-on-surface-variant">
           {isHebrew
-            ? "שולח אימייל אמיתי דרך Resend עם אחת מתבניות האימייל של המערכת. נתוני הבדיקה הם דמה — שום שורה לא נכתבת ל-DB."
-            : "Sends a real email through Resend using one of the system templates. The sample data is fake — no DB rows are written."}
+            ? "שולח אימייל אמיתי דרך Resend עם אחת מתבניות האימייל של המערכת. נתוני הבדיקה הם דמה - שום שורה לא נכתבת ל-DB."
+            : "Sends a real email through Resend using one of the system templates. The sample data is fake - no DB rows are written."}
         </p>
       </header>
 
@@ -221,10 +221,10 @@ function translateError(
     forbidden: ["אין הרשאה", "Not allowed"],
     invalid_email: ["כתובת אימייל לא תקינה", "Invalid email address"],
     not_configured: [
-      "Resend לא מוגדר — חסר RESEND_API_KEY או EMAIL_FROM",
-      "Resend is not configured — RESEND_API_KEY or EMAIL_FROM missing",
+      "Resend לא מוגדר - חסר RESEND_API_KEY או EMAIL_FROM",
+      "Resend is not configured - RESEND_API_KEY or EMAIL_FROM missing",
     ],
-    send_failed: ["השליחה נכשלה — בדוק את ההודעה למטה", "Send failed — see detail below"],
+    send_failed: ["השליחה נכשלה - בדוק את ההודעה למטה", "Send failed - see detail below"],
   };
   return map[code][isHebrew ? 0 : 1];
 }

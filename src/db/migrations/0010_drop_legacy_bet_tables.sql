@@ -1,4 +1,4 @@
--- Drop the legacy bet system. Pure cleanup — no data migration needed
+-- Drop the legacy bet system. Pure cleanup - no data migration needed
 -- because every legacy table was empty when this ran (verified by a
 -- one-off introspection script, all four tables held 0 rows).
 --
@@ -12,7 +12,7 @@
 --                    bracket slots, top scorer, final penalties). Main
 --                    1/X/2 + new custom-bets defaults stay.
 --   • sync_runs    : scored_specials column (no more writer)
---   • Enums        : bracket_slot, special_bet_type. "stage" stays — it
+--   • Enums        : bracket_slot, special_bet_type. "stage" stays - it
 --                    is used by matches and custom_bets.
 --
 -- The full design lives in _plans/2026-05-25-matchday-custom-bets-system.md
@@ -79,14 +79,14 @@ ALTER TABLE "settings"
 -- 4) Drop the now-dead "scored_specials" column from sync_runs. The
 -- scored_bets and scored_matches columns stay since the main-match
 -- scoring pass still writes them. (We don't add a scored_auto_custom
--- column for the new auto-grade pass — the [grading auto] logs cover
+-- column for the new auto-grade pass - the [grading auto] logs cover
 -- that without a schema change.)
 ALTER TABLE "sync_runs"
   DROP COLUMN IF EXISTS "scored_specials";
 --> statement-breakpoint
 
 -- 5) Drop the enums that only the legacy tables referenced. "stage"
--- stays — it is still used by matches and custom_bets. "role" and
+-- stays - it is still used by matches and custom_bets. "role" and
 -- "match_status" and "payment_*" likewise stay.
 DROP TYPE IF EXISTS "special_bet_type";
 --> statement-breakpoint

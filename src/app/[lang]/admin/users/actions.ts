@@ -318,7 +318,7 @@ export async function adjustUserPoints(
   }
 }
 
-// Reset a user's bets — main match picks plus every custom-bet pick.
+// Reset a user's bets - main match picks plus every custom-bet pick.
 // Useful before the tournament starts if a player wants to redo their
 // picks. Adjustments and approved payment stay intact.
 export async function resetUserPicks(userId: string): Promise<Result> {
