@@ -75,15 +75,8 @@
     {
       "idx": 10,
       "version": "7",
-      "when": 1780317200000,
-      "tag": "0010_signup_requests",
-      "breakpoints": true
-    },
-    {
-      "idx": 11,
-      "version": "7",
       "when": 1780403600000,
-      "tag": "0011_drop_legacy_bet_tables",
+      "tag": "0010_drop_legacy_bet_tables",
       "breakpoints": true
     }
   ]
