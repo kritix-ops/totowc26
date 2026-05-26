@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ChevronLeft, ChevronRight, Trophy } from "lucide-react";
+import { ChevronLeft, ChevronRight, Edit3, Trophy } from "lucide-react";
 import { hasLocale, type Locale } from "../../../dictionaries";
 import { Card, Chip, LabelCaps, SectionHeading } from "@/components/ui";
 import { localePath } from "@/lib/paths";
@@ -46,9 +46,20 @@ export default async function AdminBetDetailPage({
           <h1 className="font-[family-name:var(--font-display)] text-[24px] leading-8 md:text-[36px] md:leading-[40px] font-bold text-primary">
             {question}
           </h1>
-          <Chip tone={statusTone(bet.status)}>
-            {statusLabel(bet.status, isHebrew)}
-          </Chip>
+          <div className="flex items-center gap-2 shrink-0">
+            <Chip tone={statusTone(bet.status)}>
+              {statusLabel(bet.status, isHebrew)}
+            </Chip>
+            {bet.status === "draft" && (
+              <Link
+                href={localePath(locale, `admin/bets/${bet.id}/edit`)}
+                className="inline-flex items-center justify-center gap-1.5 min-h-[40px] px-4 rounded-full border border-outline bg-surface-container-lowest text-on-surface text-sm font-bold hover:bg-surface-container"
+              >
+                <Edit3 className="h-4 w-4" strokeWidth={2} />
+                {isHebrew ? "ערוך" : "Edit"}
+              </Link>
+            )}
+          </div>
         </div>
       </header>
 

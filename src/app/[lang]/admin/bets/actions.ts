@@ -186,6 +186,138 @@ export async function createCustomBet(
   }
 }
 
+// Update an existing custom_bets row. Restricted to status='draft' so we
+// never silently change a bet that friends have already picked on (the
+// social contract is "the question stayed the same"). For open bets the
+// admin's recourse is cancel + recreate, which makes the rewrite explicit.
+export type UpdateCustomBetResult =
+  | { ok: true }
+  | { ok: false; error: Err };
+
+export async function updateCustomBet(
+  id: string,
+  input: CreateCustomBetInput,
+): Promise<UpdateCustomBetResult> {
+  const user = await getUser();
+  if (!user) return { ok: false, error: "unauth" };
+  if (!(await isAdmin(user.id))) {
+    console.warn("[bet update denied]", { userId: user.id, id });
+    return { ok: false, error: "forbidden" };
+  }
+
+  // Mirror create-side validation so the same form payload can be reused.
+  const v = validateScopeAnchors(input);
+  if (v !== "ok") return { ok: false, error: v };
+  if (input.questionHe.trim().length === 0 || input.questionEn.trim().length === 0) {
+    return { ok: false, error: "invalid_question" };
+  }
+  if (input.gradingRuleHe.trim().length < 3 || input.gradingRuleEn.trim().length < 3) {
+    return { ok: false, error: "invalid_grading_rule" };
+  }
+  if (
+    !Number.isInteger(input.stakeSnapshot) ||
+    !Number.isInteger(input.payoutSnapshot) ||
+    input.stakeSnapshot < 0 ||
+    input.payoutSnapshot <= 0
+  ) {
+    return { ok: false, error: "invalid_stake_payout" };
+  }
+  if (!validateAnswerConfig(input.answerType, input.answerConfig)) {
+    return { ok: false, error: "invalid_answer_config" };
+  }
+  if (!validateGradingConfig(input.gradingSource, input.gradingConfig)) {
+    return { ok: false, error: "invalid_grading_config" };
+  }
+  const lockAtDate = new Date(input.lockAt);
+  if (Number.isNaN(lockAtDate.getTime()) || lockAtDate.getTime() <= Date.now()) {
+    return { ok: false, error: "invalid_lock_at" };
+  }
+
+  // Status gate.
+  try {
+    const [existing] = await db
+      .select({ status: customBets.status })
+      .from(customBets)
+      .where(eq(customBets.id, id))
+      .limit(1);
+    if (!existing) return { ok: false, error: "bet_not_found" };
+    if (existing.status !== "draft") {
+      return { ok: false, error: "invalid_status" };
+    }
+  } catch (err) {
+    console.error("[bet update] read failed:", err);
+    return { ok: false, error: "db" };
+  }
+
+  // Resolve anchor exactly like create does.
+  let matchdayId: string | null = null;
+  try {
+    if (input.scope === "match" && input.matchId) {
+      const [m] = await db
+        .select({ id: matchesTable.id, kickoff: matchesTable.kickoffAt })
+        .from(matchesTable)
+        .where(eq(matchesTable.id, input.matchId))
+        .limit(1);
+      if (!m) return { ok: false, error: "match_not_found" };
+      matchdayId = await upsertMatchdayFromKickoff(m.kickoff);
+    } else if (input.scope === "day" && input.matchdayDate) {
+      matchdayId = await upsertMatchdayByDate(input.matchdayDate);
+    } else if (input.scope === "group" && input.groupId) {
+      const [g] = await db
+        .select({ id: groups.id })
+        .from(groups)
+        .where(eq(groups.id, input.groupId))
+        .limit(1);
+      if (!g) return { ok: false, error: "group_not_found" };
+    }
+  } catch (err) {
+    console.error("[bet update] anchor resolve failed:", err);
+    return { ok: false, error: "db" };
+  }
+
+  try {
+    await db
+      .update(customBets)
+      .set({
+        scope: input.scope,
+        matchdayId,
+        matchId: input.scope === "match" ? input.matchId : null,
+        stage: input.scope === "stage" ? input.stage : null,
+        groupId: input.scope === "group" ? input.groupId : null,
+        questionHe: input.questionHe.trim(),
+        questionEn: input.questionEn.trim(),
+        gradingRuleHe: input.gradingRuleHe.trim(),
+        gradingRuleEn: input.gradingRuleEn.trim(),
+        answerType: input.answerType,
+        answerConfig: input.answerConfig,
+        stakeSnapshot: input.stakeSnapshot,
+        payoutSnapshot: input.payoutSnapshot,
+        gradingSource: input.gradingSource,
+        gradingConfig: input.gradingConfig,
+        lockAt: lockAtDate,
+        updatedAt: new Date(),
+      })
+      .where(and(eq(customBets.id, id), eq(customBets.status, "draft")));
+
+    console.info("[bet update]", {
+      id,
+      scope: input.scope,
+      answerType: input.answerType,
+      stake: input.stakeSnapshot,
+      payout: input.payoutSnapshot,
+      gradingSource: input.gradingSource,
+      by: user.id,
+    });
+
+    revalidatePath("/[lang]/admin/bets", "page");
+    revalidatePath(`/[lang]/admin/bets/${id}`, "page");
+    return { ok: true };
+  } catch (err) {
+    console.error("[bet update] write failed:", err);
+    return { ok: false, error: "db" };
+  }
+}
+
 export type PublishCustomBetResult =
   | { ok: true }
   | { ok: false; error: Err };

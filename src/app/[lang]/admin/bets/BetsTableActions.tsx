@@ -91,16 +91,25 @@ export function BetsTableActions({
       </Link>
 
       {status === "draft" && (
-        <PillButton
-          type="button"
-          variant="primary"
-          disabled={pending}
-          onClick={() => handle(() => publishCustomBet(id), "published")}
-          className="min-h-[40px] py-2 px-4 text-sm"
-        >
-          <Send className="h-4 w-4" strokeWidth={2.5} />
-          {isHebrew ? "פרסם" : "Publish"}
-        </PillButton>
+        <>
+          <Link
+            href={localePath(locale, `admin/bets/${id}/edit`)}
+            className="inline-flex items-center justify-center gap-1.5 min-h-[40px] px-4 rounded-full border border-outline bg-surface-container-lowest text-on-surface text-sm font-bold hover:bg-surface-container"
+          >
+            <Edit3 className="h-4 w-4" strokeWidth={2} />
+            {isHebrew ? "ערוך" : "Edit"}
+          </Link>
+          <PillButton
+            type="button"
+            variant="primary"
+            disabled={pending}
+            onClick={() => handle(() => publishCustomBet(id), "published")}
+            className="min-h-[40px] py-2 px-4 text-sm"
+          >
+            <Send className="h-4 w-4" strokeWidth={2.5} />
+            {isHebrew ? "פרסם" : "Publish"}
+          </PillButton>
+        </>
       )}
 
       <PillButton

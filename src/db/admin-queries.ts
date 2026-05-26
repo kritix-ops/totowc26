@@ -216,6 +216,8 @@ export type AdminCustomBetDetail = {
   lockAt: string;
   publishedAt: string | null;
   gradedAt: string | null;
+  matchId: string | null;
+  matchdayId: string | null;
   matchdayDate: string | null;
   matchLabel: string | null;
   stage: string | null;
@@ -248,6 +250,8 @@ export async function getAdminCustomBetDetail(
       cb.lock_at                                  as "lockAt",
       cb.published_at                             as "publishedAt",
       cb.graded_at                                as "gradedAt",
+      cb.match_id::text                           as "matchId",
+      cb.matchday_id::text                        as "matchdayId",
       md.date::text                               as "matchdayDate",
       case when cb.match_id is not null
         then m.home_team || ' vs ' || m.away_team

@@ -1,23 +1,36 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { eq } from "drizzle-orm";
-import { hasLocale, type Locale } from "../../../dictionaries";
+import { hasLocale, type Locale } from "../../../../dictionaries";
 import { Card } from "@/components/ui";
 import { localePath } from "@/lib/paths";
 import { db } from "@/db";
 import { settings, groups } from "@/db/schema";
-import { listAnchorMatches, listAnchorDays } from "@/db/admin-queries";
-import { BetForm } from "../BetForm";
+import {
+  getAdminCustomBetDetail,
+  listAnchorMatches,
+  listAnchorDays,
+} from "@/db/admin-queries";
+import { BetForm, type InitialBet } from "../../BetForm";
+import type { AnswerConfig, GradingConfig } from "@/lib/bets/types";
 
-export default async function NewBetPage({
+export default async function EditBetPage({
   params,
-}: PageProps<"/[lang]/admin/bets/new">) {
-  const { lang } = await params;
+}: PageProps<"/[lang]/admin/bets/[id]/edit">) {
+  const { lang, id } = await params;
   if (!hasLocale(lang)) notFound();
   const locale = lang as Locale;
   const isHebrew = locale === "he";
   const Chev = isHebrew ? ChevronLeft : ChevronRight;
+
+  const bet = await getAdminCustomBetDetail(id);
+  if (!bet) notFound();
+  // Server-side gate: edit is draft-only. Anything else bounces back to
+  // the detail page where the admin can publish / cancel / grade instead.
+  if (bet.status !== "draft") {
+    redirect(localePath(locale, `admin/bets/${id}`));
+  }
 
   const [anchorMatches, anchorDays, groupRows, [defaults]] = await Promise.all([
     listAnchorMatches(),
@@ -40,23 +53,42 @@ export default async function NewBetPage({
       .limit(1),
   ]);
 
+  const initial: InitialBet = {
+    scope: bet.scope,
+    matchId: bet.matchId,
+    matchdayDate: bet.matchdayDate,
+    stage: bet.stage as InitialBet["stage"],
+    groupId: bet.groupId,
+    questionHe: bet.questionHe,
+    questionEn: bet.questionEn,
+    gradingRuleHe: bet.gradingRuleHe,
+    gradingRuleEn: bet.gradingRuleEn,
+    answerType: bet.answerType,
+    answerConfig: bet.answerConfig as AnswerConfig,
+    stakeSnapshot: bet.stakeSnapshot,
+    payoutSnapshot: bet.payoutSnapshot,
+    gradingSource: bet.gradingSource,
+    gradingConfig: bet.gradingConfig as GradingConfig,
+    lockAt: bet.lockAt,
+  };
+
   return (
     <section className="px-4 md:px-16 py-6 md:py-12 flex flex-col gap-6 md:gap-8 max-w-3xl mx-auto w-full pb-24">
       <header className="flex flex-col gap-3">
         <Link
-          href={localePath(locale, "admin/bets")}
+          href={localePath(locale, `admin/bets/${id}`)}
           className="inline-flex items-center gap-1 text-sm text-on-surface-variant hover:text-on-surface w-fit"
         >
           <Chev className="h-4 w-4" strokeWidth={2} />
-          {isHebrew ? "חזרה להימורים" : "Back to bets"}
+          {isHebrew ? "חזרה לפרטי ההימור" : "Back to bet"}
         </Link>
         <h1 className="font-[family-name:var(--font-display)] text-[28px] leading-9 md:text-[40px] md:leading-[44px] font-bold text-primary">
-          {isHebrew ? "הימור חדש" : "New bet"}
+          {isHebrew ? "עריכת הימור" : "Edit bet"}
         </h1>
         <p className="text-sm text-on-surface-variant">
           {isHebrew
-            ? "הימור נשמר כטיוטה. פרסם אותו מהרשימה אחרי שתוודא שהכל נכון."
-            : "Saved as a draft. Publish it from the list after you double-check."}
+            ? "אפשר לערוך רק טיוטה. אחרי פרסום, ההימור נעול - בטל ויצר חדש אם צריך."
+            : "Only drafts are editable. After publish, cancel and recreate instead."}
         </p>
       </header>
 
@@ -67,8 +99,12 @@ export default async function NewBetPage({
           anchorDays={anchorDays}
           groupIds={groupRows.map((g) => g.id)}
           defaults={defaults}
+          mode="edit"
+          betId={id}
+          initialBet={initial}
         />
       </Card>
     </section>
   );
 }
+

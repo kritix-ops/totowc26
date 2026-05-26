@@ -6,15 +6,30 @@ import { AlertCircle, Plus, RotateCcw, Trash2 } from "lucide-react";
 import { clsx } from "clsx";
 import { PillButton, LabelCaps } from "@/components/ui";
 import { localePath } from "@/lib/paths";
-import type { Locale } from "../../../dictionaries";
+import type { Locale } from "../../dictionaries";
 import type { AnswerConfig, GradingConfig } from "@/lib/bets/types";
 import type { AdminAnchorMatch, AdminAnchorDay } from "@/db/admin-queries";
-import { createCustomBet } from "../actions";
+import { createCustomBet, updateCustomBet } from "./actions";
+
+// Shared bet-author form. Two modes:
+//   create – default; submit hits createCustomBet, redirects to list.
+//   edit   – pre-fills every field from `initialBet`, submit hits
+//            updateCustomBet(betId, …). The server-side action enforces
+//            draft-only edits so this form is never reachable for an
+//            already-published bet.
 
 type Scope = "match" | "day" | "stage" | "group" | "tournament";
 type AnswerType = "yes_no" | "number" | "multi_choice" | "free_text";
 type GradingSource = "auto_balldontlie" | "auto_football_data" | "manual";
 type StageId = "group" | "r32" | "r16" | "qf" | "sf" | "third_place" | "final";
+type AutoFdField =
+  | "home_score"
+  | "away_score"
+  | "winner"
+  | "ht_score"
+  | "total_goals"
+  | "ht_total"
+  | "went_to_penalties";
 
 type Defaults = {
   stakeYesNo: number; payoutYesNo: number;
@@ -24,48 +39,95 @@ type Defaults = {
   betLockMinutes: number;
 };
 
-export function NewBetForm({
+export type InitialBet = {
+  scope: Scope;
+  matchId: string | null;
+  matchdayDate: string | null;
+  stage: StageId | null;
+  groupId: string | null;
+  questionHe: string;
+  questionEn: string;
+  gradingRuleHe: string;
+  gradingRuleEn: string;
+  answerType: AnswerType;
+  answerConfig: AnswerConfig;
+  stakeSnapshot: number;
+  payoutSnapshot: number;
+  gradingSource: GradingSource;
+  gradingConfig: GradingConfig;
+  lockAt: string; // ISO 8601 (UTC)
+};
+
+export function BetForm({
   locale,
   anchorMatches,
   anchorDays,
   groupIds,
   defaults,
+  mode = "create",
+  betId,
+  initialBet,
 }: {
   locale: Locale;
   anchorMatches: AdminAnchorMatch[];
   anchorDays: AdminAnchorDay[];
   groupIds: string[];
   defaults: Defaults | undefined;
+  mode?: "create" | "edit";
+  betId?: string;
+  initialBet?: InitialBet;
 }) {
   const isHebrew = locale === "he";
   const router = useRouter();
 
   // ---- Scope + anchors ----
-  const [scope, setScope] = useState<Scope>("day");
-  const [matchId, setMatchId] = useState<string>("");
-  const [dayDate, setDayDate] = useState<string>(anchorDays[0]?.date ?? "");
-  const [stage, setStage] = useState<StageId>("group");
-  const [groupId, setGroupId] = useState<string>(groupIds[0] ?? "");
+  const [scope, setScope] = useState<Scope>(initialBet?.scope ?? "day");
+  const [matchId, setMatchId] = useState<string>(initialBet?.matchId ?? "");
+  const [dayDate, setDayDate] = useState<string>(
+    initialBet?.matchdayDate ?? anchorDays[0]?.date ?? "",
+  );
+  const [stage, setStage] = useState<StageId>(initialBet?.stage ?? "group");
+  const [groupId, setGroupId] = useState<string>(
+    initialBet?.groupId ?? groupIds[0] ?? "",
+  );
 
   // ---- Copy ----
-  const [questionHe, setQuestionHe] = useState("");
-  const [questionEn, setQuestionEn] = useState("");
-  const [gradingRuleHe, setGradingRuleHe] = useState("");
-  const [gradingRuleEn, setGradingRuleEn] = useState("");
+  const [questionHe, setQuestionHe] = useState(initialBet?.questionHe ?? "");
+  const [questionEn, setQuestionEn] = useState(initialBet?.questionEn ?? "");
+  const [gradingRuleHe, setGradingRuleHe] = useState(initialBet?.gradingRuleHe ?? "");
+  const [gradingRuleEn, setGradingRuleEn] = useState(initialBet?.gradingRuleEn ?? "");
 
   // ---- Answer ----
-  const [answerType, setAnswerType] = useState<AnswerType>("yes_no");
-  const [numberUnit, setNumberUnit] = useState<string>("");
-  const [numberMin, setNumberMin] = useState<string>("");
-  const [numberMax, setNumberMax] = useState<string>("");
+  const [answerType, setAnswerType] = useState<AnswerType>(
+    initialBet?.answerType ?? "yes_no",
+  );
+  const initialNumber =
+    initialBet?.answerConfig.kind === "number" ? initialBet.answerConfig : null;
+  const [numberUnit, setNumberUnit] = useState<string>(initialNumber?.unit ?? "");
+  const [numberMin, setNumberMin] = useState<string>(
+    initialNumber?.min !== undefined ? String(initialNumber.min) : "",
+  );
+  const [numberMax, setNumberMax] = useState<string>(
+    initialNumber?.max !== undefined ? String(initialNumber.max) : "",
+  );
+  const initialMc =
+    initialBet?.answerConfig.kind === "multi_choice" ? initialBet.answerConfig : null;
   const [mcOptions, setMcOptions] = useState<
     Array<{ value: string; labelHe: string; labelEn: string }>
-  >([
-    { value: "", labelHe: "", labelEn: "" },
-    { value: "", labelHe: "", labelEn: "" },
-  ]);
-  const [freeTextPlaceholderHe, setFreeTextPlaceholderHe] = useState("");
-  const [freeTextPlaceholderEn, setFreeTextPlaceholderEn] = useState("");
+  >(
+    initialMc?.options ?? [
+      { value: "", labelHe: "", labelEn: "" },
+      { value: "", labelHe: "", labelEn: "" },
+    ],
+  );
+  const initialFt =
+    initialBet?.answerConfig.kind === "free_text" ? initialBet.answerConfig : null;
+  const [freeTextPlaceholderHe, setFreeTextPlaceholderHe] = useState(
+    initialFt?.placeholderHe ?? "",
+  );
+  const [freeTextPlaceholderEn, setFreeTextPlaceholderEn] = useState(
+    initialFt?.placeholderEn ?? "",
+  );
 
   // ---- Pricing (default by answer type, overridable) ----
   const defaultStakePayout = useMemo(() => {
@@ -77,12 +139,17 @@ export function NewBetForm({
       case "free_text":    return { stake: defaults.stakeFreeText,     payout: defaults.payoutFreeText };
     }
   }, [answerType, defaults]);
-  const [stake, setStake] = useState<number>(defaultStakePayout.stake);
-  const [payout, setPayout] = useState<number>(defaultStakePayout.payout);
+  const [stake, setStake] = useState<number>(
+    initialBet?.stakeSnapshot ?? defaultStakePayout.stake,
+  );
+  const [payout, setPayout] = useState<number>(
+    initialBet?.payoutSnapshot ?? defaultStakePayout.payout,
+  );
   // Track whether the admin has manually touched stake/payout; if not, snap
-  // them to whatever the new answer-type default is.
-  const [stakeTouched, setStakeTouched] = useState(false);
-  const [payoutTouched, setPayoutTouched] = useState(false);
+  // them to whatever the new answer-type default is. In edit mode every
+  // value is "touched" already because it came from the saved row.
+  const [stakeTouched, setStakeTouched] = useState(mode === "edit");
+  const [payoutTouched, setPayoutTouched] = useState(mode === "edit");
   if (!stakeTouched && stake !== defaultStakePayout.stake) {
     setStake(defaultStakePayout.stake);
   }
@@ -91,26 +158,42 @@ export function NewBetForm({
   }
 
   // ---- Grading ----
-  const [gradingSource, setGradingSource] = useState<GradingSource>("manual");
-  const [autoBdlStat, setAutoBdlStat] = useState<string>("corners");
-  const [autoBdlAgg, setAutoBdlAgg] = useState<"sum_day" | "per_match" | "first_match">("per_match");
-  const [autoFdField, setAutoFdField] = useState<
-    | "home_score"
-    | "away_score"
-    | "winner"
-    | "ht_score"
-    | "total_goals"
-    | "ht_total"
-    | "went_to_penalties"
-  >("total_goals");
+  const [gradingSource, setGradingSource] = useState<GradingSource>(
+    initialBet?.gradingSource ?? "manual",
+  );
+  const initialBdl =
+    initialBet?.gradingConfig?.source === "auto_balldontlie"
+      ? initialBet.gradingConfig
+      : null;
+  const [autoBdlStat, setAutoBdlStat] = useState<string>(initialBdl?.stat ?? "corners");
+  const [autoBdlAgg, setAutoBdlAgg] = useState<"sum_day" | "per_match" | "first_match">(
+    initialBdl?.aggregate ?? "per_match",
+  );
+  const initialFd =
+    initialBet?.gradingConfig?.source === "auto_football_data"
+      ? initialBet.gradingConfig
+      : null;
+  const [autoFdField, setAutoFdField] = useState<AutoFdField>(
+    initialFd?.field ?? "total_goals",
+  );
 
   // ---- Lock time ----
-  const defaultLockAt = useMemo(
-    () => suggestDefaultLockAt(scope, matchId, dayDate, anchorMatches, anchorDays, defaults?.betLockMinutes ?? 5),
-    [scope, matchId, dayDate, anchorMatches, anchorDays, defaults?.betLockMinutes],
-  );
+  // suggestDefaultLockAt reads Date.now() in its fallback branch, so the
+  // React lint rule won't let us wrap this in useMemo. Compute it inline
+  // every render — it's a few field reads, not expensive — and rely on
+  // the `lockTouched` flag below to avoid stomping admin's manual input.
+  const defaultLockAt = initialBet?.lockAt
+    ? toLocalDateTimeInputValue(new Date(initialBet.lockAt))
+    : suggestDefaultLockAt(
+        scope,
+        matchId,
+        dayDate,
+        anchorMatches,
+        anchorDays,
+        defaults?.betLockMinutes ?? 5,
+      );
   const [lockAtLocal, setLockAtLocal] = useState<string>(defaultLockAt);
-  const [lockTouched, setLockTouched] = useState(false);
+  const [lockTouched, setLockTouched] = useState(mode === "edit");
   if (!lockTouched && lockAtLocal !== defaultLockAt) {
     setLockAtLocal(defaultLockAt);
   }
@@ -143,40 +226,59 @@ export function NewBetForm({
       return;
     }
 
-    // Convert the <input type="datetime-local"> string (which is naive
-    // local time) to a proper ISO. The browser interprets it in the
-    // user's local TZ which matches what we want for the admin form.
+    // Convert the <input type="datetime-local"> string (naive local time)
+    // to a proper ISO. The browser interpreted it in the user's local
+    // timezone, which matches what we want.
     const lockAtIso = new Date(lockAtLocal).toISOString();
 
+    const payload = {
+      scope,
+      matchId: scope === "match" ? matchId : null,
+      matchdayDate: scope === "day" ? dayDate : null,
+      stage: scope === "stage" ? stage : null,
+      groupId: scope === "group" ? groupId : null,
+      questionHe,
+      questionEn,
+      gradingRuleHe,
+      gradingRuleEn,
+      answerType,
+      answerConfig,
+      stakeSnapshot: stake,
+      payoutSnapshot: payout,
+      gradingSource,
+      gradingConfig,
+      lockAt: lockAtIso,
+    };
+
     startTransition(async () => {
-      const res = await createCustomBet({
-        scope,
-        matchId: scope === "match" ? matchId : null,
-        matchdayDate: scope === "day" ? dayDate : null,
-        stage: scope === "stage" ? stage : null,
-        groupId: scope === "group" ? groupId : null,
-        questionHe,
-        questionEn,
-        gradingRuleHe,
-        gradingRuleEn,
-        answerType,
-        answerConfig,
-        stakeSnapshot: stake,
-        payoutSnapshot: payout,
-        gradingSource,
-        gradingConfig,
-        lockAt: lockAtIso,
-      });
-
-      if (!res.ok) {
-        setError(translateError(res.error, isHebrew));
-        return;
+      if (mode === "edit") {
+        if (!betId) {
+          setError("Missing bet id");
+          return;
+        }
+        const res = await updateCustomBet(betId, payload);
+        if (!res.ok) {
+          setError(translateError(res.error, isHebrew));
+          return;
+        }
+        router.push(localePath(locale, `admin/bets/${betId}`));
+        router.refresh();
+      } else {
+        const res = await createCustomBet(payload);
+        if (!res.ok) {
+          setError(translateError(res.error, isHebrew));
+          return;
+        }
+        router.push(localePath(locale, "admin/bets"));
+        router.refresh();
       }
-
-      router.push(localePath(locale, "admin/bets"));
-      router.refresh();
     });
   };
+
+  const cancelHref =
+    mode === "edit" && betId
+      ? localePath(locale, `admin/bets/${betId}`)
+      : localePath(locale, "admin/bets");
 
   return (
     <form onSubmit={submit} className="flex flex-col gap-6 md:gap-8">
@@ -520,7 +622,7 @@ export function NewBetForm({
         <Section title={isHebrew ? "מה לדגום מהתוצאה?" : "Which field to read?"}>
           <select
             value={autoFdField}
-            onChange={(e) => setAutoFdField(e.target.value as typeof autoFdField)}
+            onChange={(e) => setAutoFdField(e.target.value as AutoFdField)}
             className="min-h-[48px] w-full px-3 rounded border border-outline bg-surface-container-lowest text-base"
           >
             <option value="total_goals">      {isHebrew ? "סך השערים במשחק" : "Total goals in match"}</option>
@@ -580,7 +682,6 @@ export function NewBetForm({
         />
       </Section>
 
-      {/* Error + submit */}
       {error && (
         <p className="inline-flex items-center gap-2 text-sm text-error">
           <AlertCircle className="h-4 w-4" strokeWidth={2} />
@@ -591,7 +692,7 @@ export function NewBetForm({
       <div className="flex flex-col-reverse md:flex-row md:justify-end gap-3 pt-4 border-t border-outline-variant">
         <button
           type="button"
-          onClick={() => router.push(localePath(locale, "admin/bets"))}
+          onClick={() => router.push(cancelHref)}
           className="min-h-[48px] px-6 rounded-full border border-outline bg-surface-container-lowest text-on-surface font-bold hover:bg-surface-container"
         >
           {isHebrew ? "ביטול" : "Cancel"}
@@ -599,7 +700,9 @@ export function NewBetForm({
         <PillButton type="submit" disabled={pending} className="min-h-[48px]">
           {pending
             ? isHebrew ? "שומר…" : "Saving…"
-            : isHebrew ? "שמור כטיוטה" : "Save as draft"}
+            : mode === "edit"
+              ? isHebrew ? "שמור שינויים" : "Save changes"
+              : isHebrew ? "שמור כטיוטה" : "Save as draft"}
         </PillButton>
       </div>
     </form>
@@ -850,14 +953,7 @@ function buildGradingConfig(
   fields: {
     autoBdlStat: string;
     autoBdlAgg: "sum_day" | "per_match" | "first_match";
-    autoFdField:
-      | "home_score"
-      | "away_score"
-      | "winner"
-      | "ht_score"
-      | "total_goals"
-      | "ht_total"
-      | "went_to_penalties";
+    autoFdField: AutoFdField;
   },
 ): GradingConfig | "invalid" {
   if (source === "manual") return null;
@@ -883,9 +979,6 @@ function suggestDefaultLockAt(
   anchorDays: AdminAnchorDay[],
   betLockMinutes: number,
 ): string {
-  // Pick a relevant "earliest kickoff" anchor, subtract the lock buffer,
-  // then return a string in <input type="datetime-local"> format (which
-  // is naive local time — the browser handles the TZ for us on submit).
   let kickoff: Date | null = null;
   if (scope === "match" && matchId) {
     const m = anchorMatches.find((x) => x.id === matchId);
@@ -897,14 +990,15 @@ function suggestDefaultLockAt(
     kickoff = new Date(anchorMatches[0].kickoffAt);
   }
   if (!kickoff) {
-    // Fallback: 24h from now.
     kickoff = new Date(Date.now() + 24 * 60 * 60 * 1000);
   }
   const lock = new Date(kickoff.getTime() - betLockMinutes * 60 * 1000);
-  // Format YYYY-MM-DDTHH:mm in local time (no timezone marker, which is
-  // what <input type="datetime-local"> expects).
+  return toLocalDateTimeInputValue(lock);
+}
+
+function toLocalDateTimeInputValue(d: Date): string {
   const pad = (n: number) => String(n).padStart(2, "0");
-  return `${lock.getFullYear()}-${pad(lock.getMonth() + 1)}-${pad(lock.getDate())}T${pad(lock.getHours())}:${pad(lock.getMinutes())}`;
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 function scopeHelp(scope: Scope, isHebrew: boolean): string {
@@ -934,18 +1028,20 @@ function scopeHelp(scope: Scope, isHebrew: boolean): string {
 
 function translateError(err: string, isHebrew: boolean): string {
   const map: Record<string, [string, string]> = {
-    unauth:               ["יש להתחבר", "Sign in required"],
-    forbidden:            ["אין הרשאה", "Not allowed"],
-    invalid_scope_anchor: ["סוג ההימור והעוגן אינם תואמים", "Scope and anchor don't match"],
-    invalid_question:    ["שאלה ריקה בעברית או באנגלית", "Question missing in Hebrew or English"],
-    invalid_grading_rule:["כלל דירוג חייב להיות לפחות 3 תווים", "Grading rule must be 3+ characters"],
-    invalid_stake_payout:["עלות או תשלום לא תקין", "Invalid stake or payout"],
-    invalid_answer_config:["תצורת תשובה לא תקינה", "Invalid answer config"],
+    unauth:                ["יש להתחבר", "Sign in required"],
+    forbidden:             ["אין הרשאה", "Not allowed"],
+    invalid_scope_anchor:  ["סוג ההימור והעוגן אינם תואמים", "Scope and anchor don't match"],
+    invalid_question:      ["שאלה ריקה בעברית או באנגלית", "Question missing in Hebrew or English"],
+    invalid_grading_rule:  ["כלל דירוג חייב להיות לפחות 3 תווים", "Grading rule must be 3+ characters"],
+    invalid_stake_payout:  ["עלות או תשלום לא תקין", "Invalid stake or payout"],
+    invalid_answer_config: ["תצורת תשובה לא תקינה", "Invalid answer config"],
     invalid_grading_config:["תצורת דירוג לא תקינה", "Invalid grading config"],
-    invalid_lock_at:     ["זמן סגירה חייב להיות בעתיד", "Lock time must be in the future"],
-    match_not_found:     ["המשחק לא נמצא", "Match not found"],
-    group_not_found:     ["הבית לא נמצא", "Group not found"],
-    db:                  ["שגיאת שמירה", "Save failed"],
+    invalid_lock_at:       ["זמן סגירה חייב להיות בעתיד", "Lock time must be in the future"],
+    match_not_found:       ["המשחק לא נמצא", "Match not found"],
+    group_not_found:       ["הבית לא נמצא", "Group not found"],
+    bet_not_found:         ["ההימור לא נמצא", "Bet not found"],
+    invalid_status:        ["אפשר לערוך רק טיוטה. בטל את ההימור ותיצור אחד חדש.", "Only drafts can be edited. Cancel and recreate."],
+    db:                    ["שגיאת שמירה", "Save failed"],
   };
   const e = map[err];
   return e ? e[isHebrew ? 0 : 1] : err;
