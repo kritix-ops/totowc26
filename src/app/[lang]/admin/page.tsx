@@ -10,6 +10,7 @@ import {
   Sparkles,
   Mail,
   Trophy,
+  Languages,
 } from "lucide-react";
 import { eq } from "drizzle-orm";
 import { hasLocale, type Locale } from "../dictionaries";
@@ -98,6 +99,12 @@ export default async function AdminPage({
           path="admin/tournament-suggestions"
           icon={<Trophy className="h-5 w-5" strokeWidth={1.75} />}
           label={isHebrew ? "הימורי טורניר" : "Tournament bets"}
+        />
+        <SectionLink
+          locale={locale}
+          path="admin/players"
+          icon={<Languages className="h-5 w-5" strokeWidth={1.75} />}
+          label={isHebrew ? "תרגום שחקנים" : "Player translations"}
         />
         <SectionLink
           locale={locale}

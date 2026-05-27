@@ -23,10 +23,17 @@ const nextConfig: NextConfig = {
     // News thumbnails are pulled from RSS feeds whose CDN hostnames are
     // stable. Pinning here so next/image can serve them optimised, and
     // so we never accept thumbnails from arbitrary hosts.
+    //
+    // Player photos come from API-Football's media CDN (media.api-
+    // sports.io). Hot-linked via next/image rather than mirrored to
+    // Supabase Storage — see _plans/2026-05-27-hebrew-tournament-bets-
+    // and-translations.md §8.3. If API-Sports ever blocks hot-linking
+    // we revisit and add a sync-to-Storage step in the squads script.
     remotePatterns: [
       { protocol: "https", hostname: "ichef.bbci.co.uk" },
       { protocol: "https", hostname: "images.wcdn.co.il" },
       { protocol: "https", hostname: "**.yit.co.il" },
+      { protocol: "https", hostname: "media.api-sports.io" },
     ],
   },
   async headers() {

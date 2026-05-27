@@ -137,7 +137,11 @@ export const teams = pgTable(
 // national teams (rare; happens for naturalised players between
 // cycles) the existing row is updated in place. nameHe is nullable
 // because the squads sync fills only nameEn; the Hebrew translation
-// pipeline (PR-3) is what fills nameHe afterwards.
+// pipeline (PR-3b/3c) is what fills nameHe afterwards. The audit
+// columns (nameHe*) record where the Hebrew came from, how
+// confident we are, and whether an admin has manually vetted the
+// row — that flag freezes the row against future automatic
+// overwrites.
 export const players = pgTable(
   "players",
   {
@@ -148,6 +152,12 @@ export const players = pgTable(
       .references(() => teams.code, { onDelete: "cascade" }),
     nameEn: text("name_en").notNull(),
     nameHe: text("name_he"),
+    nameHeSource:         text("name_he_source"),          // 'wikidata' / 'walla' / 'one' / 'sport5' / 'sport1' / 'ynet' / 'llm_claude' / 'llm_reviewer' / 'manual'
+    nameHeConfidence:     smallint("name_he_confidence"),
+    nameHeReviewVerdict:  text("name_he_review_verdict"),  // 'approved' / 'flag' / 'reject' / null
+    nameHeReviewReason:   text("name_he_review_reason"),
+    nameHeReviewedAt:     timestamp("name_he_reviewed_at", { withTimezone: true }),
+    nameHeAdminLocked:    boolean("name_he_admin_locked").notNull().default(false),
     position: varchar("position", { length: 20 }),
     jerseyNumber: smallint("jersey_number"),
     photoUrl: text("photo_url"),
@@ -162,6 +172,7 @@ export const players = pgTable(
   (t) => ({
     teamIdx: index("players_team_idx").on(t.teamCode),
     nameEnIdx: index("players_name_en_idx").on(t.nameEn),
+    reviewQueueIdx: index("players_review_queue_idx").on(t.nameHeReviewVerdict, t.nameHeConfidence),
   }),
 );
 

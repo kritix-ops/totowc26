@@ -446,3 +446,130 @@ export async function listLiveBetsDates(): Promise<LiveBetsDateRow[]> {
   `);
   return rows as unknown as LiveBetsDateRow[];
 }
+
+// ---------- player translation review queue ----------
+//
+// One row per player, with everything the /admin/players review UI
+// needs to surface (English + Hebrew names, source / confidence /
+// verdict / reason, the locked flag, team metadata for the chip).
+// Ordering keys the queue: rejects first, then flagged, then
+// approved by confidence ascending (lowest confidence near the top
+// so admin attention lands where it adds the most value), then
+// unreviewed rows. NULL nameHe rows surface alongside their parent
+// verdict bucket — usually 'reject' (LLM said the candidate was
+// wrong) or no verdict yet.
+
+export type AdminPlayerReviewRow = {
+  id: string;
+  apiFootballId: number;
+  teamCode: string;
+  teamNameHe: string;
+  teamNameEn: string;
+  teamFlag: string;
+  nameEn: string;
+  nameHe: string | null;
+  position: string | null;
+  jerseyNumber: number | null;
+  photoUrl: string | null;
+  nameHeSource: string | null;
+  nameHeConfidence: number | null;
+  nameHeReviewVerdict: "approved" | "flag" | "reject" | null;
+  nameHeReviewReason: string | null;
+  nameHeReviewedAt: string | null;
+  nameHeAdminLocked: boolean;
+};
+
+export async function listPlayersForReview(opts?: {
+  verdict?: "approved" | "flag" | "reject" | "unreviewed" | "all";
+  teamCode?: string | null;
+  limit?: number;
+}): Promise<AdminPlayerReviewRow[]> {
+  const verdict = opts?.verdict ?? "all";
+  const teamCode = opts?.teamCode ?? null;
+  const limit = Math.min(Math.max(opts?.limit ?? 500, 1), 2000);
+
+  // We sort by a manually-computed bucket so the four verdict
+  // groups have a stable, intuitive order independent of how
+  // Postgres collates the verdict strings alphabetically.
+  const rows = await db.execute<AdminPlayerReviewRow>(sql`
+    select
+      p.id::text                       as "id",
+      p.api_football_id                as "apiFootballId",
+      p.team_code                      as "teamCode",
+      t.name_he                        as "teamNameHe",
+      t.name_en                        as "teamNameEn",
+      t.flag                           as "teamFlag",
+      p.name_en                        as "nameEn",
+      p.name_he                        as "nameHe",
+      p.position                       as "position",
+      p.jersey_number                  as "jerseyNumber",
+      p.photo_url                      as "photoUrl",
+      p.name_he_source                 as "nameHeSource",
+      p.name_he_confidence             as "nameHeConfidence",
+      p.name_he_review_verdict         as "nameHeReviewVerdict",
+      p.name_he_review_reason          as "nameHeReviewReason",
+      p.name_he_reviewed_at::text      as "nameHeReviewedAt",
+      p.name_he_admin_locked           as "nameHeAdminLocked"
+    from public.players p
+    join public.teams t on t.code = p.team_code
+    where
+      (
+        ${verdict}::text = 'all'
+        or (${verdict}::text = 'unreviewed' and p.name_he_review_verdict is null)
+        or p.name_he_review_verdict = ${verdict}::text
+      )
+      and (${teamCode}::text is null or p.team_code = ${teamCode}::text)
+    order by
+      case
+        when p.name_he_review_verdict = 'reject'   then 0
+        when p.name_he_review_verdict = 'flag'     then 1
+        when p.name_he_review_verdict is null      then 2
+        when p.name_he_review_verdict = 'approved' then 3
+        else 4
+      end asc,
+      coalesce(p.name_he_confidence, -1) asc,
+      p.team_code asc,
+      p.jersey_number nulls last,
+      p.name_en asc
+    limit ${limit}
+  `);
+  return rows as unknown as AdminPlayerReviewRow[];
+}
+
+export async function getPlayerReviewCounts(): Promise<{
+  reject: number;
+  flag: number;
+  approved: number;
+  unreviewed: number;
+  total: number;
+}> {
+  const rows = await db.execute<{
+    reject: number;
+    flag: number;
+    approved: number;
+    unreviewed: number;
+    total: number;
+  }>(sql`
+    select
+      count(*) filter (where name_he_review_verdict = 'reject')::int   as "reject",
+      count(*) filter (where name_he_review_verdict = 'flag')::int     as "flag",
+      count(*) filter (where name_he_review_verdict = 'approved')::int as "approved",
+      count(*) filter (where name_he_review_verdict is null)::int      as "unreviewed",
+      count(*)::int                                                      as "total"
+    from public.players
+  `);
+  const r = (rows as unknown as Array<{
+    reject: number;
+    flag: number;
+    approved: number;
+    unreviewed: number;
+    total: number;
+  }>)[0];
+  return {
+    reject: Number(r?.reject ?? 0),
+    flag: Number(r?.flag ?? 0),
+    approved: Number(r?.approved ?? 0),
+    unreviewed: Number(r?.unreviewed ?? 0),
+    total: Number(r?.total ?? 0),
+  };
+}
