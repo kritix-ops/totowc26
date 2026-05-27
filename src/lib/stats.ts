@@ -38,15 +38,18 @@ export type LiveScorer = {
 };
 
 // Source priority: API-Football (richer payload, includes photo + shots) →
-// football-data.org fallback (no key needed). The API-Football wrapper
-// itself returns null when API_FOOTBALL_KEY is unset, so the fallback kicks
-// in cleanly during the pre-activation period.
+// football-data.org fallback. Same provider model as `_runSync` in
+// src/lib/sync.ts: API-Football wins when its key is set and the call
+// succeeds; football-data carries the page when API-Football is
+// unavailable. Logs use the `[scorers provider]` namespace so they
+// line up with the `[sync provider]` lines from the cron — search
+// either one in Vercel and you see the full picture.
 export async function getLiveTopScorers(limit = 20): Promise<LiveScorer[]> {
   const apiFootball = await fetchTopScorersApiFootball();
   if (apiFootball && apiFootball.length > 0) {
-    console.info("[wc-zone enrichment] top scorers fetched", {
+    console.info("[scorers provider]", {
+      used: "api-football",
       count: apiFootball.length,
-      source: "api-football",
     });
     return apiFootball.slice(0, limit).map((s, i) => ({
       rank: i + 1,
@@ -63,12 +66,18 @@ export async function getLiveTopScorers(limit = 20): Promise<LiveScorer[]> {
   try {
     raw = await fetchTopScorers(2026, limit);
   } catch (err) {
-    console.warn("[stats] fetchTopScorers failed, returning empty list:", err);
+    const reason = err instanceof Error ? err.message : String(err);
+    console.warn("[scorers provider fallback failed]", {
+      from: "api-football",
+      to: "football-data",
+      reason,
+    });
     return [];
   }
-  console.info("[wc-zone enrichment] top scorers fetched", {
+  console.info("[scorers provider]", {
+    used: "football-data",
     count: raw.length,
-    source: "football-data",
+    reason: apiFootball === null ? "api-football returned null" : "api-football empty",
   });
   return raw
     .filter((s) => !!s.player?.name)
