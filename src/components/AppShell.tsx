@@ -1,22 +1,22 @@
 import Link from "next/link";
 import { Suspense } from "react";
-import { BookOpen, Home, ListChecks, Swords, Trophy } from "lucide-react";
+import { BookOpen } from "lucide-react";
 import type { Dictionary, Locale } from "@/app/[lang]/dictionaries";
 import { localePath } from "@/lib/paths";
 import { getRequestUser } from "@/lib/request-user";
 import { getViewAs } from "@/lib/view-as";
-import { NavLink, BottomNavLink } from "./NavLink";
+import { NavLink } from "./NavLink";
 import { BrandLogo } from "./BrandLogo";
 import { HeaderUserSection } from "./HeaderUserSection";
 import { GuestHeaderActions } from "./GuestHeaderActions";
 import { DesktopNavExtras } from "./DesktopNavExtras";
-import { MobileMoreSection } from "./MobileMoreSection";
+import { MobileBottomNavSection } from "./MobileBottomNavSection";
 import { ViewAsBannerSection } from "./ViewAsBannerSection";
 import {
   DesktopNavExtrasSkeleton,
   GuestActionsSkeleton,
   HeaderUserSkeleton,
-  MobileMoreSkeleton,
+  MobileBottomNavSkeleton,
 } from "./AppShellSkeletons";
 
 // The AppShell is the layout chrome that wraps every page. The whole
@@ -29,10 +29,11 @@ import {
 // banner, Pay/Admin nav extras, mobile More sheet) streams in behind a
 // <Suspense> boundary with a skeleton matching its real dimensions.
 //
-// The static parts (logo, rules CTA, fixed nav items, bottom nav with
-// the 4 always-visible cells, the <main> children) are emitted as the
-// first byte of the response so the user sees a complete shell
-// instantly and the heavy queries fan out in parallel underneath.
+// The static parts (logo, rules CTA, fixed top-nav items, the <main>
+// children) are emitted as the first byte of the response so the user
+// sees a complete shell instantly and the heavy queries fan out in
+// parallel underneath. The mobile bottom nav is admin-controlled and
+// streams in behind a skeleton (it depends on the settings row).
 export async function AppShell({
   locale,
   dict,
@@ -69,7 +70,7 @@ export async function AppShell({
     userId: reqUser?.id ?? null,
     reserveBanner,
     streamingSections: signedIn
-      ? ["ViewAsBanner", "DesktopNavExtras", "HeaderUserSection", "MobileMoreSection"]
+      ? ["ViewAsBanner", "DesktopNavExtras", "HeaderUserSection", "MobileBottomNav"]
       : ["GuestHeaderActions"],
   });
 
@@ -164,24 +165,19 @@ export async function AppShell({
       </main>
 
       {signedIn && (
-        <nav
-          aria-label={isHebrew ? "ניווט תחתון" : "Bottom"}
-          // 5 fixed cells matching the desktop order, then a "More"
-          // trigger for the items that did not fit (Live scores,
-          // World Cup, Pay, Profile, Admin, Logout). Order is
-          // intentionally identical to the desktop top nav so users
-          // switching devices see the same hierarchy. Live BETS is
-          // a tab inside /bets, not a top-level cell.
-          className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-surface-container rounded-t-xl border-t border-outline-variant shadow-[0_-4px_12px_rgba(28,20,15,0.05)] grid grid-cols-5 items-stretch min-h-[64px] pb-[env(safe-area-inset-bottom)]"
-        >
-          <BottomNavLink locale={locale} path="" label={dict.nav.home} icon={<Home className="h-5 w-5" strokeWidth={1.75} />} exact />
-          <BottomNavLink locale={locale} path="bets" label={dict.nav.matchPicks} icon={<ListChecks className="h-5 w-5" strokeWidth={1.75} />} />
-          <BottomNavLink locale={locale} path="duels" label={dict.nav.duels} icon={<Swords className="h-5 w-5" strokeWidth={1.75} />} />
-          <BottomNavLink locale={locale} path="leaderboard" label={dict.nav.leaders} icon={<Trophy className="h-5 w-5" strokeWidth={1.75} />} />
-          <Suspense fallback={<MobileMoreSkeleton />}>
-            <MobileMoreSection locale={locale} dict={dict} userId={reqUser.id} />
-          </Suspense>
-        </nav>
+        // Admin-controlled bottom nav. The order, the items in the bar
+        // vs the More sheet, and the bar's cell count all come from
+        // `settings.mobile_nav_config` (see _plans/2026-05-27-admin-
+        // mobile-nav-config.md). The whole bar streams behind Suspense
+        // because it depends on access + the config row; the skeleton
+        // reserves the bar's footprint so content above does not jump.
+        <Suspense fallback={<MobileBottomNavSkeleton />}>
+          <MobileBottomNavSection
+            locale={locale}
+            dict={dict}
+            userId={reqUser.id}
+          />
+        </Suspense>
       )}
     </>
   );

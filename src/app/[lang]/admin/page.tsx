@@ -11,6 +11,7 @@ import {
   Mail,
   Trophy,
   Languages,
+  Smartphone,
 } from "lucide-react";
 import { eq } from "drizzle-orm";
 import { hasLocale, type Locale } from "../dictionaries";
@@ -123,6 +124,12 @@ export default async function AdminPage({
           path="admin/email-test"
           icon={<Mail className="h-5 w-5" strokeWidth={1.75} />}
           label={isHebrew ? "בדיקת אימייל" : "Email test"}
+        />
+        <SectionLink
+          locale={locale}
+          path="admin/settings/mobile-nav"
+          icon={<Smartphone className="h-5 w-5" strokeWidth={1.75} />}
+          label={isHebrew ? "תפריט מובייל" : "Mobile nav"}
         />
       </nav>
 

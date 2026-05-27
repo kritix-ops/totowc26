@@ -134,6 +134,13 @@
       "when": 1781181200000,
       "tag": "0018_player_translation_audit",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1781267600000,
+      "tag": "0019_mobile_nav_config",
+      "breakpoints": true
     }
   ]
 }

@@ -3,109 +3,44 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { BookOpen, Eye, Globe2, LogOut, MoreHorizontal, Radio, Shield, Swords, User as UserIcon, Wallet } from "lucide-react";
+import { LogOut, MoreHorizontal } from "lucide-react";
 import { clsx } from "clsx";
 import type { Locale } from "@/app/[lang]/dictionaries";
 import { localePath } from "@/lib/paths";
+import { MobileNavIcon } from "@/lib/mobile-nav-icons";
+import type { MobileNavItemKey } from "@/lib/mobile-nav";
 
 type SheetItem = {
-  key:
-    | "tournament"
-    | "live"
-    | "duels"
-    | "transparency"
-    | "pay"
-    | "profile"
-    | "admin"
-    | "rules";
+  key: MobileNavItemKey;
   path: string;
   label: string;
-  icon: React.ReactNode;
 };
 
 type Labels = {
   moreCell: string;
-  tournament: string;
-  liveScores: string;
-  duels: string;
-  transparency: string;
-  pay: string;
-  profile: string;
-  admin: string;
-  rules: string;
-  logout: string;
   openSheet: string;
   closeSheet: string;
+  logout: string;
 };
 
+// The "עוד" trigger in the mobile bottom bar + the bottom-sheet menu it
+// opens. Items are admin-controlled (see _plans/2026-05-27-admin-mobile
+// -nav-config.md) — this component is dumb about ordering and just
+// renders whatever it gets in `items`. Logout stays anchored at the
+// bottom of the sheet as a session action, not a nav item, and is not
+// configurable.
 export function MobileMoreSheet({
   locale,
-  showPay,
-  isAdmin,
+  items,
   labels,
 }: {
   locale: Locale;
-  showPay: boolean;
-  isAdmin: boolean;
+  items: SheetItem[];
   labels: Labels;
 }) {
   const [open, setOpen] = useState(false);
   const pathname = usePathname() ?? "";
   const sheetRef = useRef<HTMLDivElement | null>(null);
-
-  const items: SheetItem[] = [];
-  items.push({
-    key: "tournament",
-    path: "tournament",
-    label: labels.tournament,
-    icon: <Globe2 className="h-5 w-5" strokeWidth={1.75} />,
-  });
-  items.push({
-    key: "live",
-    path: "live",
-    label: labels.liveScores,
-    icon: <Radio className="h-5 w-5" strokeWidth={1.75} />,
-  });
-  items.push({
-    key: "duels",
-    path: "duels",
-    label: labels.duels,
-    icon: <Swords className="h-5 w-5" strokeWidth={1.75} />,
-  });
-  items.push({
-    key: "transparency",
-    path: "transparency",
-    label: labels.transparency,
-    icon: <Eye className="h-5 w-5" strokeWidth={1.75} />,
-  });
-  if (showPay) {
-    items.push({
-      key: "pay",
-      path: "pay",
-      label: labels.pay,
-      icon: <Wallet className="h-5 w-5" strokeWidth={1.75} />,
-    });
-  }
-  if (isAdmin) {
-    items.push({
-      key: "admin",
-      path: "admin",
-      label: labels.admin,
-      icon: <Shield className="h-5 w-5" strokeWidth={1.75} />,
-    });
-  }
-  items.push({
-    key: "profile",
-    path: "profile",
-    label: labels.profile,
-    icon: <UserIcon className="h-5 w-5" strokeWidth={1.75} />,
-  });
-  items.push({
-    key: "rules",
-    path: "rules",
-    label: labels.rules,
-    icon: <BookOpen className="h-5 w-5" strokeWidth={1.75} />,
-  });
 
   const triggerActive = items.some((i) => {
     const t = localePath(locale, i.path);
@@ -134,8 +69,7 @@ export function MobileMoreSheet({
       if (next) {
         console.info("[mobile more sheet open]", {
           itemCount: items.length,
-          showPay,
-          isAdmin,
+          keys: items.map((i) => i.key),
         });
       }
       return next;
@@ -201,7 +135,7 @@ export function MobileMoreSheet({
                       )}
                     >
                       <span aria-hidden className="shrink-0">
-                        {item.icon}
+                        <MobileNavIcon itemKey={item.key} />
                       </span>
                       <span className="text-base">{item.label}</span>
                     </Link>

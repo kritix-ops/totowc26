@@ -398,6 +398,32 @@ export const settings = pgTable("settings", {
   // and the "להגיש בקשה" link on /[lang]/login is hidden. Default true so
   // existing deployments keep accepting requests after the migration runs.
   publicSignupOpen: boolean("public_signup_open").notNull().default(true),
+  // Admin-controlled mobile bottom-nav layout. `items` is the ordered
+  // catalog of visible item keys (see MOBILE_NAV_ITEM_KEYS in
+  // src/lib/mobile-nav.ts); items not in the list are hidden.
+  // `bottomBarCount` (2..5) caps the number of cells in the bar - if the
+  // visible-after-role-filter list is longer, the last bar cell becomes
+  // "More" and overflow goes into the bottom sheet. The CHECK constraint
+  // in migration 0019 enforces shape on the DB side.
+  mobileNavConfig: jsonb("mobile_nav_config")
+    .notNull()
+    .$type<{ items: string[]; bottomBarCount: number }>()
+    .default({
+      items: [
+        "home",
+        "bets",
+        "duels",
+        "leaderboard",
+        "tournament",
+        "live",
+        "transparency",
+        "pay",
+        "admin",
+        "profile",
+        "rules",
+      ],
+      bottomBarCount: 5,
+    }),
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
