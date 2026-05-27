@@ -130,6 +130,41 @@ export const teams = pgTable(
   }),
 );
 
+// players: WC tournament squad rosters.
+//
+// Populated by `scripts/api-football-sync-squads.mjs` (the squads
+// sync). One row per player per team — when a player transfers
+// national teams (rare; happens for naturalised players between
+// cycles) the existing row is updated in place. nameHe is nullable
+// because the squads sync fills only nameEn; the Hebrew translation
+// pipeline (PR-3) is what fills nameHe afterwards.
+export const players = pgTable(
+  "players",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    apiFootballId: integer("api_football_id").notNull().unique(),
+    teamCode: varchar("team_code", { length: 3 })
+      .notNull()
+      .references(() => teams.code, { onDelete: "cascade" }),
+    nameEn: text("name_en").notNull(),
+    nameHe: text("name_he"),
+    position: varchar("position", { length: 20 }),
+    jerseyNumber: smallint("jersey_number"),
+    photoUrl: text("photo_url"),
+    birthDate: date("birth_date"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    teamIdx: index("players_team_idx").on(t.teamCode),
+    nameEnIdx: index("players_name_en_idx").on(t.nameEn),
+  }),
+);
+
 // matches: fixtures
 export const matches = pgTable(
   "matches",

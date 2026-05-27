@@ -612,6 +612,90 @@ export function localizedTeam(
   return (row[key] as string) ?? "";
 }
 
+// ---------- Player roster ----------
+//
+// Populated by `scripts/api-football-sync-squads.mjs`. `nameHe` may
+// be null until the translation pipeline (PR-3) fills it; the
+// `displayName` helper below picks `nameHe` when the locale is
+// Hebrew AND it exists, otherwise falls back to `nameEn` so the UI
+// never renders an empty string mid-tournament.
+
+export type PlayerRow = {
+  id: string;
+  apiFootballId: number;
+  teamCode: string;
+  nameEn: string;
+  nameHe: string | null;
+  position: string | null;
+  jerseyNumber: number | null;
+  photoUrl: string | null;
+};
+
+export async function getSquadByTeam(teamCode: string): Promise<PlayerRow[]> {
+  const rows = await db.execute<PlayerRow>(sql`
+    select
+      p.id::text                 as "id",
+      p.api_football_id          as "apiFootballId",
+      p.team_code                as "teamCode",
+      p.name_en                  as "nameEn",
+      p.name_he                  as "nameHe",
+      p.position                 as "position",
+      p.jersey_number            as "jerseyNumber",
+      p.photo_url                as "photoUrl"
+    from public.players p
+    where p.team_code = ${teamCode}
+    order by p.jersey_number nulls last, p.name_en asc
+  `);
+  return rows as unknown as PlayerRow[];
+}
+
+export async function getAllPlayers(): Promise<PlayerRow[]> {
+  const rows = await db.execute<PlayerRow>(sql`
+    select
+      p.id::text                 as "id",
+      p.api_football_id          as "apiFootballId",
+      p.team_code                as "teamCode",
+      p.name_en                  as "nameEn",
+      p.name_he                  as "nameHe",
+      p.position                 as "position",
+      p.jersey_number            as "jerseyNumber",
+      p.photo_url                as "photoUrl"
+    from public.players p
+    order by p.team_code asc, p.jersey_number nulls last, p.name_en asc
+  `);
+  return rows as unknown as PlayerRow[];
+}
+
+export async function getPlayerById(id: string): Promise<PlayerRow | null> {
+  const rows = await db.execute<PlayerRow>(sql`
+    select
+      p.id::text                 as "id",
+      p.api_football_id          as "apiFootballId",
+      p.team_code                as "teamCode",
+      p.name_en                  as "nameEn",
+      p.name_he                  as "nameHe",
+      p.position                 as "position",
+      p.jersey_number            as "jerseyNumber",
+      p.photo_url                as "photoUrl"
+    from public.players p
+    where p.id = ${id}::uuid
+    limit 1
+  `);
+  const list = rows as unknown as PlayerRow[];
+  return list[0] ?? null;
+}
+
+// Pick the right name for the current locale. Falls back to nameEn
+// when nameHe is null so signed-in Hebrew users do not see an empty
+// chip while the translation pipeline is still running.
+export function localizedPlayerName(
+  player: { nameEn: string; nameHe: string | null },
+  locale: "he" | "en",
+): string {
+  if (locale === "he" && player.nameHe) return player.nameHe;
+  return player.nameEn;
+}
+
 // ---------- Live group standings ----------
 //
 // Derived in pure SQL from finished group-stage matches. Row order follows
