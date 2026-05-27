@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { AlertCircle, Check, Info, Lock, Minus, Plus } from "lucide-react";
 import { clsx } from "clsx";
 import { Card, Chip, LabelCaps } from "@/components/ui";
+import { SearchableChoicePicker } from "@/components/SearchableChoicePicker";
 import { formatDateTime } from "@/lib/format";
 import type { Locale } from "@/app/[lang]/dictionaries";
 import type {
@@ -13,6 +14,14 @@ import type {
   PickAnswer,
 } from "@/lib/bets/types";
 import { submitCustomBetPick } from "@/app/[lang]/play/[date]/actions";
+
+// Threshold above which the multi_choice answer widget switches
+// from a pill grid to a searchable dropdown. Below the threshold a
+// 2-column grid is faster (everything visible, one tap to pick);
+// above it a grid becomes a wall of buttons that the user has to
+// scroll through. The 48 World Cup teams comfortably exceed this,
+// as does the eventual ~1,200-player roster.
+const SEARCHABLE_THRESHOLD = 8;
 
 // Player-facing card for a single custom bet. Renders the question, the
 // grading-rule contract, the stake/payout chip, and the right answer
@@ -252,25 +261,34 @@ function AnswerWidget({
       value?.type === "number" && Number.isFinite(value.value) ? value.value : min;
     return (
       <div className="flex flex-col items-center gap-2">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 md:gap-3">
           <button
             type="button"
             disabled={disabled || current <= min}
             onClick={() =>
               onChange({ type: "number", value: Math.max(min, current - 1) })
             }
-            className="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-full bg-surface-container-lowest border border-outline text-on-surface hover:bg-surface-container disabled:opacity-40"
+            className="min-w-[48px] min-h-[48px] flex items-center justify-center rounded-full bg-surface-container-lowest border border-outline text-on-surface hover:bg-surface-container disabled:opacity-40"
             aria-label={isHebrew ? "פחות" : "Less"}
           >
             <Minus className="h-5 w-5" strokeWidth={2.5} />
           </button>
+          {/* The dark scoreboard input is also a real <input>. Tap
+              or click to type the number directly — useful on
+              mobile (inputMode="numeric" surfaces the numeric
+              keypad) and for entering large numbers like total-
+              goals predictions where +/- would be tedious. Focus
+              ring makes the editable affordance obvious. */}
           <input
-            type="number"
+            type="text"
+            inputMode="numeric"
+            pattern="[0-9]*"
             min={min}
             max={max}
+            enterKeyHint="done"
             value={value?.type === "number" ? value.value : ""}
             onChange={(e) => {
-              const raw = e.target.value.trim();
+              const raw = e.target.value.replace(/[^\d-]/g, "");
               if (raw === "") {
                 onChange(null);
                 return;
@@ -285,9 +303,23 @@ function AnswerWidget({
                 value: Math.max(min, Math.min(max, n)),
               });
             }}
+            onFocus={(e) => e.currentTarget.select()}
             disabled={disabled}
-            placeholder="-"
-            className="w-20 h-14 text-center font-[family-name:var(--font-score)] text-3xl font-bold bg-[#1C140F] border-2 border-outline rounded text-[#FBF6EB] focus:outline-none placeholder:text-[#FBF6EB]/40 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none disabled:opacity-60 tabular-nums"
+            placeholder="0"
+            aria-label={
+              isHebrew
+                ? `הקלד מספר בין ${min} ל-${max}`
+                : `Type a number between ${min} and ${max}`
+            }
+            className={clsx(
+              "w-24 md:w-28 h-14 md:h-16 text-center cursor-text",
+              "font-[family-name:var(--font-score)] text-3xl md:text-4xl font-bold tabular-nums",
+              "bg-[#1C140F] text-[#FBF6EB] placeholder:text-[#FBF6EB]/30",
+              "border-2 border-outline rounded-lg transition-colors",
+              "hover:border-[#FBF6EB]/50 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40",
+              "disabled:opacity-60 disabled:cursor-not-allowed",
+              "[appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none",
+            )}
             dir="ltr"
           />
           <button
@@ -296,15 +328,20 @@ function AnswerWidget({
             onClick={() =>
               onChange({ type: "number", value: Math.min(max, current + 1) })
             }
-            className="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-full bg-surface-container-lowest border border-outline text-on-surface hover:bg-surface-container disabled:opacity-40"
+            className="min-w-[48px] min-h-[48px] flex items-center justify-center rounded-full bg-surface-container-lowest border border-outline text-on-surface hover:bg-surface-container disabled:opacity-40"
             aria-label={isHebrew ? "יותר" : "More"}
           >
             <Plus className="h-5 w-5" strokeWidth={2.5} />
           </button>
         </div>
-        {c?.unit && (
-          <LabelCaps>{c.unit}</LabelCaps>
-        )}
+        <div className="flex flex-col items-center gap-0.5">
+          {c?.unit && <LabelCaps>{c.unit}</LabelCaps>}
+          <span className="text-[10px] text-on-surface-variant">
+            {isHebrew
+              ? `הקש או השתמש בכפתורים · טווח ${min}–${max}`
+              : `Tap to type or use the buttons · range ${min}–${max}`}
+          </span>
+        </div>
       </div>
     );
   }
@@ -313,6 +350,23 @@ function AnswerWidget({
     const opts: MultiChoiceOption[] =
       cfg.kind === "multi_choice" ? cfg.options : [];
     const current = value?.type === "multi_choice" ? value.value : null;
+    // Long lists become a searchable single-select dropdown — pill
+    // grids stop being usable once you have to scroll through them
+    // (48 WC teams, ~1,200 players).
+    if (opts.length > SEARCHABLE_THRESHOLD) {
+      return (
+        <SearchableChoicePicker
+          options={opts}
+          currentValue={current}
+          locale={locale}
+          disabled={disabled}
+          placeholder={isHebrew ? "בחר תשובה…" : "Pick an answer…"}
+          onChange={(v) =>
+            onChange(v == null ? null : { type: "multi_choice", value: v })
+          }
+        />
+      );
+    }
     return (
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
         {opts.map((o) => (
