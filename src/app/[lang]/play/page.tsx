@@ -1,12 +1,6 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import {
-  Calendar,
-  ChevronLeft,
-  ChevronRight,
-  Sparkles,
-  Trophy,
-} from "lucide-react";
+import { Calendar, ChevronLeft, ChevronRight } from "lucide-react";
 import { getDictionary, hasLocale, type Locale } from "../dictionaries";
 import { Card, Chip } from "@/components/ui";
 import { PayGateBanner } from "@/components/PayGateBanner";
@@ -14,11 +8,12 @@ import { getUser } from "@/lib/supabase/auth";
 import { getUserAccess } from "@/lib/access";
 import { localePath } from "@/lib/paths";
 import { formatDateTime } from "@/lib/format";
-import {
-  listOpenPlayDays,
-  getOpenTournamentBetCount,
-  getOpenGroupBetCount,
-} from "@/db/queries";
+import { listOpenPlayDays } from "@/db/queries";
+
+// /play is now reserved for Live bets only — the per-matchday bonus
+// bets the admin authors. Tournament-scope and group-rankings bets
+// moved to /bets/tournament and /bets/groups under the unified Bets
+// surface so the user only has one URL for "place a pick".
 
 export default async function PlayIndexPage({
   params,
@@ -34,11 +29,7 @@ export default async function PlayIndexPage({
   if (!user) redirect(localePath(locale, "login"));
   const access = await getUserAccess(user.id);
 
-  const [days, tournamentCount, groupCount] = await Promise.all([
-    listOpenPlayDays(),
-    getOpenTournamentBetCount(),
-    getOpenGroupBetCount(),
-  ]);
+  const days = await listOpenPlayDays();
 
   return (
     <section className="px-4 md:px-16 py-6 md:py-12 flex flex-col gap-6 md:gap-8 max-w-3xl mx-auto w-full pb-24">
@@ -48,44 +39,13 @@ export default async function PlayIndexPage({
         </h1>
         <p className="text-sm md:text-base text-on-surface-variant">
           {isHebrew
-            ? "הימורי בונוס שהאדמין פותח לכל יום משחקים, וגם דירוגי בתים והימורי טורניר. ניחושי משחקים רגילים נמצאים בעמוד \"ניחושי משחקים\"."
-            : "Bonus bets the admin opens for each match day, plus group rankings and tournament bets. Regular match picks live on the \"Match picks\" page."}
+            ? "הימורי בונוס שהאדמין פותח לכל יום משחקים, למשל כמה שערים יבקעו או האם יהיו פנדלים. ניחושי משחקים רגילים נמצאים בעמוד \"הימורים\"."
+            : "Bonus bets the admin opens for each match day, like total goals or penalties. Regular match picks live on the \"Bets\" page."}
         </p>
       </header>
 
       {!access.canEdit && <PayGateBanner locale={locale} dict={dict} />}
 
-      {/* Pinned: tournament + groups */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <PinnedCard
-          locale={locale}
-          href={localePath(locale, "play/tournament")}
-          icon={<Trophy className="h-5 w-5" strokeWidth={1.75} />}
-          title={isHebrew ? "הימורי טורניר" : "Tournament bets"}
-          subtitle={
-            isHebrew
-              ? "מלך השערים, זוכת המונדיאל ועוד"
-              : "Top scorer, champion, and more"
-          }
-          count={tournamentCount}
-          countLabel={isHebrew ? "פתוחים" : "open"}
-        />
-        <PinnedCard
-          locale={locale}
-          href={localePath(locale, "play/groups")}
-          icon={<Sparkles className="h-5 w-5" strokeWidth={1.75} />}
-          title={isHebrew ? "דירוגי בתים" : "Group rankings"}
-          subtitle={
-            isHebrew
-              ? "ניחוש סדר הסיום בכל בית"
-              : "Predict the final standings per group"
-          }
-          count={groupCount}
-          countLabel={isHebrew ? "פתוחים" : "open"}
-        />
-      </div>
-
-      {/* Daily list */}
       <section className="flex flex-col gap-3">
         <h2 className="font-[family-name:var(--font-display)] text-xl md:text-2xl font-bold text-on-surface inline-flex items-center gap-2">
           <Calendar className="h-5 w-5 text-tertiary-fixed-dim" strokeWidth={1.75} />
@@ -139,51 +99,5 @@ export default async function PlayIndexPage({
         )}
       </section>
     </section>
-  );
-}
-
-function PinnedCard({
-  locale,
-  href,
-  icon,
-  title,
-  subtitle,
-  count,
-  countLabel,
-}: {
-  locale: Locale;
-  href: string;
-  icon: React.ReactNode;
-  title: string;
-  subtitle: string;
-  count: number;
-  countLabel: string;
-}) {
-  const isHebrew = locale === "he";
-  const Chev = isHebrew ? ChevronLeft : ChevronRight;
-  return (
-    <Link href={href} className="press-down block">
-      <Card className="p-4 md:p-5 flex items-center gap-3 min-h-[80px] hover:bg-surface-container transition-colors h-full">
-        <div className="w-10 h-10 rounded-full bg-primary-fixed flex items-center justify-center text-on-primary-fixed-variant shrink-0">
-          {icon}
-        </div>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            <span className="font-[family-name:var(--font-display)] text-base font-bold text-on-surface truncate">
-              {title}
-            </span>
-            {count > 0 && (
-              <Chip tone="primary" className="text-xs px-2 py-0.5">
-                {count} {countLabel}
-              </Chip>
-            )}
-          </div>
-          <span className="block text-xs text-on-surface-variant truncate mt-0.5">
-            {subtitle}
-          </span>
-        </div>
-        <Chev className="h-5 w-5 text-outline shrink-0" />
-      </Card>
-    </Link>
   );
 }

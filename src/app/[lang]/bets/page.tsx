@@ -9,6 +9,7 @@ import { getUser } from "@/lib/supabase/auth";
 import { getUserAccess } from "@/lib/access";
 import { db } from "@/db";
 import { localePath } from "@/lib/paths";
+import { BetsTabs } from "@/components/BetsTabs";
 import { QuickPickRow, type QuickPickRowData } from "./QuickPickRow";
 
 // /bets is the quick-fill picks page. One scrollable list of every
@@ -70,10 +71,14 @@ export default async function QuickBetsPage({
   return (
     <section className="px-4 md:px-16 py-6 md:py-12 flex flex-col gap-6 md:gap-8 max-w-3xl mx-auto w-full pb-24">
       <header className="flex flex-col gap-3">
-        <h1 className="font-[family-name:var(--font-display)] text-[28px] leading-9 md:text-[40px] md:leading-[44px] font-bold text-primary inline-flex items-center gap-3">
-          <ListChecks className="h-6 w-6 md:h-7 md:w-7" strokeWidth={1.75} />
-          {dict.quickBets.title}
+        <h1 className="font-[family-name:var(--font-display)] text-[28px] leading-9 md:text-[40px] md:leading-[44px] font-bold text-primary">
+          {isHebrew ? "הימורים" : "Bets"}
         </h1>
+        <BetsTabs locale={locale} active="match-picks" />
+        <h2 className="font-[family-name:var(--font-display)] text-lg md:text-xl font-bold text-on-surface inline-flex items-center gap-2 mt-2">
+          <ListChecks className="h-5 w-5" strokeWidth={1.75} />
+          {dict.quickBets.title}
+        </h2>
         <p className="text-sm text-on-surface-variant">
           {dict.quickBets.subtitle}
         </p>

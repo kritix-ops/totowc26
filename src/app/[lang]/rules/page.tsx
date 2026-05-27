@@ -323,12 +323,12 @@ const PAGE_GUIDE: Array<{
     path: "bets",
     icon: <ListChecks className="h-5 w-5" strokeWidth={1.75} />,
     he: {
-      name: "ניחושי משחקים",
-      desc: "המקום הראשי שבו ממלאים תוצאות לכל משחקי המונדיאל. רשימה אחת של כל המשחקים שעוד אפשר להמר עליהם, ממלאים תוצאה ולוחצים שמור.",
+      name: "הימורים",
+      desc: "העמוד המרכזי להימורים, מחולק ל-3 טאבים: ניחושי משחקים (תוצאות לכל משחק), הימורי טורניר (זוכת המונדיאל, מלך השערים) ודירוגי בתים (סדר הסיום בכל בית).",
     },
     en: {
-      name: "Match picks",
-      desc: "The main place to fill match results for the whole tournament. One list of every match still open for picks. Fill the score and save.",
+      name: "Bets",
+      desc: "The main bets page, split into 3 tabs: Match picks (score predictions per match), Tournament bets (champion, top scorer) and Group rankings (final standings per group).",
     },
   },
   {
@@ -336,11 +336,11 @@ const PAGE_GUIDE: Array<{
     icon: <Sparkles className="h-5 w-5" strokeWidth={1.75} />,
     he: {
       name: "הימורי לייב",
-      desc: "הימורי בונוס נפרדים שהאדמין פותח לכל יום משחקים, כמו 'יבקעו יותר מ-3 שערים' או 'יהיו פנדלים'. שונה לחלוטין מניחושי משחקים.",
+      desc: "הימורי בונוס שהאדמין פותח לכל יום משחקים, למשל 'יבקעו יותר מ-3 שערים' או 'יהיו פנדלים'. שונה לחלוטין מהעמוד 'הימורים'.",
     },
     en: {
       name: "Live bets",
-      desc: "Bonus bets the admin opens for each match day, like 'more than 3 goals will be scored' or 'penalties will be taken'. Completely separate from match picks.",
+      desc: "Bonus bets the admin opens for each match day, like 'more than 3 goals will be scored' or 'penalties will be taken'. Completely separate from the main Bets page.",
     },
   },
   {
