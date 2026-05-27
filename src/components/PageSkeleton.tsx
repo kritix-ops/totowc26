@@ -144,7 +144,9 @@ export function HeroStatsCardSkeleton() {
 }
 
 export function PrizeStripSkeleton() {
-  return <ShimmerBlock className="h-24" />;
+  // 7-tile category split: 4 rows on mobile (grid-cols-2), 2 rows on
+  // desktop (grid-cols-4 with king-first spanning two cells).
+  return <ShimmerBlock className="h-[280px] md:h-[180px]" />;
 }
 
 export function StatusRowSkeleton() {

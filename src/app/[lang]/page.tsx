@@ -15,7 +15,7 @@ import { getDictionary, hasLocale, type Locale } from "./dictionaries";
 import { localePath } from "@/lib/paths";
 import { BrandLogo } from "@/components/BrandLogo";
 import { InstallHint } from "@/components/InstallHint";
-import { PrizeStrip } from "@/components/PrizeStrip";
+import { CategoryPrizeStrip } from "@/components/CategoryPrizeStrip";
 import { getRequestUser } from "@/lib/request-user";
 import { getUserAccess } from "@/lib/access";
 import { DashboardPickCard } from "@/components/DashboardPickCard";
@@ -30,17 +30,17 @@ import {
 } from "@/components/PageSkeleton";
 import {
   getBetLockMinutes,
+  getCategoryPrizeBreakdown,
   getLatestFinalForUser,
   getLeaderboard,
   getMyRankSummary,
   getPointsTrend,
   getPoolStats,
-  getPrizeBreakdown,
   getTournamentStart,
   getUpcomingFixtures,
+  type CategoryPrizeBreakdown,
   type FixtureWithMyBet,
   type LeaderboardEntry,
-  type PrizeBreakdown,
 } from "@/db/queries";
 import {
   Card,
@@ -78,20 +78,15 @@ export default async function HomePage({
   });
 
   if (!signedIn) {
-    // Guest landing depends on the cached pool/prize/tournamentStart
-    // queries, which serve from memory in the common case. Loading
-    // them at the page level keeps the centerpiece countdown visible
-    // on first paint without an extra Suspense flash.
-    const [tournamentStart, prize] = await Promise.all([
-      getTournamentStart(),
-      getPrizeBreakdown(),
-    ]);
+    // Guest landing only needs the tournament start for the countdown.
+    // Prize-pool details deliberately do not appear here — they are a
+    // signed-in surface only.
+    const tournamentStart = await getTournamentStart();
     return (
       <GuestLanding
         locale={locale}
         dict={dict}
         tournamentStart={tournamentStart}
-        prize={prize}
       />
     );
   }
@@ -104,7 +99,7 @@ export default async function HomePage({
     const [pool, tournamentStart, prize, lockMinutes] = await Promise.all([
       getPoolStats(),
       getTournamentStart(),
-      getPrizeBreakdown(),
+      getCategoryPrizeBreakdown(),
       getBetLockMinutes(),
     ]);
     return (
@@ -175,12 +170,10 @@ function GuestLanding({
   locale,
   dict,
   tournamentStart,
-  prize,
 }: {
   locale: Locale;
   dict: Awaited<ReturnType<typeof getDictionary>>;
   tournamentStart: string | null;
-  prize: PrizeBreakdown;
 }) {
   const isHebrew = locale === "he";
   const displayFont = isHebrew
@@ -257,12 +250,6 @@ function GuestLanding({
           </div>
 
           <InstallHint locale={locale as "he" | "en"} />
-
-          {prize.potIls > 0 && (
-            <div className="pt-2">
-              <PrizeStrip prize={prize} locale={locale} dict={dict} />
-            </div>
-          )}
         </div>
       </div>
     </section>
@@ -298,10 +285,6 @@ function PlayerHome({
       </Suspense>
 
       <div className="mx-auto w-full max-w-6xl px-4 md:px-8 lg:px-16 pt-8 md:pt-12 flex flex-col gap-8 md:gap-12">
-        <Suspense fallback={<PrizeStripSkeleton />}>
-          <PrizeStripAsync locale={locale} dict={dict} />
-        </Suspense>
-
         <Suspense fallback={<StatusRowSkeleton />}>
           <StatusRowAsync locale={locale} dict={dict} userId={userId} />
         </Suspense>
@@ -330,6 +313,14 @@ function PlayerHome({
             <SpecialsCard locale={locale} isHebrew={isHebrew} />
           </div>
         </div>
+
+        {/* Prize breakdown lives at the bottom of the dashboard now —
+            the pot/participants summary in the hero already tells users
+            the headline numbers, so the detailed per-category split is
+            reference material, not the centerpiece. */}
+        <Suspense fallback={<PrizeStripSkeleton />}>
+          <PrizeStripAsync locale={locale} />
+        </Suspense>
 
         <InstallHint locale={locale as "he" | "en"} />
       </div>
@@ -411,15 +402,9 @@ async function HeroStatsCardAsync({
   );
 }
 
-async function PrizeStripAsync({
-  locale,
-  dict,
-}: {
-  locale: Locale;
-  dict: Awaited<ReturnType<typeof getDictionary>>;
-}) {
-  const prize = await getPrizeBreakdown();
-  return <PrizeStrip prize={prize} locale={locale} dict={dict} />;
+async function PrizeStripAsync({ locale }: { locale: Locale }) {
+  const prize = await getCategoryPrizeBreakdown();
+  return <CategoryPrizeStrip prize={prize} locale={locale} />;
 }
 
 async function StatusRowAsync({
@@ -520,7 +505,7 @@ function PlayerHomePreview({
   pool: { potIls: number; participants: number };
   tournamentStart: string | null;
   data: DashboardData;
-  prize: PrizeBreakdown;
+  prize: CategoryPrizeBreakdown;
   canEdit: boolean;
   lockMinutes: number;
 }) {
@@ -575,7 +560,6 @@ function PlayerHomePreview({
       </div>
 
       <div className="mx-auto w-full max-w-6xl px-4 md:px-8 lg:px-16 pt-8 md:pt-12 flex flex-col gap-8 md:gap-12">
-        <PrizeStrip prize={prize} locale={locale} dict={dict} />
         <StatusRow locale={locale} dict={dict} rankInfo={data.rankInfo} />
 
         <UpcomingSection
@@ -612,6 +596,8 @@ function PlayerHomePreview({
             <SpecialsCard locale={locale} isHebrew={isHebrew} />
           </div>
         </div>
+
+        <CategoryPrizeStrip prize={prize} locale={locale} />
 
         <InstallHint locale={locale as "he" | "en"} />
       </div>

@@ -99,20 +99,25 @@ export async function AppShell({
             <BrandLogo locale={locale} size="header" />
           </Link>
 
-          {/* "How it works" CTA. Discoverable from every page - text
-              on md+ for a clear call-to-action, icon-only on mobile
-              so it does not crowd the bank pill on narrow screens. */}
-          <Link
-            href={localePath(locale, "rules")}
-            aria-label={dict.nav.rulesCtaLong}
-            title={dict.nav.rulesCtaLong}
-            className="press-down inline-flex items-center gap-1.5 min-h-[36px] px-2 md:px-3 rounded-full bg-tertiary-fixed text-on-tertiary-fixed-variant border border-tertiary-fixed-dim hover:bg-tertiary-container transition-[background-color,color] duration-150 shrink-0"
-          >
-            <BookOpen className="h-4 w-4" strokeWidth={2} />
-            <span className="hidden md:inline font-[family-name:var(--font-label)] text-[12px] font-bold tracking-[0.05em]">
-              {dict.nav.rulesCta}
-            </span>
-          </Link>
+          {/* "How it works" CTA. Shown to signed-in users only —
+              guests on the landing page do not need this shortcut
+              since the landing hero already explains the product.
+              Text on md+ for a clear call-to-action, icon-only on
+              mobile so it does not crowd the bank pill on narrow
+              screens. */}
+          {signedIn && (
+            <Link
+              href={localePath(locale, "rules")}
+              aria-label={dict.nav.rulesCtaLong}
+              title={dict.nav.rulesCtaLong}
+              className="press-down inline-flex items-center gap-1.5 min-h-[36px] px-2 md:px-3 rounded-full bg-tertiary-fixed text-on-tertiary-fixed-variant border border-tertiary-fixed-dim hover:bg-tertiary-container transition-[background-color,color] duration-150 shrink-0"
+            >
+              <BookOpen className="h-4 w-4" strokeWidth={2} />
+              <span className="hidden md:inline font-[family-name:var(--font-label)] text-[12px] font-bold tracking-[0.05em]">
+                {dict.nav.rulesCta}
+              </span>
+            </Link>
+          )}
         </div>
 
         {signedIn ? (
