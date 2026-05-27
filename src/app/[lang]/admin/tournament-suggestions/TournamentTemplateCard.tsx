@@ -267,6 +267,7 @@ function TemplateIcon({ iconKey }: { iconKey: TournamentTemplate["iconKey"] }) {
     case "goal":    return <Target {...props} />;
     case "card":    return <RectangleHorizontal {...props} />;
     case "penalty": return <CircleDot {...props} />;
+    case "award":   return <Award {...props} />;
     default:        return <Award {...props} />;
   }
 }

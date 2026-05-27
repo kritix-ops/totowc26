@@ -128,7 +128,7 @@ export default async function TournamentSuggestionsPage({
 
 export type TournamentTemplate = {
   key: string;
-  iconKey: "crown" | "medal" | "boot" | "goal" | "card" | "penalty";
+  iconKey: "crown" | "medal" | "boot" | "goal" | "card" | "penalty" | "award";
   titleHe: string;
   titleEn: string;
   helperHe: string;
@@ -167,7 +167,9 @@ function buildTemplates({
   }));
 
   // Most likely-to-score short list. The admin can swap options inline
-  // before publishing if they want to track a more current pool.
+  // before publishing if they want to track a more current pool. These
+  // 3-letter codes are placeholders until PR-4 wires the template
+  // candidates to the live players table by player id.
   const topScorerCandidates = [
     { value: "MBP", labelHe: "מבאפה",     labelEn: "Mbappé" },
     { value: "HAA", labelHe: "האלאנד",    labelEn: "Haaland" },
@@ -178,6 +180,24 @@ function buildTemplates({
     { value: "OTH", labelHe: "אחר",       labelEn: "Other" },
   ];
 
+  // Golden Ball candidates lean playmakers + creative midfielders alongside
+  // the headline strikers, because the award favours overall tournament
+  // influence over raw goals. Same placeholder shape as topScorerCandidates;
+  // PR-4 swaps both to live player ids.
+  const goldenBallCandidates = [
+    { value: "MES", labelHe: "מסי",       labelEn: "Messi" },
+    { value: "MBP", labelHe: "מבאפה",     labelEn: "Mbappé" },
+    { value: "BEL", labelHe: "בלינגהאם",  labelEn: "Bellingham" },
+    { value: "VIN", labelHe: "וויניסיוס", labelEn: "Vinicius Jr." },
+    { value: "HAA", labelHe: "האלאנד",    labelEn: "Haaland" },
+    { value: "PED", labelHe: "פדרי",      labelEn: "Pedri" },
+    { value: "MUS", labelHe: "מוסיאלה",   labelEn: "Musiala" },
+    { value: "RDR", labelHe: "רודרי",     labelEn: "Rodri" },
+    { value: "KMI", labelHe: "קיימיך",    labelEn: "Kimmich" },
+    { value: "DEB", labelHe: "דה ברוינה", labelEn: "De Bruyne" },
+    { value: "OTH", labelHe: "אחר",       labelEn: "Other" },
+  ];
+
   // Payout suggestions tuned so longshot templates pay more than the
   // base stake but stay under the configured cap. Admin can edit per
   // template before publishing.
@@ -185,6 +205,7 @@ function buildTemplates({
   const runnerUpPayout = Math.min(maxPayout, Math.max(baseStake + 2, 12));
   const thirdPayout    = Math.min(maxPayout, Math.max(baseStake + 1, 9));
   const scorerPayout   = Math.min(maxPayout, Math.max(baseStake + 2, 14));
+  const goldenBallPayout = Math.min(maxPayout, Math.max(baseStake + 2, 16));
   const numberPayout   = Math.min(maxPayout, Math.max(baseStake + 1, 10));
   const yesNoPayout    = Math.min(maxPayout, Math.max(baseStake + 1, 6));
 
@@ -255,6 +276,23 @@ function buildTemplates({
       answerOptions: topScorerCandidates,
       defaultStake: baseStake,
       defaultPayout: scorerPayout,
+      defaultLockAtIso: defaultLockIso,
+    },
+    {
+      key: "golden_ball",
+      iconKey: "award",
+      titleHe: "כדור הזהב (השחקן הכי טוב)",
+      titleEn: "Golden Ball (best player)",
+      helperHe: "השחקן הטוב ביותר של הטורניר לפי הצבעת פיפ\"א. רשימה התחלתית מאוזנת בין חודים, אגפים וקשרים יוצרים.",
+      helperEn: "The tournament's best player per FIFA voting. Starter list balanced between strikers, wingers and creative midfielders.",
+      questionHe: "מי יזכה בכדור הזהב של המונדיאל?",
+      questionEn: "Who wins the World Cup Golden Ball?",
+      gradingRuleHe: "השחקן שזכה בפרס הרשמי \"כדור הזהב של אדידס\" מטעם פיפ\"א בסיום הטורניר.",
+      gradingRuleEn: "The player who wins FIFA's official adidas Golden Ball award at the end of the tournament.",
+      answerType: "multi_choice",
+      answerOptions: goldenBallCandidates,
+      defaultStake: baseStake,
+      defaultPayout: goldenBallPayout,
       defaultLockAtIso: defaultLockIso,
     },
     {
