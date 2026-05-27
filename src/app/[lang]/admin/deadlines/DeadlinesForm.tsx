@@ -9,6 +9,7 @@ import { BET_TYPE_KEYS, type BetTypeKey } from "@/db/schema";
 import {
   saveMatchLockOverride,
   saveMatchdayOverride,
+  saveReminderOffset,
   saveTournamentStart,
   saveTypeDefaults,
 } from "./actions";
@@ -90,6 +91,7 @@ type Props = {
   initialDefaults: Record<BetTypeKey, number>;
   initialTournamentStartAt: string | null;
   derivedTournamentStartAt: string | null;
+  initialReminderOffsetMinutes: number;
   matchdays: MatchdayRow[];
   matches: MatchRow[];
 };
@@ -99,6 +101,7 @@ export function DeadlinesForm({
   initialDefaults,
   initialTournamentStartAt,
   derivedTournamentStartAt,
+  initialReminderOffsetMinutes,
   matchdays,
   matches,
 }: Props) {
@@ -110,6 +113,10 @@ export function DeadlinesForm({
         isHebrew={isHebrew}
         initial={initialTournamentStartAt}
         derived={derivedTournamentStartAt}
+      />
+      <ReminderOffsetCard
+        isHebrew={isHebrew}
+        initial={initialReminderOffsetMinutes}
       />
       <TypeDefaultsCard isHebrew={isHebrew} initial={initialDefaults} />
       <MatchdayOverridesCard
@@ -306,6 +313,94 @@ function TournamentStartCard({
             {pending ? (isHebrew ? "שומר..." : "Saving...") : isHebrew ? "שמור" : "Save"}
           </PillButton>
         </div>
+      </div>
+    </Card>
+  );
+}
+
+function ReminderOffsetCard({
+  isHebrew,
+  initial,
+}: {
+  isHebrew: boolean;
+  initial: number;
+}) {
+  const router = useRouter();
+  const [value, setValue] = useState<number>(initial);
+  const [pending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+
+  function onSave() {
+    setError(null);
+    setSaved(false);
+    startTransition(async () => {
+      const res = await saveReminderOffset(value);
+      if (!res.ok) setError(res.error);
+      else {
+        setSaved(true);
+        router.refresh();
+      }
+    });
+  }
+
+  const disabled = value === 0;
+  return (
+    <Card className="p-5 md:p-6 flex flex-col gap-4">
+      <SectionHeading underline="thin" as="h2">
+        {isHebrew ? "תזכורות אימייל" : "Email reminders"}
+      </SectionHeading>
+      <p className="text-sm text-on-surface-variant">
+        {isHebrew
+          ? "תזכורת אחת תישלח לכל שחקן שעוד יכול להמר, X דקות לפני שההימור נסגר. 0 = ללא תזכורות. הימורי תוצאה (1/X/2) ודואלים לא נכללים — רק הימורים מותאמים."
+          : "One reminder per (bet, eligible player) pair, sent X minutes before the bet locks. 0 disables the feature. Score (1/X/2) bets and duels are excluded — custom bets only."}
+      </p>
+      <div className="flex items-center gap-2 flex-wrap">
+        <input
+          type="number"
+          inputMode="numeric"
+          min={0}
+          max={10080}
+          step={1}
+          value={value}
+          onChange={(e) => {
+            const n = e.target.value === "" ? 0 : Number(e.target.value);
+            setValue(Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 0);
+            setError(null);
+            setSaved(false);
+          }}
+          className="h-12 w-28 px-3 bg-surface-container-lowest border border-outline rounded-lg text-on-surface text-base font-bold tabular-nums focus:outline-none focus:border-primary"
+          dir="ltr"
+        />
+        <span className="text-sm text-on-surface-variant">
+          {isHebrew ? "דקות לפני הנעילה" : "minutes before lock"}
+        </span>
+        {disabled && (
+          <span className="text-xs text-tertiary font-bold ms-1">
+            {isHebrew ? "(כבוי)" : "(disabled)"}
+          </span>
+        )}
+      </div>
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="min-h-[24px]">
+          {error && (
+            <p className="inline-flex items-center gap-1.5 text-sm text-error">
+              <AlertCircle className="h-4 w-4" strokeWidth={2} />
+              {translateError(error, isHebrew)}
+            </p>
+          )}
+          {saved && !error && (
+            <p className="inline-flex items-center gap-1.5 text-sm text-secondary">
+              <Check className="h-4 w-4" strokeWidth={2.5} />
+              {isHebrew ? "נשמר" : "Saved"}
+            </p>
+          )}
+        </div>
+        <PillButton type="button" disabled={pending} onClick={onSave}>
+          {pending
+            ? isHebrew ? "שומר..." : "Saving..."
+            : isHebrew ? "שמור" : "Save"}
+        </PillButton>
       </div>
     </Card>
   );

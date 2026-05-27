@@ -49,7 +49,10 @@ export default async function AdminDeadlinesPage({
         })
         .from(betLockDefaults),
       db
-        .select({ tournamentStartAt: settings.tournamentStartAt })
+        .select({
+          tournamentStartAt: settings.tournamentStartAt,
+          reminderOffsetMinutes: settings.reminderOffsetMinutes,
+        })
         .from(settings)
         .where(eq(settings.id, 1))
         .limit(1),
@@ -171,6 +174,9 @@ export default async function AdminDeadlinesPage({
           tournamentStartAt ? tournamentStartAt.toISOString() : null
         }
         derivedTournamentStartAt={derivedRaw}
+        initialReminderOffsetMinutes={
+          settingsRow[0]?.reminderOffsetMinutes ?? 60
+        }
         matchdays={matchdays}
         matches={matchesList}
       />

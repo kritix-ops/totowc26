@@ -354,6 +354,13 @@ export const settings = pgTable("settings", {
   // value stays meaningful right after the migration runs, before the
   // admin visits /admin/deadlines to set it explicitly.
   tournamentStartAt: timestamp("tournament_start_at", { withTimezone: true }),
+  // Lock-reminder offset. The sync pass sends one email per (bet, user)
+  // pair this many minutes before the bet locks, but only to users who
+  // haven't placed a pick yet. 0 = feature disabled. Capped at 7 days.
+  // See _plans/2026-05-28-lock-reminders.md.
+  reminderOffsetMinutes: integer("reminder_offset_minutes")
+    .notNull()
+    .default(60),
   // Points bank
   startingBank: smallint("starting_bank").notNull().default(30),
   // Main bet payouts. Default mode: exact = +15, direction = +5, wrong = 0.
@@ -832,6 +839,34 @@ export const betLockDefaults = pgTable("bet_lock_defaults", {
   }),
 });
 
+// bet_reminder_sent: per (bet, user, channel) dedup so the cron that
+// runs every minute doesn't blast a player with the same reminder
+// repeatedly. `channel` is on the primary key so iteration 2 (push)
+// can write its own row alongside the email row without conflict.
+// See _plans/2026-05-28-lock-reminders.md.
+export const REMINDER_CHANNELS = ["email", "push"] as const;
+export type ReminderChannel = (typeof REMINDER_CHANNELS)[number];
+
+export const betReminderSent = pgTable(
+  "bet_reminder_sent",
+  {
+    customBetId: uuid("custom_bet_id")
+      .notNull()
+      .references(() => customBets.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => profiles.id, { onDelete: "cascade" }),
+    channel: text("channel").notNull().$type<ReminderChannel>(),
+    sentAt: timestamp("sent_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.customBetId, t.userId, t.channel] }),
+    sentAtIdx: index("bet_reminder_sent_sent_at_idx").on(t.sentAt),
+  }),
+);
+
 // Drizzle relations are added separately if needed
 export type Profile = typeof profiles.$inferSelect;
 export type NewProfile = typeof profiles.$inferInsert;
@@ -856,5 +891,7 @@ export type Duel = typeof duels.$inferSelect;
 export type NewDuel = typeof duels.$inferInsert;
 export type BetLockDefault = typeof betLockDefaults.$inferSelect;
 export type NewBetLockDefault = typeof betLockDefaults.$inferInsert;
+export type BetReminderSent = typeof betReminderSent.$inferSelect;
+export type NewBetReminderSent = typeof betReminderSent.$inferInsert;
 
 export const _useSql = sql; // re-export to silence unused if any

@@ -162,6 +162,13 @@
       "when": 1781526800000,
       "tag": "0022_page_visibility",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1781613200000,
+      "tag": "0023_lock_reminders",
+      "breakpoints": true
     }
   ]
 }

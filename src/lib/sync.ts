@@ -26,6 +26,8 @@ import {
   type ApiFootballStats,
 } from "./api-football";
 import type { AutoApiFootballStat } from "./bets/types";
+import { sendEmail } from "./email/client";
+import { BetLockReminderEmail } from "./email/templates/BetLockReminderEmail";
 import TEAM_NAMES from "../../data/team-names.json";
 
 type LocalisedTeam = { he: string; en: string; flag: string };
@@ -56,6 +58,7 @@ export type SyncReport = {
   cancelledDuels: number;
   settledAutoDuels: number;
   lockedExpiredCustomBets: number;
+  remindersSent: number;
   unknownTeams: string[];
 };
 
@@ -214,6 +217,12 @@ async function _runSync(
   // handles the credit math from the resulting +stake / -stake delta.
   report.settledAutoDuels = await scoreAutoSettleDuels();
 
+  // Send one email reminder per (open bet, player who hasn't picked)
+  // pair, settings.reminder_offset_minutes before lock_at. Idempotent
+  // via the bet_reminder_sent table. See
+  // _plans/2026-05-28-lock-reminders.md.
+  report.remindersSent = await sendDueReminders();
+
   console.info("[sync finished]", { provider, report });
   return { report, provider };
 }
@@ -230,6 +239,7 @@ function blankReport(): SyncReport {
     cancelledDuels: 0,
     settledAutoDuels: 0,
     lockedExpiredCustomBets: 0,
+    remindersSent: 0,
     unknownTeams: [],
   };
 }
@@ -1187,4 +1197,178 @@ function evaluateComparator(
     case "<=": return value <= threshold;
     case "=":  return value === threshold;
   }
+}
+
+// Send one "bet locks in X" email per (open bet, user who hasn't picked)
+// pair, settings.reminder_offset_minutes before lock_at. Per-row dedup
+// via bet_reminder_sent so the cron pass that runs every minute doesn't
+// blast the same user. See _plans/2026-05-28-lock-reminders.md.
+type ReminderCandidate = {
+  bet_id: string;
+  question_he: string;
+  question_en: string;
+  grading_rule_he: string;
+  grading_rule_en: string;
+  stake_snapshot: number;
+  payout_snapshot: number;
+  scope: string;
+  matchday_date: string | null;
+  lock_at: string;
+  minutes_remaining: number;
+  user_id: string;
+  display_name: string;
+  email: string;
+};
+
+export async function sendDueReminders(): Promise<number> {
+  const start = Date.now();
+
+  const [s] = await db
+    .select({ offsetMinutes: settings.reminderOffsetMinutes })
+    .from(settings)
+    .where(eq(settings.id, 1))
+    .limit(1);
+  const offsetMinutes = s?.offsetMinutes ?? 0;
+  if (!offsetMinutes || offsetMinutes <= 0) {
+    return 0;
+  }
+
+  const result = await db.execute<ReminderCandidate>(drizzleSql`
+    select
+      cb.id::text                                                 as "bet_id",
+      cb.question_he                                              as "question_he",
+      cb.question_en                                              as "question_en",
+      cb.grading_rule_he                                          as "grading_rule_he",
+      cb.grading_rule_en                                          as "grading_rule_en",
+      cb.stake_snapshot                                           as "stake_snapshot",
+      cb.payout_snapshot                                          as "payout_snapshot",
+      cb.scope::text                                              as "scope",
+      to_char(md.date, 'YYYY-MM-DD')                              as "matchday_date",
+      to_char(cb.lock_at, 'YYYY-MM-DD"T"HH24:MI:SSOF')            as "lock_at",
+      ceil(extract(epoch from (cb.lock_at - now())) / 60)::int    as "minutes_remaining",
+      p.id::text                                                  as "user_id",
+      p.display_name                                              as "display_name",
+      au.email                                                    as "email"
+    from public.custom_bets cb
+    cross join public.profiles p
+    left join public.matchdays md            on md.id = cb.matchday_id
+    left join public.user_custom_bet_picks pk on pk.user_id = p.id and pk.custom_bet_id = cb.id
+    left join public.bet_reminder_sent brs
+      on brs.user_id = p.id and brs.custom_bet_id = cb.id and brs.channel = 'email'
+    left join auth.users au on au.id = p.id
+    where cb.status = 'open'
+      and cb.lock_at > now()
+      and cb.lock_at <= now() + (${offsetMinutes} || ' minutes')::interval
+      and pk.id is null
+      and brs.user_id is null
+      and au.email is not null
+      and exists (
+        select 1 from public.payments pm
+        where pm.user_id = p.id and pm.status = 'approved'
+      )
+  `);
+  const rows = result as unknown as ReminderCandidate[];
+
+  let sent = 0;
+  let failed = 0;
+  for (const r of rows) {
+    const betUrl = buildBetUrl(r.scope, r.matchday_date);
+    const lockDate = new Date(r.lock_at);
+    const lockAtLabel = new Intl.DateTimeFormat("he-IL", {
+      timeZone: "Asia/Jerusalem",
+      day: "numeric",
+      month: "long",
+      hour: "2-digit",
+      minute: "2-digit",
+    }).format(lockDate);
+    try {
+      const result = await sendEmail({
+        to: r.email,
+        subject: `תזכורת: ${r.question_he.slice(0, 60)}`,
+        react: BetLockReminderEmail({
+          playerName: r.display_name,
+          questionHe: r.question_he,
+          questionEn: r.question_en,
+          gradingRuleHe: r.grading_rule_he,
+          gradingRuleEn: r.grading_rule_en,
+          stake: r.stake_snapshot,
+          payout: r.payout_snapshot,
+          lockAtLabel,
+          minutesRemaining: Math.max(0, r.minutes_remaining),
+          betUrl,
+        }),
+      });
+      if (!result.ok) {
+        failed += 1;
+        console.warn("[lock reminder failed]", {
+          betId: r.bet_id,
+          userId: r.user_id,
+          error: result.error,
+        });
+        continue;
+      }
+      // Record the send AFTER success so a failed send retries on the
+      // next pass instead of getting silently skipped.
+      await db.execute(drizzleSql`
+        insert into public.bet_reminder_sent
+          (custom_bet_id, user_id, channel)
+        values
+          (${r.bet_id}::uuid, ${r.user_id}::uuid, 'email')
+        on conflict do nothing
+      `);
+      sent += 1;
+      console.info("[lock reminder send]", {
+        betId: r.bet_id,
+        userId: r.user_id,
+        channel: "email",
+        lockAt: r.lock_at,
+        minutesRemaining: r.minutes_remaining,
+      });
+    } catch (err) {
+      failed += 1;
+      console.error("[lock reminder failed]", {
+        betId: r.bet_id,
+        userId: r.user_id,
+        err,
+      });
+    }
+  }
+
+  console.info("[lock reminder sweep]", {
+    candidates: rows.length,
+    sent,
+    failed,
+    offsetMinutes,
+    durationMs: Date.now() - start,
+  });
+  return sent;
+}
+
+// Email links land on the surface where the recipient can act on this
+// bet. Mirrors how the player UI in the deadlines plan §6.1 already
+// routes by scope.
+function buildBetUrl(
+  scope: string,
+  matchdayDate: string | null,
+): string {
+  const base =
+    process.env.NEXT_PUBLIC_SITE_URL ??
+    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "");
+  let path: string;
+  switch (scope) {
+    case "match":
+    case "day":
+      path = matchdayDate ? `/he/bets/live/${matchdayDate}` : "/he/bets";
+      break;
+    case "stage":
+    case "tournament":
+      path = "/he/bets/tournament";
+      break;
+    case "group":
+      path = "/he/bets/groups";
+      break;
+    default:
+      path = "/he/bets";
+  }
+  return base ? `${base}${path}` : path;
 }

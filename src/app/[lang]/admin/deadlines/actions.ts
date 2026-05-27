@@ -188,6 +188,44 @@ export async function saveMatchdayOverride(
   }
 }
 
+// Lock-reminder offset (settings.reminder_offset_minutes). 0 disables
+// the feature entirely; the sync pass skips its candidate query.
+export async function saveReminderOffset(
+  minutes: number,
+): Promise<SaveResult> {
+  const adminId = await requireAdminId();
+  if (!adminId) return { ok: false, error: "forbidden" };
+  if (
+    !Number.isFinite(minutes) ||
+    !Number.isInteger(minutes) ||
+    minutes < 0 ||
+    minutes > 60 * 24 * 7
+  ) {
+    return { ok: false, error: "invalid" };
+  }
+  try {
+    const [oldRow] = await db
+      .select({ value: settings.reminderOffsetMinutes })
+      .from(settings)
+      .where(eq(settings.id, 1))
+      .limit(1);
+    await db
+      .update(settings)
+      .set({ reminderOffsetMinutes: minutes, updatedAt: new Date() })
+      .where(eq(settings.id, 1));
+    console.info("[admin deadlines reminder-offset]", {
+      adminId,
+      oldValue: oldRow?.value ?? null,
+      newValue: minutes,
+    });
+    revalidatePath("/", "layout");
+    return { ok: true };
+  } catch (err) {
+    console.error("[admin deadlines reminder-offset] failed:", err);
+    return { ok: false, error: "db" };
+  }
+}
+
 // Per-match override for the 1/X/2 score bet on a single fixture.
 // Used by the per-match override UI (section in /admin/deadlines or in
 // the match admin). null clears the override.
