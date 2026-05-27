@@ -38,9 +38,19 @@ export type MultiChoiceOption = {
   icon?: string;
 };
 
+// `dynamicSource` lets a bet declare that its options live in a
+// dataset the client will hydrate at view time (e.g. the full WC
+// player roster ~1,300 rows). When set, `options` should be `[]`
+// at storage time — the picker fetches the live list from
+// /api/picker-options/<source> and renders it with lazy chunked
+// display. Avoids bloating answer_config jsonb with thousands of rows
+// per tournament bet.
+export type DynamicOptionSource = "players";
+
 export type MultiChoiceConfig = {
   kind: "multi_choice";
   options: MultiChoiceOption[];
+  dynamicSource?: DynamicOptionSource;
 };
 
 export type FreeTextConfig = {

@@ -11,9 +11,11 @@ import { formatDateTime } from "@/lib/format";
 import type { Locale } from "@/app/[lang]/dictionaries";
 import type {
   AnswerConfig,
+  DynamicOptionSource,
   MultiChoiceOption,
   PickAnswer,
 } from "@/lib/bets/types";
+import { usePickerOptions } from "@/lib/picker-options/client";
 import { submitCustomBetPick } from "@/app/[lang]/play/[date]/actions";
 
 // Threshold above which the multi_choice answer widget switches
@@ -353,6 +355,23 @@ function AnswerWidget({
   }
 
   if (bet.answerType === "multi_choice") {
+    // Bets with `dynamicSource` (e.g. tournament top-scorer over the
+    // full 1,357-player roster) load their option list from the API
+    // at render time — see DynamicPickerWidget below. Static
+    // multi_choice bets keep the pill-grid / dropdown threshold logic.
+    const dynamicSource =
+      cfg.kind === "multi_choice" ? cfg.dynamicSource : undefined;
+    if (dynamicSource) {
+      return (
+        <DynamicPickerWidget
+          source={dynamicSource}
+          locale={locale}
+          value={value}
+          onChange={onChange}
+          disabled={disabled}
+        />
+      );
+    }
     const opts: MultiChoiceOption[] =
       cfg.kind === "multi_choice" ? cfg.options : [];
     const current = value?.type === "multi_choice" ? value.value : null;
@@ -412,6 +431,62 @@ function AnswerWidget({
       placeholder={placeholder ?? (isHebrew ? "התשובה שלך" : "Your answer")}
       dir={isHebrew ? "rtl" : "ltr"}
       className="min-h-[48px] w-full px-3 rounded border border-outline bg-surface-container-lowest text-base"
+    />
+  );
+}
+
+// Tournament-scope bets with `dynamicSource: "players"` hydrate the
+// option list from /api/picker-options at render time. Keeps the
+// bet's answer_config JSONB small (no 1,357-row payload per bet) and
+// lets the LIST itself update server-side (squad re-sync, translation
+// fixes) without rewriting every bet record.
+function DynamicPickerWidget({
+  source,
+  locale,
+  value,
+  onChange,
+  disabled,
+}: {
+  source: DynamicOptionSource;
+  locale: Locale;
+  value: PickAnswer | null;
+  onChange: (v: PickAnswer | null) => void;
+  disabled?: boolean;
+}) {
+  const isHebrew = locale === "he";
+  const { options, loading, error } = usePickerOptions(source, locale);
+  const current = value?.type === "multi_choice" ? value.value : null;
+
+  if (loading) {
+    return (
+      <div
+        className="w-full min-h-[52px] px-4 inline-flex items-center justify-start rounded-full border border-outline bg-surface-container-lowest text-on-surface-variant text-sm"
+        aria-busy="true"
+      >
+        {isHebrew ? "טוען רשימה…" : "Loading…"}
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="w-full min-h-[52px] px-4 inline-flex items-center justify-start rounded-full border border-error bg-error-container text-on-error-container text-sm">
+        {isHebrew ? "טעינה נכשלה — סגור ופתח מחדש" : "Failed to load — close and reopen"}
+      </div>
+    );
+  }
+
+  return (
+    <SearchableChoicePicker
+      options={options}
+      currentValue={current}
+      locale={locale}
+      disabled={disabled}
+      placeholder={isHebrew ? "בחר שחקן…" : "Pick a player…"}
+      lazyChunkSize={10}
+      onChange={(v) =>
+        onChange(v == null ? null : { type: "multi_choice", value: v })
+      }
     />
   );
 }

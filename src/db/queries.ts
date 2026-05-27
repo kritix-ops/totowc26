@@ -2,6 +2,8 @@ import "server-only";
 import { sql } from "drizzle-orm";
 import { unstable_cache } from "next/cache";
 import { db } from "./index";
+import type { MultiChoiceOption } from "@/lib/bets/types";
+import { STAR_PLAYER_RANK, TEAM_RANK } from "@/lib/players/curation";
 
 // Cache tags used to invalidate cross-request cached queries from the
 // server actions that mutate the underlying tables. Mutations call
@@ -694,6 +696,108 @@ export function localizedPlayerName(
 ): string {
   if (locale === "he" && player.nameHe) return player.nameHe;
   return player.nameEn;
+}
+
+// ---------- Player picker (tournament-bet player selection) ----------
+//
+// Returns the full 1,357-row roster shaped as SearchableOption[] for
+// the user-facing PlayerPicker. Sorted: hand-curated stars first
+// (Messi, Mbappé, Haaland, ...), then players from stronger national
+// teams (per src/lib/players/curation.ts TEAM_RANK), then locale-
+// alphabetical within the same team rank. The picker passes this
+// list to <SearchableChoicePicker> with lazyChunkSize so only the
+// first 10 render until the user clicks "Load more" or searches.
+
+export type PickerLocale = "he" | "en";
+
+export async function loadPlayersForPicker(
+  locale: PickerLocale,
+): Promise<MultiChoiceOption[]> {
+  type Row = {
+    apiFootballId: number;
+    teamCode: string;
+    nameEn: string;
+    nameHe: string | null;
+    position: string | null;
+    jerseyNumber: number | null;
+    teamNameEn: string;
+    teamNameHe: string;
+    teamFlag: string;
+  };
+  const rows = (await db.execute<Row>(sql`
+    select
+      p.api_football_id   as "apiFootballId",
+      p.team_code         as "teamCode",
+      p.name_en           as "nameEn",
+      p.name_he           as "nameHe",
+      p.position          as "position",
+      p.jersey_number     as "jerseyNumber",
+      t.name_en           as "teamNameEn",
+      t.name_he           as "teamNameHe",
+      t.flag              as "teamFlag"
+    from public.players p
+    join public.teams   t on t.code = p.team_code
+  `)) as unknown as Row[];
+
+  const options: MultiChoiceOption[] = rows.map((r) => {
+    const positionKey = positionTermKey(r.position);
+    const positionHe = positionKey ? POSITION_TERM[positionKey].he : (r.position ?? "");
+    const positionEn = positionKey ? POSITION_TERM[positionKey].en : (r.position ?? "");
+    const jerseyTag = r.jerseyNumber != null ? `#${r.jerseyNumber}` : "";
+    const subtitleHe = [jerseyTag, positionHe].filter(Boolean).join(" · ") || undefined;
+    const subtitleEn = [jerseyTag, positionEn].filter(Boolean).join(" · ") || undefined;
+    return {
+      value:      String(r.apiFootballId),
+      labelHe:    r.nameHe ?? r.nameEn,
+      labelEn:    r.nameEn,
+      groupHe:    r.teamNameHe,
+      groupEn:    r.teamNameEn,
+      subtitleHe,
+      subtitleEn,
+      icon:       r.teamFlag,
+    };
+  });
+
+  // Sort: star rank → team rank → locale-alphabetical label.
+  // Side map for O(1) team lookup since MultiChoiceOption itself
+  // doesn't carry team_code.
+  const teamByValue = new Map<string, string>(
+    rows.map((r) => [String(r.apiFootballId), r.teamCode]),
+  );
+  const collator = new Intl.Collator(locale === "he" ? "he" : "en", { sensitivity: "base" });
+  options.sort((a, b) => {
+    const aStar = STAR_PLAYER_RANK.get(Number(a.value)) ?? Number.POSITIVE_INFINITY;
+    const bStar = STAR_PLAYER_RANK.get(Number(b.value)) ?? Number.POSITIVE_INFINITY;
+    if (aStar !== bStar) return aStar - bStar;
+    const aTeam = TEAM_RANK.get(teamByValue.get(a.value) ?? "") ?? 99;
+    const bTeam = TEAM_RANK.get(teamByValue.get(b.value) ?? "") ?? 99;
+    if (aTeam !== bTeam) return aTeam - bTeam;
+    const aLabel = locale === "he" ? a.labelHe : a.labelEn;
+    const bLabel = locale === "he" ? b.labelHe : b.labelEn;
+    return collator.compare(aLabel, bLabel);
+  });
+
+  return options;
+}
+
+// Tiny lookup so we don't pull the full glossary just for 4 position
+// names. Kept here to avoid a circular import between queries.ts and
+// the translations module.
+const POSITION_TERM = {
+  goalkeeper:  { he: "שוער",  en: "Goalkeeper" },
+  defender:    { he: "מגן",   en: "Defender" },
+  midfielder:  { he: "קשר",   en: "Midfielder" },
+  forward:     { he: "חלוץ",  en: "Forward" },
+} as const;
+
+function positionTermKey(apiPosition: string | null): keyof typeof POSITION_TERM | null {
+  if (!apiPosition) return null;
+  const lower = apiPosition.toLowerCase();
+  if (lower === "goalkeeper") return "goalkeeper";
+  if (lower === "defender")   return "defender";
+  if (lower === "midfielder") return "midfielder";
+  if (lower === "attacker" || lower === "forward") return "forward";
+  return null;
 }
 
 // ---------- Live group standings ----------

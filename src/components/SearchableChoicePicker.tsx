@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Check, ChevronDown, Search, X } from "lucide-react";
+import { Check, ChevronDown, ChevronsDown, Search, X } from "lucide-react";
 import { clsx } from "clsx";
 import type { Locale } from "@/app/[lang]/dictionaries";
 
@@ -50,6 +50,7 @@ export function SearchableChoicePicker({
   onChange,
   disabled,
   placeholder,
+  lazyChunkSize,
 }: {
   options: SearchableOption[];
   currentValue: string | null;
@@ -57,11 +58,18 @@ export function SearchableChoicePicker({
   onChange: (value: string | null) => void;
   disabled?: boolean;
   placeholder?: string;
+  // When set, the panel renders only the first `lazyChunkSize` rows
+  // and shows a "Load more" pill that reveals the next chunk. Search
+  // bypasses chunking (typing always shows every match). Set this for
+  // very long lists where rendering ~1k DOM rows up front would jank
+  // the picker open animation on mobile. Reset on every re-open.
+  lazyChunkSize?: number;
 }) {
   const isHebrew = locale === "he";
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
+  const [loadedChunks, setLoadedChunks] = useState(1);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const searchRef = useRef<HTMLInputElement | null>(null);
   const listRef = useRef<HTMLUListElement | null>(null);
@@ -91,10 +99,20 @@ export function SearchableChoicePicker({
     });
   }, [options, query]);
 
-  // Group the filtered list by `groupHe`/`groupEn` if any options
+  // Apply chunked-display when lazyChunkSize is set AND no search is
+  // active. Typing in the search box always shows every match across
+  // the full filtered set, even rows the user has not "loaded" yet.
+  const visible = useMemo(() => {
+    if (!lazyChunkSize) return filtered;
+    if (query.trim() !== "") return filtered;
+    return filtered.slice(0, lazyChunkSize * loadedChunks);
+  }, [filtered, lazyChunkSize, loadedChunks, query]);
+  const hiddenRemaining = filtered.length - visible.length;
+
+  // Group the visible list by `groupHe`/`groupEn` if any options
   // carry group metadata. Returns a flat array of either a header
   // row or an option row. `optionIndex` on option rows is the
-  // index into `filtered` (i.e. the activeIndex space), so arrow-
+  // index into `visible` (i.e. the activeIndex space), so arrow-
   // key navigation can hop between options without us tracking a
   // separate position. Preserves the input order — callers are
   // expected to sort options themselves before passing them in.
@@ -102,9 +120,9 @@ export function SearchableChoicePicker({
     | { kind: "header"; key: string; labelHe: string; labelEn: string }
     | { kind: "option"; option: SearchableOption; optionIndex: number };
   const grouped: GroupedRow[] = useMemo(() => {
-    const anyGrouped = filtered.some((o) => o.groupHe || o.groupEn);
+    const anyGrouped = visible.some((o) => o.groupHe || o.groupEn);
     if (!anyGrouped) {
-      return filtered.map((o, i) => ({
+      return visible.map((o, i) => ({
         kind: "option" as const,
         option: o,
         optionIndex: i,
@@ -112,7 +130,7 @@ export function SearchableChoicePicker({
     }
     const rows: GroupedRow[] = [];
     let lastGroup: string | null = null;
-    filtered.forEach((o, i) => {
+    visible.forEach((o, i) => {
       const groupKey = `${o.groupHe ?? ""}|${o.groupEn ?? ""}`;
       if (groupKey !== lastGroup) {
         lastGroup = groupKey;
@@ -126,13 +144,19 @@ export function SearchableChoicePicker({
       rows.push({ kind: "option", option: o, optionIndex: i });
     });
     return rows;
-  }, [filtered]);
+  }, [visible]);
 
   // Reset the active index whenever the filtered list changes so
   // arrow-keys land somewhere sensible (the first match).
   useEffect(() => {
     setActiveIndex(0);
   }, [query]);
+
+  // Reset the lazy-chunk counter every time the picker re-opens so
+  // closing and reopening always starts at "first 10 visible".
+  useEffect(() => {
+    if (open) setLoadedChunks(1);
+  }, [open]);
 
   // Click-outside on desktop. The mobile sheet uses an explicit
   // backdrop, so this is desktop-only behaviour.
@@ -185,7 +209,7 @@ export function SearchableChoicePicker({
     }
     if (e.key === "ArrowDown") {
       e.preventDefault();
-      setActiveIndex((i) => Math.min(filtered.length - 1, i + 1));
+      setActiveIndex((i) => Math.min(visible.length - 1, i + 1));
       return;
     }
     if (e.key === "ArrowUp") {
@@ -195,7 +219,7 @@ export function SearchableChoicePicker({
     }
     if (e.key === "Enter") {
       e.preventDefault();
-      const picked = filtered[activeIndex];
+      const picked = visible[activeIndex];
       if (picked) {
         onChange(picked.value);
         setOpen(false);
@@ -300,6 +324,9 @@ export function SearchableChoicePicker({
               setQuery={setQuery}
               grouped={grouped}
               filteredCount={filtered.length}
+              hiddenRemaining={hiddenRemaining}
+              chunkSize={lazyChunkSize}
+              onLoadMore={() => setLoadedChunks((c) => c + 1)}
               activeIndex={activeIndex}
               setActiveIndex={setActiveIndex}
               currentValue={currentValue}
@@ -331,6 +358,9 @@ export function SearchableChoicePicker({
               setQuery={setQuery}
               grouped={grouped}
               filteredCount={filtered.length}
+              hiddenRemaining={hiddenRemaining}
+              chunkSize={lazyChunkSize}
+              onLoadMore={() => setLoadedChunks((c) => c + 1)}
               activeIndex={activeIndex}
               setActiveIndex={setActiveIndex}
               currentValue={currentValue}
@@ -366,6 +396,9 @@ function PanelContents({
   setQuery,
   grouped,
   filteredCount,
+  hiddenRemaining,
+  chunkSize,
+  onLoadMore,
   activeIndex,
   setActiveIndex,
   currentValue,
@@ -382,6 +415,9 @@ function PanelContents({
   setQuery: (v: string) => void;
   grouped: GroupedRow[];
   filteredCount: number;
+  hiddenRemaining: number;
+  chunkSize: number | undefined;
+  onLoadMore: () => void;
   activeIndex: number;
   setActiveIndex: (i: number) => void;
   currentValue: string | null;
@@ -393,6 +429,9 @@ function PanelContents({
   showCloseButton?: boolean;
   onClose?: () => void;
 }) {
+  const nextChunk = chunkSize
+    ? Math.min(chunkSize, hiddenRemaining)
+    : hiddenRemaining;
   return (
     <div className="flex flex-col min-h-0 flex-1">
       <div className="p-3 border-b border-outline-variant flex items-center gap-2">
@@ -504,6 +543,20 @@ function PanelContents({
               </li>
             );
           })
+        )}
+        {hiddenRemaining > 0 && (
+          <li>
+            <button
+              type="button"
+              onClick={onLoadMore}
+              className="press-down w-full min-h-[48px] px-4 py-2 flex items-center justify-center gap-2 text-sm font-bold text-primary hover:bg-surface-container border-t border-outline-variant"
+            >
+              <ChevronsDown className="h-4 w-4" strokeWidth={2.5} />
+              {isHebrew
+                ? `טען עוד ${nextChunk}`
+                : `Load ${nextChunk} more`}
+            </button>
+          </li>
         )}
       </ul>
 

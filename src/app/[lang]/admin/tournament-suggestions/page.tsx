@@ -9,6 +9,7 @@ import { requireAdmin } from "@/lib/admin";
 import { db } from "@/db";
 import { settings } from "@/db/schema";
 import { localePath } from "@/lib/paths";
+import type { DynamicOptionSource } from "@/lib/bets/types";
 import { TournamentTemplateCard } from "./TournamentTemplateCard";
 
 // Curated library of tournament-scope bet templates. Each one is a
@@ -32,17 +33,6 @@ type PageParams = {
 };
 
 type Team = { code: string; nameHe: string; nameEn: string; flag: string };
-type PlayerRow = {
-  id: string;
-  name_en: string;
-  name_he: string | null;
-  position: string | null;
-  jersey_number: number | null;
-  team_code: string;
-  team_name_he: string;
-  team_name_en: string;
-  team_flag: string;
-};
 
 export default async function TournamentSuggestionsPage({
   params,
@@ -54,9 +44,8 @@ export default async function TournamentSuggestionsPage({
   const isHebrew = locale === "he";
   const ChevBack = isHebrew ? ChevronRight : ChevronLeft;
 
-  const [teams, players, [cfg], lastFixtureRow] = await Promise.all([
+  const [teams, [cfg], lastFixtureRow] = await Promise.all([
     loadWcTeams(),
-    loadAllPlayersWithTeam(),
     db
       .select({
         baseStake: settings.liveOddsBaseStake,
@@ -86,7 +75,6 @@ export default async function TournamentSuggestionsPage({
 
   const templates = buildTemplates({
     teams,
-    players,
     baseStake,
     maxPayout,
     defaultLockIso,
@@ -168,6 +156,12 @@ export type TournamentTemplate = {
     subtitleEn?: string;
     icon?: string;
   }>;
+  // When set, the published bet stores `dynamicSource` in
+  // answer_config and the user-facing picker hydrates the option
+  // list from /api/picker-options/<source> at view time. Used for
+  // templates over the full ~1,357-player roster (top scorer,
+  // golden ball, ...) so the bet's answer_config jsonb stays small.
+  dynamicSource?: DynamicOptionSource;
   numberMin?: number;
   numberMax?: number;
   numberUnit?: string;
@@ -178,13 +172,11 @@ export type TournamentTemplate = {
 
 function buildTemplates({
   teams,
-  players,
   baseStake,
   maxPayout,
   defaultLockIso,
 }: {
   teams: Team[];
-  players: PlayerRow[];
   baseStake: number;
   maxPayout: number;
   defaultLockIso: string;
@@ -199,74 +191,13 @@ function buildTemplates({
     icon: t.flag,
   }));
 
-  // Player options: full WC roster from the players table. Group
-  // by team so the searchable dropdown renders a sticky header
-  // per nation, subtitle shows jersey + position so a duplicate
-  // name (common surnames) is disambiguated visually. The bet
-  // stores `player.id` (UUID) as the answer value, which keeps
-  // the answer stable even if a player's English name changes
-  // between API responses.
-  //
-  // Fallback when the players table is empty (the squads sync
-  // has not run yet): a hand-curated short list of likely
-  // candidates. Keeps the template usable on a fresh dev DB.
-  const buildPlayerOptions = () => {
-    if (players.length === 0) return null;
-    // Sorted by team then jersey for a stable, scannable list.
-    const sorted = [...players].sort((a, b) => {
-      if (a.team_code !== b.team_code) return a.team_code.localeCompare(b.team_code);
-      const ja = a.jersey_number ?? 999;
-      const jb = b.jersey_number ?? 999;
-      if (ja !== jb) return ja - jb;
-      return a.name_en.localeCompare(b.name_en);
-    });
-    return sorted.map((p) => {
-      const jerseyTag = p.jersey_number != null ? `#${p.jersey_number}` : null;
-      const positionTag = p.position ? p.position : null;
-      const tagHe = [jerseyTag, positionTag].filter(Boolean).join(" · ");
-      const tagEn = tagHe;
-      return {
-        value: p.id,
-        labelHe: p.name_he ?? p.name_en,
-        labelEn: p.name_en,
-        groupHe: `${p.team_flag} ${p.team_name_he}`,
-        groupEn: `${p.team_flag} ${p.team_name_en}`,
-        subtitleHe: tagHe || undefined,
-        subtitleEn: tagEn || undefined,
-      };
-    });
-  };
-  const playerOptionsLive = buildPlayerOptions();
-
-  // Fallback when the players table is empty. Keeps the template
-  // shippable on day-one when the squads sync has not run yet.
-  const topScorerFallback = [
-    { value: "MBP", labelHe: "מבאפה",     labelEn: "Mbappé" },
-    { value: "HAA", labelHe: "האלאנד",    labelEn: "Haaland" },
-    { value: "BEL", labelHe: "בלינגהאם",  labelEn: "Bellingham" },
-    { value: "VIN", labelHe: "וויניסיוס", labelEn: "Vinicius Jr." },
-    { value: "KAN", labelHe: "קיין",      labelEn: "Kane" },
-    { value: "MES", labelHe: "מסי",       labelEn: "Messi" },
-    { value: "OTH", labelHe: "אחר",       labelEn: "Other" },
-  ];
-  const goldenBallFallback = [
-    { value: "MES", labelHe: "מסי",       labelEn: "Messi" },
-    { value: "MBP", labelHe: "מבאפה",     labelEn: "Mbappé" },
-    { value: "BEL", labelHe: "בלינגהאם",  labelEn: "Bellingham" },
-    { value: "VIN", labelHe: "וויניסיוס", labelEn: "Vinicius Jr." },
-    { value: "HAA", labelHe: "האלאנד",    labelEn: "Haaland" },
-    { value: "PED", labelHe: "פדרי",      labelEn: "Pedri" },
-    { value: "MUS", labelHe: "מוסיאלה",   labelEn: "Musiala" },
-    { value: "RDR", labelHe: "רודרי",     labelEn: "Rodri" },
-    { value: "KMI", labelHe: "קיימיך",    labelEn: "Kimmich" },
-    { value: "DEB", labelHe: "דה ברוינה", labelEn: "De Bruyne" },
-    { value: "OTH", labelHe: "אחר",       labelEn: "Other" },
-  ];
-
-  // Live roster preferred. Fallbacks only render when the players
-  // table has not been populated yet.
-  const topScorerCandidates = playerOptionsLive ?? topScorerFallback;
-  const goldenBallCandidates = playerOptionsLive ?? goldenBallFallback;
+  // Player-scope templates (top scorer, golden ball) declare
+  // `dynamicSource: "players"`. The published bet's answer_config
+  // carries the source flag with empty options[], and the user-
+  // facing picker hydrates the full WC roster from
+  // /api/picker-options/players at view time. Saves ~200 KB per
+  // bet record and lets server-side roster updates (squad re-sync,
+  // translation fixes) propagate without rewriting every row.
 
   // Payout suggestions tuned so longshot templates pay more than the
   // base stake but stay under the configured cap. Admin can edit per
@@ -336,14 +267,14 @@ function buildTemplates({
       iconKey: "boot",
       titleHe: "מלך השערים",
       titleEn: "Top scorer",
-      helperHe: "השחקן שיכבוש הכי הרבה שערים בטורניר. רשימה התחלתית של מועמדים שאפשר לערוך.",
-      helperEn: "The player with the most goals in the tournament. Starter candidate list, editable.",
+      helperHe: "השחקן שיכבוש הכי הרבה שערים בטורניר. פותח ברשימת הכוכבים הגלובליים — חיפוש מאתר כל אחד מ-1,357 השחקנים בסגלי המונדיאל.",
+      helperEn: "The player with the most goals in the tournament. Picker opens on the global stars — search reaches every one of the 1,357 players across all WC squads.",
       questionHe: "מי יהיה מלך השערים של המונדיאל?",
       questionEn: "Who will be the World Cup top scorer?",
       gradingRuleHe: "השחקן שמופיע במקום הראשון בטבלת הכובשים הרשמית של פיפ\"א בסוף הטורניר. במקרה של שוויון, מי שכבש בפחות דקות.",
       gradingRuleEn: "The player ranked first in FIFA's official top-scorers list at the end of the tournament. Tie-break: fewer minutes played.",
       answerType: "multi_choice",
-      answerOptions: topScorerCandidates,
+      dynamicSource: "players",
       defaultStake: baseStake,
       defaultPayout: scorerPayout,
       defaultLockAtIso: defaultLockIso,
@@ -353,14 +284,14 @@ function buildTemplates({
       iconKey: "award",
       titleHe: "כדור הזהב (השחקן הכי טוב)",
       titleEn: "Golden Ball (best player)",
-      helperHe: "השחקן הטוב ביותר של הטורניר לפי הצבעת פיפ\"א. רשימה התחלתית מאוזנת בין חודים, אגפים וקשרים יוצרים.",
-      helperEn: "The tournament's best player per FIFA voting. Starter list balanced between strikers, wingers and creative midfielders.",
+      helperHe: "השחקן הטוב ביותר של הטורניר לפי הצבעת פיפ\"א. פותח ברשימת הכוכבים הגלובליים — חיפוש מאתר כל שחקן ב-1,357 הסגלים.",
+      helperEn: "The tournament's best player per FIFA voting. Picker opens on the global stars — search reaches every one of the 1,357 players.",
       questionHe: "מי יזכה בכדור הזהב של המונדיאל?",
       questionEn: "Who wins the World Cup Golden Ball?",
       gradingRuleHe: "השחקן שזכה בפרס הרשמי \"כדור הזהב של אדידס\" מטעם פיפ\"א בסיום הטורניר.",
       gradingRuleEn: "The player who wins FIFA's official adidas Golden Ball award at the end of the tournament.",
       answerType: "multi_choice",
-      answerOptions: goldenBallCandidates,
+      dynamicSource: "players",
       defaultStake: baseStake,
       defaultPayout: goldenBallPayout,
       defaultLockAtIso: defaultLockIso,
@@ -432,28 +363,6 @@ async function loadWcTeams(): Promise<Team[]> {
     order by t.name_en asc
   `);
   return rows as unknown as Team[];
-}
-
-// Joins players to teams so the SearchableChoicePicker has everything
-// it needs to group by national team and decorate each row with the
-// team flag emoji + Hebrew or English team name in one query.
-async function loadAllPlayersWithTeam(): Promise<PlayerRow[]> {
-  const rows = await db.execute<PlayerRow>(sql`
-    select
-      p.id::text         as "id",
-      p.name_en          as "name_en",
-      p.name_he          as "name_he",
-      p.position         as "position",
-      p.jersey_number    as "jersey_number",
-      p.team_code        as "team_code",
-      t.name_he          as "team_name_he",
-      t.name_en          as "team_name_en",
-      t.flag             as "team_flag"
-    from public.players p
-    join public.teams   t on t.code = p.team_code
-    order by p.team_code asc, p.jersey_number nulls last, p.name_en asc
-  `);
-  return rows as unknown as PlayerRow[];
 }
 
 async function loadLastWcKickoff(): Promise<{ kickoff_at: string } | null> {

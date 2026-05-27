@@ -284,6 +284,17 @@ function buildAnswerConfig(template: TournamentTemplate): AnswerConfig {
         unit: (template.numberUnit as "goals" | "corners" | "cards" | "shots" | "minutes" | "") ?? "",
       };
     case "multi_choice":
+      // dynamicSource templates (top scorer, golden ball, ...) store
+      // an empty options[] and the picker hydrates the full WC roster
+      // from /api/picker-options at view time. Keeps each bet's
+      // answer_config jsonb at ~120 bytes instead of ~200 KB.
+      if (template.dynamicSource) {
+        return {
+          kind: "multi_choice",
+          options: [],
+          dynamicSource: template.dynamicSource,
+        };
+      }
       return {
         kind: "multi_choice",
         options: template.answerOptions ?? [],
