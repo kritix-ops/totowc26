@@ -1,11 +1,12 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
+import { revalidatePath, updateTag } from "next/cache";
 import { sql } from "drizzle-orm";
 import { db } from "@/db";
 import { matchBets } from "@/db/schema";
 import { getUser } from "@/lib/supabase/auth";
 import { getUserAccess } from "@/lib/access";
+import { bankCacheTag } from "@/lib/bank";
 
 // 1/X/2 match-bet submission. The main pick still does not debit the
 // bank at submit time - points (positive or negative) are credited by
@@ -102,6 +103,10 @@ export async function saveBet(
       away: a,
       stakePaidMain: stakeSnapshot,
     });
+    // Bank read used by the header pill cached match_bets sums; bust
+    // this user's bank entry so the next paint reflects the new stake
+    // snapshot.
+    updateTag(bankCacheTag(user.id));
     revalidatePath("/", "layout");
     return { ok: true };
   } catch (err) {

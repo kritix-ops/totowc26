@@ -18,8 +18,6 @@ import { InstallHint } from "@/components/InstallHint";
 import { PrizeStrip } from "@/components/PrizeStrip";
 import { getRequestUser } from "@/lib/request-user";
 import { getUserAccess } from "@/lib/access";
-import { db } from "@/db";
-import { sql } from "drizzle-orm";
 import { DashboardPickCard } from "@/components/DashboardPickCard";
 import {
   HeroStatsCardSkeleton,
@@ -31,6 +29,7 @@ import {
   UpcomingSectionSkeleton,
 } from "@/components/PageSkeleton";
 import {
+  getBetLockMinutes,
   getLatestFinalForUser,
   getLeaderboard,
   getMyRankSummary,
@@ -43,14 +42,6 @@ import {
   type LeaderboardEntry,
   type PrizeBreakdown,
 } from "@/db/queries";
-
-async function getBetLockMinutes(): Promise<number> {
-  const rows = await db.execute<{ bet_lock_minutes: number }>(sql`
-    select bet_lock_minutes from public.settings where id = 1
-  `);
-  const r = (rows as unknown as Array<{ bet_lock_minutes: number }>)[0];
-  return r?.bet_lock_minutes ?? 5;
-}
 import {
   Card,
   Chip,

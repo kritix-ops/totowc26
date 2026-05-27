@@ -91,6 +91,14 @@ export function BottomNavLink({
   return (
     <Link
       href={localePath(locale, path)}
+      // Force a full prefetch on the mobile bottom nav. The default
+      // (partial prefetch for dynamic routes, just the loading skel)
+      // is fine for sparse links, but the four bottom-nav cells are
+      // the hottest taps in the app — pre-rendering them in full
+      // makes the typical "home → bets → leaderboard → home" loop
+      // feel like an SPA. With Phase 4 query caching the server cost
+      // of prefetch is small (data hits unstable_cache).
+      prefetch
       className={clsx(
         "relative flex flex-col items-center justify-center gap-1 px-1 py-2 min-h-[56px] transition-[color] duration-150",
         active ? "text-primary" : "text-on-surface-variant",

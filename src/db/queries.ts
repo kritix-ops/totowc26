@@ -12,6 +12,23 @@ import { db } from "./index";
 export const CACHE_TAG_FIXTURES = "fixtures";
 export const CACHE_TAG_POOL = "pool";
 export const CACHE_TAG_LEADERBOARD = "leaderboard";
+export const CACHE_TAG_SETTINGS = "settings";
+
+// Cached cross-request — admin can only change this via the scoring
+// settings panel, which calls revalidatePath that drops the entry.
+// Two pages (home + bets) ask for it on every render so caching saves
+// a settings table round-trip on every navigation.
+export const getBetLockMinutes = unstable_cache(
+  async (): Promise<number> => {
+    const rows = await db.execute<{ bet_lock_minutes: number }>(sql`
+      select bet_lock_minutes from public.settings where id = 1
+    `);
+    const r = (rows as unknown as Array<{ bet_lock_minutes: number }>)[0];
+    return r?.bet_lock_minutes ?? 5;
+  },
+  ["getBetLockMinutes"],
+  { tags: [CACHE_TAG_SETTINGS], revalidate: 600 },
+);
 
 export type LocalizedName = { he: string; en: string };
 
@@ -150,9 +167,16 @@ export type LeaderboardTab = "overall" | "matches" | "live" | "duels";
 // branch on tab-specific columns. `points` carries the tab-specific
 // score; `grossPoints` always carries the user's total gross payouts
 // (across every surface) so the secondary column stays comparable.
-export async function getLeaderboard(
+// Cached cross-request, scoped by (userId, tab) because the `isYou`
+// marker varies per viewer. The underlying ranking is the same across
+// users; the cost of per-viewer entries is small and the win is
+// huge — this CTE has 5 sub-queries × every profile in the pool, so
+// even at a friends-pool scale it's the heaviest query the home and
+// leaderboard pages run. Invalidated by CACHE_TAG_LEADERBOARD which
+// scoring/grading/adjustment actions tag-bust.
+async function loadLeaderboardFromDb(
   currentUserId: string,
-  tab: LeaderboardTab = "overall",
+  tab: LeaderboardTab,
 ): Promise<LeaderboardEntry[]> {
   const rows = await db.execute<LeaderboardEntry>(sql`
     with match_points as (
@@ -278,6 +302,18 @@ export async function getLeaderboard(
     order by "rank", display_name asc
   `);
   return rows as unknown as LeaderboardEntry[];
+}
+
+export async function getLeaderboard(
+  currentUserId: string,
+  tab: LeaderboardTab = "overall",
+): Promise<LeaderboardEntry[]> {
+  const cached = unstable_cache(
+    async () => loadLeaderboardFromDb(currentUserId, tab),
+    ["leaderboard", currentUserId, tab],
+    { tags: [CACHE_TAG_LEADERBOARD], revalidate: 60 },
+  );
+  return cached();
 }
 
 export type MyRankSummary = {
@@ -915,7 +951,11 @@ export type CategoryPrizeBreakdown = {
   totalAwardedIls: number;
 };
 
-export async function getCategoryPrizeBreakdown(): Promise<CategoryPrizeBreakdown> {
+// Cached cross-request. Same data shape as getPrizeBreakdown but
+// split by category (king/matches/live/duels/reserve) for the rules
+// page. Tagged with both pool and settings — payments and the prize
+// percentages both invalidate it.
+async function loadCategoryPrizeBreakdownFromDb(): Promise<CategoryPrizeBreakdown> {
   const rows = await db.execute<{
     pot: number;
     king_first: number;
@@ -966,6 +1006,12 @@ export async function getCategoryPrizeBreakdown(): Promise<CategoryPrizeBreakdow
   const totalAwardedIls = prizes.reduce((s, p) => s + p.ils, 0);
   return { potIls: pot, prizes, totalAwardedIls };
 }
+
+export const getCategoryPrizeBreakdown = unstable_cache(
+  loadCategoryPrizeBreakdownFromDb,
+  ["getCategoryPrizeBreakdown"],
+  { tags: [CACHE_TAG_POOL, CACHE_TAG_SETTINGS], revalidate: 600 },
+);
 
 // Cached cross-request — depends on the same pot the home stats use,
 // plus the prize-percentage settings. Both are invalidated together

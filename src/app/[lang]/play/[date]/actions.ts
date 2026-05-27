@@ -1,12 +1,12 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
+import { revalidatePath, updateTag } from "next/cache";
 import { and, eq, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { customBets, userCustomBetPicks } from "@/db/schema";
 import { getUser } from "@/lib/supabase/auth";
 import { getUserAccess } from "@/lib/access";
-import { bankBalanceSql, lockUserForBetting } from "@/lib/bank";
+import { bankBalanceSql, bankCacheTag, lockUserForBetting } from "@/lib/bank";
 import type { PickAnswer } from "@/lib/bets/types";
 
 type Err =
@@ -137,6 +137,9 @@ export async function submitCustomBetPick(
         betId: customBetId,
         balanceAfter: result.balanceAfter,
       });
+      // Drop this user's cached bank breakdown so the header pill
+      // shows the post-stake balance on their next nav.
+      updateTag(bankCacheTag(user.id));
       revalidatePath("/[lang]/play", "layout");
       return { ok: true, balanceAfter: result.balanceAfter };
     }

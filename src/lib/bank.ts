@@ -1,7 +1,17 @@
 import "server-only";
 
 import { sql, type SQL } from "drizzle-orm";
+import { unstable_cache } from "next/cache";
 import { db } from "@/db";
+
+// Cache tag used by every action that can change this user's bank
+// (match bet placement, custom-bet pick, duel open/join/cancel, admin
+// point adjustment). Existing revalidatePath("/", "layout") calls also
+// invalidate Data Cache entries so adding revalidateTag is additive
+// precision rather than required correctness.
+export function bankCacheTag(userId: string): string {
+  return `bank:${userId}`;
+}
 
 // Points bank helper. The bank is computed live from existing tables - there
 // is no materialised balance column. Every read is one SQL roundtrip.
@@ -102,9 +112,11 @@ export async function getBankBalance(userId: string): Promise<number> {
   return getBankBalanceWith(db, userId);
 }
 
-export async function getBankBreakdown(
-  userId: string,
-): Promise<BankBreakdown> {
+// The actual SQL of the bank breakdown. Pulled out so it can run both
+// uncached (for actions that just mutated and need the latest number)
+// and cached (for the bank pill in the layout that re-renders on
+// every navigation).
+async function loadBankBreakdownFromDb(userId: string): Promise<BankBreakdown> {
   const rows = await db.execute<{
     starting: number;
     payouts: number;
@@ -158,6 +170,22 @@ export async function getBankBreakdown(
     adjustments,
     balance: starting + payouts - stakes + duelDelta + adjustments,
   };
+}
+
+// Public read: cached across requests per-userId. The bank pill in the
+// header asks for this on every navigation; without caching that was 6
+// sub-queries (settings + match_bets + custom_bets + duels both sides +
+// adjustments) per nav. The cache survives until a bet/duel/adjust
+// mutation triggers revalidatePath, which busts the Data Cache entry
+// along with the route cache. Short revalidate window as a backstop
+// in case a mutation path is ever missed.
+export async function getBankBreakdown(userId: string): Promise<BankBreakdown> {
+  const cached = unstable_cache(
+    async () => loadBankBreakdownFromDb(userId),
+    ["bank-breakdown", userId],
+    { tags: [bankCacheTag(userId)], revalidate: 120 },
+  );
+  return cached();
 }
 
 // Take the per-user advisory lock that all bet-submission server actions

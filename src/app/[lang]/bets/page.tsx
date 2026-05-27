@@ -8,6 +8,7 @@ import { PayGateBanner } from "@/components/PayGateBanner";
 import { getRequestUser } from "@/lib/request-user";
 import { getUserAccess } from "@/lib/access";
 import { db } from "@/db";
+import { getBetLockMinutes } from "@/db/queries";
 import { localePath } from "@/lib/paths";
 import { BetsTabs } from "@/components/BetsTabs";
 import { QuickPickRow, type QuickPickRowData } from "./QuickPickRow";
@@ -43,7 +44,7 @@ export default async function QuickBetsPage({
 
   const [matches, lockMinutes] = await Promise.all([
     loadEditableMatches(user.id),
-    loadBetLockMinutes(),
+    getBetLockMinutes(),
   ]);
 
   // Group by Asia/Jerusalem matchday. Days are already in order from
@@ -161,10 +162,3 @@ async function loadEditableMatches(userId: string): Promise<QuickPickRowData[]> 
   return rows as unknown as QuickPickRowData[];
 }
 
-async function loadBetLockMinutes(): Promise<number> {
-  const rows = await db.execute<{ bet_lock_minutes: number }>(sql`
-    select bet_lock_minutes from public.settings where id = 1
-  `);
-  const r = (rows as unknown as Array<{ bet_lock_minutes: number }>)[0];
-  return r?.bet_lock_minutes ?? 5;
-}

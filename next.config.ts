@@ -1,11 +1,23 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  // Tree-shake icon and SDK imports per-file instead of pulling the
-  // whole module into the client bundle. Cuts ~20-30KB on the first
-  // paint, especially on routes that only use 2-3 lucide icons.
   experimental: {
+    // Tree-shake icon and SDK imports per-file instead of pulling the
+    // whole module into the client bundle. Cuts ~20-30KB on the first
+    // paint, especially on routes that only use 2-3 lucide icons.
     optimizePackageImports: ["lucide-react", "@supabase/ssr"],
+    // Client-cache TTLs for prefetched page segments. Default `dynamic`
+    // is 0 (no client cache) in Next.js 15+, which means every nav to a
+    // signed-in page goes back to the server even if the user clicked
+    // back-and-forth within seconds. 30s is the sweet spot: the bank
+    // pill / leaderboard staleness window is tolerable for a friends
+    // pool, and the perceived speed-up on back-nav + tab-flipping is
+    // huge. `static` 300s keeps the older default for explicitly
+    // prefetched (prefetch={true}) routes.
+    staleTimes: {
+      dynamic: 30,
+      static: 300,
+    },
   },
   images: {
     // News thumbnails are pulled from RSS feeds whose CDN hostnames are

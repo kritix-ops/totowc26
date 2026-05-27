@@ -1,11 +1,12 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
+import { revalidatePath, updateTag } from "next/cache";
 import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import { profiles } from "@/db/schema";
 import { getUser } from "@/lib/supabase/auth";
 import { syncFixtures, type SyncReport } from "@/lib/sync";
+import { CACHE_TAG_FIXTURES } from "@/db/queries";
 
 export type RunSyncResult =
   | { ok: true; report: SyncReport; durationMs: number }
@@ -27,6 +28,11 @@ export async function runSyncNow(): Promise<RunSyncResult> {
       source: "admin",
       triggeredBy: user.id,
     });
+    // Fixtures changed globally — propagate to every cached
+    // getTournamentStart/getUpcomingFixtures consumer, not just this
+    // admin's session. revalidatePath still drops the admin's local
+    // route cache so the sync panel shows the new state.
+    updateTag(CACHE_TAG_FIXTURES);
     revalidatePath("/", "layout");
     return { ok: true, report, durationMs: Date.now() - start };
   } catch (err) {

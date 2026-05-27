@@ -1,10 +1,12 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
+import { revalidatePath, updateTag } from "next/cache";
 import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import { payments, profiles } from "@/db/schema";
 import { getUser } from "@/lib/supabase/auth";
+import { accessCacheTag } from "@/lib/access";
+import { CACHE_TAG_POOL } from "@/db/queries";
 
 export type PaymentDecisionResult =
   | { ok: true; status: "approved" | "rejected" }
@@ -39,8 +41,16 @@ async function decide(
         ...(note != null ? { note } : {}),
       })
       .where(eq(payments.id, paymentId))
-      .returning({ id: payments.id });
+      .returning({ id: payments.id, userId: payments.userId });
     if (updated.length === 0) return { ok: false, error: "not_found" };
+    // Drop the affected user's cached access (so their bank pill /
+    // pay-gate banner flips on their next nav) and bust the global
+    // pool / prize aggregates. revalidatePath also drops these
+    // implicitly for the admin's own session — the tag calls are
+    // what propagate the fresh state to every other user's render.
+    const affectedUserId = updated[0]?.userId;
+    if (affectedUserId) updateTag(accessCacheTag(affectedUserId));
+    updateTag(CACHE_TAG_POOL);
     revalidatePath("/", "layout");
     return { ok: true, status };
   } catch (err) {
@@ -78,8 +88,11 @@ export async function reopenPayment(
         decidedBy: null,
       })
       .where(eq(payments.id, paymentId))
-      .returning({ id: payments.id });
+      .returning({ id: payments.id, userId: payments.userId });
     if (updated.length === 0) return { ok: false, error: "not_found" };
+    const affectedUserId = updated[0]?.userId;
+    if (affectedUserId) updateTag(accessCacheTag(affectedUserId));
+    updateTag(CACHE_TAG_POOL);
     revalidatePath("/", "layout");
     return { ok: true, status: "approved" }; // status field reused as discriminant; reopen result not surfaced separately
   } catch (err) {

@@ -1,13 +1,14 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
+import { revalidatePath, updateTag } from "next/cache";
 import { and, eq, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { duels, matches as matchesTable, matchdays, settings } from "@/db/schema";
 import { getUser } from "@/lib/supabase/auth";
 import { isAdmin } from "@/lib/admin";
 import { getUserAccess } from "@/lib/access";
-import { bankBalanceSql, lockUserForBetting } from "@/lib/bank";
+import { bankBalanceSql, bankCacheTag, lockUserForBetting } from "@/lib/bank";
+import { CACHE_TAG_LEADERBOARD } from "@/db/queries";
 import { sendEmail } from "@/lib/email/client";
 import { DuelJoinedEmail } from "@/lib/email/templates/DuelJoinedEmail";
 
@@ -241,6 +242,7 @@ export async function openDuel(input: OpenDuelInput): Promise<OpenDuelResult> {
       scope: input.scope,
       deadlineAt: joinDeadlineAt.toISOString(),
     });
+    updateTag(bankCacheTag(user.id));
     revalidatePath("/", "layout");
     return { ok: true, id: inserted };
   } catch (err) {
@@ -307,7 +309,7 @@ export async function joinDuel(id: string): Promise<JoinDuelResult> {
           status: "matched",
         })
         .where(and(eq(duels.id, id), eq(duels.status, "open")));
-      return { ok: true as const, stake: d.stake };
+      return { ok: true as const, stake: d.stake, openerId: d.openerId };
     });
 
     if (!result.ok) return result;
@@ -322,6 +324,11 @@ export async function joinDuel(id: string): Promise<JoinDuelResult> {
     // its own failures and returns void.
     void notifyDuelJoined(id, user.id);
 
+    // Both joiner AND opener now have a -stake debit. Drop both
+    // bank caches so the opener's header pill reflects the new
+    // "in flight" debit on their next nav.
+    updateTag(bankCacheTag(user.id));
+    if (result.openerId) updateTag(bankCacheTag(result.openerId));
     revalidatePath("/", "layout");
     return { ok: true };
   } catch (err) {
@@ -459,6 +466,12 @@ export async function settleDuel(
       stake: result.stake,
       settledBy: user.id,
     });
+    // Both sides' banks and the global leaderboard now reflect a new
+    // delta. Tag-busts let every other user see fresh numbers on
+    // their next nav, not just the admin who settled it.
+    if (result.winnerId) updateTag(bankCacheTag(result.winnerId));
+    if (result.loserId) updateTag(bankCacheTag(result.loserId));
+    updateTag(CACHE_TAG_LEADERBOARD);
     revalidatePath("/", "layout");
     return { ok: true };
   } catch (err) {
@@ -490,6 +503,7 @@ export async function cancelDuel(
           id: duels.id,
           status: duels.status,
           openerId: duels.openerId,
+          joinerId: duels.joinerId,
         })
         .from(duels)
         .where(eq(duels.id, id))
@@ -508,7 +522,11 @@ export async function cancelDuel(
         .update(duels)
         .set({ status: "cancelled" })
         .where(eq(duels.id, id));
-      return { ok: true as const };
+      return {
+        ok: true as const,
+        openerId: d.openerId,
+        joinerId: d.joinerId,
+      };
     });
 
     if (!result.ok) return result;
@@ -517,6 +535,10 @@ export async function cancelDuel(
       reason,
       cancelledBy: user.id,
     });
+    // Stakes are refunded — both sides need a fresh bank read.
+    updateTag(bankCacheTag(result.openerId));
+    if (result.joinerId) updateTag(bankCacheTag(result.joinerId));
+    updateTag(CACHE_TAG_LEADERBOARD);
     revalidatePath("/", "layout");
     return { ok: true };
   } catch (err) {
