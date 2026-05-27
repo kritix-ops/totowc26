@@ -228,6 +228,141 @@ export async function fetchTeamStatistics(
   );
 }
 
+// ---------- Match details (lineups + events + statistics + players) ----------
+//
+// /fixtures?id=X returns one rich object with embedded sub-resources. We
+// expose only the slices the UI consumes. Player ratings come back as
+// strings ("7.8") which we coerce to number.
+
+export type ApiMatchEvent = {
+  minute: number;
+  extraMinute: number | null;
+  teamApiId: number;
+  teamName: string;
+  player: string;
+  type: "Goal" | "Card" | "subst" | "Var" | string;
+  detail: string; // "Normal Goal", "Yellow Card", "Red Card", "Substitution 1", etc.
+};
+
+export type ApiLineupPlayer = {
+  apiId: number;
+  name: string;
+  number: number | null;
+  position: string; // "G" / "D" / "M" / "F"
+  grid: string | null; // "1:1" formation slot, may be null
+};
+
+export type ApiLineup = {
+  teamApiId: number;
+  teamName: string;
+  formation: string;
+  startXI: ApiLineupPlayer[];
+  substitutes: ApiLineupPlayer[];
+};
+
+export type ApiMatchDetails = {
+  fixtureId: number;
+  status: string;       // "FT" / "1H" / "HT" / "2H" / etc.
+  elapsed: number | null;
+  events: ApiMatchEvent[];
+  lineups: ApiLineup[];
+  // Player ratings: one row per player who took the field, with a 0-10
+  // rating string + key boolean flags. Empty until the match starts.
+  playerRatings: Array<{
+    teamApiId: number;
+    teamName: string;
+    apiId: number;
+    name: string;
+    rating: number | null;
+    captain: boolean;
+    substitute: boolean;
+    minutes: number | null;
+    goals: number;
+    assists: number;
+    yellow: number;
+    red: number;
+  }>;
+};
+
+export async function fetchMatchDetails(
+  fixtureId: number,
+  // Live matches get a 30s revalidate. Finished matches lock to 12h so we
+  // don't burn API calls re-reading the same /fixtures payload.
+  liveMode = false,
+): Promise<ApiMatchDetails | null> {
+  return get(
+    `/fixtures?id=${fixtureId}`,
+    (json) => {
+      const rows = (json as { response?: RawFixtureDetailRow[] }).response ?? [];
+      const r = rows[0];
+      if (!r) return null as unknown as ApiMatchDetails;
+      return parseFixtureDetailRow(r);
+    },
+    liveMode ? 30 : 43200,
+  );
+}
+
+// ---------- Pre-match predictions ----------
+//
+// /predictions?fixture=X returns API-Football's own model output: a
+// suggested winner, an estimated score range, and home/draw/away win
+// probabilities (as "53%" strings - we coerce to number 0-1).
+// Useful pre-kickoff context but not deterministic - we surface as
+// "AI suggestion" with a disclaimer to keep expectations honest.
+
+export type ApiPrediction = {
+  winnerTeamApiId: number | null;
+  winnerName: string | null;
+  winnerComment: string | null;
+  predictedScoreHome: string | null;
+  predictedScoreAway: string | null;
+  // Probabilities sum to ~1.0. Use the fractional values for bar widths.
+  probHome: number;
+  probDraw: number;
+  probAway: number;
+  advice: string | null;
+};
+
+export async function fetchPrediction(
+  fixtureId: number,
+): Promise<ApiPrediction | null> {
+  return get(
+    `/predictions?fixture=${fixtureId}`,
+    (json) => {
+      const rows = (json as { response?: RawPredictionRow[] }).response ?? [];
+      const r = rows[0];
+      if (!r) return null as unknown as ApiPrediction;
+      return parsePrediction(r);
+    },
+    3600,
+  );
+}
+
+// ---------- Head coach (per team) ----------
+
+export type ApiCoach = {
+  apiId: number;
+  name: string;
+  age: number | null;
+  nationality: string | null;
+  photoUrl: string | null;
+  startYear: number | null;
+};
+
+export async function fetchHeadCoach(apiTeamId: number): Promise<ApiCoach | null> {
+  return get(
+    `/coachs?team=${apiTeamId}`,
+    (json) => {
+      const rows = (json as { response?: RawCoachRow[] }).response ?? [];
+      const current = rows.find((r) => !r.career?.some((c) => c.end != null && c.team.id === apiTeamId))
+        ?? rows[0];
+      if (!current) return null as unknown as ApiCoach;
+      return parseCoachRow(current);
+    },
+    86400,
+  );
+}
+
 // ---------- Recent + upcoming fixtures (per team) ----------
 
 export type ApiTeamFixture = {
@@ -507,6 +642,165 @@ type RawStandingRow = {
     goals: { for: number; against: number };
   };
 };
+
+// Prediction row + parser. API-Football returns "53%" strings.
+type RawPredictionRow = {
+  predictions: {
+    winner: { id: number | null; name: string | null; comment: string | null };
+    win_or_draw: boolean;
+    under_over: string | null;
+    goals: { home: string | null; away: string | null };
+    advice: string | null;
+    percent: { home: string; draw: string; away: string };
+  };
+};
+
+function parsePrediction(r: RawPredictionRow): ApiPrediction {
+  const pct = (raw: string): number => {
+    if (!raw) return 0;
+    const n = Number(raw.replace("%", "").trim());
+    return Number.isFinite(n) ? n / 100 : 0;
+  };
+  return {
+    winnerTeamApiId: r.predictions.winner.id,
+    winnerName: r.predictions.winner.name,
+    winnerComment: r.predictions.winner.comment,
+    predictedScoreHome: r.predictions.goals.home,
+    predictedScoreAway: r.predictions.goals.away,
+    probHome: pct(r.predictions.percent.home),
+    probDraw: pct(r.predictions.percent.draw),
+    probAway: pct(r.predictions.percent.away),
+    advice: r.predictions.advice,
+  };
+}
+
+// /fixtures?id=X embeds the entire match payload. The raw shape is deep;
+// we only pluck the slices the UI renders.
+type RawFixtureDetailRow = {
+  fixture: { id: number; status: { short: string; elapsed: number | null } };
+  teams: {
+    home: { id: number; name: string };
+    away: { id: number; name: string };
+  };
+  events?: Array<{
+    time: { elapsed: number; extra: number | null };
+    team: { id: number; name: string };
+    player: { id: number | null; name: string };
+    type: string;
+    detail: string;
+  }>;
+  lineups?: Array<{
+    team: { id: number; name: string; formation?: string };
+    formation: string;
+    startXI: Array<{ player: { id: number; name: string; number: number | null; pos: string; grid: string | null } }>;
+    substitutes: Array<{ player: { id: number; name: string; number: number | null; pos: string; grid: string | null } }>;
+  }>;
+  players?: Array<{
+    team: { id: number; name: string };
+    players: Array<{
+      player: { id: number; name: string };
+      statistics: Array<{
+        games: {
+          minutes: number | null;
+          rating: string | null;
+          captain: boolean;
+          substitute: boolean;
+        };
+        goals: { total: number | null; assists: number | null };
+        cards: { yellow: number | null; red: number | null };
+      }>;
+    }>;
+  }>;
+};
+
+function parseFixtureDetailRow(r: RawFixtureDetailRow): ApiMatchDetails {
+  const events: ApiMatchEvent[] = (r.events ?? []).map((e) => ({
+    minute: e.time.elapsed,
+    extraMinute: e.time.extra,
+    teamApiId: e.team.id,
+    teamName: e.team.name,
+    player: e.player.name,
+    type: e.type,
+    detail: e.detail,
+  }));
+  const lineups: ApiLineup[] = (r.lineups ?? []).map((l) => ({
+    teamApiId: l.team.id,
+    teamName: l.team.name,
+    formation: l.formation,
+    startXI: (l.startXI ?? []).map((row) => ({
+      apiId: row.player.id,
+      name: row.player.name,
+      number: row.player.number,
+      position: row.player.pos,
+      grid: row.player.grid,
+    })),
+    substitutes: (l.substitutes ?? []).map((row) => ({
+      apiId: row.player.id,
+      name: row.player.name,
+      number: row.player.number,
+      position: row.player.pos,
+      grid: row.player.grid,
+    })),
+  }));
+  const playerRatings: ApiMatchDetails["playerRatings"] = [];
+  for (const block of r.players ?? []) {
+    for (const p of block.players) {
+      const stat = p.statistics[0];
+      if (!stat) continue;
+      const rating = stat.games.rating ? Number(stat.games.rating) : null;
+      playerRatings.push({
+        teamApiId: block.team.id,
+        teamName: block.team.name,
+        apiId: p.player.id,
+        name: p.player.name,
+        rating: Number.isFinite(rating ?? NaN) ? rating : null,
+        captain: stat.games.captain,
+        substitute: stat.games.substitute,
+        minutes: stat.games.minutes ?? null,
+        goals: stat.goals.total ?? 0,
+        assists: stat.goals.assists ?? 0,
+        yellow: stat.cards.yellow ?? 0,
+        red: stat.cards.red ?? 0,
+      });
+    }
+  }
+  return {
+    fixtureId: r.fixture.id,
+    status: r.fixture.status.short,
+    elapsed: r.fixture.status.elapsed,
+    events,
+    lineups,
+    playerRatings,
+  };
+}
+
+// Coach row + parser. API-Football's /coachs?team=X returns a list with
+// `career` history; we want the row whose career has the team as current.
+type RawCoachRow = {
+  id: number;
+  name: string;
+  age?: number | null;
+  nationality?: string | null;
+  photo?: string | null;
+  career?: Array<{
+    team: { id: number; name: string };
+    start: string | null;
+    end: string | null;
+  }>;
+};
+
+function parseCoachRow(c: RawCoachRow): ApiCoach {
+  const current = c.career?.find((row) => row.end == null);
+  const startYear = current?.start ? Number(current.start.slice(0, 4)) : null;
+  return {
+    apiId: c.id,
+    name: c.name,
+    age: c.age ?? null,
+    nationality: c.nationality ?? null,
+    photoUrl: c.photo ?? null,
+    startYear: Number.isFinite(startYear ?? NaN) ? startYear : null,
+  };
+}
 
 function parseStandingRow(r: RawStandingRow): ApiStandingRow {
   return {

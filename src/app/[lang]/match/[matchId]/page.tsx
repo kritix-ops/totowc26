@@ -1,6 +1,14 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { Check, X } from "lucide-react";
+import {
+  Check,
+  X,
+  Goal,
+  Square,
+  Repeat2,
+  Star,
+  Sparkles,
+} from "lucide-react";
 import { clsx } from "clsx";
 import { getDictionary, hasLocale, type Locale } from "../../dictionaries";
 import { getRequestUser } from "@/lib/request-user";
@@ -10,6 +18,13 @@ import {
   getMyBet,
   getHeadToHead,
 } from "@/db/queries";
+import { getMatchEnrichment, getMatchPrediction } from "@/lib/stats";
+import type {
+  ApiMatchEvent,
+  ApiLineup,
+  ApiMatchDetails,
+  ApiPrediction,
+} from "@/lib/api-football-data";
 import { localePath } from "@/lib/paths";
 import { Card, Chip, LabelCaps, ScoreDigit, SectionHeading } from "@/components/ui";
 import { Flag } from "@/components/Flag";
@@ -28,10 +43,13 @@ export default async function MatchDetailPage({
 
   const match = await getFixtureWithBets(matchId);
   if (!match) notFound();
-  const [myBet, friendBets, h2h] = await Promise.all([
+  const [myBet, friendBets, h2h, enrichment, prediction] = await Promise.all([
     getMyBet(matchId, user.id),
     getMatchBets(matchId, user.id),
     getHeadToHead(match.homeCode, match.awayCode),
+    getMatchEnrichment(matchId),
+    // Predictions only useful before kickoff; skip for final matches.
+    match.status === "final" ? Promise.resolve(null) : getMatchPrediction(matchId),
   ]);
 
   const isHebrew = locale === "he";
@@ -168,6 +186,34 @@ export default async function MatchDetailPage({
         )}
       </section>
 
+      {prediction && (
+        <PredictionCard
+          prediction={prediction}
+          homeName={homeName}
+          awayName={awayName}
+          isHebrew={isHebrew}
+        />
+      )}
+
+      {enrichment && enrichment.events.length > 0 && (
+        <MatchEvents
+          events={enrichment.events}
+          homeTeamApiId={enrichment.lineups[0]?.teamApiId ?? null}
+          isHebrew={isHebrew}
+        />
+      )}
+
+      {enrichment && enrichment.lineups.length === 2 && (
+        <Lineups lineups={enrichment.lineups} isHebrew={isHebrew} />
+      )}
+
+      {enrichment && enrichment.playerRatings.length > 0 && (
+        <PlayerRatings
+          ratings={enrichment.playerRatings}
+          isHebrew={isHebrew}
+        />
+      )}
+
       <HeadToHead
         locale={locale}
         matches={h2h}
@@ -193,5 +239,352 @@ export default async function MatchDetailPage({
         </div>
       </section>
     </section>
+  );
+}
+
+// ---------- Enrichment sub-components ----------
+
+// Vertical timeline of goals, cards and substitutions. Minute on the left,
+// player + detail on the right. Home team events tint primary, away tint
+// tertiary so the eye can scan by side without reading the team name.
+function MatchEvents({
+  events,
+  homeTeamApiId,
+  isHebrew,
+}: {
+  events: ApiMatchEvent[];
+  homeTeamApiId: number | null;
+  isHebrew: boolean;
+}) {
+  return (
+    <section className="flex flex-col gap-3">
+      <SectionHeading as="h2" underline="thin">
+        {isHebrew ? "אירועי המשחק" : "Match events"}
+      </SectionHeading>
+      <Card className="p-0 overflow-hidden">
+        <ol className="flex flex-col">
+          {events.map((e, i) => {
+            const isHome = homeTeamApiId === e.teamApiId;
+            const icon = pickEventIcon(e);
+            const minuteLabel = e.extraMinute
+              ? `${e.minute}+${e.extraMinute}'`
+              : `${e.minute}'`;
+            return (
+              <li
+                key={`${e.minute}-${e.player}-${i}`}
+                className={`flex items-center gap-3 px-4 py-3 min-h-[52px] ${
+                  i > 0 ? "border-t border-outline-variant" : ""
+                } ${isHome ? "bg-primary-fixed/30" : "bg-tertiary-container/20"}`}
+              >
+                <span className="font-[family-name:var(--font-label)] text-[11px] font-bold tracking-[0.05em] text-on-surface-variant w-10 bidi-ltr">
+                  {minuteLabel}
+                </span>
+                {icon}
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-bold text-on-surface truncate">
+                    {e.player}
+                  </div>
+                  <div className="text-xs text-on-surface-variant truncate">
+                    {e.detail}
+                  </div>
+                </div>
+                <LabelCaps>{e.teamName}</LabelCaps>
+              </li>
+            );
+          })}
+        </ol>
+      </Card>
+    </section>
+  );
+}
+
+function pickEventIcon(e: ApiMatchEvent) {
+  if (e.type === "Goal") {
+    return <Goal className="h-4 w-4 text-secondary shrink-0" strokeWidth={2} />;
+  }
+  if (e.type === "Card") {
+    const red = e.detail.toLowerCase().includes("red");
+    return (
+      <span
+        className={`inline-block w-3 h-4 rounded-[2px] shrink-0 ${
+          red ? "bg-error" : "bg-yellow-400"
+        }`}
+        aria-hidden
+      />
+    );
+  }
+  if (e.type === "subst") {
+    return <Repeat2 className="h-4 w-4 text-on-surface-variant shrink-0" strokeWidth={2} />;
+  }
+  return <Square className="h-4 w-4 text-on-surface-variant shrink-0" strokeWidth={2} />;
+}
+
+// Side-by-side starting XI per team. Each column lists the formation
+// string plus a stacked list of players (jersey + name).
+function Lineups({
+  lineups,
+  isHebrew,
+}: {
+  lineups: ApiLineup[];
+  isHebrew: boolean;
+}) {
+  const [home, away] = lineups;
+  return (
+    <section className="flex flex-col gap-3">
+      <SectionHeading as="h2" underline="thin">
+        {isHebrew ? "הרכבים" : "Lineups"}
+      </SectionHeading>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <LineupColumn lineup={home} isHebrew={isHebrew} />
+        <LineupColumn lineup={away} isHebrew={isHebrew} />
+      </div>
+    </section>
+  );
+}
+
+function LineupColumn({
+  lineup,
+  isHebrew,
+}: {
+  lineup: ApiLineup;
+  isHebrew: boolean;
+}) {
+  return (
+    <Card className="p-4 flex flex-col gap-2">
+      <div className="flex items-center justify-between gap-2">
+        <span className="font-bold text-sm text-on-surface truncate">
+          {lineup.teamName}
+        </span>
+        <LabelCaps>{lineup.formation}</LabelCaps>
+      </div>
+      <ol className="flex flex-col gap-1">
+        {lineup.startXI.map((p) => (
+          <li
+            key={p.apiId}
+            className="flex items-center gap-2 py-1 text-sm text-on-surface"
+          >
+            <span className="font-[family-name:var(--font-label)] w-6 text-center text-on-surface-variant bidi-ltr">
+              {p.number ?? "-"}
+            </span>
+            <span className="truncate flex-1">{p.name}</span>
+            <LabelCaps>{p.position}</LabelCaps>
+          </li>
+        ))}
+      </ol>
+      {lineup.substitutes.length > 0 && (
+        <details className="text-xs text-on-surface-variant mt-1">
+          <summary className="cursor-pointer min-h-[28px] flex items-center">
+            {isHebrew ? "ספסל" : "Subs"} ({lineup.substitutes.length})
+          </summary>
+          <ul className="flex flex-col gap-0.5 mt-2 ps-1">
+            {lineup.substitutes.map((p) => (
+              <li key={p.apiId} className="truncate">
+                <bdi>#{p.number ?? "-"}</bdi> {p.name}
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+    </Card>
+  );
+}
+
+// Player ratings 0-10. Coloured pill by rating band. Only players with a
+// rating are shown (subs that never came on don't get rated).
+function PlayerRatings({
+  ratings,
+  isHebrew,
+}: {
+  ratings: ApiMatchDetails["playerRatings"];
+  isHebrew: boolean;
+}) {
+  const rated = ratings.filter((r) => r.rating != null);
+  if (rated.length === 0) return null;
+  // Group by team. The first team in the list is home (matches lineups order).
+  const teams = Array.from(
+    new Map(rated.map((r) => [r.teamApiId, r.teamName])).entries(),
+  );
+  return (
+    <section className="flex flex-col gap-3">
+      <SectionHeading as="h2" underline="thin">
+        <span className="inline-flex items-center gap-2">
+          <Star className="h-5 w-5 text-tertiary-fixed-dim" strokeWidth={1.75} />
+          {isHebrew ? "ציוני שחקנים" : "Player ratings"}
+        </span>
+      </SectionHeading>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        {teams.map(([teamId, teamName]) => {
+          const teamRatings = rated
+            .filter((r) => r.teamApiId === teamId)
+            .sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0));
+          return (
+            <Card key={teamId} className="p-4 flex flex-col gap-2">
+              <div className="font-bold text-sm text-on-surface mb-1">
+                {teamName}
+              </div>
+              <ol className="flex flex-col gap-1">
+                {teamRatings.slice(0, 11).map((r) => (
+                  <li
+                    key={r.apiId}
+                    className="flex items-center gap-2 py-1 text-sm"
+                  >
+                    <RatingPill value={r.rating ?? 0} />
+                    <span className="flex-1 min-w-0 truncate text-on-surface">
+                      {r.captain && (
+                        <span className="me-1 inline-block px-1 rounded-sm bg-tertiary-fixed-dim text-[9px] font-bold text-on-tertiary-fixed bidi-ltr align-middle">
+                          C
+                        </span>
+                      )}
+                      {r.name}
+                    </span>
+                    {r.goals > 0 && (
+                      <span className="inline-flex items-center gap-0.5 text-xs text-secondary font-bold bidi-ltr">
+                        <Goal className="h-3 w-3" strokeWidth={2} />
+                        {r.goals}
+                      </span>
+                    )}
+                    {r.yellow > 0 && (
+                      <span
+                        className="inline-block w-2.5 h-3 bg-yellow-400 rounded-[1px]"
+                        aria-hidden
+                      />
+                    )}
+                    {r.red > 0 && (
+                      <span
+                        className="inline-block w-2.5 h-3 bg-error rounded-[1px]"
+                        aria-hidden
+                      />
+                    )}
+                  </li>
+                ))}
+              </ol>
+            </Card>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+// Pre-match AI prediction card. Surfaces API-Football's model output
+// (probabilities + suggested score). We label it as an "AI suggestion"
+// to keep expectations honest - this never enters scoring.
+function PredictionCard({
+  prediction,
+  homeName,
+  awayName,
+  isHebrew,
+}: {
+  prediction: ApiPrediction;
+  homeName: string;
+  awayName: string;
+  isHebrew: boolean;
+}) {
+  const pct = (p: number): string => `${Math.round(p * 100)}%`;
+  const score = prediction.predictedScoreHome && prediction.predictedScoreAway
+    ? `${prediction.predictedScoreHome} - ${prediction.predictedScoreAway}`
+    : null;
+  return (
+    <section className="flex flex-col gap-3">
+      <SectionHeading as="h2" underline="thin">
+        <span className="inline-flex items-center gap-2">
+          <Sparkles className="h-5 w-5 text-tertiary-fixed-dim" strokeWidth={1.75} />
+          {isHebrew ? "תחזית AI" : "AI suggestion"}
+        </span>
+      </SectionHeading>
+      <Card className="p-5 flex flex-col gap-4">
+        <div className="grid grid-cols-3 gap-2">
+          <ProbabilityBlock
+            label={homeName}
+            valueText={pct(prediction.probHome)}
+            value={prediction.probHome}
+            tone="primary"
+          />
+          <ProbabilityBlock
+            label={isHebrew ? "תיקו" : "Draw"}
+            valueText={pct(prediction.probDraw)}
+            value={prediction.probDraw}
+            tone="neutral"
+          />
+          <ProbabilityBlock
+            label={awayName}
+            valueText={pct(prediction.probAway)}
+            value={prediction.probAway}
+            tone="primary"
+          />
+        </div>
+        {(score || prediction.advice) && (
+          <div className="border-t border-outline-variant pt-3 flex items-end justify-between gap-3">
+            {prediction.advice && (
+              <div className="flex flex-col min-w-0 flex-1">
+                <LabelCaps>{isHebrew ? "המלצה" : "Advice"}</LabelCaps>
+                <span className="text-sm font-bold text-on-surface truncate">
+                  {prediction.advice}
+                </span>
+              </div>
+            )}
+            {score && (
+              <div className="text-end shrink-0">
+                <LabelCaps as="div" className="mb-1">
+                  {isHebrew ? "צפי" : "Predicted"}
+                </LabelCaps>
+                <span className="font-[family-name:var(--font-score)] text-2xl leading-none font-bold text-surface-tint bidi-ltr">
+                  {score}
+                </span>
+              </div>
+            )}
+          </div>
+        )}
+        <p className="text-[11px] text-on-surface-variant text-center">
+          {isHebrew
+            ? "תחזית האלגוריתם של API-Football. לא נכנס לחישוב הניקוד."
+            : "Predicted by API-Football's model. Never feeds scoring."}
+        </p>
+      </Card>
+    </section>
+  );
+}
+
+function ProbabilityBlock({
+  label,
+  value,
+  valueText,
+  tone,
+}: {
+  label: string;
+  value: number;
+  valueText: string;
+  tone: "primary" | "neutral";
+}) {
+  const bar =
+    tone === "primary" ? "bg-primary" : "bg-surface-variant";
+  return (
+    <div className="flex flex-col items-center gap-1.5 text-center">
+      <span className="font-[family-name:var(--font-display)] text-2xl leading-none font-bold text-on-surface bidi-ltr">
+        {valueText}
+      </span>
+      <div className="w-full h-1.5 rounded-full bg-surface-container overflow-hidden">
+        <div
+          className={`h-full ${bar} transition-all`}
+          style={{ width: `${Math.max(2, Math.round(value * 100))}%` }}
+        />
+      </div>
+      <LabelCaps>{label}</LabelCaps>
+    </div>
+  );
+}
+
+function RatingPill({ value }: { value: number }) {
+  const tone =
+    value >= 8 ? "bg-secondary text-on-secondary"
+    : value >= 7 ? "bg-primary-fixed text-on-primary-fixed"
+    : value >= 6 ? "bg-surface-variant text-on-surface-variant"
+    : "bg-error/20 text-error";
+  return (
+    <span
+      className={`inline-flex items-center justify-center w-9 h-6 rounded font-[family-name:var(--font-display)] text-xs font-bold bidi-ltr shrink-0 ${tone}`}
+    >
+      {value.toFixed(1)}
+    </span>
   );
 }

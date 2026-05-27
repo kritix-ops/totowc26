@@ -1,12 +1,14 @@
 import { notFound, redirect } from "next/navigation";
 import { eq } from "drizzle-orm";
-import { Radio, Sparkles } from "lucide-react";
+import { Radio, Sparkles, Goal } from "lucide-react";
 import { clsx } from "clsx";
 import { getDictionary, hasLocale, type Locale } from "../dictionaries";
 import { Card, Chip, LabelCaps } from "@/components/ui";
 import { Flag } from "@/components/Flag";
 import { getRequestUser } from "@/lib/request-user";
 import { getLiveMatches, type LiveMatchRow } from "@/db/queries";
+import { getMatchEnrichment } from "@/lib/stats";
+import type { ApiMatchEvent } from "@/lib/api-football-data";
 import { db } from "@/db";
 import { settings } from "@/db/schema";
 import { localePath } from "@/lib/paths";
@@ -53,6 +55,12 @@ export default async function LiveMatchesPage({
 
   const liveCount = matches.filter((m) => m.status === "live").length;
 
+  // Only pull events for matches that are actually live. The wrapper
+  // caches 30s in live mode, so worst-case 4 simultaneous matches × 2
+  // refreshes/min = 8 calls/min = well within budget. Final matches
+  // keep their goals visible from the DB score, no need to hit API.
+  const liveEvents = await loadLiveEvents(matches);
+
   return (
     <section className="px-4 md:px-16 py-6 md:py-12 flex flex-col gap-6 md:gap-8 max-w-3xl mx-auto w-full pb-24">
       <header className="flex flex-col gap-2">
@@ -93,6 +101,7 @@ export default async function LiveMatchesPage({
                 match={m}
                 scoring={scoring}
                 dict={dict}
+                events={liveEvents.get(m.id) ?? null}
               />
             </li>
           ))}
@@ -107,11 +116,13 @@ function LiveMatchCard({
   match,
   scoring,
   dict,
+  events,
 }: {
   locale: Locale;
   match: LiveMatchRow;
   scoring: ScoringConfig;
   dict: Awaited<ReturnType<typeof getDictionary>>;
+  events: ApiMatchEvent[] | null;
 }) {
   const isHebrew = locale === "he";
   const homeName = isHebrew ? match.homeNameHe : match.homeNameEn;
@@ -173,6 +184,40 @@ function LiveMatchCard({
           <Flag code={match.awayCode} size={32} />
         </div>
       </div>
+
+      {events && events.length > 0 && (
+        <ul className="flex flex-col gap-1 pt-2 border-t border-outline-variant">
+          {events
+            .filter((e) => e.type === "Goal" || e.type === "Card")
+            .slice(-5)
+            .map((e, i) => (
+              <li
+                key={`${e.minute}-${e.player}-${i}`}
+                className="flex items-center gap-2 text-xs"
+              >
+                <span className="font-[family-name:var(--font-label)] text-[11px] font-bold tracking-[0.05em] text-on-surface-variant w-9 bidi-ltr">
+                  {e.extraMinute ? `${e.minute}+${e.extraMinute}'` : `${e.minute}'`}
+                </span>
+                {e.type === "Goal" ? (
+                  <Goal className="h-3.5 w-3.5 text-secondary shrink-0" strokeWidth={2} />
+                ) : (
+                  <span
+                    className={`inline-block w-2.5 h-3 rounded-[1px] shrink-0 ${
+                      e.detail.toLowerCase().includes("red") ? "bg-error" : "bg-yellow-400"
+                    }`}
+                    aria-hidden
+                  />
+                )}
+                <span className="flex-1 min-w-0 truncate text-on-surface">
+                  {e.player}
+                </span>
+                <span className="text-[11px] text-on-surface-variant truncate max-w-[40%]">
+                  {e.teamName}
+                </span>
+              </li>
+            ))}
+        </ul>
+      )}
 
       {hasPick ? (
         <div className="flex items-center justify-between gap-3 pt-2 border-t border-outline-variant">
@@ -264,6 +309,24 @@ function direction(home: number, away: number): "1" | "X" | "2" {
   if (home > away) return "1";
   if (home < away) return "2";
   return "X";
+}
+
+// Pulls match-detail enrichment in parallel for every match in `live`
+// status. Returns a map keyed by our internal match UUID. Matches that
+// aren't mapped to an API-Football fixture (or where the API key is
+// missing) simply omit the key.
+async function loadLiveEvents(
+  matches: LiveMatchRow[],
+): Promise<Map<string, ApiMatchEvent[]>> {
+  const liveOnly = matches.filter((m) => m.status === "live");
+  if (liveOnly.length === 0) return new Map();
+  const results = await Promise.all(
+    liveOnly.map(async (m) => {
+      const d = await getMatchEnrichment(m.id, true);
+      return [m.id, d?.events ?? []] as const;
+    }),
+  );
+  return new Map(results);
 }
 
 async function loadScoringConfig(): Promise<ScoringConfig> {

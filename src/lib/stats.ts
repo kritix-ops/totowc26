@@ -9,7 +9,20 @@ import {
   fetchTopYellowCards,
   fetchInjuries,
   fetchStandings,
+  fetchTeams,
+  fetchSquad,
+  fetchTeamStatistics,
+  fetchTeamFixtures,
+  fetchHeadCoach,
+  fetchMatchDetails,
+  fetchPrediction,
   type ApiStandingRow,
+  type ApiPlayer,
+  type ApiTeamStatistics,
+  type ApiTeamFixture,
+  type ApiCoach,
+  type ApiMatchDetails,
+  type ApiPrediction,
 } from "./api-football-data";
 
 // ---------- Live top scorers ----------
@@ -434,4 +447,205 @@ export async function getTournamentSummary(): Promise<TournamentSummary> {
     cleanSheets: Number(r.clean_sheets),
     drawCount: Number(r.draw_count),
   };
+}
+
+// ---------- API-Football team-ID lookup (TLA → apiId) ----------
+//
+// All per-team API-Football endpoints (squad, statistics, fixtures) key
+// by the vendor's numeric team id. We never store that id; instead we
+// resolve it at request time by hitting /teams once (cached 24h by the
+// wrapper) and matching by normalized name.
+//
+// Returns null when API_FOOTBALL_KEY is unset OR our TLA has no match
+// in the API team list. Callers must short-circuit to a graceful empty
+// state when null - never throw.
+
+export async function getApiTeamIdByCode(code: string): Promise<number | null> {
+  const teams = await fetchTeams();
+  if (!teams) return null;
+
+  const local = (await db.execute<{ code: string; name_en: string }>(sql`
+    select code, name_en from public.teams where code = ${code} limit 1
+  `)) as unknown as Array<{ code: string; name_en: string }>;
+  const ourName = local[0]?.name_en;
+  if (!ourName) return null;
+
+  // Normalize both sides identically. apiNameToLocalTla goes the other
+  // direction; here we go API name → match-by-name → apiId.
+  const normalizedOurs = normalizeName(ourName);
+  for (const t of teams) {
+    if (normalizeName(t.name) === normalizedOurs) return t.apiId;
+  }
+  // Fallback: try the alias table in reverse. apiNameToLocalTla maps
+  // API team name → our TLA; we invert here to map our TLA → API name.
+  const inverse: Record<string, string[]> = {
+    CZE: ["czech republic"],
+    BIH: ["bosnia and herzegovina"],
+    TUR: ["turkey"],
+    CPV: ["cape verde islands", "cabo verde"],
+    COD: ["congo dr", "democratic republic of congo"],
+    KOR: ["korea republic"],
+    CIV: ["cote d ivoire"],
+  };
+  const apiVariants = inverse[code] ?? [];
+  for (const variant of apiVariants) {
+    const norm = normalizeName(variant);
+    for (const t of teams) {
+      if (normalizeName(t.name) === norm) return t.apiId;
+    }
+  }
+  return null;
+}
+
+// ---------- Per-team enrichment ----------
+//
+// Each helper returns null when the data isn't ready (API stubbed, team
+// not found, upstream error), so the UI can branch to an empty state
+// instead of crashing.
+
+export async function getTeamSquad(code: string): Promise<ApiPlayer[] | null> {
+  const apiId = await getApiTeamIdByCode(code);
+  if (apiId === null) return null;
+  const squad = await fetchSquad(apiId);
+  if (squad) {
+    console.info("[wc-zone team] squad fetched", { code, apiId, players: squad.length });
+  }
+  return squad;
+}
+
+// ---------- Match enrichment (lineups + events + ratings) ----------
+//
+// Resolves our internal match UUID → api_football_fixture_id, then pulls
+// the rich /fixtures payload from API-Football. Returns null cleanly
+// when:
+//   - the match isn't mapped yet
+//   - API_FOOTBALL_KEY is unset
+//   - the API returns a 4xx/5xx
+// The caller can render an empty state without branching on cause.
+
+export async function getMatchEnrichment(
+  matchId: string,
+  // Live mode shortens the revalidate window to 30s so the events stream
+  // stays fresh. Default is the 12h "finished match" cache.
+  liveMode = false,
+): Promise<ApiMatchDetails | null> {
+  const rows = (await db.execute<{ api_football_fixture_id: number | null; status: string }>(sql`
+    select api_football_fixture_id, status::text from public.matches where id = ${matchId}::uuid limit 1
+  `)) as unknown as Array<{ api_football_fixture_id: number | null; status: string }>;
+  const row = rows[0];
+  if (!row || row.api_football_fixture_id == null) return null;
+
+  // Auto-pick live mode for matches in `live` status when caller didn't
+  // override. Final matches always use the long cache.
+  const live = liveMode || row.status === "live";
+  const details = await fetchMatchDetails(row.api_football_fixture_id, live);
+  if (details) {
+    console.info("[wc-zone match] enrichment fetched", {
+      matchId,
+      fixtureId: row.api_football_fixture_id,
+      status: details.status,
+      events: details.events.length,
+      lineups: details.lineups.length,
+      ratings: details.playerRatings.length,
+    });
+  }
+  return details;
+}
+
+// Pre-match prediction for our internal match UUID. Returns null when
+// the match isn't mapped to an API-Football fixture (yet) or the API
+// key is unset. UI surfaces this as an "AI suggestion" only - we never
+// use it for grading.
+export async function getMatchPrediction(
+  matchId: string,
+): Promise<ApiPrediction | null> {
+  const rows = (await db.execute<{ api_football_fixture_id: number | null }>(sql`
+    select api_football_fixture_id from public.matches where id = ${matchId}::uuid limit 1
+  `)) as unknown as Array<{ api_football_fixture_id: number | null }>;
+  const fid = rows[0]?.api_football_fixture_id;
+  if (fid == null) return null;
+  const pred = await fetchPrediction(fid);
+  if (pred) {
+    console.info("[wc-zone match] prediction fetched", {
+      matchId,
+      fixtureId: fid,
+      probHome: pred.probHome,
+      probDraw: pred.probDraw,
+      probAway: pred.probAway,
+    });
+  }
+  return pred;
+}
+
+export async function getTeamCoach(code: string): Promise<ApiCoach | null> {
+  const apiId = await getApiTeamIdByCode(code);
+  if (apiId === null) return null;
+  const coach = await fetchHeadCoach(apiId);
+  if (coach) {
+    console.info("[wc-zone team] coach fetched", { code, apiId, name: coach.name });
+  }
+  return coach;
+}
+
+export async function getTeamStats(code: string): Promise<ApiTeamStatistics | null> {
+  const apiId = await getApiTeamIdByCode(code);
+  if (apiId === null) return null;
+  const stats = await fetchTeamStatistics(apiId);
+  if (stats) {
+    console.info("[wc-zone team] stats fetched", { code, apiId, played: stats.played });
+  }
+  return stats;
+}
+
+export async function getTeamRecentFixtures(
+  code: string,
+  limit = 5,
+): Promise<ApiTeamFixture[] | null> {
+  const apiId = await getApiTeamIdByCode(code);
+  if (apiId === null) return null;
+  const all = await fetchTeamFixtures(apiId);
+  if (!all) return null;
+  // Already finished, newest first.
+  const past = all
+    .filter((f) => f.status === "FT" || f.status === "AET" || f.status === "PEN")
+    .sort((a, b) => b.kickoffAt.localeCompare(a.kickoffAt))
+    .slice(0, limit);
+  console.info("[wc-zone team] recent fixtures", { code, apiId, count: past.length });
+  return past;
+}
+
+// Per-team injuries are a subset of the tournament-wide /injuries feed
+// filtered by team name. Avoids a second API call.
+export async function getTeamInjuries(code: string): Promise<Array<{
+  playerName: string;
+  type: string;
+  reason: string;
+  photoUrl: string | null;
+}> | null> {
+  const injuries = await fetchInjuries();
+  if (!injuries) return null;
+  const local = (await db.execute<{ name_en: string }>(sql`
+    select name_en from public.teams where code = ${code} limit 1
+  `)) as unknown as Array<{ name_en: string }>;
+  const ourName = local[0]?.name_en;
+  if (!ourName) return [];
+  const norm = normalizeName(ourName);
+  const aliasTeamNames: Record<string, string[]> = {
+    CZE: ["czech republic"],
+    BIH: ["bosnia and herzegovina"],
+    TUR: ["turkey"],
+    CPV: ["cape verde islands", "cabo verde"],
+    COD: ["congo dr", "democratic republic of congo"],
+    KOR: ["korea republic"],
+    CIV: ["cote d ivoire"],
+  };
+  const acceptedNorm = new Set<string>([norm, ...(aliasTeamNames[code] ?? []).map(normalizeName)]);
+  return injuries
+    .filter((inj) => acceptedNorm.has(normalizeName(inj.teamName)))
+    .map((inj) => ({
+      playerName: inj.playerName,
+      type: inj.type,
+      reason: inj.reason,
+      photoUrl: inj.playerPhotoUrl,
+    }));
 }

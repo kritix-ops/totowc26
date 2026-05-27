@@ -6,6 +6,7 @@ import { TournamentTabs, type TournamentTabKey } from "./TournamentTabs";
 import { SummaryTab } from "./SummaryTab";
 import { TablesTab } from "./TablesTab";
 import { TeamsTab } from "./TeamsTab";
+import { PlayersTab } from "./PlayersTab";
 import { NewsTab } from "./NewsTab";
 
 export default async function TournamentPage({
@@ -35,6 +36,7 @@ export default async function TournamentPage({
     { key: "summary" as const, label: dict.tournament.tabSummary },
     { key: "tables" as const, label: dict.tournament.tabTables },
     { key: "teams" as const, label: dict.tournament.tabTeams },
+    { key: "players" as const, label: dict.tournament.tabPlayers },
     { key: "news" as const, label: dict.tournament.tabNews },
   ];
 
@@ -59,6 +61,7 @@ export default async function TournamentPage({
         {tab === "summary" && <SummaryTab locale={locale} />}
         {tab === "tables" && <TablesTab locale={locale} />}
         {tab === "teams" && <TeamsTab locale={locale} />}
+        {tab === "players" && <PlayersTab locale={locale} dict={dict} />}
         {tab === "news" && <NewsTab locale={locale} dict={dict} />}
       </div>
     </section>
@@ -70,6 +73,6 @@ export default async function TournamentPage({
 // reference proxies in RSC bundles, and `.includes` on a proxy throws.
 function isTabKey(v: string | null): v is TournamentTabKey {
   return (
-    v === "summary" || v === "tables" || v === "teams" || v === "news"
+    v === "summary" || v === "tables" || v === "teams" || v === "players" || v === "news"
   );
 }

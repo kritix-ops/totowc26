@@ -7,12 +7,13 @@ import { clsx } from "clsx";
 import type { Locale } from "@/app/[lang]/dictionaries";
 import { localePath } from "@/lib/paths";
 
-export type TournamentTabKey = "summary" | "tables" | "teams" | "news";
+export type TournamentTabKey = "summary" | "tables" | "teams" | "players" | "news";
 
 export const TOURNAMENT_TABS: ReadonlyArray<TournamentTabKey> = [
   "summary",
   "tables",
   "teams",
+  "players",
   "news",
 ];
 
@@ -105,5 +106,7 @@ export function TournamentTabs({
 }
 
 function isTabKey(v: string | null): v is TournamentTabKey {
-  return v === "summary" || v === "tables" || v === "teams" || v === "news";
+  return (
+    v === "summary" || v === "tables" || v === "teams" || v === "players" || v === "news"
+  );
 }
