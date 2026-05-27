@@ -243,7 +243,21 @@
     "newsEmptyTitle": "אין כרגע כותרות חדשות",
     "newsEmptyBody": "ננסה למשוך כותרות חדשות בעוד כמה דקות. אפשר לרענן או לחזור מאוחר יותר.",
     "newsComingSoonTitle": "חדשות מהמונדיאל - בקרוב",
-    "newsComingSoonBody": "אנחנו עובדים על פיד חדשות חי שירכז את הכותרות החשובות מכל הסיקור. שווה לחזור."
+    "newsComingSoonBody": "אנחנו עובדים על פיד חדשות חי שירכז את הכותרות החשובות מכל הסיקור. שווה לחזור.",
+    "topAssistsHeading": "מלכי הבישולים",
+    "topAssistsEmpty": "טבלת המבשלים תופיע כשיהיו בישולים.",
+    "topAssistsAssistsAbbr": "בישולים",
+    "topAssistsGoalsHint": "ש׳",
+    "topYellowsHeading": "טבלת הכרטיסים",
+    "topYellowsEmpty": "טבלת הכרטיסים תופיע כשיהיו כרטיסים.",
+    "topYellowsYellowAbbr": "צ",
+    "topYellowsRedAbbr": "א",
+    "injuriesHeading": "פציעות והרחקות",
+    "injuriesEmpty": "אין פציעות נכון לעכשיו.",
+    "injuriesPoweredBy": "מתעדכן כל שעה מ-API-Football",
+    "formHeading": "צורה",
+    "formTooltip": "5 משחקים אחרונים, הימני הוא החדש ביותר",
+    "formNone": "—"
   },
   "bracket": {
     "title": "אלוף המונדיאל",

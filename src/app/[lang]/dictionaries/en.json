@@ -243,7 +243,21 @@
     "newsEmptyTitle": "No headlines right now",
     "newsEmptyBody": "We'll pull fresh headlines in a few minutes. Refresh or check back later.",
     "newsComingSoonTitle": "World Cup news, coming soon",
-    "newsComingSoonBody": "A live news feed pulling headlines from the major outlets is on the way. Check back."
+    "newsComingSoonBody": "A live news feed pulling headlines from the major outlets is on the way. Check back.",
+    "topAssistsHeading": "Top assists",
+    "topAssistsEmpty": "Standings appear once assists are recorded.",
+    "topAssistsAssistsAbbr": "ast",
+    "topAssistsGoalsHint": "g",
+    "topYellowsHeading": "Cards leaderboard",
+    "topYellowsEmpty": "Cards leaderboard appears once cards are issued.",
+    "topYellowsYellowAbbr": "Y",
+    "topYellowsRedAbbr": "R",
+    "injuriesHeading": "Injuries & suspensions",
+    "injuriesEmpty": "All clear right now.",
+    "injuriesPoweredBy": "Refreshed hourly via API-Football",
+    "formHeading": "Form",
+    "formTooltip": "Last 5 matches, newest on the right",
+    "formNone": "—"
   },
   "bracket": {
     "title": "World champion",

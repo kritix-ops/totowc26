@@ -1,5 +1,12 @@
 import Link from "next/link";
-import { Goal, ShieldCheck, Trophy, ArrowUpRight } from "lucide-react";
+import {
+  Goal,
+  ShieldCheck,
+  Trophy,
+  ArrowUpRight,
+  Square,
+  Ambulance,
+} from "lucide-react";
 import { Card, LabelCaps, SectionHeading } from "@/components/ui";
 import { Flag } from "@/components/Flag";
 import { localePath } from "@/lib/paths";
@@ -8,33 +15,57 @@ import { getLiveStandings, type LiveGroup } from "@/db/queries";
 import {
   getGoalsPerDay,
   getLiveTopScorers,
+  getLiveTopAssists,
+  getLiveTopYellowCards,
+  getLiveInjuries,
   getRecentResults,
   getTournamentSummary,
   type GoalsPerDay,
   type LiveScorer,
+  type LiveAssister,
+  type LiveCardLeader,
+  type LiveInjury,
   type RecentResult,
   type TournamentSummary,
 } from "@/lib/stats";
-import type { Locale } from "../dictionaries";
+import { getDictionary, type Locale, type Dictionary } from "../dictionaries";
 
 // The default tab: the at-a-glance picture of the tournament right now.
-// Aggregates summary stats, the most recent results, top scorers, group
-// leaders, and a goals-per-day mini chart. Heavier full-table and team
-// browsing live in their own tabs.
+// Aggregates summary stats, the most recent results, top scorers + assists +
+// yellow cards, an injury banner, group leaders, and a goals-per-day mini
+// chart. Heavier full-table and team browsing live in their own tabs.
 
 export async function SummaryTab({ locale }: { locale: Locale }) {
-  const [summary, scorers, recent, perDay, standings] = await Promise.all([
+  const [
+    summary,
+    scorers,
+    assists,
+    yellows,
+    injuries,
+    recent,
+    perDay,
+    standings,
+    dict,
+  ] = await Promise.all([
     getTournamentSummary(),
     getLiveTopScorers(10),
+    getLiveTopAssists(10),
+    getLiveTopYellowCards(10),
+    getLiveInjuries(12),
     getRecentResults(8),
     getGoalsPerDay(),
     getLiveStandings(),
+    getDictionary(locale),
   ]);
   const isHebrew = locale === "he";
 
   return (
     <div className="flex flex-col gap-6 md:gap-10">
       <SummaryStrip summary={summary} isHebrew={isHebrew} />
+
+      {injuries.length > 0 && (
+        <InjuriesBanner injuries={injuries} dict={dict} />
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 md:gap-10">
         <div className="lg:col-span-7 flex flex-col gap-6 md:gap-10">
@@ -47,6 +78,8 @@ export async function SummaryTab({ locale }: { locale: Locale }) {
         </div>
         <div className="lg:col-span-5 flex flex-col gap-6 md:gap-10">
           <TopScorersCard scorers={scorers} locale={locale} isHebrew={isHebrew} />
+          <TopAssistsCard assists={assists} locale={locale} dict={dict} />
+          <TopYellowCardsCard yellows={yellows} locale={locale} dict={dict} />
           <StandingsPreview
             standings={standings}
             locale={locale}
@@ -55,6 +88,182 @@ export async function SummaryTab({ locale }: { locale: Locale }) {
         </div>
       </div>
     </div>
+  );
+}
+
+function InjuriesBanner({
+  injuries,
+  dict,
+}: {
+  injuries: LiveInjury[];
+  dict: Dictionary;
+}) {
+  return (
+    <section className="flex flex-col gap-3">
+      <SectionHeading as="h2" underline="thin">
+        <span className="inline-flex items-center gap-2">
+          <Ambulance className="h-5 w-5 text-error" strokeWidth={1.75} />
+          {dict.tournament.injuriesHeading}
+        </span>
+      </SectionHeading>
+      <Card className="p-0 overflow-hidden">
+        <ul className="grid grid-cols-1 sm:grid-cols-2 gap-px bg-outline-variant">
+          {injuries.map((inj, i) => (
+            <li key={`${inj.playerName}-${i}`} className="bg-surface-container-lowest">
+              <div className="flex items-center gap-3 px-4 py-3 min-h-[56px]">
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-bold text-on-surface truncate">
+                    {inj.playerName}
+                  </div>
+                  <div className="text-xs text-on-surface-variant truncate">
+                    {inj.teamName} {inj.reason ? `· ${inj.reason}` : ""}
+                  </div>
+                </div>
+                {inj.type ? (
+                  <LabelCaps>
+                    {inj.type}
+                  </LabelCaps>
+                ) : null}
+              </div>
+            </li>
+          ))}
+        </ul>
+      </Card>
+      <p className="text-[11px] text-on-surface-variant text-center">
+        {dict.tournament.injuriesPoweredBy}
+      </p>
+    </section>
+  );
+}
+
+function TopAssistsCard({
+  assists,
+  locale,
+  dict,
+}: {
+  assists: LiveAssister[];
+  locale: Locale;
+  dict: Dictionary;
+}) {
+  return (
+    <section className="flex flex-col gap-3">
+      <SectionHeading as="h2" underline="thin">
+        <span className="inline-flex items-center gap-2">
+          <Goal className="h-5 w-5 text-tertiary-fixed-dim" strokeWidth={1.75} />
+          {dict.tournament.topAssistsHeading}
+        </span>
+      </SectionHeading>
+      <Card className="p-0 overflow-hidden">
+        {assists.length === 0 ? (
+          <p className="text-sm text-on-surface-variant text-center py-6 px-4">
+            {dict.tournament.topAssistsEmpty}
+          </p>
+        ) : (
+          <ol className="flex flex-col">
+            {assists.map((s, i) => (
+              <li
+                key={`${s.name}-${i}`}
+                className={`flex items-center gap-3 px-4 py-3 min-h-[52px] ${
+                  i > 0 ? "border-t border-outline-variant" : ""
+                }`}
+              >
+                <span className="font-[family-name:var(--font-display)] font-bold text-on-surface w-5 text-center bidi-ltr">
+                  {s.rank}
+                </span>
+                {s.teamCode ? (
+                  <Link
+                    href={localePath(locale, `teams/${s.teamCode}`)}
+                    aria-label={s.teamName}
+                  >
+                    <Flag code={s.teamCode} size={20} />
+                  </Link>
+                ) : (
+                  <span className="w-5 h-5" aria-hidden />
+                )}
+                <span className="flex-1 min-w-0 text-sm font-bold text-on-surface truncate">
+                  {s.name}
+                </span>
+                {s.goals > 0 && (
+                  <span className="text-xs text-on-surface-variant whitespace-nowrap bidi-ltr">
+                    {s.goals}
+                    {dict.tournament.topAssistsGoalsHint}
+                  </span>
+                )}
+                <span className="font-[family-name:var(--font-display)] text-lg leading-none font-bold text-surface-tint bidi-ltr">
+                  {s.assists}
+                </span>
+              </li>
+            ))}
+          </ol>
+        )}
+      </Card>
+    </section>
+  );
+}
+
+function TopYellowCardsCard({
+  yellows,
+  locale,
+  dict,
+}: {
+  yellows: LiveCardLeader[];
+  locale: Locale;
+  dict: Dictionary;
+}) {
+  return (
+    <section className="flex flex-col gap-3">
+      <SectionHeading as="h2" underline="thin">
+        <span className="inline-flex items-center gap-2">
+          <Square className="h-4 w-4 text-yellow-500 fill-yellow-400" strokeWidth={1.75} />
+          {dict.tournament.topYellowsHeading}
+        </span>
+      </SectionHeading>
+      <Card className="p-0 overflow-hidden">
+        {yellows.length === 0 ? (
+          <p className="text-sm text-on-surface-variant text-center py-6 px-4">
+            {dict.tournament.topYellowsEmpty}
+          </p>
+        ) : (
+          <ol className="flex flex-col">
+            {yellows.map((s, i) => (
+              <li
+                key={`${s.name}-${i}`}
+                className={`flex items-center gap-3 px-4 py-3 min-h-[52px] ${
+                  i > 0 ? "border-t border-outline-variant" : ""
+                }`}
+              >
+                <span className="font-[family-name:var(--font-display)] font-bold text-on-surface w-5 text-center bidi-ltr">
+                  {s.rank}
+                </span>
+                {s.teamCode ? (
+                  <Link
+                    href={localePath(locale, `teams/${s.teamCode}`)}
+                    aria-label={s.teamName}
+                  >
+                    <Flag code={s.teamCode} size={20} />
+                  </Link>
+                ) : (
+                  <span className="w-5 h-5" aria-hidden />
+                )}
+                <span className="flex-1 min-w-0 text-sm font-bold text-on-surface truncate">
+                  {s.name}
+                </span>
+                {s.red > 0 && (
+                  <span className="inline-flex items-center gap-0.5 text-xs text-error font-bold bidi-ltr">
+                    <span className="inline-block w-2.5 h-3 bg-error rounded-[1px]" />
+                    {s.red}
+                  </span>
+                )}
+                <span className="inline-flex items-center gap-0.5 font-[family-name:var(--font-display)] text-lg leading-none font-bold text-on-surface bidi-ltr">
+                  <span className="inline-block w-2.5 h-3 bg-yellow-400 rounded-[1px]" />
+                  {s.yellow}
+                </span>
+              </li>
+            ))}
+          </ol>
+        )}
+      </Card>
+    </section>
   );
 }
 

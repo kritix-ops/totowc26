@@ -16,9 +16,20 @@ import type { LiveGroup } from "@/db/queries";
 export function LiveStandings({
   groups,
   locale,
+  formByCode,
+  formHeading,
+  formTooltip,
+  formNone,
 }: {
   groups: LiveGroup[];
   locale: Locale;
+  // Optional: 5-char form strings ("WDLWW") keyed by our local TLA. When
+  // missing or empty for a team we show a single em-dash placeholder so
+  // the column never visually breaks.
+  formByCode?: Map<string, string>;
+  formHeading?: string;
+  formTooltip?: string;
+  formNone?: string;
 }) {
   const isHebrew = locale === "he";
   const anyPlayed = groups.some((g) =>
@@ -47,7 +58,16 @@ export function LiveStandings({
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {groups.map((g) => (
-          <GroupCard key={g.id} group={g} locale={locale} isHebrew={isHebrew} />
+          <GroupCard
+            key={g.id}
+            group={g}
+            locale={locale}
+            isHebrew={isHebrew}
+            formByCode={formByCode}
+            formHeading={formHeading}
+            formTooltip={formTooltip}
+            formNone={formNone}
+          />
         ))}
       </div>
     </section>
@@ -58,11 +78,21 @@ function GroupCard({
   group,
   locale,
   isHebrew,
+  formByCode,
+  formHeading,
+  formTooltip,
+  formNone,
 }: {
   group: LiveGroup;
   locale: Locale;
   isHebrew: boolean;
+  formByCode?: Map<string, string>;
+  formHeading?: string;
+  formTooltip?: string;
+  formNone?: string;
 }) {
+  const hasAnyForm =
+    !!formByCode && group.rows.some((r) => (formByCode.get(r.code) ?? "").length > 0);
   return (
     <Card className="p-0 overflow-hidden">
       <div className="px-4 py-3 bg-surface-container border-b border-outline-variant flex items-center justify-between">
@@ -94,9 +124,17 @@ function GroupCard({
             <Th className="text-center w-12" title={isHebrew ? "הפרש שערים" : "Goal difference"}>
               {isHebrew ? "הש" : "GD"}
             </Th>
-            <Th className="text-center w-8 pe-3" title={isHebrew ? "נקודות" : "Points"}>
+            <Th className="text-center w-8" title={isHebrew ? "נקודות" : "Points"}>
               {isHebrew ? "נק׳" : "Pts"}
             </Th>
+            {hasAnyForm && (
+              <Th
+                className="text-center w-[68px] pe-3 hidden sm:table-cell"
+                title={formTooltip}
+              >
+                {formHeading ?? (isHebrew ? "צורה" : "Form")}
+              </Th>
+            )}
           </tr>
         </thead>
         <tbody>
@@ -143,15 +181,53 @@ function GroupCard({
                     {row.goalDiff}
                   </span>
                 </td>
-                <td className="pe-3 py-2 text-center font-[family-name:var(--font-display)] text-base font-bold text-on-surface bidi-ltr">
+                <td className="py-2 text-center font-[family-name:var(--font-display)] text-base font-bold text-on-surface bidi-ltr">
                   {row.points}
                 </td>
+                {hasAnyForm && (
+                  <td className="pe-3 py-2 text-center hidden sm:table-cell">
+                    <FormPills
+                      form={formByCode?.get(row.code) ?? ""}
+                      none={formNone ?? "—"}
+                    />
+                  </td>
+                )}
               </tr>
             );
           })}
         </tbody>
       </table>
     </Card>
+  );
+}
+
+// Renders the 5-character form string ("WDLWW", newest on the right) as
+// coloured pills. Hidden under `sm` because the column would crush the
+// other numeric columns on a 360px phone - the W/D/L letters per row are
+// already implicit in the # / W / D / L columns above.
+function FormPills({ form, none }: { form: string; none: string }) {
+  if (!form) {
+    return <span className="text-on-surface-variant text-xs">{none}</span>;
+  }
+  return (
+    <span className="inline-flex items-center gap-0.5 bidi-ltr" aria-label={form}>
+      {form.split("").map((ch, i) => {
+        const upper = ch.toUpperCase();
+        const tone =
+          upper === "W" ? "bg-secondary text-on-secondary"
+          : upper === "L" ? "bg-error text-on-error"
+          : "bg-surface-variant text-on-surface-variant";
+        return (
+          <span
+            key={`${ch}-${i}`}
+            className={`inline-flex items-center justify-center w-3.5 h-3.5 rounded-[3px] font-[family-name:var(--font-label)] text-[9px] font-bold tracking-tight ${tone}`}
+            aria-hidden
+          >
+            {upper}
+          </span>
+        );
+      })}
+    </span>
   );
 }
 

@@ -3,6 +3,14 @@ import "server-only";
 import { sql } from "drizzle-orm";
 import { db } from "@/db";
 import { fetchTopScorers, type FDScorer } from "./football-data";
+import {
+  fetchTopScorers as fetchTopScorersApiFootball,
+  fetchTopAssists,
+  fetchTopYellowCards,
+  fetchInjuries,
+  fetchStandings,
+  type ApiStandingRow,
+} from "./api-football-data";
 
 // ---------- Live top scorers ----------
 
@@ -13,13 +21,31 @@ export type LiveScorer = {
   teamName: string;
   goals: number;
   assists: number;
+  photoUrl: string | null;
 };
 
-// Wraps `fetchTopScorers` from the football-data client. The underlying fetch
-// is cached for 1h by the football-data wrapper, so calling this on every
-// page render is cheap. Returns an empty array on failure so the UI can
-// degrade to "data unavailable" instead of crashing the whole page.
+// Source priority: API-Football (richer payload, includes photo + shots) →
+// football-data.org fallback (no key needed). The API-Football wrapper
+// itself returns null when API_FOOTBALL_KEY is unset, so the fallback kicks
+// in cleanly during the pre-activation period.
 export async function getLiveTopScorers(limit = 20): Promise<LiveScorer[]> {
+  const apiFootball = await fetchTopScorersApiFootball();
+  if (apiFootball && apiFootball.length > 0) {
+    console.info("[wc-zone enrichment] top scorers fetched", {
+      count: apiFootball.length,
+      source: "api-football",
+    });
+    return apiFootball.slice(0, limit).map((s, i) => ({
+      rank: i + 1,
+      name: s.name,
+      teamCode: s.teamCode,
+      teamName: s.teamName,
+      goals: s.goals,
+      assists: s.assists,
+      photoUrl: s.photoUrl,
+    }));
+  }
+
   let raw: FDScorer[] = [];
   try {
     raw = await fetchTopScorers(2026, limit);
@@ -27,6 +53,10 @@ export async function getLiveTopScorers(limit = 20): Promise<LiveScorer[]> {
     console.warn("[stats] fetchTopScorers failed, returning empty list:", err);
     return [];
   }
+  console.info("[wc-zone enrichment] top scorers fetched", {
+    count: raw.length,
+    source: "football-data",
+  });
   return raw
     .filter((s) => !!s.player?.name)
     .map((s, i) => ({
@@ -36,6 +66,7 @@ export async function getLiveTopScorers(limit = 20): Promise<LiveScorer[]> {
       teamName: s.team?.name ?? "",
       goals: s.goals ?? 0,
       assists: s.assists ?? 0,
+      photoUrl: null,
     }));
 }
 
@@ -211,6 +242,161 @@ export type TournamentSummary = {
   cleanSheets: number;
   drawCount: number;
 };
+
+// ---------- Live top assists ----------
+
+export type LiveAssister = {
+  rank: number;
+  name: string;
+  teamCode: string | null;
+  teamName: string;
+  assists: number;
+  goals: number;
+  photoUrl: string | null;
+};
+
+export async function getLiveTopAssists(limit = 10): Promise<LiveAssister[]> {
+  const rows = await fetchTopAssists();
+  if (!rows) return [];
+  console.info("[wc-zone enrichment] top assists fetched", {
+    count: rows.length,
+  });
+  return rows.slice(0, limit).map((r, i) => ({
+    rank: i + 1,
+    name: r.name,
+    teamCode: r.teamCode,
+    teamName: r.teamName,
+    assists: r.assists,
+    goals: r.goals,
+    photoUrl: r.photoUrl,
+  }));
+}
+
+// ---------- Live top yellow cards ----------
+
+export type LiveCardLeader = {
+  rank: number;
+  name: string;
+  teamCode: string | null;
+  teamName: string;
+  yellow: number;
+  red: number;
+  photoUrl: string | null;
+};
+
+export async function getLiveTopYellowCards(limit = 10): Promise<LiveCardLeader[]> {
+  const rows = await fetchTopYellowCards();
+  if (!rows) return [];
+  console.info("[wc-zone enrichment] top yellow cards fetched", {
+    count: rows.length,
+  });
+  return rows.slice(0, limit).map((r, i) => ({
+    rank: i + 1,
+    name: r.name,
+    teamCode: r.teamCode,
+    teamName: r.teamName,
+    yellow: r.yellow,
+    red: r.red,
+    photoUrl: r.photoUrl,
+  }));
+}
+
+// ---------- Live injuries ----------
+
+export type LiveInjury = {
+  playerName: string;
+  teamName: string;
+  type: string;
+  reason: string;
+  photoUrl: string | null;
+};
+
+export async function getLiveInjuries(limit = 12): Promise<LiveInjury[]> {
+  const rows = await fetchInjuries();
+  if (!rows) return [];
+  console.info("[wc-zone enrichment] injuries fetched", { count: rows.length });
+  return rows.slice(0, limit).map((r) => ({
+    playerName: r.playerName,
+    teamName: r.teamName,
+    type: r.type,
+    reason: r.reason,
+    photoUrl: r.playerPhotoUrl,
+  }));
+}
+
+// ---------- Live group standings (for 5-match form decoration) ----------
+
+// Returns a lookup from our local TLA (e.g. "CZE") → 5-char form string
+// ("WDLWW", newest on the right). API-Football uses different team names
+// than we do for 5 nations (Czech Republic / Türkiye / etc.) so we
+// translate via apiNameToLocalTla before keying.
+export async function getFormByCode(): Promise<Map<string, string>> {
+  const rows = await fetchStandings();
+  if (!rows) return new Map();
+
+  // Pull local teams once so the lookup loop is O(rows × teams) instead
+  // of N queries.
+  const localTeams = (await db.execute<{ code: string; name_en: string }>(sql`
+    select code, name_en from public.teams
+  `)) as unknown as Array<{ code: string; name_en: string }>;
+  const local = localTeams.map((t) => ({ code: t.code, nameEn: t.name_en }));
+
+  const map = new Map<string, string>();
+  let withForm = 0;
+  for (const r of rows) {
+    if (!r.teamName || !r.form) continue;
+    const code = apiNameToLocalTla(r.teamName, local);
+    if (!code) continue;
+    map.set(code, r.form);
+    withForm += 1;
+  }
+  console.info("[wc-zone enrichment] standings form available", {
+    rows: rows.length,
+    rowsWithForm: withForm,
+  });
+  return map;
+}
+
+// Helper used by both standings + team-list correlations: maps API team
+// names like "Czech Republic" to our local TLA via the alias table that
+// the mapping script uses. Kept here so the UI never has to know.
+export function apiNameToLocalTla(
+  apiName: string,
+  localTeams: Array<{ code: string; nameEn: string }>,
+): string | null {
+  const target = normalizeName(apiName);
+  for (const t of localTeams) {
+    if (normalizeName(t.nameEn) === target) return t.code;
+  }
+  // Alias fallbacks for the 5 known WC-2026 divergences.
+  const aliases: Record<string, string> = {
+    "czech republic": "CZE",
+    "bosnia and herzegovina": "BIH",
+    turkey: "TUR",
+    "cape verde islands": "CPV",
+    "cabo verde": "CPV",
+    "congo dr": "COD",
+    "democratic republic of congo": "COD",
+    "korea republic": "KOR",
+    "cote d ivoire": "CIV",
+  };
+  return aliases[target] ?? null;
+}
+
+function normalizeName(s: string): string {
+  return s
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\b(and|the|of|republic|islands)\b/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+// Re-export so the UI can read the raw standing rows (e.g. for the
+// "leader form" pill on the Summary tab).
+export type { ApiStandingRow };
 
 export async function getTournamentSummary(): Promise<TournamentSummary> {
   const rows = await db.execute<{

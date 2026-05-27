@@ -146,6 +146,57 @@ export async function fetchTopAssists(
   );
 }
 
+// ---------- Top yellow cards ----------
+
+export type ApiCardLeader = {
+  apiId: number;
+  name: string;
+  photoUrl: string | null;
+  teamCode: string | null;
+  teamName: string;
+  yellow: number;
+  red: number;
+  minutes: number | null;
+};
+
+export async function fetchTopYellowCards(
+  season = 2026,
+): Promise<ApiCardLeader[] | null> {
+  return get(
+    `/players/topyellowcards?league=${WC_LEAGUE}&season=${season}`,
+    (json) => {
+      const rows = (json as { response?: RawCardLeaderRow[] }).response ?? [];
+      return rows.map(parseCardLeaderRow);
+    },
+    3600,
+  );
+}
+
+// ---------- Injuries + suspensions ----------
+
+export type ApiInjury = {
+  playerApiId: number;
+  playerName: string;
+  playerPhotoUrl: string | null;
+  teamCode: string | null;
+  teamName: string;
+  type: string;   // e.g. "Missing Fixture", "Questionable"
+  reason: string; // e.g. "Hamstring Injury", "Suspended"
+};
+
+export async function fetchInjuries(
+  season = 2026,
+): Promise<ApiInjury[] | null> {
+  return get(
+    `/injuries?league=${WC_LEAGUE}&season=${season}`,
+    (json) => {
+      const rows = (json as { response?: RawInjuryRow[] }).response ?? [];
+      return rows.map(parseInjuryRow);
+    },
+    3600,
+  );
+}
+
 // ---------- Team statistics ----------
 
 export type ApiTeamStatistics = {
@@ -203,6 +254,49 @@ export async function fetchTeamFixtures(
     (json) => {
       const rows = (json as { response?: RawFixtureRow[] }).response ?? [];
       return rows.map(parseFixtureRow);
+    },
+    3600,
+  );
+}
+
+// ---------- Group standings (with 5-match form) ----------
+
+export type ApiStandingRow = {
+  rank: number;
+  teamApiId: number;
+  teamName: string;
+  teamCode: string | null;
+  played: number;
+  win: number;
+  draw: number;
+  lose: number;
+  goalsFor: number;
+  goalsAgainst: number;
+  goalsDiff: number;
+  points: number;
+  form: string;        // "WDLWW" up to 5 chars, newest at the right
+  group: string;       // "Group A"
+  description: string | null;
+};
+
+export async function fetchStandings(
+  season = 2026,
+): Promise<ApiStandingRow[] | null> {
+  return get(
+    `/standings?league=${WC_LEAGUE}&season=${season}`,
+    (json) => {
+      const blocks = (json as { response?: RawStandingsResponse[] }).response ?? [];
+      const first = blocks[0];
+      if (!first) return [];
+      // The standings field is a 2-D array: one outer entry per group (or per
+      // "round" in knockout). Flatten and tag each row with the group name.
+      const out: ApiStandingRow[] = [];
+      for (const groupArr of first.league.standings) {
+        for (const row of groupArr) {
+          out.push(parseStandingRow(row));
+        }
+      }
+      return out;
     },
     3600,
   );
@@ -335,5 +429,101 @@ function parseFixtureRow(row: RawFixtureRow): ApiTeamFixture {
     awayCode: row.teams.away.code ? row.teams.away.code.toUpperCase() : null,
     awayScore: row.goals.away,
     venue: row.fixture.venue?.name ?? null,
+  };
+}
+
+// Top yellow cards leader row + parser.
+type RawCardLeaderRow = {
+  player: { id: number; name: string; photo?: string | null };
+  statistics: Array<{
+    team: { id: number; name: string; code?: string | null };
+    games: { minutes?: number | null };
+    cards: { yellow: number | null; red: number | null };
+  }>;
+};
+
+function parseCardLeaderRow(row: RawCardLeaderRow): ApiCardLeader {
+  const stat = row.statistics[0];
+  return {
+    apiId: row.player.id,
+    name: row.player.name,
+    photoUrl: row.player.photo ?? null,
+    teamCode: stat?.team.code ? stat.team.code.toUpperCase() : null,
+    teamName: stat?.team.name ?? "",
+    yellow: stat?.cards.yellow ?? 0,
+    red: stat?.cards.red ?? 0,
+    minutes: stat?.games.minutes ?? null,
+  };
+}
+
+// Injury row + parser.
+type RawInjuryRow = {
+  player: { id: number; name: string; photo?: string | null; type?: string; reason?: string };
+  team: { id: number; name: string; logo?: string | null };
+};
+
+function parseInjuryRow(row: RawInjuryRow): ApiInjury {
+  // API-Football puts `type` ("Missing Fixture" / "Questionable") and
+  // `reason` (the actual injury) inside the player block. Fall back to
+  // empty strings so the UI can branch safely.
+  // The team object doesn't carry a TLA in this endpoint - we resolve
+  // the code from name at the call site if needed.
+  return {
+    playerApiId: row.player.id,
+    playerName: row.player.name,
+    playerPhotoUrl: row.player.photo ?? null,
+    teamCode: null,
+    teamName: row.team.name,
+    type: row.player.type ?? "",
+    reason: row.player.reason ?? "",
+  };
+}
+
+// Standings: outer `response` is one block per league, with a 2-D
+// `standings` array (groups → rows).
+type RawStandingsResponse = {
+  league: {
+    id: number;
+    name: string;
+    season: number;
+    standings: RawStandingRow[][];
+  };
+};
+
+type RawStandingRow = {
+  rank: number;
+  team: { id: number; name: string; logo: string };
+  points: number;
+  goalsDiff: number;
+  group: string;
+  form: string | null;
+  status: string | null;
+  description: string | null;
+  all: {
+    played: number;
+    win: number;
+    draw: number;
+    lose: number;
+    goals: { for: number; against: number };
+  };
+};
+
+function parseStandingRow(r: RawStandingRow): ApiStandingRow {
+  return {
+    rank: r.rank,
+    teamApiId: r.team.id,
+    teamName: r.team.name,
+    teamCode: null,
+    played: r.all.played,
+    win: r.all.win,
+    draw: r.all.draw,
+    lose: r.all.lose,
+    goalsFor: r.all.goals.for,
+    goalsAgainst: r.all.goals.against,
+    goalsDiff: r.goalsDiff,
+    points: r.points,
+    form: (r.form ?? "").slice(-5),
+    group: r.group,
+    description: r.description ?? null,
   };
 }
