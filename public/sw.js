@@ -25,7 +25,7 @@
 //   5. Cross-origin — straight to network. Auth tokens, flag CDN,
 //      football-data API: all live, never cached here.
 
-const VERSION = "v2";
+const VERSION = "v3";
 const STATIC_CACHE = `toto-static-${VERSION}`;
 const BUILD_CACHE = `toto-build-${VERSION}`;
 const IMG_CACHE = `toto-img-${VERSION}`;
@@ -158,5 +158,65 @@ self.addEventListener("fetch", (event) => {
         });
       }),
     ),
+  );
+});
+
+// ----- Push notifications (lock reminders, iteration 2) -----
+//
+// The server sends a JSON payload via web-push:
+//   { title, body, url, tag }
+// We parse it, render a system notification, and if the user taps it
+// we focus an existing tab on `url` or open a new one. `tag` lets two
+// reminders for the same bet collapse into one notification instead of
+// stacking. See _plans/2026-05-28-lock-reminders.md §5.
+
+self.addEventListener("push", (event) => {
+  let payload = {};
+  try {
+    payload = event.data ? event.data.json() : {};
+  } catch {
+    // If the payload isn't JSON, fall back to text. The server only
+    // sends JSON so this branch is defensive.
+    payload = { title: "טוטו מונדיאל", body: event.data ? event.data.text() : "" };
+  }
+  const title = typeof payload.title === "string" ? payload.title : "טוטו מונדיאל";
+  const body = typeof payload.body === "string" ? payload.body : "";
+  const url = typeof payload.url === "string" ? payload.url : "/he";
+  const tag = typeof payload.tag === "string" ? payload.tag : undefined;
+
+  event.waitUntil(
+    self.registration.showNotification(title, {
+      body,
+      tag,
+      badge: "/icons/icon-192.png",
+      icon: "/icons/icon-512.png",
+      dir: "rtl",
+      lang: "he",
+      data: { url },
+    }),
+  );
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const url = (event.notification.data && event.notification.data.url) || "/he";
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((tabs) => {
+      // If a tab on the same origin is already open, focus it and
+      // navigate. Otherwise open a fresh one. This keeps the user's
+      // session and avoids piling up duplicate tabs from repeat
+      // notifications.
+      for (const tab of tabs) {
+        try {
+          const tabUrl = new URL(tab.url);
+          if (tabUrl.origin === self.location.origin) {
+            return tab.focus().then((focused) => focused.navigate(url));
+          }
+        } catch {
+          // Ignore tabs with invalid URLs.
+        }
+      }
+      return self.clients.openWindow(url);
+    }),
   );
 });

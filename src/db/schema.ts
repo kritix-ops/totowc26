@@ -102,6 +102,12 @@ export const profiles = pgTable("profiles", {
   phone: text("phone").notNull(),
   role: roleEnum("role").notNull().default("player"),
   avatarUrl: text("avatar_url"),
+  // Opt-in for push notifications (lock reminders). Default false:
+  // even after the browser grants permission and a subscription is
+  // stored, push only fires when this flag is true so the player can
+  // pause without re-granting browser permission. See
+  // _plans/2026-05-28-lock-reminders.md §5.
+  pushOptIn: boolean("push_opt_in").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
@@ -867,6 +873,35 @@ export const betReminderSent = pgTable(
   }),
 );
 
+// push_subscriptions: one row per (user, browser/device). The triplet
+// (endpoint, p256dh, auth) comes verbatim from PushSubscription.toJSON()
+// the browser hands back after pushManager.subscribe(). endpoint is
+// unique - the same browser/device produces the same URL. See
+// _plans/2026-05-28-lock-reminders.md §5.
+export const pushSubscriptions = pgTable(
+  "push_subscriptions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => profiles.id, { onDelete: "cascade" }),
+    endpoint: text("endpoint").notNull(),
+    p256dh: text("p256dh").notNull(),
+    auth: text("auth").notNull(),
+    userAgent: text("user_agent"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    endpointUniq: uniqueIndex("push_subscriptions_endpoint_uniq").on(t.endpoint),
+    userIdx: index("push_subscriptions_user_idx").on(t.userId),
+  }),
+);
+
 // Drizzle relations are added separately if needed
 export type Profile = typeof profiles.$inferSelect;
 export type NewProfile = typeof profiles.$inferInsert;
@@ -893,5 +928,7 @@ export type BetLockDefault = typeof betLockDefaults.$inferSelect;
 export type NewBetLockDefault = typeof betLockDefaults.$inferInsert;
 export type BetReminderSent = typeof betReminderSent.$inferSelect;
 export type NewBetReminderSent = typeof betReminderSent.$inferInsert;
+export type PushSubscriptionRow = typeof pushSubscriptions.$inferSelect;
+export type NewPushSubscription = typeof pushSubscriptions.$inferInsert;
 
 export const _useSql = sql; // re-export to silence unused if any

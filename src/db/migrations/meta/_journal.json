@@ -169,6 +169,13 @@
       "when": 1781613200000,
       "tag": "0023_lock_reminders",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1781699600000,
+      "tag": "0024_push_subscriptions",
+      "breakpoints": true
     }
   ]
 }

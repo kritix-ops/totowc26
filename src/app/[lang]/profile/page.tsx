@@ -9,6 +9,7 @@ import { profiles } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { Card, LabelCaps, SectionHeading } from "@/components/ui";
 import { Flag } from "@/components/Flag";
+import { PushOptInToggle } from "@/components/PushOptInToggle";
 import { localePath } from "@/lib/paths";
 import { formatDateTime } from "@/lib/format";
 
@@ -25,7 +26,11 @@ export default async function ProfilePage({
 
   const [[profile], stats, history] = await Promise.all([
     db
-      .select({ displayName: profiles.displayName, role: profiles.role })
+      .select({
+        displayName: profiles.displayName,
+        role: profiles.role,
+        pushOptIn: profiles.pushOptIn,
+      })
       .from(profiles)
       .where(eq(profiles.id, user.id))
       .limit(1),
@@ -156,10 +161,9 @@ export default async function ProfilePage({
             value={isHebrew ? "עברית" : "English"}
             isHebrew={isHebrew}
           />
-          <SettingRow
-            label={isHebrew ? "התראות" : "Notifications"}
-            value={isHebrew ? "מופעל" : "On"}
-            isHebrew={isHebrew}
+          <PushOptInToggle
+            locale={locale}
+            initialOptIn={profile?.pushOptIn ?? false}
           />
           <form action="/auth/signout" method="POST">
             <button

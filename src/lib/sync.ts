@@ -28,6 +28,7 @@ import {
 import type { AutoApiFootballStat } from "./bets/types";
 import { sendEmail } from "./email/client";
 import { BetLockReminderEmail } from "./email/templates/BetLockReminderEmail";
+import { isPushConfigured, sendPush } from "./push";
 import TEAM_NAMES from "../../data/team-names.json";
 
 type LocalisedTeam = { he: string; en: string; flag: string };
@@ -1334,14 +1335,146 @@ export async function sendDueReminders(): Promise<number> {
     }
   }
 
+  // Push channel: only when VAPID is configured. Otherwise we silently
+  // skip - the email iteration still ran above and is the source of
+  // truth for "reminded" until an admin sets up push.
+  let pushSent = 0;
+  let pushFailed = 0;
+  let pushExpired = 0;
+  if (isPushConfigured()) {
+    const { sent: ps, failed: pf, expired: pe } =
+      await sendPushReminders(offsetMinutes);
+    pushSent = ps;
+    pushFailed = pf;
+    pushExpired = pe;
+  }
+
   console.info("[lock reminder sweep]", {
     candidates: rows.length,
     sent,
     failed,
+    pushSent,
+    pushFailed,
+    pushExpired,
     offsetMinutes,
     durationMs: Date.now() - start,
   });
-  return sent;
+  return sent + pushSent;
+}
+
+type PushCandidate = {
+  bet_id: string;
+  question_he: string;
+  scope: string;
+  matchday_date: string | null;
+  lock_at: string;
+  minutes_remaining: number;
+  user_id: string;
+  subscription_id: string;
+  endpoint: string;
+  p256dh: string;
+  auth: string;
+};
+
+// Push counterpart to the email loop above. Same dedup table
+// (bet_reminder_sent) but channel='push', filtered to users who
+// flipped the profile opt-in AND who have a live subscription.
+async function sendPushReminders(
+  offsetMinutes: number,
+): Promise<{ sent: number; failed: number; expired: number }> {
+  const result = await db.execute<PushCandidate>(drizzleSql`
+    select
+      cb.id::text                                                 as "bet_id",
+      cb.question_he                                              as "question_he",
+      cb.scope::text                                              as "scope",
+      to_char(md.date, 'YYYY-MM-DD')                              as "matchday_date",
+      to_char(cb.lock_at, 'YYYY-MM-DD"T"HH24:MI:SSOF')            as "lock_at",
+      ceil(extract(epoch from (cb.lock_at - now())) / 60)::int    as "minutes_remaining",
+      p.id::text                                                  as "user_id",
+      ps.id::text                                                 as "subscription_id",
+      ps.endpoint                                                 as "endpoint",
+      ps.p256dh                                                   as "p256dh",
+      ps.auth                                                     as "auth"
+    from public.custom_bets cb
+    cross join public.profiles p
+    join public.push_subscriptions ps on ps.user_id = p.id
+    left join public.matchdays md            on md.id = cb.matchday_id
+    left join public.user_custom_bet_picks pk on pk.user_id = p.id and pk.custom_bet_id = cb.id
+    left join public.bet_reminder_sent brs
+      on brs.user_id = p.id and brs.custom_bet_id = cb.id and brs.channel = 'push'
+    where cb.status = 'open'
+      and cb.lock_at > now()
+      and cb.lock_at <= now() + (${offsetMinutes} || ' minutes')::interval
+      and pk.id is null
+      and brs.user_id is null
+      and p.push_opt_in = true
+      and exists (
+        select 1 from public.payments pm
+        where pm.user_id = p.id and pm.status = 'approved'
+      )
+  `);
+  const rows = result as unknown as PushCandidate[];
+
+  let sent = 0;
+  let failed = 0;
+  let expired = 0;
+  for (const r of rows) {
+    const url = buildBetUrl(r.scope, r.matchday_date);
+    const minutes = Math.max(0, r.minutes_remaining);
+    const payload = {
+      title:
+        minutes <= 0
+          ? `הימור נסגר ברגעים אלה`
+          : minutes < 60
+            ? `הימור נסגר בעוד ${minutes} דקות`
+            : `הימור נסגר בעוד שעה`,
+      body: r.question_he.slice(0, 140),
+      url,
+      tag: `bet-lock-${r.bet_id}`,
+    };
+    const res = await sendPush(
+      { endpoint: r.endpoint, p256dh: r.p256dh, auth: r.auth },
+      payload,
+    );
+    if (res.ok) {
+      await db.execute(drizzleSql`
+        insert into public.bet_reminder_sent
+          (custom_bet_id, user_id, channel)
+        values
+          (${r.bet_id}::uuid, ${r.user_id}::uuid, 'push')
+        on conflict do nothing
+      `);
+      sent += 1;
+      console.info("[lock reminder send]", {
+        betId: r.bet_id,
+        userId: r.user_id,
+        channel: "push",
+        lockAt: r.lock_at,
+        minutesRemaining: r.minutes_remaining,
+      });
+      continue;
+    }
+    if (res.error === "expired") {
+      // Subscription is dead. Remove it so we don't try again.
+      await db.execute(drizzleSql`
+        delete from public.push_subscriptions where id = ${r.subscription_id}::uuid
+      `);
+      expired += 1;
+      console.info("[lock reminder push expired]", {
+        userId: r.user_id,
+        subscriptionId: r.subscription_id,
+      });
+      continue;
+    }
+    failed += 1;
+    console.warn("[lock reminder failed]", {
+      betId: r.bet_id,
+      userId: r.user_id,
+      channel: "push",
+      error: res.error,
+    });
+  }
+  return { sent, failed, expired };
 }
 
 // Email links land on the surface where the recipient can act on this
