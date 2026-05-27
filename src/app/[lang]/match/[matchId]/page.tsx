@@ -25,6 +25,7 @@ import type {
   ApiMatchDetails,
   ApiPrediction,
 } from "@/lib/api-football-data";
+import { translateEventDetail, translatePosition } from "@/lib/translations/api-events";
 import { localePath } from "@/lib/paths";
 import { Card, Chip, LabelCaps, ScoreDigit, SectionHeading } from "@/components/ui";
 import { Flag } from "@/components/Flag";
@@ -256,6 +257,7 @@ function MatchEvents({
   homeTeamApiId: number | null;
   isHebrew: boolean;
 }) {
+  const locale = isHebrew ? "he" : "en";
   return (
     <section className="flex flex-col gap-3">
       <SectionHeading as="h2" underline="thin">
@@ -285,7 +287,7 @@ function MatchEvents({
                     {e.player}
                   </div>
                   <div className="text-xs text-on-surface-variant truncate">
-                    {e.detail}
+                    {translateEventDetail(locale, e.detail)}
                   </div>
                 </div>
                 <LabelCaps>{e.teamName}</LabelCaps>
@@ -349,6 +351,7 @@ function LineupColumn({
   lineup: ApiLineup;
   isHebrew: boolean;
 }) {
+  const locale = isHebrew ? "he" : "en";
   return (
     <Card className="p-4 flex flex-col gap-2">
       <div className="flex items-center justify-between gap-2">
@@ -367,7 +370,7 @@ function LineupColumn({
               {p.number ?? "-"}
             </span>
             <span className="truncate flex-1">{p.name}</span>
-            <LabelCaps>{p.position}</LabelCaps>
+            <LabelCaps>{translatePosition(locale, p.position)}</LabelCaps>
           </li>
         ))}
       </ol>
