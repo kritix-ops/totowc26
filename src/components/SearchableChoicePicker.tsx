@@ -29,6 +29,18 @@ export type SearchableOption = {
   value: string;
   labelHe: string;
   labelEn: string;
+  // Optional metadata for player-style options. When `groupHe`
+  // (or `groupEn`) is present the picker groups rows by it and
+  // surfaces a sticky group header — critical for usability when
+  // the list is 1,200+ rows. When `subtitleHe`/`subtitleEn` is
+  // present the picker shows it as a second line under the main
+  // label (e.g. "#10 · Forward"). `icon` is rendered before the
+  // label and is best used for short strings like flag emojis.
+  groupHe?: string;
+  groupEn?: string;
+  subtitleHe?: string;
+  subtitleEn?: string;
+  icon?: string;
 };
 
 export function SearchableChoicePicker({
@@ -62,13 +74,59 @@ export function SearchableChoicePicker({
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return options;
-    return options.filter(
-      (o) =>
-        o.labelHe.toLowerCase().includes(q) ||
-        o.labelEn.toLowerCase().includes(q) ||
-        o.value.toLowerCase().includes(q),
-    );
+    return options.filter((o) => {
+      // Search every text field on the option so a player roster
+      // can be queried by team ("argentina"), position ("forward"),
+      // jersey ("#10"), or any of the names. Each lowercase
+      // toLowerCase call is cheap; doing them inside the filter
+      // (rather than precomputing) keeps the option shape clean.
+      if (o.labelHe.toLowerCase().includes(q)) return true;
+      if (o.labelEn.toLowerCase().includes(q)) return true;
+      if (o.value.toLowerCase().includes(q)) return true;
+      if (o.subtitleHe?.toLowerCase().includes(q)) return true;
+      if (o.subtitleEn?.toLowerCase().includes(q)) return true;
+      if (o.groupHe?.toLowerCase().includes(q)) return true;
+      if (o.groupEn?.toLowerCase().includes(q)) return true;
+      return false;
+    });
   }, [options, query]);
+
+  // Group the filtered list by `groupHe`/`groupEn` if any options
+  // carry group metadata. Returns a flat array of either a header
+  // row or an option row. `optionIndex` on option rows is the
+  // index into `filtered` (i.e. the activeIndex space), so arrow-
+  // key navigation can hop between options without us tracking a
+  // separate position. Preserves the input order — callers are
+  // expected to sort options themselves before passing them in.
+  type GroupedRow =
+    | { kind: "header"; key: string; labelHe: string; labelEn: string }
+    | { kind: "option"; option: SearchableOption; optionIndex: number };
+  const grouped: GroupedRow[] = useMemo(() => {
+    const anyGrouped = filtered.some((o) => o.groupHe || o.groupEn);
+    if (!anyGrouped) {
+      return filtered.map((o, i) => ({
+        kind: "option" as const,
+        option: o,
+        optionIndex: i,
+      }));
+    }
+    const rows: GroupedRow[] = [];
+    let lastGroup: string | null = null;
+    filtered.forEach((o, i) => {
+      const groupKey = `${o.groupHe ?? ""}|${o.groupEn ?? ""}`;
+      if (groupKey !== lastGroup) {
+        lastGroup = groupKey;
+        rows.push({
+          kind: "header",
+          key: `${groupKey}|${i}`,
+          labelHe: o.groupHe ?? "",
+          labelEn: o.groupEn ?? "",
+        });
+      }
+      rows.push({ kind: "option", option: o, optionIndex: i });
+    });
+    return rows;
+  }, [filtered]);
 
   // Reset the active index whenever the filtered list changes so
   // arrow-keys land somewhere sensible (the first match).
@@ -151,11 +209,21 @@ export function SearchableChoicePicker({
       : currentOption.labelEn
     : placeholder ?? (isHebrew ? "בחר…" : "Select…");
 
-  const triggerSecondary = currentOption
+  // Two-line secondary: subtitle from the option (e.g. "#10 ·
+  // Forward") joined with the non-locale name. Both optional, so
+  // a plain team option still gets the simple Hebrew↔English
+  // mapping that PR-3a shipped with.
+  const triggerSubtitle = currentOption
     ? isHebrew
-      ? currentOption.labelEn
-      : currentOption.labelHe
+      ? currentOption.subtitleHe
+      : currentOption.subtitleEn
     : null;
+  const triggerSecondaryName =
+    currentOption && currentOption.labelHe !== currentOption.labelEn
+      ? isHebrew
+        ? currentOption.labelEn
+        : currentOption.labelHe
+      : null;
 
   return (
     <div ref={rootRef} className="relative w-full">
@@ -173,11 +241,28 @@ export function SearchableChoicePicker({
           disabled && "opacity-60 cursor-not-allowed",
         )}
       >
+        {currentOption?.icon && (
+          <span className="text-xl shrink-0" aria-hidden>
+            {currentOption.icon}
+          </span>
+        )}
         <span className="flex-1 min-w-0 flex flex-col items-start gap-0.5 text-start">
           <span className="truncate w-full">{triggerLabel}</span>
-          {triggerSecondary && (
-            <span className="text-[11px] font-normal opacity-60 truncate w-full">
-              {triggerSecondary}
+          {(triggerSubtitle || triggerSecondaryName) && (
+            <span className="flex items-center gap-2 text-[11px] font-normal opacity-60 truncate w-full">
+              {triggerSubtitle && (
+                <span className="truncate" dir={isHebrew ? "rtl" : "ltr"}>
+                  {triggerSubtitle}
+                </span>
+              )}
+              {triggerSubtitle && triggerSecondaryName && (
+                <span aria-hidden className="opacity-70">·</span>
+              )}
+              {triggerSecondaryName && (
+                <span className="truncate" dir={isHebrew ? "ltr" : "rtl"}>
+                  {triggerSecondaryName}
+                </span>
+              )}
             </span>
           )}
         </span>
@@ -213,7 +298,8 @@ export function SearchableChoicePicker({
               isHebrew={isHebrew}
               query={query}
               setQuery={setQuery}
-              filtered={filtered}
+              grouped={grouped}
+              filteredCount={filtered.length}
               activeIndex={activeIndex}
               setActiveIndex={setActiveIndex}
               currentValue={currentValue}
@@ -243,7 +329,8 @@ export function SearchableChoicePicker({
               isHebrew={isHebrew}
               query={query}
               setQuery={setQuery}
-              filtered={filtered}
+              grouped={grouped}
+              filteredCount={filtered.length}
               activeIndex={activeIndex}
               setActiveIndex={setActiveIndex}
               currentValue={currentValue}
@@ -269,11 +356,16 @@ export function SearchableChoicePicker({
 // Internal — the actual searchbox + scrollable list. Used in both
 // the mobile-sheet and desktop-popover containers so the markup
 // stays in sync between layouts.
+type GroupedRow =
+  | { kind: "header"; key: string; labelHe: string; labelEn: string }
+  | { kind: "option"; option: SearchableOption; optionIndex: number };
+
 function PanelContents({
   isHebrew,
   query,
   setQuery,
-  filtered,
+  grouped,
+  filteredCount,
   activeIndex,
   setActiveIndex,
   currentValue,
@@ -288,7 +380,8 @@ function PanelContents({
   isHebrew: boolean;
   query: string;
   setQuery: (v: string) => void;
-  filtered: SearchableOption[];
+  grouped: GroupedRow[];
+  filteredCount: number;
   activeIndex: number;
   setActiveIndex: (i: number) => void;
   currentValue: string | null;
@@ -315,7 +408,7 @@ function PanelContents({
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={onKeyDown}
-            placeholder={isHebrew ? "חיפוש…" : "Search…"}
+            placeholder={isHebrew ? "חיפוש שם, קבוצה, עמדה…" : "Search name, team, position…"}
             dir={isHebrew ? "rtl" : "ltr"}
             inputMode="search"
             autoComplete="off"
@@ -339,14 +432,32 @@ function PanelContents({
         role="listbox"
         className="flex-1 overflow-y-auto py-1"
       >
-        {filtered.length === 0 ? (
+        {filteredCount === 0 ? (
           <li className="px-4 py-6 text-center text-sm text-on-surface-variant">
             {isHebrew ? "אין תוצאות" : "No results"}
           </li>
         ) : (
-          filtered.map((o, i) => {
+          grouped.map((row) => {
+            if (row.kind === "header") {
+              return (
+                <li
+                  key={row.key}
+                  className="sticky top-0 z-10 px-4 py-1.5 bg-surface-container-low text-[11px] font-bold tracking-[0.05em] uppercase text-on-surface-variant border-b border-outline-variant"
+                >
+                  <span className="inline-flex items-center gap-1.5">
+                    {isHebrew ? row.labelHe : row.labelEn}
+                  </span>
+                </li>
+              );
+            }
+            const o = row.option;
+            const i = row.optionIndex;
             const isActive = i === activeIndex;
             const isSelected = o.value === currentValue;
+            const subtitle = isHebrew ? o.subtitleHe : o.subtitleEn;
+            const secondaryName = o.labelHe !== o.labelEn
+              ? (isHebrew ? o.labelEn : o.labelHe)
+              : null;
             return (
               <li key={o.value} data-active={isActive ? "true" : "false"}>
                 <button
@@ -356,20 +467,35 @@ function PanelContents({
                   onPointerEnter={() => setActiveIndex(i)}
                   onClick={() => onPick(o.value)}
                   className={clsx(
-                    "w-full min-h-[48px] px-4 py-2 flex items-center justify-between gap-3 text-start transition-colors",
+                    "w-full min-h-[48px] px-4 py-2 flex items-center gap-3 text-start transition-colors",
                     isActive && "bg-surface-container",
                     isSelected && "bg-primary-container text-on-primary-container",
                   )}
                 >
+                  {o.icon && (
+                    <span className="text-xl shrink-0" aria-hidden>
+                      {o.icon}
+                    </span>
+                  )}
                   <span className="flex-1 min-w-0 flex flex-col gap-0.5 text-start">
                     <span className="font-bold text-base truncate">
                       {isHebrew ? o.labelHe : o.labelEn}
                     </span>
-                    {o.labelHe !== o.labelEn && (
-                      <span className="text-[11px] opacity-60 truncate" dir={isHebrew ? "ltr" : "rtl"}>
-                        {isHebrew ? o.labelEn : o.labelHe}
-                      </span>
-                    )}
+                    <span className="flex items-center gap-2 text-[11px] opacity-70 truncate">
+                      {subtitle && (
+                        <span className="truncate" dir={isHebrew ? "rtl" : "ltr"}>
+                          {subtitle}
+                        </span>
+                      )}
+                      {subtitle && secondaryName && (
+                        <span aria-hidden className="opacity-50">·</span>
+                      )}
+                      {secondaryName && (
+                        <span className="truncate" dir={isHebrew ? "ltr" : "rtl"}>
+                          {secondaryName}
+                        </span>
+                      )}
+                    </span>
                   </span>
                   {isSelected && (
                     <Check className="h-5 w-5 shrink-0" strokeWidth={2.5} />
@@ -380,6 +506,14 @@ function PanelContents({
           })
         )}
       </ul>
+
+      {filteredCount > 0 && (
+        <div className="px-4 py-1 border-t border-outline-variant text-[10px] text-on-surface-variant text-center">
+          {isHebrew
+            ? `${filteredCount} תוצאות${query ? "" : " · השתמש בחיפוש כדי לסנן"}`
+            : `${filteredCount} results${query ? "" : " · search to narrow down"}`}
+        </div>
+      )}
 
       {currentValue && (
         <div className="p-2 border-t border-outline-variant flex justify-end">

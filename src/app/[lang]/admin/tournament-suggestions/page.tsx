@@ -31,7 +31,18 @@ type PageParams = {
   params: Promise<{ lang: string }>;
 };
 
-type Team = { code: string; nameHe: string; nameEn: string };
+type Team = { code: string; nameHe: string; nameEn: string; flag: string };
+type PlayerRow = {
+  id: string;
+  name_en: string;
+  name_he: string | null;
+  position: string | null;
+  jersey_number: number | null;
+  team_code: string;
+  team_name_he: string;
+  team_name_en: string;
+  team_flag: string;
+};
 
 export default async function TournamentSuggestionsPage({
   params,
@@ -43,8 +54,9 @@ export default async function TournamentSuggestionsPage({
   const isHebrew = locale === "he";
   const ChevBack = isHebrew ? ChevronRight : ChevronLeft;
 
-  const [teams, [cfg], lastFixtureRow] = await Promise.all([
+  const [teams, players, [cfg], lastFixtureRow] = await Promise.all([
     loadWcTeams(),
+    loadAllPlayersWithTeam(),
     db
       .select({
         baseStake: settings.liveOddsBaseStake,
@@ -74,6 +86,7 @@ export default async function TournamentSuggestionsPage({
 
   const templates = buildTemplates({
     teams,
+    players,
     baseStake,
     maxPayout,
     defaultLockIso,
@@ -138,9 +151,23 @@ export type TournamentTemplate = {
   gradingRuleHe: string;
   gradingRuleEn: string;
   answerType: "yes_no" | "number" | "multi_choice" | "free_text";
-  // For multi_choice, options come from the team list. For number,
-  // we hint at a sensible range. yes_no / free_text have no extra data.
-  answerOptions?: Array<{ value: string; labelHe: string; labelEn: string }>;
+  // For multi_choice, options come from either the team list or
+  // the live players table. For number, we hint at a sensible
+  // range. yes_no / free_text have no extra data. The optional
+  // metadata fields (groupHe/groupEn for grouping, subtitleHe/En
+  // for the second line, icon for a flag emoji) are read by the
+  // user-facing SearchableChoicePicker and ignored by simpler
+  // renderers, so backwards compatibility is preserved.
+  answerOptions?: Array<{
+    value: string;
+    labelHe: string;
+    labelEn: string;
+    groupHe?: string;
+    groupEn?: string;
+    subtitleHe?: string;
+    subtitleEn?: string;
+    icon?: string;
+  }>;
   numberMin?: number;
   numberMax?: number;
   numberUnit?: string;
@@ -151,26 +178,69 @@ export type TournamentTemplate = {
 
 function buildTemplates({
   teams,
+  players,
   baseStake,
   maxPayout,
   defaultLockIso,
 }: {
   teams: Team[];
+  players: PlayerRow[];
   baseStake: number;
   maxPayout: number;
   defaultLockIso: string;
 }): TournamentTemplate[] {
+  // Team options carry the flag emoji so the public picker shows
+  // it as a leading icon. Backwards-compatible with the no-icon
+  // case for callers that pass a plain team list.
   const teamOptions = teams.map((t) => ({
     value: t.code,
     labelHe: t.nameHe,
     labelEn: t.nameEn,
+    icon: t.flag,
   }));
 
-  // Most likely-to-score short list. The admin can swap options inline
-  // before publishing if they want to track a more current pool. These
-  // 3-letter codes are placeholders until PR-4 wires the template
-  // candidates to the live players table by player id.
-  const topScorerCandidates = [
+  // Player options: full WC roster from the players table. Group
+  // by team so the searchable dropdown renders a sticky header
+  // per nation, subtitle shows jersey + position so a duplicate
+  // name (common surnames) is disambiguated visually. The bet
+  // stores `player.id` (UUID) as the answer value, which keeps
+  // the answer stable even if a player's English name changes
+  // between API responses.
+  //
+  // Fallback when the players table is empty (the squads sync
+  // has not run yet): a hand-curated short list of likely
+  // candidates. Keeps the template usable on a fresh dev DB.
+  const buildPlayerOptions = () => {
+    if (players.length === 0) return null;
+    // Sorted by team then jersey for a stable, scannable list.
+    const sorted = [...players].sort((a, b) => {
+      if (a.team_code !== b.team_code) return a.team_code.localeCompare(b.team_code);
+      const ja = a.jersey_number ?? 999;
+      const jb = b.jersey_number ?? 999;
+      if (ja !== jb) return ja - jb;
+      return a.name_en.localeCompare(b.name_en);
+    });
+    return sorted.map((p) => {
+      const jerseyTag = p.jersey_number != null ? `#${p.jersey_number}` : null;
+      const positionTag = p.position ? p.position : null;
+      const tagHe = [jerseyTag, positionTag].filter(Boolean).join(" · ");
+      const tagEn = tagHe;
+      return {
+        value: p.id,
+        labelHe: p.name_he ?? p.name_en,
+        labelEn: p.name_en,
+        groupHe: `${p.team_flag} ${p.team_name_he}`,
+        groupEn: `${p.team_flag} ${p.team_name_en}`,
+        subtitleHe: tagHe || undefined,
+        subtitleEn: tagEn || undefined,
+      };
+    });
+  };
+  const playerOptionsLive = buildPlayerOptions();
+
+  // Fallback when the players table is empty. Keeps the template
+  // shippable on day-one when the squads sync has not run yet.
+  const topScorerFallback = [
     { value: "MBP", labelHe: "מבאפה",     labelEn: "Mbappé" },
     { value: "HAA", labelHe: "האלאנד",    labelEn: "Haaland" },
     { value: "BEL", labelHe: "בלינגהאם",  labelEn: "Bellingham" },
@@ -179,12 +249,7 @@ function buildTemplates({
     { value: "MES", labelHe: "מסי",       labelEn: "Messi" },
     { value: "OTH", labelHe: "אחר",       labelEn: "Other" },
   ];
-
-  // Golden Ball candidates lean playmakers + creative midfielders alongside
-  // the headline strikers, because the award favours overall tournament
-  // influence over raw goals. Same placeholder shape as topScorerCandidates;
-  // PR-4 swaps both to live player ids.
-  const goldenBallCandidates = [
+  const goldenBallFallback = [
     { value: "MES", labelHe: "מסי",       labelEn: "Messi" },
     { value: "MBP", labelHe: "מבאפה",     labelEn: "Mbappé" },
     { value: "BEL", labelHe: "בלינגהאם",  labelEn: "Bellingham" },
@@ -197,6 +262,11 @@ function buildTemplates({
     { value: "DEB", labelHe: "דה ברוינה", labelEn: "De Bruyne" },
     { value: "OTH", labelHe: "אחר",       labelEn: "Other" },
   ];
+
+  // Live roster preferred. Fallbacks only render when the players
+  // table has not been populated yet.
+  const topScorerCandidates = playerOptionsLive ?? topScorerFallback;
+  const goldenBallCandidates = playerOptionsLive ?? goldenBallFallback;
 
   // Payout suggestions tuned so longshot templates pay more than the
   // base stake but stay under the configured cap. Admin can edit per
@@ -356,12 +426,34 @@ function buildTemplates({
 
 async function loadWcTeams(): Promise<Team[]> {
   const rows = await db.execute<Team>(sql`
-    select t.code as "code", t.name_he as "nameHe", t.name_en as "nameEn"
+    select t.code as "code", t.name_he as "nameHe", t.name_en as "nameEn", t.flag as "flag"
     from public.teams t
     where t.group_id is not null
     order by t.name_en asc
   `);
   return rows as unknown as Team[];
+}
+
+// Joins players to teams so the SearchableChoicePicker has everything
+// it needs to group by national team and decorate each row with the
+// team flag emoji + Hebrew or English team name in one query.
+async function loadAllPlayersWithTeam(): Promise<PlayerRow[]> {
+  const rows = await db.execute<PlayerRow>(sql`
+    select
+      p.id::text         as "id",
+      p.name_en          as "name_en",
+      p.name_he          as "name_he",
+      p.position         as "position",
+      p.jersey_number    as "jersey_number",
+      p.team_code        as "team_code",
+      t.name_he          as "team_name_he",
+      t.name_en          as "team_name_en",
+      t.flag             as "team_flag"
+    from public.players p
+    join public.teams   t on t.code = p.team_code
+    order by p.team_code asc, p.jersey_number nulls last, p.name_en asc
+  `);
+  return rows as unknown as PlayerRow[];
 }
 
 async function loadLastWcKickoff(): Promise<{ kickoff_at: string } | null> {

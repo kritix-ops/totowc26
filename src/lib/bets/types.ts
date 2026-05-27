@@ -27,6 +27,15 @@ export type MultiChoiceOption = {
   value: string;
   labelHe: string;
   labelEn: string;
+  // Optional metadata used by the user-facing
+  // SearchableChoicePicker when the list is large (player roster,
+  // ~1,200 rows). Renderers that don't need it (short pill grids,
+  // admin tables) just ignore the extra fields.
+  groupHe?: string;
+  groupEn?: string;
+  subtitleHe?: string;
+  subtitleEn?: string;
+  icon?: string;
 };
 
 export type MultiChoiceConfig = {
