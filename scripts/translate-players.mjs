@@ -113,17 +113,26 @@ const sql = postgres(url, { max: 1, prepare: false });
 // ─── Wikidata SPARQL helper ────────────────────────────────────────────
 //
 // One sequential query per player. Wikidata's WDQS rate limit is
-// generous for low-QPS use; we throttle to ~8 req/sec by default
-// (--wikidata-delay-ms=120). The query searches for entities whose
-// English label exactly matches the player's name and whose
-// occupation includes "association football player" (Q937857), then
-// pulls the Hebrew label if one exists.
+// generous for low-QPS use; we throttle to ~1 req/sec by default
+// (--wikidata-delay-ms=1000). The query routes through WDQS's mwapi
+// EntitySearch service, which is the same backend that powers
+// Wikidata's own autocomplete — it handles aliases, diacritics, and
+// partial-token matches. We then filter the candidates to humans
+// whose occupation includes "association football player" (Q937857)
+// and pull the Hebrew label if one exists.
 //
-// Matching strategy: we accept ANY football player whose English
-// label matches — disambiguation by national team is hard in SPARQL
-// (international careers, dual-nationality players) and the false-
-// positive cost is low because the LLM-expert reviewer in phase B
-// catches mismatches and downgrades them.
+// Why mwapi search instead of an exact rdfs:label match: API-Football
+// often returns mildly-non-canonical names (e.g. "Riyad Karim Mahrez"
+// where Wikidata's English label is "Riyad Mahrez"). Exact match
+// silently misses every such row. Even a re-sync to firstname+lastname
+// doesn't always align with the Wikidata main label, so we lean on
+// Wikidata's own search to do the fuzzy resolution. The LLM-expert
+// reviewer in phase B catches the rare false positive.
+//
+// IMPORTANT: name_en MUST be a full name. Abbreviated forms like
+// "R. Mahrez" do not tokenize cleanly in EntitySearch and return no
+// results — re-sync the players table via api-football-sync-squads.mjs
+// before running this phase.
 
 const WIKIDATA_ENDPOINT = "https://query.wikidata.org/sparql";
 
@@ -132,8 +141,14 @@ function buildWikidataQuery(nameEn) {
   // unescaped quotes inside string literals.
   const safe = nameEn.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
   return `
-SELECT DISTINCT ?p ?nameHe WHERE {
-  ?p rdfs:label "${safe}"@en .
+SELECT ?p ?nameHe WHERE {
+  SERVICE wikibase:mwapi {
+    bd:serviceParam wikibase:endpoint "www.wikidata.org" .
+    bd:serviceParam wikibase:api "EntitySearch" .
+    bd:serviceParam mwapi:search "${safe}" .
+    bd:serviceParam mwapi:language "en" .
+    ?p wikibase:apiOutputItem mwapi:item .
+  }
   ?p wdt:P31 wd:Q5 .
   ?p wdt:P106/wdt:P279* wd:Q937857 .
   ?p rdfs:label ?nameHe .
@@ -147,18 +162,33 @@ function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+// Per-attempt fetch budget. Real WDQS responses arrive in 1-3s; a
+// slow query can hit 10s. Anything past 30s is a stalled socket —
+// which is exactly what froze the pipeline for ~100 minutes before
+// this guard existed. AbortSignal.timeout converts that hang into
+// a retryable error.
+const WIKIDATA_FETCH_TIMEOUT_MS = 30_000;
+
+// Cap on how long we honour a WDQS Retry-After hint. WDQS has been
+// observed to return Retry-After values measured in minutes when
+// the endpoint is being abused — sleeping that long blocks every
+// subsequent row. Past 30s we treat the row as a transient failure
+// and move on; the LLM phase will pick it up.
+const WIKIDATA_RETRY_AFTER_CAP_MS = 30_000;
+
 async function wikidataLookup(nameEn) {
   const query = buildWikidataQuery(nameEn);
   // Retry loop. WDQS commonly emits 429 (rate-limited), 502 (bad
   // gateway, the public endpoint is fronted by load balancers that
   // can drop requests when busy), and 503. All three are transient.
   // Exponential backoff starting at 2s, capped at the value of the
-  // Retry-After header if present.
+  // Retry-After header if present (itself capped — see constant above).
   let lastErr = null;
   for (let attempt = 0; attempt <= wikidataRetries; attempt += 1) {
     let res;
     try {
       res = await fetch(`${WIKIDATA_ENDPOINT}?format=json&query=${encodeURIComponent(query)}`, {
+        signal: AbortSignal.timeout(WIKIDATA_FETCH_TIMEOUT_MS),
         headers: {
           // WDQS asks for an identifying User-Agent so they can contact
           // operators when a query is misbehaving. Recommended format
@@ -168,7 +198,8 @@ async function wikidataLookup(nameEn) {
         },
       });
     } catch (netErr) {
-      // Network-layer fault (DNS, socket reset). Treat as retryable.
+      // Network-layer fault (DNS, socket reset, AbortError from the
+      // fetch timeout). Treat as retryable.
       lastErr = new Error(`Wikidata fetch: ${netErr.message}`);
       if (attempt < wikidataRetries) {
         await sleep(2000 * Math.pow(2, attempt));
@@ -189,10 +220,11 @@ async function wikidataLookup(nameEn) {
       throw new Error(`Wikidata ${res.status}`);
     }
     const retryAfterHeader = res.headers.get("retry-after");
-    const retryAfterMs =
+    const rawRetryMs =
       retryAfterHeader != null
         ? Math.max(0, Number(retryAfterHeader) * 1000)
         : 2000 * Math.pow(2, attempt);
+    const retryAfterMs = Math.min(rawRetryMs, WIKIDATA_RETRY_AFTER_CAP_MS);
     lastErr = new Error(`Wikidata ${res.status}`);
     if (attempt < wikidataRetries) {
       await sleep(retryAfterMs);
@@ -224,12 +256,21 @@ async function runWikidataPhase() {
   let filled = 0;
   let missed = 0;
   let errors = 0;
+  // Per-row logging so the user can see the phase is alive at 1
+  // req/sec (rule 14 — observability from day one). Previous
+  // version printed only a final summary, which made a hung fetch
+  // indistinguishable from normal slow progress.
+  const total = candidates.length;
+  const idxPad = String(total).length;
+  let index = 0;
   for (const row of candidates) {
+    index += 1;
+    const prefix = `  [${String(index).padStart(idxPad, " ")}/${total}]`;
     try {
       const nameHe = await wikidataLookup(row.name_en);
       if (nameHe) {
         if (dryRun) {
-          console.log(`  [dry-run] ${row.api_football_id} ${row.name_en} → "${nameHe}"`);
+          console.log(`${prefix} ${row.name_en} → "${nameHe}" [dry-run]`);
         } else {
           await sql`
             update public.players
@@ -240,17 +281,19 @@ async function runWikidataPhase() {
             where api_football_id = ${row.api_football_id}
               and name_he_admin_locked = false
           `;
+          console.log(`${prefix} ${row.name_en} → ${nameHe}`);
         }
         filled += 1;
       } else {
         missed += 1;
+        console.log(`${prefix} ${row.name_en} (no Wikidata match)`);
       }
     } catch (err) {
       errors += 1;
       // Soft-fail per row — keep the pipeline running even if
       // WDQS rate-limits us mid-batch. The LLM phase picks up
       // whatever this phase missed.
-      console.warn(`    Wikidata error on ${row.name_en}: ${err.message}`);
+      console.warn(`${prefix} ${row.name_en} ERROR: ${err.message}`);
     }
     if (wikidataDelayMs > 0) await sleep(wikidataDelayMs);
   }

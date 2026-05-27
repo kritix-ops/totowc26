@@ -7,14 +7,30 @@
 //   2. Matches each API team to our local teams.code (3-letter code or
 //      case-insensitive name). Teams that do not match are skipped with
 //      a printed warning so the operator can patch the alias map.
-//   3. For each matched team, fetches /players/squads?team=<api_id>.
-//   4. Upserts each player into public.players keyed by api_football_id.
-//      Existing rows have name_en, position, jersey_number, photo_url,
-//      birth_date refreshed; name_he is preserved (filled later by the
-//      translate-players script).
+//   3. For each matched team:
+//      a. Fetches /players/squads?team=<api_id> — the AUTHORITATIVE
+//         roster (the actual ~26-player squad). Each entry has the
+//         id, jersey number, position, photo, and an ABBREVIATED name
+//         like "R. Mahrez".
+//      b. Fetches /players?team=<api_id>&season=<S> across all pages
+//         to build an enrichment map of api_football_id ->
+//         { firstname, lastname, birth_date }. /players has full
+//         names but ALSO returns non-squad appearance players (youth
+//         caps, friendly call-ups), so we never use it as the roster.
+//      c. For each squad member, upserts with the full name
+//         `${firstname} ${lastname}` when the enrichment map has the
+//         id, otherwise falls back to the abbreviated /players/squads
+//         name (the rare bench / late call-up case).
+//      d. Deletes any DB row for this team_code whose api_football_id
+//         is NOT in the freshly-fetched squad — undoes prior bloat
+//         from buggy sync attempts and removes late-cut players.
+//         name_he is preserved on every row that survives the cleanup.
+//   4. name_he is NEVER overwritten by this script. name_he on rows
+//      that get deleted in step 3d is lost, but those rows are by
+//      definition non-squad and not relevant to the tournament.
 //
 // Idempotent: re-running is safe and will pick up late call-ups /
-// jersey-number changes. name_he is NEVER overwritten by this script.
+// jersey-number changes. name_he is preserved across re-runs.
 //
 // Usage:
 //   node --env-file=.env.local scripts/api-football-sync-squads.mjs
@@ -25,14 +41,14 @@
 //
 // Optional env:
 //   API_FOOTBALL_SEASON - tournament season (default: 2026)
-//   SLEEP_MS_BETWEEN    - throttle between squad fetches (default: 200)
+//   SLEEP_MS_BETWEEN    - throttle between API calls (default: 250)
 
 import postgres from "postgres";
 
 const url = process.env.DIRECT_URL;
 const apiKey = process.env.API_FOOTBALL_KEY;
 const SEASON = Number(process.env.API_FOOTBALL_SEASON ?? 2026);
-const SLEEP_MS = Number(process.env.SLEEP_MS_BETWEEN ?? 200);
+const SLEEP_MS = Number(process.env.SLEEP_MS_BETWEEN ?? 250);
 const LEAGUE = 1; // FIFA World Cup (national teams). id 15 is the Club World Cup.
 
 // Mirrors the alias list in api-football-map-fixtures.mjs so the
@@ -153,26 +169,61 @@ try {
   // ── Step 3 & 4: fetch each squad and upsert ────────────────────────
   let totalUpserted = 0;
   let totalSeen = 0;
+  let totalDeleted = 0;
   for (const m of matched) {
-    process.stdout.write(`  ${m.localCode.padEnd(4)} ${m.localName.padEnd(28)} → squad… `);
+    process.stdout.write(`  ${m.localCode.padEnd(4)} ${m.localName.padEnd(28)} → `);
     try {
+      // a) Roster — source of truth for who is in the squad.
       const squadJson = await apiGet(`/players/squads?team=${m.apiId}`);
       const squad = (squadJson.response?.[0]?.players ?? []);
       totalSeen += squad.length;
 
-      // Each row in squad: { id, name, age, number, position, photo }
+      // b) Enrichment — full firstname/lastname keyed by api_football_id.
+      //    Paginated; 20 per page. Stop at paging.total or a 5-page
+      //    safety cap (no team should ever exceed that).
+      const fullNames = new Map();
+      let page = 1;
+      while (page <= 5) {
+        await sleep(SLEEP_MS);
+        const json = await apiGet(`/players?team=${m.apiId}&season=${SEASON}&page=${page}`);
+        for (const r of (json.response ?? [])) {
+          const p = r.player;
+          if (!p?.id) continue;
+          if (p.firstname && p.lastname) {
+            fullNames.set(p.id, {
+              firstname: p.firstname,
+              lastname:  p.lastname,
+              birth:     p.birth?.date ?? null,
+            });
+          }
+        }
+        const totalPages = json.paging?.total ?? 1;
+        if (page >= totalPages) break;
+        page += 1;
+      }
+
+      // c) Upsert each squad member with the best name we have.
+      const seenIds = [];
+      let enrichedCount = 0;
       for (const p of squad) {
         if (!p.id || !p.name) continue;
+        const enriched = fullNames.get(p.id);
+        const nameEn = enriched
+          ? `${enriched.firstname} ${enriched.lastname}`.trim()
+          : p.name;
+        if (enriched) enrichedCount += 1;
+        seenIds.push(p.id);
         await sql`
           insert into public.players (
-            api_football_id, team_code, name_en, position, jersey_number, photo_url
+            api_football_id, team_code, name_en, position, jersey_number, photo_url, birth_date
           ) values (
             ${p.id},
             ${m.localCode},
-            ${p.name},
+            ${nameEn},
             ${p.position ?? null},
             ${p.number ?? null},
-            ${p.photo ?? null}
+            ${p.photo ?? null},
+            ${enriched?.birth ?? null}
           )
           on conflict (api_football_id) do update set
             team_code     = excluded.team_code,
@@ -180,11 +231,29 @@ try {
             position      = excluded.position,
             jersey_number = excluded.jersey_number,
             photo_url     = coalesce(excluded.photo_url, public.players.photo_url),
+            birth_date    = coalesce(excluded.birth_date, public.players.birth_date),
             updated_at    = now()
         `;
         totalUpserted += 1;
       }
-      process.stdout.write(`${squad.length} players\n`);
+
+      // d) Cleanup: drop rows in this team that aren't in the fresh
+      //    squad. Undoes earlier sync bloat and removes late-cut
+      //    players. Guarded by squad.length > 0 — if the API returns
+      //    an empty squad (transient outage), we keep existing data.
+      let deletedCount = 0;
+      if (seenIds.length > 0) {
+        const deleted = await sql`
+          delete from public.players
+          where team_code = ${m.localCode}
+            and api_football_id != all(${seenIds})
+        `;
+        deletedCount = deleted.count ?? 0;
+        totalDeleted += deletedCount;
+      }
+
+      const dropTag = deletedCount > 0 ? ` -${deletedCount} stale` : "";
+      process.stdout.write(`${squad.length} squad, ${enrichedCount} with full names${dropTag}\n`);
     } catch (err) {
       process.stdout.write(`FAILED: ${err.message}\n`);
     }
@@ -192,9 +261,11 @@ try {
   }
 
   console.log();
-  console.log(`Done. Saw ${totalSeen} players across ${matched.length} teams; upserted ${totalUpserted} rows.`);
-  console.log(`Translations (name_he) are NOT touched by this script.`);
-  console.log(`Run the translation pipeline (PR-3) next to fill Hebrew names.`);
+  console.log(`Done. Saw ${totalSeen} squad members across ${matched.length} teams;`);
+  console.log(`  upserted ${totalUpserted} rows, deleted ${totalDeleted} non-squad rows.`);
+  console.log(`Translations (name_he) are preserved on every surviving row.`);
+  console.log(`Run the translation pipeline next to fill Hebrew names:`);
+  console.log(`  pnpm translate:players -- --force-retranslate`);
 } finally {
   await sql.end();
 }
