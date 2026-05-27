@@ -29,6 +29,7 @@ import {
   getPaymentTotals,
   getTeamMappingStatus,
 } from "@/db/admin-queries";
+import { fetchApiFootballStatus } from "@/lib/api-football";
 import { SyncPanel } from "./SyncPanel";
 import { PaymentsPanel } from "./PaymentsPanel";
 import { ViewAsPanel } from "./ViewAsPanel";
@@ -42,7 +43,7 @@ export default async function AdminPage({
   const locale = lang as Locale;
   const isHebrew = locale === "he";
 
-  const [syncHistory, payments, totals, viewAs, settingsRow, teamMapping] = await Promise.all([
+  const [syncHistory, payments, totals, viewAs, settingsRow, teamMapping, apiFootballQuota] = await Promise.all([
     getRecentSyncRuns(20),
     getPaymentsByStatus("all", 50),
     getPaymentTotals(),
@@ -54,6 +55,7 @@ export default async function AdminPage({
       .limit(1)
       .then((r) => r[0] ?? null),
     getTeamMappingStatus(),
+    fetchApiFootballStatus(),
   ]);
 
   return (
@@ -157,7 +159,12 @@ export default async function AdminPage({
         fallback={PAYBOX_FALLBACK_URL}
       />
 
-      <SyncPanel locale={locale} history={syncHistory} teamMapping={teamMapping} />
+      <SyncPanel
+        locale={locale}
+        history={syncHistory}
+        teamMapping={teamMapping}
+        apiFootballQuota={apiFootballQuota}
+      />
 
       <PaymentsPanel
         locale={locale}

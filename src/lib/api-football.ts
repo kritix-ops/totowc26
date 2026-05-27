@@ -104,6 +104,73 @@ export async function fetchFixtureStats(
   }
 }
 
+// ─── /status (quota card in admin) ────────────────────────────────
+//
+// One-shot lookup for "how many of the Pro daily 7,500 calls have we
+// burned today". Returns null when API_FOOTBALL_KEY is unset or the
+// upstream is unreachable so the admin Quota card can degrade to an
+// empty-state pill without taking down the rest of the sync panel.
+//
+// The /status endpoint counts against the daily quota itself (1 call
+// per render). We cache the result for 30s via Next.js fetch
+// revalidate — opening the admin page twice within 30s reuses the
+// same response. The "Refresh" action explicitly revalidates the
+// admin path, busting the cache.
+
+export type ApiFootballQuota = {
+  plan: string;             // e.g. "Pro", "Ultra"
+  used: number;             // requests made today
+  limitDay: number;         // daily cap from the active plan
+  remaining: number;        // computed: limitDay - used (clamped to >= 0)
+  subscriptionActive: boolean;
+};
+
+export async function fetchApiFootballStatus(): Promise<ApiFootballQuota | null> {
+  const key = process.env.API_FOOTBALL_KEY;
+  if (!key) {
+    console.info("[api-football quota stubbed]", { reason: "API_FOOTBALL_KEY not set" });
+    return null;
+  }
+  try {
+    const res = await fetch(`${BASE}/status`, {
+      headers: {
+        "x-rapidapi-key": key,
+        "x-rapidapi-host": "v3.football.api-sports.io",
+      },
+      next: { revalidate: 30 },
+    });
+    if (!res.ok) {
+      console.warn("[api-football quota error]", { status: res.status });
+      return null;
+    }
+    const json = (await res.json()) as ApiFootballStatusResponse;
+    const r = json.response;
+    if (!r) return null;
+    const used = Number(r.requests?.current ?? 0);
+    const limitDay = Number(r.requests?.limit_day ?? 0);
+    const quota: ApiFootballQuota = {
+      plan: r.subscription?.plan ?? "unknown",
+      used,
+      limitDay,
+      remaining: Math.max(0, limitDay - used),
+      subscriptionActive: Boolean(r.subscription?.active ?? false),
+    };
+    console.info("[api-football quota]", quota);
+    return quota;
+  } catch (err) {
+    console.error("[api-football quota fetch failed]", { err });
+    return null;
+  }
+}
+
+type ApiFootballStatusResponse = {
+  response?: {
+    account?: { firstname?: string; lastname?: string; email?: string };
+    subscription?: { plan?: string; end?: string; active?: boolean };
+    requests?: { current?: number; limit_day?: number };
+  };
+};
+
 // Lightweight fixture shape - enough to map API-Football fixtures to our
 // matches table by (homeTla, awayTla, kickoffAt) at activation time.
 export type ApiFootballFixture = {

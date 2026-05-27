@@ -17,17 +17,24 @@ import { clsx } from "clsx";
 import { Card, LabelCaps, PillButton } from "@/components/ui";
 import type { Locale } from "../dictionaries";
 import { formatDateTime } from "@/lib/format";
-import { runSyncNow, type RunSyncResult } from "./sync-actions";
+import {
+  runSyncNow,
+  refreshApiFootballQuota,
+  type RunSyncResult,
+} from "./sync-actions";
 import type { SyncRunRow, TeamMappingStatus } from "@/db/admin-queries";
+import type { ApiFootballQuota } from "@/lib/api-football";
 
 export function SyncPanel({
   locale,
   history,
   teamMapping,
+  apiFootballQuota,
 }: {
   locale: Locale;
   history: SyncRunRow[];
   teamMapping: TeamMappingStatus;
+  apiFootballQuota: ApiFootballQuota | null;
 }) {
   const isHebrew = locale === "he";
   const router = useRouter();
@@ -152,8 +159,174 @@ export function SyncPanel({
 
       <TeamMappingBanner status={teamMapping} isHebrew={isHebrew} />
 
+      <QuotaCard quota={apiFootballQuota} isHebrew={isHebrew} locale={locale} />
+
       <SyncHistory rows={history} isHebrew={isHebrew} />
     </Card>
+  );
+}
+
+function QuotaCard({
+  quota,
+  isHebrew,
+  locale,
+}: {
+  quota: ApiFootballQuota | null;
+  isHebrew: boolean;
+  locale: Locale;
+}) {
+  const [pending, startTransition] = useTransition();
+  const [latest, setLatest] = useState<ApiFootballQuota | null>(quota);
+
+  // Stay in sync if the server-rendered prop changes after a sync run.
+  // useEffect would be overkill — comparing identity each render is
+  // cheap, and we only swap the local state when the parent value
+  // actually moves.
+  if (quota !== latest && !pending) {
+    setLatest(quota);
+  }
+
+  const onRefresh = () => {
+    startTransition(async () => {
+      const res = await refreshApiFootballQuota();
+      if (res.ok) setLatest(res.quota);
+    });
+  };
+
+  // Empty state — key not set, upstream unreachable, or first render
+  // before activation. Tell the operator what's missing without
+  // pretending we have data.
+  if (!latest) {
+    return (
+      <div className="flex items-start gap-3 p-3 md:p-4 rounded-lg border border-outline-variant bg-surface-container-lowest">
+        <RefreshCw className="h-5 w-5 mt-0.5 shrink-0 text-on-surface-variant" strokeWidth={2} />
+        <div className="flex flex-col gap-1 min-w-0 flex-1">
+          <span className="font-bold text-sm text-on-surface">
+            {isHebrew ? "מכסת API-Football לא זמינה" : "API-Football quota unavailable"}
+          </span>
+          <span className="text-xs text-on-surface-variant">
+            {isHebrew
+              ? "API_FOOTBALL_KEY לא מוגדר או שה-/status לא הגיב. הסנכרון עובד דרך football-data fallback."
+              : "API_FOOTBALL_KEY is unset or /status didn't respond. Sync falls back to football-data."}
+          </span>
+        </div>
+        <PillButton
+          type="button"
+          onClick={onRefresh}
+          disabled={pending}
+          className="px-3 py-1.5 inline-flex items-center gap-1.5 shrink-0 text-xs"
+        >
+          <RefreshCw className={clsx("h-3.5 w-3.5", pending && "animate-spin")} strokeWidth={2} />
+          {pending
+            ? isHebrew ? "..." : "..."
+            : isHebrew ? "רענן" : "Refresh"}
+        </PillButton>
+      </div>
+    );
+  }
+
+  const pct = latest.limitDay > 0 ? Math.min(100, (latest.used / latest.limitDay) * 100) : 0;
+  const tone: "ok" | "warn" | "bad" =
+    pct >= 95 ? "bad" : pct >= 80 ? "warn" : "ok";
+  const barColor =
+    tone === "bad"
+      ? "bg-error"
+      : tone === "warn"
+        ? "bg-tertiary"
+        : "bg-secondary";
+  const trackColor =
+    tone === "bad"
+      ? "bg-error-container"
+      : tone === "warn"
+        ? "bg-tertiary-container"
+        : "bg-secondary-container";
+
+  return (
+    <div className="flex flex-col gap-3 p-3 md:p-4 rounded-lg border border-outline-variant bg-surface-container-lowest">
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <div className="flex flex-col gap-0.5 min-w-0 flex-1">
+          <span className="font-bold text-sm text-on-surface">
+            {isHebrew ? "מכסת API-Football" : "API-Football quota"}
+          </span>
+          <span className="text-xs text-on-surface-variant">
+            {isHebrew ? "תכנית" : "Plan"}: <bdi>{latest.plan}</bdi>
+            {!latest.subscriptionActive && (
+              <span className="text-error font-bold">
+                {" "}· {isHebrew ? "לא פעיל" : "inactive"}
+              </span>
+            )}
+          </span>
+        </div>
+        <PillButton
+          type="button"
+          onClick={onRefresh}
+          disabled={pending}
+          className="px-3 py-1.5 inline-flex items-center gap-1.5 shrink-0 text-xs"
+          aria-label={isHebrew ? "רענן מכסה" : "Refresh quota"}
+        >
+          <RefreshCw className={clsx("h-3.5 w-3.5", pending && "animate-spin")} strokeWidth={2} />
+          {pending
+            ? isHebrew ? "מרענן..." : "Refreshing..."
+            : isHebrew ? "רענן" : "Refresh"}
+        </PillButton>
+      </div>
+
+      <div className="grid grid-cols-3 gap-2 text-center">
+        <QuotaStat
+          label={isHebrew ? "בשימוש היום" : "Used today"}
+          value={latest.used.toLocaleString(locale === "he" ? "he-IL" : "en-US")}
+          tone={tone === "bad" ? "bad" : tone === "warn" ? "warn" : undefined}
+        />
+        <QuotaStat
+          label={isHebrew ? "נותרו" : "Remaining"}
+          value={latest.remaining.toLocaleString(locale === "he" ? "he-IL" : "en-US")}
+        />
+        <QuotaStat
+          label={isHebrew ? "תקרה יומית" : "Daily limit"}
+          value={latest.limitDay.toLocaleString(locale === "he" ? "he-IL" : "en-US")}
+        />
+      </div>
+
+      <div
+        className={clsx("h-2 w-full rounded-full overflow-hidden bidi-ltr", trackColor)}
+        role="progressbar"
+        aria-valuemin={0}
+        aria-valuemax={latest.limitDay}
+        aria-valuenow={latest.used}
+        aria-label={isHebrew ? "ניצול מכסה" : "Quota usage"}
+      >
+        <div
+          className={clsx("h-full transition-[width] duration-300", barColor)}
+          style={{ width: `${pct.toFixed(1)}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
+function QuotaStat({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: string;
+  tone?: "warn" | "bad";
+}) {
+  return (
+    <div className="flex flex-col gap-0.5">
+      <LabelCaps>{label}</LabelCaps>
+      <span
+        className={clsx(
+          "font-[family-name:var(--font-display)] text-lg leading-none font-bold bidi-ltr",
+          tone === "bad" && "text-error",
+          tone === "warn" && "text-tertiary",
+          !tone && "text-on-surface",
+        )}
+      >
+        {value}
+      </span>
+    </div>
   );
 }
 
