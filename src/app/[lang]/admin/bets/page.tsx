@@ -55,7 +55,16 @@ export default async function AdminBetsPage({
                 variant="ghost"
                 className="min-h-[48px]"
               >
-                {isHebrew ? "הצעות אוטומטיות" : "Suggestions"}
+                {isHebrew ? "הצעות יום משחקים" : "Matchday"}
+              </PillButton>
+            </Link>
+            <Link href={localePath(locale, "admin/tournament-suggestions")}>
+              <PillButton
+                type="button"
+                variant="ghost"
+                className="min-h-[48px]"
+              >
+                {isHebrew ? "הצעות טורניר" : "Tournament"}
               </PillButton>
             </Link>
             <Link href={localePath(locale, "admin/bets/new")}>
