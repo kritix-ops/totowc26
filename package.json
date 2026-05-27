@@ -11,6 +11,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "push:vapid": "node scripts/generate-vapid.mjs",
+    "e2e:reminder": "node --env-file=.env.local scripts/e2e-reminder.mjs",
     "db:generate": "drizzle-kit generate",
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
