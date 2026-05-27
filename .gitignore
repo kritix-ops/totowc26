@@ -24,6 +24,10 @@
 .DS_Store
 *.pem
 
+# local dev screenshots — kept out of the repo so Playwright probes
+# and quick visual QA shots don't accumulate in git history
+/_screenshots/
+
 # debug
 npm-debug.log*
 yarn-debug.log*
