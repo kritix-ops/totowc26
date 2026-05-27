@@ -27,7 +27,12 @@ type Props = {
 };
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-const MINUTE_MS = 60 * 1000;
+// Slower tick for users with reduced-motion. 5s is fast enough that
+// the countdown feels alive when the 60s "urgent" red threshold is
+// near, but slow enough not to flash every second. A 60s tick would
+// be useless during the final minute (the visible label wouldn't
+// change at all).
+const REDUCED_MOTION_TICK_MS = 5000;
 
 export function LocksInCountdown({
   locale,
@@ -36,10 +41,11 @@ export function LocksInCountdown({
   className,
 }: Props) {
   const isHebrew = locale === "he";
-  // Reduced-motion users tick once per minute (less flicker) but still
-  // see the countdown — this is informational, not decorative.
+  // Reduced-motion users tick every few seconds (less flicker) but the
+  // urgent red threshold under 60s stays legible. A per-minute tick
+  // would freeze during the final minute, which defeats the purpose.
   const reducedMotion = useReducedMotion();
-  const tickMs = reducedMotion ? MINUTE_MS : 1000;
+  const tickMs = reducedMotion ? REDUCED_MOTION_TICK_MS : 1000;
   const [now, setNow] = useState<number>(() => Date.now());
 
   useEffect(() => {
@@ -90,7 +96,11 @@ export function LocksInCountdown({
   );
 }
 
-function formatRemaining(ms: number): string {
+// Exported for unit tests. Renders a positive remaining-ms duration as
+// `H:MM:SS` when hours > 0, otherwise `MM:SS`. Negative / zero input
+// produces `00:00` (the LocksInCountdown component branches to the
+// "locked" badge in that case; we still want defined output).
+export function formatRemaining(ms: number): string {
   const total = Math.max(0, Math.floor(ms / 1000));
   const h = Math.floor(total / 3600);
   const m = Math.floor((total % 3600) / 60);
