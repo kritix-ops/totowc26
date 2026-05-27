@@ -17,7 +17,14 @@ import {
   mapStatus,
   type FDMatch,
 } from "./football-data";
-import { fetchFixtureStats, type ApiFootballStats } from "./api-football";
+import {
+  fetchFixtureStats,
+  fetchWorldCupFixtures,
+  fetchWorldCupGroupMap,
+  mapApiFootballRound,
+  mapApiFootballStatus,
+  type ApiFootballStats,
+} from "./api-football";
 import type { AutoApiFootballStat } from "./bets/types";
 import TEAM_NAMES from "../../data/team-names.json";
 
@@ -48,6 +55,7 @@ export type SyncReport = {
   scoredAutoCustomBets: number;
   cancelledDuels: number;
   settledAutoDuels: number;
+  lockedExpiredCustomBets: number;
   unknownTeams: string[];
 };
 
@@ -84,8 +92,11 @@ export async function syncFixtures(
     .values({ startedAt, source, triggeredBy, ok: false })
     .returning({ id: syncRuns.id });
 
+  let providerUsed: "api-football" | "football-data" | null = null;
   try {
-    const report = await _runSync(season);
+    const result = await _runSync(season);
+    providerUsed = result.provider;
+    const { report } = result;
     const finishedAt = new Date();
     await db
       .update(syncRuns)
@@ -100,6 +111,7 @@ export async function syncFixtures(
         scoredBets: report.scoredBets,
         scoredMatches: report.scoredMatches,
         unknownTeams: report.unknownTeams.length ? report.unknownTeams : null,
+        provider: providerUsed,
       })
       .where(eq(syncRuns.id, run.id));
     return report;
@@ -115,16 +127,100 @@ export async function syncFixtures(
         ok: false,
         errorMessage: message,
         errorStack: stack,
+        provider: providerUsed,
       })
       .where(eq(syncRuns.id, run.id));
     throw err;
   }
 }
 
-async function _runSync(season: number): Promise<SyncReport> {
-  const fixtures = await fetchWorldCupMatches(season);
-  const report: SyncReport = {
-    fetched: fixtures.length,
+// _runSync dispatches the per-fire fixture pull. API-Football is the
+// primary provider (PR 2 of _plans/2026-05-27-migrate-fixture-sync-to-
+// api-football.md). football-data.org is kept on disk as a degraded-
+// mode fallback so the tournament never goes silent during an
+// api-sports.io outage. The downstream scoring / locking /
+// cancellation passes run the same way regardless of which provider
+// populated the `matches` rows.
+async function _runSync(
+  season: number,
+): Promise<{ report: SyncReport; provider: "api-football" | "football-data" }> {
+  let provider: "api-football" | "football-data";
+  const report = blankReport();
+
+  if (process.env.API_FOOTBALL_KEY) {
+    try {
+      console.info("[sync provider]", { attempt: "api-football", season });
+      await _ingestFromApiFootball(season, report);
+      provider = "api-football";
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      console.warn("[sync provider fallback]", {
+        from: "api-football",
+        to: "football-data",
+        reason,
+      });
+      // Reset the report so we don't double-count rows the primary
+      // path may have inserted before throwing. The fallback then
+      // owns the counters and the football-data path will upsert the
+      // same fixtures via api_fixture_id (a different conflict key
+      // from api_football_fixture_id, but the union of writes is
+      // still correct: a row written by API-Football carries both
+      // ids once both paths have run against it).
+      Object.assign(report, blankReport());
+      await _ingestFromFootballData(season, report);
+      provider = "football-data";
+    }
+  } else {
+    console.info("[sync provider]", {
+      attempt: "football-data",
+      season,
+      reason: "API_FOOTBALL_KEY not set",
+    });
+    await _ingestFromFootballData(season, report);
+    provider = "football-data";
+  }
+
+  // Sync team→group assignments from the actual group-stage matches.
+  // Runs after either provider so the teams.group_id column reflects
+  // what we just wrote.
+  await syncTeamGroups();
+
+  // Auto-score newly finalised match-bets (the main 1/X/2 prediction).
+  const scoring = await scoreFinalMatches();
+  report.scoredBets = scoring.scoredBets;
+  report.scoredMatches = scoring.scoredMatches;
+
+  // Auto-grade any custom_bets with grading_source='auto_football_data'
+  // whose underlying matches are now final. Idempotent: only touches bets
+  // in (open, locked) status. Skipped bets stay in the manual grading
+  // queue without raising errors.
+  report.scoredAutoCustomBets = await scoreAutoCustomBets();
+
+  // Flip status=open → locked for any custom_bets whose lock_at has
+  // passed. The submit gate in src/app/[lang]/play/[date]/actions.ts
+  // already rejects late submissions, so this pass is the DB-side
+  // source of truth that powers transparency, grading filters, and the
+  // "נעול" badge on the player UI. See _plans/2026-05-27-betting-deadlines.md §7.
+  report.lockedExpiredCustomBets = await lockExpiredCustomBets();
+
+  // Auto-cancel any duel that hit its join deadline without a joiner.
+  // The duel-delta formula in bank.ts treats cancelled rows as zero
+  // delta, so the opener's stake is effectively refunded once we flip
+  // the status here.
+  report.cancelledDuels = await cancelExpiredOpenDuels();
+
+  // Auto-settle matched duels that opted into API-Football grading
+  // and whose underlying fixture is now final. The bank formula
+  // handles the credit math from the resulting +stake / -stake delta.
+  report.settledAutoDuels = await scoreAutoSettleDuels();
+
+  console.info("[sync finished]", { provider, report });
+  return { report, provider };
+}
+
+function blankReport(): SyncReport {
+  return {
+    fetched: 0,
     inserted: 0,
     updated: 0,
     skipped: 0,
@@ -133,8 +229,160 @@ async function _runSync(season: number): Promise<SyncReport> {
     scoredAutoCustomBets: 0,
     cancelledDuels: 0,
     settledAutoDuels: 0,
+    lockedExpiredCustomBets: 0,
     unknownTeams: [],
   };
+}
+
+// Primary path. Throws on transport failure or empty payload so
+// `_runSync` can cleanly fall back to football-data.
+async function _ingestFromApiFootball(
+  season: number,
+  report: SyncReport,
+): Promise<void> {
+  const fetchStart = Date.now();
+  const [fixtures, groupMap] = await Promise.all([
+    fetchWorldCupFixtures(season),
+    fetchWorldCupGroupMap(season),
+  ]);
+  console.info("[sync fixtures fetch]", {
+    provider: "api-football",
+    count: fixtures.length,
+    durationMs: Date.now() - fetchStart,
+  });
+  console.info("[sync standings fetch]", {
+    teamsInGroups: groupMap.size,
+  });
+  if (fixtures.length === 0) {
+    // Empty payload almost certainly means the upstream changed
+    // shape — don't silently wipe upcoming matches. Throw so the
+    // football-data fallback kicks in.
+    throw new Error("api-football returned 0 fixtures");
+  }
+  report.fetched = fixtures.length;
+
+  // Build an api_football_team_id → teams.code map in one shot so the
+  // per-fixture loop is a pure dictionary lookup.
+  const teamRows = await db.execute<{ code: string; api_id: number }>(drizzleSql`
+    select code, api_football_team_id as api_id
+    from public.teams
+    where api_football_team_id is not null
+  `);
+  const codeByApiId = new Map<number, string>();
+  for (const r of teamRows as unknown as Array<{ code: string; api_id: number }>) {
+    codeByApiId.set(Number(r.api_id), r.code);
+  }
+
+  for (const f of fixtures) {
+    const homeCode = codeByApiId.get(f.homeTeamApiId);
+    const awayCode = codeByApiId.get(f.awayTeamApiId);
+    if (!homeCode) {
+      console.warn("[sync team-map miss]", {
+        teamApiId: f.homeTeamApiId,
+        name: f.homeTeamName,
+      });
+      report.unknownTeams.push(`${f.homeTeamName} (${f.homeTeamApiId})`);
+      report.skipped += 1;
+      continue;
+    }
+    if (!awayCode) {
+      console.warn("[sync team-map miss]", {
+        teamApiId: f.awayTeamApiId,
+        name: f.awayTeamName,
+      });
+      report.unknownTeams.push(`${f.awayTeamName} (${f.awayTeamApiId})`);
+      report.skipped += 1;
+      continue;
+    }
+
+    const homeGroupLetter = groupMap.get(f.homeTeamApiId) ?? null;
+    const mapped = mapApiFootballRound(f.round, homeGroupLetter);
+    if (!mapped) {
+      console.warn("[sync round unknown]", {
+        fixtureId: f.fixtureId,
+        round: f.round,
+      });
+      report.skipped += 1;
+      continue;
+    }
+
+    const status = mapApiFootballStatus(f.statusShort);
+    const wentToPen = f.statusShort.toUpperCase() === "PEN";
+
+    // `no_change` only applies when an existing row says final and
+    // the upstream flips to CANC/ABD/SUSP/INT. For brand-new rows
+    // we still need a non-null status — default to scheduled and
+    // log the anomaly so the operator sees it.
+    let nextStatus: "scheduled" | "live" | "final";
+    if (status === "no_change") {
+      console.warn("[sync status anomaly]", {
+        fixtureId: f.fixtureId,
+        raw: f.statusShort,
+        decision: "keeping existing status, defaulting to scheduled for new rows",
+      });
+      nextStatus = "scheduled";
+    } else {
+      nextStatus = status;
+    }
+
+    const result = await db.execute<{ inserted: boolean }>(drizzleSql`
+      insert into public.matches
+        (home_team, away_team, kickoff_at, stage, group_id, venue, status,
+         home_score, away_score, ht_home_score, ht_away_score,
+         went_to_penalties, finalized_at, api_football_fixture_id)
+      values
+        (${homeCode}, ${awayCode}, ${f.kickoffAt}, ${mapped.stage}, ${mapped.groupId},
+         ${f.venue ?? null}, ${nextStatus},
+         ${f.homeScoreFt}, ${f.awayScoreFt},
+         ${f.homeScoreHt}, ${f.awayScoreHt},
+         ${wentToPen},
+         ${nextStatus === "final" ? f.kickoffAt : null},
+         ${f.fixtureId})
+      on conflict (api_football_fixture_id) do update set
+        home_team = excluded.home_team,
+        away_team = excluded.away_team,
+        kickoff_at = excluded.kickoff_at,
+        stage = excluded.stage,
+        group_id = excluded.group_id,
+        venue = excluded.venue,
+        status = case
+          when ${status === "no_change"}::boolean then matches.status
+          else excluded.status
+        end,
+        home_score = excluded.home_score,
+        away_score = excluded.away_score,
+        ht_home_score = excluded.ht_home_score,
+        ht_away_score = excluded.ht_away_score,
+        went_to_penalties = excluded.went_to_penalties,
+        finalized_at = case when excluded.status = 'final' and matches.finalized_at is null then now() else matches.finalized_at end
+      returning (xmax = 0) as inserted
+    `);
+    const rows = result as unknown as Array<{ inserted: boolean }>;
+    if (rows[0]?.inserted) {
+      report.inserted += 1;
+      console.info("[sync upsert]", { fixtureId: f.fixtureId, action: "inserted" });
+    } else {
+      report.updated += 1;
+      console.info("[sync upsert]", { fixtureId: f.fixtureId, action: "updated" });
+    }
+  }
+}
+
+// Legacy fallback path. Preserved verbatim from the football-data era
+// so a partial API-Football outage doesn't take the tournament offline.
+// Mutates `report` in place.
+async function _ingestFromFootballData(
+  season: number,
+  report: SyncReport,
+): Promise<void> {
+  const fetchStart = Date.now();
+  const fixtures = await fetchWorldCupMatches(season);
+  console.info("[sync fixtures fetch]", {
+    provider: "football-data",
+    count: fixtures.length,
+    durationMs: Date.now() - fetchStart,
+  });
+  report.fetched = fixtures.length;
 
   for (const f of fixtures) {
     const homeCode = normalizeTla(f.homeTeam.tla);
@@ -187,36 +435,52 @@ async function _runSync(season: number): Promise<SyncReport> {
       returning (xmax = 0) as inserted
     `);
     const rows = result as unknown as Array<{ inserted: boolean }>;
-    if (rows[0]?.inserted) report.inserted += 1;
-    else report.updated += 1;
+    if (rows[0]?.inserted) {
+      report.inserted += 1;
+      console.info("[sync upsert]", { fixtureId: f.id, action: "inserted" });
+    } else {
+      report.updated += 1;
+      console.info("[sync upsert]", { fixtureId: f.id, action: "updated" });
+    }
   }
+}
 
-  // Sync team→group assignments from the actual group-stage matches.
-  await syncTeamGroups();
-
-  // Auto-score newly finalised match-bets (the main 1/X/2 prediction).
-  const scoring = await scoreFinalMatches();
-  report.scoredBets = scoring.scoredBets;
-  report.scoredMatches = scoring.scoredMatches;
-
-  // Auto-grade any custom_bets with grading_source='auto_football_data'
-  // whose underlying matches are now final. Idempotent: only touches bets
-  // in (open, locked) status. Skipped bets stay in the manual grading
-  // queue without raising errors.
-  report.scoredAutoCustomBets = await scoreAutoCustomBets();
-
-  // Auto-cancel any duel that hit its join deadline without a joiner.
-  // The duel-delta formula in bank.ts treats cancelled rows as zero
-  // delta, so the opener's stake is effectively refunded once we flip
-  // the status here.
-  report.cancelledDuels = await cancelExpiredOpenDuels();
-
-  // Auto-settle matched duels that opted into API-Football grading
-  // and whose underlying fixture is now final. The bank formula
-  // handles the credit math from the resulting +stake / -stake delta.
-  report.settledAutoDuels = await scoreAutoSettleDuels();
-
-  return report;
+// Flip status='open' → 'locked' for every custom bet whose lock_at has
+// passed. Custom bets carry a concrete lock_at on the row (the per-bet
+// override layer; see src/lib/deadlines.ts) so the bulk SQL update can
+// compare against now() directly - we don't need to re-resolve per row.
+// Idempotent: only touches status='open' rows, and the WHERE filter
+// stops the same row being flipped twice.
+//
+// The submit gate at src/app/[lang]/play/[date]/actions.ts also
+// rejects late submissions, so the worst-case race during the gap
+// between lock_at and the next sync run is closed there.
+export async function lockExpiredCustomBets(): Promise<number> {
+  const start = Date.now();
+  const result = await db.execute<{ id: string; scope: string; lock_at: string }>(drizzleSql`
+    update public.custom_bets
+    set status = 'locked'
+    where status = 'open'
+      and lock_at <= now()
+    returning id::text as id, scope::text as scope, lock_at
+  `);
+  const rows = result as unknown as Array<{
+    id: string;
+    scope: string;
+    lock_at: string;
+  }>;
+  for (const r of rows) {
+    console.info("[deadline auto-lock]", {
+      betId: r.id,
+      scope: r.scope,
+      lockAt: r.lock_at,
+    });
+  }
+  console.info("[deadline auto-lock sweep]", {
+    flipped: rows.length,
+    durationMs: Date.now() - start,
+  });
+  return rows.length;
 }
 
 // Find every duel with status='open' whose join deadline has passed

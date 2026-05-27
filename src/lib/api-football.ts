@@ -29,6 +29,24 @@ const BASE = "https://v3.football.api-sports.io";
 // changes.
 export const API_FOOTBALL_WC_LEAGUE_ID = 1;
 
+// Match-status helpers. API-Football encodes status as short strings
+// in `fixture.status.short`. We collapse to our three internal states
+// + a sentinel for statuses that should NOT overwrite the existing
+// row (cancellations etc. — see comments in `mapApiFootballStatus`).
+export type ApiFootballStatusMapped =
+  | "scheduled"
+  | "live"
+  | "final"
+  | "no_change";
+
+// Round → internal stage mapping. `groupId` is filled only for
+// group-stage matches and only when the standings group-map has the
+// home team's group letter.
+export type ApiFootballStageMapped = {
+  stage: "group" | "r32" | "r16" | "qf" | "sf" | "third_place" | "final";
+  groupId: string | null;
+};
+
 export type ApiFootballStats = Partial<Record<AutoApiFootballStat, number>>;
 
 export type TeamStats = {
@@ -257,3 +275,260 @@ function combineStats(
   }
   return out;
 }
+
+// ============================================================================
+// Cron sync entry points
+// ----------------------------------------------------------------------------
+// PR 2 of _plans/2026-05-27-migrate-fixture-sync-to-api-football.md.
+// These functions back the daily fixture sync. Throw on transport
+// failure (4xx/5xx/network) so the caller can fall back to
+// football-data.org — silently returning [] would erase the existing
+// matches table.
+
+// Per-match payload consumed by _runSync. `round` is the raw label
+// from API-Football (e.g. "Group Stage - 2", "Round of 16"); the
+// caller passes it through `mapApiFootballRound` together with the
+// home team's group letter from `fetchWorldCupGroupMap`.
+export type ApiFootballMatch = {
+  fixtureId: number;
+  kickoffAt: string;            // ISO 8601 UTC
+  statusShort: string;          // NS / 1H / HT / 2H / ET / BT / P / FT / AET / PEN / PST / CANC / ABD / SUSP / INT / AWD / WO / LIVE
+  elapsed: number | null;
+  homeTeamApiId: number;
+  homeTeamName: string;
+  awayTeamApiId: number;
+  awayTeamName: string;
+  homeScoreFt: number | null;
+  awayScoreFt: number | null;
+  homeScoreHt: number | null;
+  awayScoreHt: number | null;
+  homeScorePen: number | null;
+  awayScorePen: number | null;
+  venue: string | null;
+  round: string;
+};
+
+// Pulls every WC fixture in one round-trip. Throws on transport
+// failure so the caller can fall back to football-data.org.
+export async function fetchWorldCupFixtures(
+  season: number,
+): Promise<ApiFootballMatch[]> {
+  const key = process.env.API_FOOTBALL_KEY;
+  if (!key) {
+    throw new Error("API_FOOTBALL_KEY is not set");
+  }
+  const res = await fetch(
+    `${BASE}/fixtures?league=${API_FOOTBALL_WC_LEAGUE_ID}&season=${season}`,
+    {
+      headers: {
+        "x-rapidapi-key": key,
+        "x-rapidapi-host": "v3.football.api-sports.io",
+      },
+      cache: "no-store",
+    },
+  );
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(
+      `api-football fixtures ${res.status}: ${body.slice(0, 200)}`,
+    );
+  }
+  const json = (await res.json()) as ApiFootballFullFixturesResponse;
+  return (json.response ?? []).map(parseFullFixtureRow);
+}
+
+// API-Football's /fixtures payload doesn't carry the group letter
+// for group-stage matches — the round string is just "Group Stage - 1".
+// We pull /standings separately and build a Map<teamApiId, "A".."L">
+// so the caller can tag each fixture with its group.
+export async function fetchWorldCupGroupMap(
+  season: number,
+): Promise<Map<number, string>> {
+  const key = process.env.API_FOOTBALL_KEY;
+  if (!key) {
+    throw new Error("API_FOOTBALL_KEY is not set");
+  }
+  const res = await fetch(
+    `${BASE}/standings?league=${API_FOOTBALL_WC_LEAGUE_ID}&season=${season}`,
+    {
+      headers: {
+        "x-rapidapi-key": key,
+        "x-rapidapi-host": "v3.football.api-sports.io",
+      },
+      cache: "no-store",
+    },
+  );
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(
+      `api-football standings ${res.status}: ${body.slice(0, 200)}`,
+    );
+  }
+  const json = (await res.json()) as ApiFootballStandingsResponse;
+  const block = json.response?.[0];
+  const map = new Map<number, string>();
+  if (!block) return map;
+  for (const groupArr of block.league.standings) {
+    for (const row of groupArr) {
+      const letter = extractGroupLetter(row.group);
+      if (letter) map.set(row.team.id, letter);
+    }
+  }
+  return map;
+}
+
+// "Group A" → "A". Returns null if the label doesn't match the
+// expected shape — keep group_id null in that case rather than
+// guessing.
+function extractGroupLetter(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const m = /Group\s+([A-L])/i.exec(raw);
+  return m ? m[1].toUpperCase() : null;
+}
+
+export function mapApiFootballStatus(short: string): ApiFootballStatusMapped {
+  switch (short.toUpperCase()) {
+    // Pre-kickoff.
+    case "NS":   // Not Started
+    case "TBD":  // To Be Defined
+    case "PST":  // Postponed
+      return "scheduled";
+
+    // In progress.
+    case "1H":   // First half
+    case "HT":   // Half time
+    case "2H":   // Second half
+    case "ET":   // Extra time
+    case "BT":   // Break time (between ET halves)
+    case "P":    // Penalties shootout
+    case "LIVE": // Generic live
+      return "live";
+
+    // Final results.
+    case "FT":   // Full time
+    case "AET":  // After extra time
+    case "PEN":  // Decided on penalties
+    case "AWD":  // Awarded (forfeit)
+    case "WO":   // Walkover
+      return "final";
+
+    // Cancellations / abandonments. We don't want to overwrite a row
+    // that's already marked final, and we don't have a 'cancelled'
+    // internal status to flip to. Caller logs a [sync status anomaly]
+    // and skips the status write.
+    case "CANC": // Cancelled
+    case "ABD":  // Abandoned
+    case "SUSP": // Suspended
+    case "INT":  // Interrupted
+      return "no_change";
+
+    default:
+      // Unknown short codes are conservative: keep the current row.
+      // The caller logs an anomaly so the vendor-side addition is
+      // visible in logs.
+      return "no_change";
+  }
+}
+
+// Translate API-Football's `round` label + a group letter (from
+// fetchWorldCupGroupMap) into our internal stage enum + group id.
+// Returns null when the round string isn't recognised — caller logs
+// a `[sync round unknown]` warning and skips the row.
+export function mapApiFootballRound(
+  round: string,
+  groupLetter: string | null,
+): ApiFootballStageMapped | null {
+  const norm = round.trim().toLowerCase();
+  if (norm.startsWith("group stage")) {
+    return { stage: "group", groupId: groupLetter };
+  }
+  if (norm.startsWith("round of 32")) {
+    return { stage: "r32", groupId: null };
+  }
+  if (norm.startsWith("round of 16")) {
+    return { stage: "r16", groupId: null };
+  }
+  if (norm.startsWith("quarter-final") || norm.startsWith("quarter finals")) {
+    return { stage: "qf", groupId: null };
+  }
+  if (norm.startsWith("semi-final") || norm.startsWith("semi finals")) {
+    return { stage: "sf", groupId: null };
+  }
+  if (
+    norm.startsWith("3rd place") ||
+    norm.includes("third place") ||
+    norm.includes("third-place")
+  ) {
+    return { stage: "third_place", groupId: null };
+  }
+  if (norm === "final") {
+    return { stage: "final", groupId: null };
+  }
+  return null;
+}
+
+// ─── response shapes for the cron path ────────────────────────────
+
+type ApiFootballFullFixturesResponse = {
+  response?: Array<{
+    fixture: {
+      id: number;
+      date: string;
+      status: { short: string; elapsed: number | null };
+      venue?: { name: string | null } | null;
+    };
+    league: { round: string };
+    teams: {
+      home: { id: number; name: string };
+      away: { id: number; name: string };
+    };
+    goals: { home: number | null; away: number | null };
+    score: {
+      halftime: { home: number | null; away: number | null };
+      fulltime: { home: number | null; away: number | null };
+      extratime: { home: number | null; away: number | null };
+      penalty: { home: number | null; away: number | null };
+    };
+  }>;
+};
+
+function parseFullFixtureRow(
+  row: NonNullable<ApiFootballFullFixturesResponse["response"]>[number],
+): ApiFootballMatch {
+  // Use `score.fulltime` when present (it carries the final scoreline
+  // for finished matches), otherwise fall back to `goals` which is the
+  // live counter API-Football updates during play.
+  const ftHome = row.score?.fulltime?.home ?? row.goals?.home ?? null;
+  const ftAway = row.score?.fulltime?.away ?? row.goals?.away ?? null;
+  return {
+    fixtureId: row.fixture.id,
+    kickoffAt: row.fixture.date,
+    statusShort: row.fixture.status.short,
+    elapsed: row.fixture.status.elapsed ?? null,
+    homeTeamApiId: row.teams.home.id,
+    homeTeamName: row.teams.home.name,
+    awayTeamApiId: row.teams.away.id,
+    awayTeamName: row.teams.away.name,
+    homeScoreFt: ftHome,
+    awayScoreFt: ftAway,
+    homeScoreHt: row.score?.halftime?.home ?? null,
+    awayScoreHt: row.score?.halftime?.away ?? null,
+    homeScorePen: row.score?.penalty?.home ?? null,
+    awayScorePen: row.score?.penalty?.away ?? null,
+    venue: row.fixture.venue?.name ?? null,
+    round: row.league.round,
+  };
+}
+
+type ApiFootballStandingsResponse = {
+  response?: Array<{
+    league: {
+      standings: Array<
+        Array<{
+          team: { id: number; name: string };
+          group?: string | null;
+        }>
+      >;
+    };
+  }>;
+};
