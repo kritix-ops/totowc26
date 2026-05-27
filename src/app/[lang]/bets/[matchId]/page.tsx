@@ -1,7 +1,7 @@
 import { notFound, redirect } from "next/navigation";
 import { Calendar } from "lucide-react";
 import { getDictionary, hasLocale, type Locale } from "../../dictionaries";
-import { getUser } from "@/lib/supabase/auth";
+import { getRequestUser } from "@/lib/request-user";
 import { getUserAccess } from "@/lib/access";
 import { getFixtureWithBets, getMyBet } from "@/db/queries";
 import { Card, LabelCaps } from "@/components/ui";
@@ -18,7 +18,7 @@ export default async function MatchBetPage({
   const locale = lang as Locale;
   const dict = await getDictionary(locale);
 
-  const user = await getUser();
+  const user = await getRequestUser();
   if (!user) redirect(localePath(locale, "login"));
 
   const match = await getFixtureWithBets(matchId);

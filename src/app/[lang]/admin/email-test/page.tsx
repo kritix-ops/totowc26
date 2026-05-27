@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import { hasLocale, type Locale } from "../../dictionaries";
-import { getUser } from "@/lib/supabase/auth";
+import { getRequestUser } from "@/lib/request-user";
 import { TestForm } from "./TestForm";
 
 export default async function EmailTestPage({
@@ -12,7 +12,7 @@ export default async function EmailTestPage({
   const isHebrew = locale === "he";
 
   // Admin gate already enforced by /[lang]/admin/layout.tsx → requireAdmin.
-  const user = await getUser();
+  const user = await getRequestUser();
   const defaultTo = user?.email ?? "";
 
   const initialEnv = {

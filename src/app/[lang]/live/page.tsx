@@ -5,7 +5,7 @@ import { clsx } from "clsx";
 import { getDictionary, hasLocale, type Locale } from "../dictionaries";
 import { Card, Chip, LabelCaps } from "@/components/ui";
 import { Flag } from "@/components/Flag";
-import { getUser } from "@/lib/supabase/auth";
+import { getRequestUser } from "@/lib/request-user";
 import { getLiveMatches, type LiveMatchRow } from "@/db/queries";
 import { db } from "@/db";
 import { settings } from "@/db/schema";
@@ -43,7 +43,7 @@ export default async function LiveMatchesPage({
   const locale = lang as Locale;
   const dict = await getDictionary(locale);
 
-  const user = await getUser();
+  const user = await getRequestUser();
   if (!user) redirect(localePath(locale, "login"));
 
   const [matches, scoring] = await Promise.all([

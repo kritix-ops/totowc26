@@ -1,30 +1,69 @@
-// Minimal service worker for the טוטו מונדיאל 2026 PWA.
-// Goals:
-//   1. Satisfy install criteria so Chrome shows "Add to Home Screen".
-//   2. Cache the app shell (icons + offline fallback) so the install screen
-//      and an offline tab don't show a generic dinosaur.
-//   3. NEVER cache HTML pages or API responses — this app is live data
-//      (real-time scores, bet status). Stale UI would be worse than a
-//      network error.
+// Service worker for the טוטו מונדיאל 2026 PWA.
+//
+// Strategy by request kind:
+//
+//   1. PWA install assets (`/icons/*`, manifest) — cached at install,
+//      served cache-first. They almost never change and we want the
+//      install dialog to work offline.
+//
+//   2. Next.js build-hashed assets (`/_next/static/*`) — cache-first
+//      with a runtime cache. The URLs include the build hash, so the
+//      cached copy is by definition immutable for that hash. Any new
+//      build emits new URLs, so we never need to revalidate. This is
+//      the biggest perf win — repeat nav stops touching the network
+//      for JS/CSS bundles.
+//
+//   3. Static images shipped from `/public` (hero PNGs, brand mark)
+//      — stale-while-revalidate. We serve the cached copy instantly
+//      and quietly refresh it in the background, so a re-deploy is
+//      picked up on the next visit without ever showing a blank space.
+//
+//   4. HTML pages and API responses — pure network-first (no SW
+//      caching). The app is live data; we never want stale scores
+//      or stale auth state.
+//
+//   5. Cross-origin — straight to network. Auth tokens, flag CDN,
+//      football-data API: all live, never cached here.
 
-const VERSION = "v1";
+const VERSION = "v2";
 const STATIC_CACHE = `toto-static-${VERSION}`;
+const BUILD_CACHE = `toto-build-${VERSION}`;
+const IMG_CACHE = `toto-img-${VERSION}`;
 
-// Files cached at install-time. Keep this list short: the SW won't activate
-// if any of these 404, and they need to be served same-origin.
+// Files cached at install-time. Keep this list short: the SW won't
+// activate if any of these 404, and they need to be served same-origin.
 const STATIC_ASSETS = [
   "/icons/icon-192.png",
   "/icons/icon-512.png",
   "/icons/maskable-icon-512.png",
 ];
 
+// Image URL patterns served stale-while-revalidate from `/public`. We
+// explicitly enumerate the hero/brand images instead of matching every
+// `.png` so we never accidentally cache user-content uploads — there
+// are none today but the rule is a safety net for the future.
+const STATIC_IMAGE_PATTERNS = [
+  /^\/hero-(he|en)\.png$/,
+  /^\/icons\/.+\.(png|svg|webp)$/,
+  /^\/apple-icon\.png$/,
+  /^\/favicon\.ico$/,
+];
+
+function isBuildAsset(url) {
+  return url.pathname.startsWith("/_next/static/");
+}
+
+function isStaticImage(url) {
+  return STATIC_IMAGE_PATTERNS.some((re) => re.test(url.pathname));
+}
+
 self.addEventListener("install", (event) => {
   event.waitUntil(
     caches
       .open(STATIC_CACHE)
       .then((cache) =>
-        // Use { cache: 'reload' } so the install never serves a stale icon
-        // from the HTTP cache during an SW upgrade.
+        // Use { cache: 'reload' } so the install never serves a stale
+        // icon from the HTTP cache during an SW upgrade.
         Promise.all(
           STATIC_ASSETS.map((url) =>
             cache.add(new Request(url, { cache: "reload" })),
@@ -36,13 +75,14 @@ self.addEventListener("install", (event) => {
 });
 
 self.addEventListener("activate", (event) => {
+  const KEEP = new Set([STATIC_CACHE, BUILD_CACHE, IMG_CACHE]);
   event.waitUntil(
     caches
       .keys()
       .then((names) =>
         Promise.all(
           names
-            .filter((n) => n.startsWith("toto-") && n !== STATIC_CACHE)
+            .filter((n) => n.startsWith("toto-") && !KEEP.has(n))
             .map((n) => caches.delete(n)),
         ),
       )
@@ -56,12 +96,12 @@ self.addEventListener("fetch", (event) => {
 
   const url = new URL(request.url);
 
-  // Same-origin only. Cross-origin (Supabase, flag CDN, football-data) goes
-  // straight to network — we never want to serve stale auth tokens or stale
-  // scores.
+  // Same-origin only. Cross-origin (Supabase, flag CDN, football-data)
+  // goes straight to network — we never want to serve stale auth tokens
+  // or stale scores.
   if (url.origin !== self.location.origin) return;
 
-  // Cache-first for static assets we precached.
+  // 1) Pre-cached install assets — cache-first.
   if (STATIC_ASSETS.includes(url.pathname)) {
     event.respondWith(
       caches.match(request).then((hit) => hit || fetch(request)),
@@ -69,10 +109,44 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // Network-first for everything else. On failure, fall back to whatever the
-  // cache has (rarely useful here since we don't precache HTML, but it
-  // covers the case where the user revisits a page they previously loaded
-  // and we have it via the runtime cache below).
+  // 2) Build-hashed assets — cache-first, populate on first hit. The
+  //    hash in the URL guarantees content immutability so revalidation
+  //    would be pure waste.
+  if (isBuildAsset(url)) {
+    event.respondWith(
+      caches.open(BUILD_CACHE).then(async (cache) => {
+        const hit = await cache.match(request);
+        if (hit) return hit;
+        const res = await fetch(request);
+        if (res.ok) cache.put(request, res.clone());
+        return res;
+      }),
+    );
+    return;
+  }
+
+  // 3) Static images — stale-while-revalidate. Serve the cached copy
+  //    if we have one and quietly refresh in the background.
+  if (isStaticImage(url)) {
+    event.respondWith(
+      caches.open(IMG_CACHE).then(async (cache) => {
+        const hit = await cache.match(request);
+        const fetchAndStore = fetch(request)
+          .then((res) => {
+            if (res.ok) cache.put(request, res.clone());
+            return res;
+          })
+          .catch(() => hit);
+        return hit || fetchAndStore;
+      }),
+    );
+    return;
+  }
+
+  // 4) Everything else (HTML, API, server actions) — network-first.
+  //    On network failure, fall back to whatever the cache has so an
+  //    offline tab does not 503, but normal operation never serves
+  //    stale data here.
   event.respondWith(
     fetch(request).catch(() =>
       caches.match(request).then((hit) => {

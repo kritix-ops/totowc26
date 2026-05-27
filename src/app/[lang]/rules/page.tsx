@@ -23,7 +23,7 @@ import { getDictionary, hasLocale, type Locale } from "../dictionaries";
 import { getCategoryPrizeBreakdown } from "@/db/queries";
 import { db } from "@/db";
 import { settings } from "@/db/schema";
-import { getUser } from "@/lib/supabase/auth";
+import { getRequestUser } from "@/lib/request-user";
 import { localePath } from "@/lib/paths";
 import { Card, LabelCaps, SectionHeading } from "@/components/ui";
 import { CategoryPrizeStrip } from "@/components/CategoryPrizeStrip";
@@ -42,7 +42,7 @@ export default async function RulesPage({
   // the live scoring config so the page never drifts from the source
   // of truth (admin can flip the risk toggle and the page reflects it).
   const [user, prize, [scoringCfg]] = await Promise.all([
-    getUser(),
+    getRequestUser(),
     getCategoryPrizeBreakdown(),
     db
       .select({

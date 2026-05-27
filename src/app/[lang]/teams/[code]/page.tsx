@@ -8,7 +8,7 @@ import {
   type TeamMatchRow,
   type LiveStandingRow,
 } from "@/db/queries";
-import { getUser } from "@/lib/supabase/auth";
+import { getRequestUser } from "@/lib/request-user";
 import { Card, LabelCaps, SectionHeading } from "@/components/ui";
 import { Flag } from "@/components/Flag";
 import { localePath } from "@/lib/paths";
@@ -22,7 +22,7 @@ export default async function TeamPage({
   if (!hasLocale(lang)) notFound();
   const locale = lang as Locale;
 
-  const user = await getUser();
+  const user = await getRequestUser();
   if (!user) redirect(localePath(locale, "login"));
 
   const team = await getTeamByCode(code);

@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 import { getDictionary, hasLocale, type Locale } from "../dictionaries";
 import { db } from "@/db";
 import { settings } from "@/db/schema";
-import { getUser } from "@/lib/supabase/auth";
+import { getRequestUser } from "@/lib/request-user";
 import { localePath } from "@/lib/paths";
 import { BrandLogo } from "@/components/BrandLogo";
 import { LoginForm } from "./LoginForm";
@@ -17,7 +17,7 @@ export default async function LoginPage({
   const dict = await getDictionary(locale);
   const isHebrew = locale === "he";
 
-  const user = await getUser();
+  const user = await getRequestUser();
   if (user) redirect(localePath(locale, "onboarding"));
 
   // Hide the "request to join" link when the admin has closed signups.

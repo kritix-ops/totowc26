@@ -6,6 +6,13 @@ const DEFAULT_LOCALE = "he";
 const LOCALE_COOKIE = "NEXT_LOCALE";
 const LOCALE_COOKIE_MAX_AGE = 60 * 60 * 24 * 365;
 
+// Headers the proxy sets on the inner request so that server components
+// can read the verified user info without a second Supabase round-trip.
+// These are stripped from inbound requests first so a malicious client
+// cannot forge them — only the proxy may set them.
+const TOTO_USER_ID_HEADER = "x-toto-user-id";
+const TOTO_USER_EMAIL_HEADER = "x-toto-user-email";
+
 // Pages that an unauthenticated user is allowed to see. Each entry is the
 // path AFTER the locale segment (no leading slash). Empty string = landing.
 // "signup" covers both /signup (the request form) and /signup/thanks (the
@@ -78,22 +85,39 @@ export async function proxy(request: NextRequest) {
     return redirect;
   }
 
+  // Strip any inbound forgery attempts of the user-id header BEFORE we
+  // read it anywhere downstream. The proxy is the only thing allowed to
+  // set this.
+  const requestHeaders = new Headers(request.headers);
+  requestHeaders.delete(TOTO_USER_ID_HEADER);
+  requestHeaders.delete(TOTO_USER_EMAIL_HEADER);
+
   // 2) Refresh Supabase session and read the current user.
   const supaUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anonKey =
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??
     process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
-  if (!supaUrl || !anonKey) return NextResponse.next({ request });
+  if (!supaUrl || !anonKey) {
+    return NextResponse.next({ request: { headers: requestHeaders } });
+  }
 
-  let response = NextResponse.next({ request });
+  // Refreshed cookies returned by the supabase client are collected and
+  // applied to the final response at the bottom of the function, so we
+  // don't have to keep rebuilding the response while the user header is
+  // also in flight.
+  const refreshedCookies: Array<{
+    name: string;
+    value: string;
+    options: CookieOptions;
+  }> = [];
+
   const supabase = createServerClient(supaUrl, anonKey, {
     cookies: {
       getAll: () => request.cookies.getAll(),
       setAll: (toSet) => {
         toSet.forEach(({ name, value }) => request.cookies.set(name, value));
-        response = NextResponse.next({ request });
         toSet.forEach(({ name, value, options }) =>
-          response.cookies.set(name, value, options as CookieOptions),
+          refreshedCookies.push({ name, value, options: options as CookieOptions }),
         );
       },
     },
@@ -109,6 +133,9 @@ export async function proxy(request: NextRequest) {
     url.pathname = `/${currentLocale}/login`;
     const redirect = NextResponse.redirect(url);
     rememberLocale(redirect, currentLocale);
+    refreshedCookies.forEach(({ name, value, options }) =>
+      redirect.cookies.set(name, value, options),
+    );
     return redirect;
   }
 
@@ -118,8 +145,23 @@ export async function proxy(request: NextRequest) {
     url.pathname = `/${currentLocale}/onboarding`;
     const redirect = NextResponse.redirect(url);
     rememberLocale(redirect, currentLocale);
+    refreshedCookies.forEach(({ name, value, options }) =>
+      redirect.cookies.set(name, value, options),
+    );
     return redirect;
   }
+
+  // Pass the verified user info to server components so the layout can
+  // branch on signed-in state without a second Supabase round-trip.
+  if (user) {
+    requestHeaders.set(TOTO_USER_ID_HEADER, user.id);
+    if (user.email) requestHeaders.set(TOTO_USER_EMAIL_HEADER, user.email);
+  }
+
+  const response = NextResponse.next({ request: { headers: requestHeaders } });
+  refreshedCookies.forEach(({ name, value, options }) =>
+    response.cookies.set(name, value, options),
+  );
 
   if (request.cookies.get(LOCALE_COOKIE)?.value !== currentLocale) {
     rememberLocale(response, currentLocale);

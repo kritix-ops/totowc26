@@ -1,29 +1,38 @@
 import Link from "next/link";
-import { eq } from "drizzle-orm";
-import {
-  BookOpen,
-  Home,
-  ListChecks,
-  Sparkles,
-  Trophy,
-  LogIn,
-} from "lucide-react";
+import { Suspense } from "react";
+import { BookOpen, Home, ListChecks, Sparkles, Trophy } from "lucide-react";
 import type { Dictionary, Locale } from "@/app/[lang]/dictionaries";
 import { localePath } from "@/lib/paths";
-import { getUser } from "@/lib/supabase/auth";
-import { getUserAccess } from "@/lib/access";
-import { getMyRankSummary } from "@/db/queries";
-import { getBankBreakdown } from "@/lib/bank";
-import { db } from "@/db";
-import { profiles, settings } from "@/db/schema";
-import { LanguageToggle } from "./LanguageToggle";
+import { getRequestUser } from "@/lib/request-user";
+import { getViewAs } from "@/lib/view-as";
 import { NavLink, BottomNavLink } from "./NavLink";
 import { BrandLogo } from "./BrandLogo";
-import { BankPill } from "./BankPill";
-import { ViewAsBanner } from "./ViewAsBanner";
-import { ProfileMenu } from "./ProfileMenu";
-import { MobileMoreSheet } from "./MobileMoreSheet";
+import { HeaderUserSection } from "./HeaderUserSection";
+import { GuestHeaderActions } from "./GuestHeaderActions";
+import { DesktopNavExtras } from "./DesktopNavExtras";
+import { MobileMoreSection } from "./MobileMoreSection";
+import { ViewAsBannerSection } from "./ViewAsBannerSection";
+import {
+  DesktopNavExtrasSkeleton,
+  GuestActionsSkeleton,
+  HeaderUserSkeleton,
+  MobileMoreSkeleton,
+} from "./AppShellSkeletons";
 
+// The AppShell is the layout chrome that wraps every page. The whole
+// reason this component exists in its current shape is to be FAST: on
+// every client-side navigation Next.js re-renders the layout chain, so
+// anything this component awaits is a tax paid on every click. We pay
+// nothing here other than a single `headers()` read (free — it's
+// request-time, not a DB call) to decide whether the user is signed in.
+// Every per-user surface (bank pill, rank, profile menu, view-as
+// banner, Pay/Admin nav extras, mobile More sheet) streams in behind a
+// <Suspense> boundary with a skeleton matching its real dimensions.
+//
+// The static parts (logo, rules CTA, fixed nav items, bottom nav with
+// the 4 always-visible cells, the <main> children) are emitted as the
+// first byte of the response so the user sees a complete shell
+// instantly and the heavy queries fan out in parallel underneath.
 export async function AppShell({
   locale,
   dict,
@@ -36,97 +45,80 @@ export async function AppShell({
   const home = localePath(locale);
   const isHebrew = locale === "he";
 
-  const user = await getUser();
-  const signedIn = !!user;
-  const [rankSummary, access, bank, profileRow, signupOpen] = signedIn
-    ? await Promise.all([
-        getMyRankSummary(user.id),
-        getUserAccess(user.id),
-        getBankBreakdown(user.id),
-        db
-          .select({ displayName: profiles.displayName })
-          .from(profiles)
-          .where(eq(profiles.id, user.id))
-          .limit(1)
-          .then((r) => r[0] ?? null),
-        Promise.resolve(true),
-      ])
-    : await Promise.all([
-        Promise.resolve(null),
-        Promise.resolve(null),
-        Promise.resolve(null),
-        Promise.resolve(null),
-        // Guest header: hide the "Sign up" pill when the admin has closed
-        // signups, so visitors are not led to a dead-end page.
-        db
-          .select({ open: settings.publicSignupOpen })
-          .from(settings)
-          .where(eq(settings.id, 1))
-          .limit(1)
-          .then((r) => r[0]?.open ?? true),
-      ]);
-  const displayName =
-    profileRow?.displayName ?? user?.email ?? "";
-  // `access.isAdmin` is the EFFECTIVE role - it's false while an admin
-  // impersonates a player, so the nav swaps to the player layout. The
-  // banner + the action server-side gates already pick up the same
-  // impersonation through the cookie.
-  const admin = !!access?.isAdmin;
-  const viewingAs = access?.viewingAs ?? null;
-  // Admin never has anything to pay, so the /pay tab only adds noise. Hide
-  // it for them and keep the bottom nav compact.
-  const showPay = signedIn && !admin;
+  // Cheap synchronous-ish header read — populated by the proxy after
+  // it verifies the Supabase session. Saves a second auth round-trip
+  // on every navigation.
+  const reqUser = await getRequestUser();
+  const signedIn = !!reqUser;
+
+  // Reserve 40px at the top of the viewport for the "viewing-as"
+  // admin banner only when the cookie indicates an impersonation is
+  // active. This is read synchronously (cheap cookie lookup) so the
+  // header is positioned correctly on first paint — the banner itself
+  // still streams in behind Suspense, but the slot is already there
+  // so its arrival does not shift the header down.
+  const viewAsCookie = signedIn ? await getViewAs() : null;
+  const reserveBanner = !!viewAsCookie;
+  const headerTopClass = reserveBanner ? "top-[40px]" : "top-0";
+  const mainTopPaddingClass = reserveBanner
+    ? "pt-[calc(40px+3.5rem)] md:pt-[calc(40px+4rem)]"
+    : "pt-14 md:pt-16";
+
   console.info("[app shell render]", {
     signedIn,
-    isAdmin: admin,
-    viewingAs,
-    myRank: rankSummary?.myRank ?? null,
-    totalPlayers: rankSummary?.total ?? null,
-    showPay,
-    mobileNavCells: 5,
+    userId: reqUser?.id ?? null,
+    reserveBanner,
+    streamingSections: signedIn
+      ? ["ViewAsBanner", "DesktopNavExtras", "HeaderUserSection", "MobileMoreSection"]
+      : ["GuestHeaderActions"],
   });
 
   return (
     <>
-      {viewingAs && (
-        <div className="fixed top-0 left-0 right-0 z-[60]">
-          <ViewAsBanner locale={locale} role={viewingAs} />
-        </div>
+      {signedIn && (
+        <Suspense fallback={null}>
+          <ViewAsBannerSection locale={locale} userId={reqUser.id} />
+        </Suspense>
       )}
-      <header
-        className={`bg-surface border-b border-outline-variant shadow-sm fixed left-0 right-0 w-full px-3 md:px-16 h-14 md:h-16 z-50 flex items-center justify-between gap-2 md:gap-3 ${viewingAs ? "top-[40px]" : "top-0"}`}
-      >
-        <Link
-          href={home}
-          aria-label={isHebrew ? "טוטו מונדיאל" : "Toto Mundial"}
-          className="flex items-center min-w-0 shrink-0"
-        >
-          <BrandLogo locale={locale} size="header" />
-        </Link>
+      {/*
+        3-column grid so the centre nav truly sits in the middle of the
+        viewport regardless of how wide the left and right clusters
+        grow. With `justify-between` (the previous layout) the nav
+        snapped to the logo's side and left a giant gap on the user-
+        pill side — see the screenshot the user flagged. Grid keeps
+        the nav optically balanced; the side columns simply expand as
+        needed inside their own auto-sized cells.
+      */}
+      <header className={`bg-surface border-b border-outline-variant shadow-sm fixed left-0 right-0 w-full px-3 md:px-16 h-14 md:h-16 z-50 grid grid-cols-[auto_1fr_auto] items-center gap-2 md:gap-4 ${headerTopClass}`}>
+        <div className="flex items-center gap-2 md:gap-3 min-w-0">
+          <Link
+            href={home}
+            aria-label={isHebrew ? "טוטו מונדיאל" : "Toto Mundial"}
+            className="flex items-center min-w-0 shrink-0"
+          >
+            <BrandLogo locale={locale} size="header" />
+          </Link>
 
-        {/* "How it works" CTA. Discoverable from every in-app page for
-            signed-in users - text on md+ for a clear call-to-action,
-            icon-only on mobile so it does not crowd the bank pill on
-            narrow screens. Hidden for guests so the landing header
-            stays focused on signup/sign-in. */}
-        {signedIn && (
+          {/* "How it works" CTA. Discoverable from every page - text
+              on md+ for a clear call-to-action, icon-only on mobile
+              so it does not crowd the bank pill on narrow screens. */}
           <Link
             href={localePath(locale, "rules")}
             aria-label={dict.nav.rulesCtaLong}
             title={dict.nav.rulesCtaLong}
-            className="press-down inline-flex items-center gap-1.5 min-h-[36px] px-2 md:px-3 rounded-full bg-tertiary-fixed text-on-tertiary-fixed-variant border border-tertiary-fixed-dim hover:bg-tertiary-container transition-colors shrink-0"
+            className="press-down inline-flex items-center gap-1.5 min-h-[36px] px-2 md:px-3 rounded-full bg-tertiary-fixed text-on-tertiary-fixed-variant border border-tertiary-fixed-dim hover:bg-tertiary-container transition-[background-color,color] duration-150 shrink-0"
           >
             <BookOpen className="h-4 w-4" strokeWidth={2} />
             <span className="hidden md:inline font-[family-name:var(--font-label)] text-[12px] font-bold tracking-[0.05em]">
               {dict.nav.rulesCta}
             </span>
           </Link>
-        )}
+        </div>
 
-        {signedIn && (
+        {signedIn ? (
           <nav
             aria-label={isHebrew ? "ניווט ראשי" : "Main"}
-            className="hidden md:flex items-center gap-6 h-full"
+            className="hidden md:flex items-center justify-center gap-6 h-full"
           >
             <NavLink locale={locale} path="" label={dict.nav.home} exact />
             <NavLink locale={locale} path="bets" label={dict.nav.matchPicks} />
@@ -134,113 +126,56 @@ export async function AppShell({
             <NavLink locale={locale} path="duels" label={dict.nav.duels} />
             <NavLink locale={locale} path="leaderboard" label={dict.nav.leaders} />
             <NavLink locale={locale} path="tournament" label={dict.nav.tournament} />
-            {showPay && (
-              <NavLink locale={locale} path="pay" label={dict.nav.pay} />
-            )}
-            {admin && (
-              <>
-                <span aria-hidden className="h-4 w-px bg-outline-variant" />
-                <NavLink locale={locale} path="admin" label={dict.nav.admin} />
-              </>
-            )}
+            <Suspense fallback={<DesktopNavExtrasSkeleton />}>
+              <DesktopNavExtras locale={locale} dict={dict} userId={reqUser.id} />
+            </Suspense>
           </nav>
+        ) : (
+          // Empty centre cell for guests keeps the grid template
+          // balanced so logo and login pills stay anchored to their
+          // sides instead of drifting toward each other.
+          <div aria-hidden />
         )}
 
-        <div className="flex items-center gap-2 md:gap-4 shrink-0">
+        <div className="flex items-center gap-2 md:gap-4 shrink-0 justify-self-end">
           {signedIn ? (
-            <>
-              {bank && (
-                <BankPill
-                  locale={locale}
-                  dict={dict}
-                  balance={bank.balance}
-                  starting={bank.starting}
-                />
-              )}
-              {rankSummary && rankSummary.myRank > 0 ? (
-                <span className="hidden md:inline-block font-[family-name:var(--font-label)] text-[12px] font-bold tracking-[0.05em] text-on-surface-variant">
-                  {dict.common.rankShort} <bdi>#{rankSummary.myRank}</bdi>
-                </span>
-              ) : null}
-              <ProfileMenu
+            <Suspense fallback={<HeaderUserSkeleton />}>
+              <HeaderUserSection
                 locale={locale}
-                displayName={displayName}
-                isAdmin={admin}
-                labels={{
-                  profile: dict.nav.profile,
-                  admin: dict.nav.admin,
-                  rules: dict.nav.rules,
-                  language: dict.profile.language,
-                  languageOther: dict.profile.languageOther,
-                  logout: dict.profile.logout,
-                  openMenu: dict.nav.openMenu,
-                }}
+                dict={dict}
+                userId={reqUser.id}
+                userEmail={reqUser.email}
               />
-              <div className="hidden md:flex">
-                <LanguageToggle currentLocale={locale} label={dict.common.languageToggle} />
-              </div>
-            </>
+            </Suspense>
           ) : (
-            <>
-              {signupOpen && (
-                <Link
-                  href={localePath(locale, "signup")}
-                  className="press-down inline-flex items-center justify-center min-h-[40px] px-3 md:px-4 rounded-full bg-surface-container-lowest border border-primary text-primary font-[family-name:var(--font-label)] text-[12px] md:text-[13px] font-bold tracking-[0.05em] hover:bg-primary-container transition-colors"
-                >
-                  {dict.nav.signup}
-                </Link>
-              )}
-              <Link
-                href={localePath(locale, "login")}
-                className="press-down inline-flex items-center gap-1.5 min-h-[40px] px-3 md:px-4 rounded-full bg-primary text-on-primary font-[family-name:var(--font-label)] text-[12px] md:text-[13px] font-bold tracking-[0.05em] hover:bg-surface-tint transition-colors"
-              >
-                <LogIn className="hidden md:block h-4 w-4" strokeWidth={2} />
-                {dict.nav.signin}
-              </Link>
-              <LanguageToggle currentLocale={locale} label={dict.common.languageToggle} />
-            </>
+            <Suspense fallback={<GuestActionsSkeleton />}>
+              <GuestHeaderActions locale={locale} dict={dict} />
+            </Suspense>
           )}
         </div>
       </header>
 
-      <main
-        className={`flex-grow ${viewingAs ? "pt-[calc(40px+3.5rem)] md:pt-[calc(40px+4rem)]" : "pt-14 md:pt-16"} ${signedIn ? "pb-24 md:pb-8" : "pb-8"}`}
-      >
+      <main className={`flex-grow ${mainTopPaddingClass} ${signedIn ? "pb-24 md:pb-8" : "pb-8"}`}>
         {children}
       </main>
 
       {signedIn && (
         <nav
           aria-label={isHebrew ? "ניווט תחתון" : "Bottom"}
-          // 5 fixed cells matching the desktop order, then a "More" trigger
-          // for the items that did not fit (World Cup, Pay, Profile, Admin,
-          // Logout). Order is intentionally identical to the desktop top
-          // nav so users switching devices see the same hierarchy.
+          // 5 fixed cells matching the desktop order, then a "More"
+          // trigger for the items that did not fit (World Cup, Pay,
+          // Profile, Admin, Logout). Order is intentionally identical
+          // to the desktop top nav so users switching devices see the
+          // same hierarchy.
           className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-surface-container rounded-t-xl border-t border-outline-variant shadow-[0_-4px_12px_rgba(28,20,15,0.05)] grid grid-cols-5 items-stretch min-h-[64px] pb-[env(safe-area-inset-bottom)]"
         >
           <BottomNavLink locale={locale} path="" label={dict.nav.home} icon={<Home className="h-5 w-5" strokeWidth={1.75} />} exact />
           <BottomNavLink locale={locale} path="bets" label={dict.nav.matchPicks} icon={<ListChecks className="h-5 w-5" strokeWidth={1.75} />} />
           <BottomNavLink locale={locale} path="play" label={dict.nav.play} icon={<Sparkles className="h-5 w-5" strokeWidth={1.75} />} />
           <BottomNavLink locale={locale} path="leaderboard" label={dict.nav.leaders} icon={<Trophy className="h-5 w-5" strokeWidth={1.75} />} />
-          <MobileMoreSheet
-            locale={locale}
-            showPay={showPay}
-            isAdmin={admin}
-            labels={{
-              moreCell: dict.nav.more,
-              tournament: dict.nav.tournament,
-              liveScores: dict.nav.liveScores,
-              duels: dict.nav.duels,
-              transparency: dict.nav.transparency,
-              pay: dict.nav.pay,
-              profile: dict.nav.profile,
-              admin: dict.nav.admin,
-              rules: dict.nav.rules,
-              logout: dict.profile.logout,
-              openSheet: isHebrew ? "פתח עוד" : "Open more menu",
-              closeSheet: isHebrew ? "סגור" : "Close",
-            }}
-          />
+          <Suspense fallback={<MobileMoreSkeleton />}>
+            <MobileMoreSection locale={locale} dict={dict} userId={reqUser.id} />
+          </Suspense>
         </nav>
       )}
     </>

@@ -4,7 +4,7 @@ import { eq } from "drizzle-orm";
 import { sql } from "drizzle-orm";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { getDictionary, hasLocale, type Locale } from "../../dictionaries";
-import { getUser } from "@/lib/supabase/auth";
+import { getRequestUser } from "@/lib/request-user";
 import { getUserAccess } from "@/lib/access";
 import { getBankBalance } from "@/lib/bank";
 import { db } from "@/db";
@@ -36,7 +36,7 @@ export default async function NewDuelPage({ params }: PageParams) {
   const isHebrew = locale === "he";
   const Chev = isHebrew ? ChevronLeft : ChevronRight;
 
-  const user = await getUser();
+  const user = await getRequestUser();
   if (!user) redirect(localePath(locale, "login"));
   const access = await getUserAccess(user.id);
   if (!access.canEdit) redirect(localePath(locale, "duels"));

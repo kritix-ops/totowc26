@@ -3,7 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { Check, X } from "lucide-react";
 import { clsx } from "clsx";
 import { getDictionary, hasLocale, type Locale } from "../../dictionaries";
-import { getUser } from "@/lib/supabase/auth";
+import { getRequestUser } from "@/lib/request-user";
 import {
   getFixtureWithBets,
   getMatchBets,
@@ -23,7 +23,7 @@ export default async function MatchDetailPage({
   const locale = lang as Locale;
   const dict = await getDictionary(locale);
 
-  const user = await getUser();
+  const user = await getRequestUser();
   if (!user) redirect(localePath(locale, "login"));
 
   const match = await getFixtureWithBets(matchId);

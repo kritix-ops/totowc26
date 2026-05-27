@@ -2,7 +2,7 @@ import { notFound, redirect } from "next/navigation";
 import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import { profiles } from "@/db/schema";
-import { getUser } from "@/lib/supabase/auth";
+import { getRequestUser } from "@/lib/request-user";
 import { localePath } from "@/lib/paths";
 import { hasLocale, type Locale } from "../dictionaries";
 import { BrandLogo } from "@/components/BrandLogo";
@@ -15,7 +15,7 @@ export default async function SetPasswordPage({
   if (!hasLocale(lang)) notFound();
   const locale = lang as Locale;
 
-  const user = await getUser();
+  const user = await getRequestUser();
   if (!user) redirect(localePath(locale, "login"));
 
   const [profile] = await db

@@ -1,6 +1,6 @@
 import { notFound, redirect } from "next/navigation";
 import { getDictionary, hasLocale, type Locale } from "../dictionaries";
-import { getUser } from "@/lib/supabase/auth";
+import { getRequestUser } from "@/lib/request-user";
 import { localePath } from "@/lib/paths";
 import { TournamentTabs, type TournamentTabKey } from "./TournamentTabs";
 import { SummaryTab } from "./SummaryTab";
@@ -17,7 +17,7 @@ export default async function TournamentPage({
   const locale = lang as Locale;
   const dict = await getDictionary(locale);
 
-  const user = await getUser();
+  const user = await getRequestUser();
   if (!user) redirect(localePath(locale, "login"));
 
   const sp = (await searchParams) ?? {};

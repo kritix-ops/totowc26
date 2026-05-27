@@ -3,7 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { Flame, Trophy } from "lucide-react";
 import { clsx } from "clsx";
 import { getDictionary, hasLocale, type Locale } from "../dictionaries";
-import { getUser } from "@/lib/supabase/auth";
+import { getRequestUser } from "@/lib/request-user";
 import {
   getCategoryPrizeBreakdown,
   getLeaderboard,
@@ -33,7 +33,7 @@ export default async function LeaderboardPage({
   const dict = await getDictionary(locale);
   const isHebrew = locale === "he";
 
-  const user = await getUser();
+  const user = await getRequestUser();
   if (!user) redirect(localePath(locale, "login"));
 
   const sp = await searchParams;

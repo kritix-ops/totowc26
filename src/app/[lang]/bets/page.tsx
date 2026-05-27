@@ -5,7 +5,7 @@ import { Calendar, ListChecks } from "lucide-react";
 import { getDictionary, hasLocale, type Locale } from "../dictionaries";
 import { Card } from "@/components/ui";
 import { PayGateBanner } from "@/components/PayGateBanner";
-import { getUser } from "@/lib/supabase/auth";
+import { getRequestUser } from "@/lib/request-user";
 import { getUserAccess } from "@/lib/access";
 import { db } from "@/db";
 import { localePath } from "@/lib/paths";
@@ -37,7 +37,7 @@ export default async function QuickBetsPage({
   const dict = await getDictionary(locale);
   const isHebrew = locale === "he";
 
-  const user = await getUser();
+  const user = await getRequestUser();
   if (!user) redirect(localePath(locale, "login"));
   const access = await getUserAccess(user.id);
 

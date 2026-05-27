@@ -4,7 +4,7 @@ import { Calendar, ChevronLeft, ChevronRight } from "lucide-react";
 import { getDictionary, hasLocale, type Locale } from "../dictionaries";
 import { Card, Chip } from "@/components/ui";
 import { PayGateBanner } from "@/components/PayGateBanner";
-import { getUser } from "@/lib/supabase/auth";
+import { getRequestUser } from "@/lib/request-user";
 import { getUserAccess } from "@/lib/access";
 import { localePath } from "@/lib/paths";
 import { formatDateTime } from "@/lib/format";
@@ -25,7 +25,7 @@ export default async function PlayIndexPage({
   const isHebrew = locale === "he";
   const Chev = isHebrew ? ChevronLeft : ChevronRight;
 
-  const user = await getUser();
+  const user = await getRequestUser();
   if (!user) redirect(localePath(locale, "login"));
   const access = await getUserAccess(user.id);
 

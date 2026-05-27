@@ -4,7 +4,6 @@ import {
   Heebo,
   Space_Grotesk,
   Assistant,
-  Inter,
 } from "next/font/google";
 import {
   getDictionary,
@@ -29,6 +28,11 @@ const display = Heebo({
   display: "swap",
 });
 
+// One Space Grotesk load powers both the English display variant AND
+// the UI "label" variant (small caps-styled chips, button text, nav
+// labels). Previously we shipped a separate Inter font just for labels
+// — same Latin glyphs as Space Grotesk at the small sizes labels use,
+// so we drop it to cut one font request (~25-30KB) from every page.
 const displayEn = Space_Grotesk({
   subsets: ["latin"],
   weight: ["600", "700"],
@@ -40,13 +44,6 @@ const ui = Assistant({
   subsets: ["hebrew", "latin"],
   weight: ["400", "500", "600", "700"],
   variable: "--font-ui",
-  display: "swap",
-});
-
-const labelFont = Inter({
-  subsets: ["latin"],
-  weight: ["600", "700"],
-  variable: "--font-label",
   display: "swap",
 });
 
@@ -112,7 +109,7 @@ export default async function RootLayout({
     <html
       lang={locale}
       dir={dirFor(locale)}
-      className={`${display.variable} ${displayEn.variable} ${ui.variable} ${labelFont.variable}`}
+      className={`${display.variable} ${displayEn.variable} ${ui.variable}`}
     >
       <body className="bg-background text-on-background min-h-screen flex flex-col">
         <SplashOverlay

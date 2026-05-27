@@ -2,7 +2,7 @@ import { notFound, redirect } from "next/navigation";
 import { eq, desc } from "drizzle-orm";
 import { db } from "@/db";
 import { payments } from "@/db/schema";
-import { getUser } from "@/lib/supabase/auth";
+import { getRequestUser } from "@/lib/request-user";
 import { getUserAccess } from "@/lib/access";
 import { getPayboxUrl } from "@/lib/paybox-server";
 import { localePath } from "@/lib/paths";
@@ -17,7 +17,7 @@ export default async function PayPage({
   const locale = lang as Locale;
   const dict = await getDictionary(locale);
 
-  const user = await getUser();
+  const user = await getRequestUser();
   if (!user) redirect(localePath(locale, "login"));
 
   const [latestPayment, access, payboxUrl] = await Promise.all([

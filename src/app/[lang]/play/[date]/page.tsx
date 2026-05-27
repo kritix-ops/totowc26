@@ -9,7 +9,7 @@ import {
   CustomBetCard,
   type CustomBetCardData,
 } from "@/components/CustomBetCard";
-import { getUser } from "@/lib/supabase/auth";
+import { getRequestUser } from "@/lib/request-user";
 import { getUserAccess } from "@/lib/access";
 import { getBankBalance } from "@/lib/bank";
 import { localePath } from "@/lib/paths";
@@ -30,7 +30,7 @@ export default async function PlayDayPage({
   const isHebrew = locale === "he";
   const Chev = isHebrew ? ChevronLeft : ChevronRight;
 
-  const user = await getUser();
+  const user = await getRequestUser();
   if (!user) redirect(localePath(locale, "login"));
   const access = await getUserAccess(user.id);
 

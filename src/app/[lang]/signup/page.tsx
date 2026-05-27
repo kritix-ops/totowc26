@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 import { hasLocale, type Locale } from "../dictionaries";
 import { db } from "@/db";
 import { settings } from "@/db/schema";
-import { getUser } from "@/lib/supabase/auth";
+import { getRequestUser } from "@/lib/request-user";
 import { localePath } from "@/lib/paths";
 import { BrandLogo } from "@/components/BrandLogo";
 import { SignupForm } from "./SignupForm";
@@ -21,7 +21,7 @@ export default async function SignupPage({
   const isHebrew = locale === "he";
 
   // Already signed in? Send them where they belong.
-  const user = await getUser();
+  const user = await getRequestUser();
   if (user) redirect(localePath(locale, "onboarding"));
 
   // Public-signup toggle. When off, render a closed-signups page instead

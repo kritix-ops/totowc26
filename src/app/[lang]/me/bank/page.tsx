@@ -2,7 +2,7 @@ import { notFound, redirect } from "next/navigation";
 import { ArrowDownLeft, ArrowUpRight, Coins, Scale, Target } from "lucide-react";
 import { clsx } from "clsx";
 import { getDictionary, hasLocale, type Locale } from "../../dictionaries";
-import { getUser } from "@/lib/supabase/auth";
+import { getRequestUser } from "@/lib/request-user";
 import { getBankBreakdown } from "@/lib/bank";
 import {
   getBankHistory,
@@ -25,7 +25,7 @@ export default async function BankHistoryPage({
   const dict = await getDictionary(locale);
   const isHebrew = locale === "he";
 
-  const user = await getUser();
+  const user = await getRequestUser();
   if (!user) redirect(localePath(locale, "login"));
 
   const [breakdown, events, stats] = await Promise.all([

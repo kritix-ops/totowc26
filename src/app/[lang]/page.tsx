@@ -1,5 +1,6 @@
 import Link from "next/link";
 import Image from "next/image";
+import { Suspense } from "react";
 import {
   ArrowUpRight,
   CalendarClock,
@@ -15,11 +16,20 @@ import { localePath } from "@/lib/paths";
 import { BrandLogo } from "@/components/BrandLogo";
 import { InstallHint } from "@/components/InstallHint";
 import { PrizeStrip } from "@/components/PrizeStrip";
-import { getUser } from "@/lib/supabase/auth";
+import { getRequestUser } from "@/lib/request-user";
 import { getUserAccess } from "@/lib/access";
 import { db } from "@/db";
 import { sql } from "drizzle-orm";
 import { DashboardPickCard } from "@/components/DashboardPickCard";
+import {
+  HeroStatsCardSkeleton,
+  LastBetSectionSkeleton,
+  LeaderboardSectionSkeleton,
+  PrizeStripSkeleton,
+  StatusRowSkeleton,
+  TrendSectionSkeleton,
+  UpcomingSectionSkeleton,
+} from "@/components/PageSkeleton";
 import {
   getLatestFinalForUser,
   getLeaderboard,
@@ -62,36 +72,29 @@ export default async function HomePage({
   const previewPlayer =
     process.env.NODE_ENV !== "production" && sp["preview"] === "player";
 
-  const user = await getUser();
-  const signedIn = !!user || previewPlayer;
-
-  const [pool, tournamentStart, prize, lockMinutes, access] = await Promise.all([
-    getPoolStats(),
-    getTournamentStart(),
-    getPrizeBreakdown(),
-    getBetLockMinutes(),
-    getUserAccess(user?.id ?? null),
-  ]);
-
-  let dashboard: DashboardData | null = null;
-  if (user) {
-    dashboard = await loadDashboard(user.id);
-  } else if (previewPlayer) {
-    dashboard = mockDashboard();
-  }
+  // Read the verified user from the proxy-set request header instead
+  // of round-tripping to Supabase again. The proxy already authenticated
+  // the session on this request; trusting its result keeps the home
+  // page's TTFB low.
+  const reqUser = await getRequestUser();
+  const userId = reqUser?.id ?? null;
+  const signedIn = !!userId || previewPlayer;
 
   console.info("[home render]", {
     signedIn,
     previewPlayer,
-    potIls: pool.potIls,
-    participants: pool.participants,
-    tournamentStart,
-    hasDashboard: !!dashboard,
-    myRank: dashboard?.rankInfo.myRank ?? null,
-    totalPlayers: dashboard?.rankInfo.total ?? null,
+    userId,
   });
 
   if (!signedIn) {
+    // Guest landing depends on the cached pool/prize/tournamentStart
+    // queries, which serve from memory in the common case. Loading
+    // them at the page level keeps the centerpiece countdown visible
+    // on first paint without an extra Suspense flash.
+    const [tournamentStart, prize] = await Promise.all([
+      getTournamentStart(),
+      getPrizeBreakdown(),
+    ]);
     return (
       <GuestLanding
         locale={locale}
@@ -102,18 +105,36 @@ export default async function HomePage({
     );
   }
 
-  return (
-    <PlayerHome
-      locale={locale}
-      dict={dict}
-      pool={pool}
-      tournamentStart={tournamentStart}
-      data={dashboard!}
-      prize={prize}
-      canEdit={access.canEdit}
-      lockMinutes={lockMinutes}
-    />
-  );
+  // Preview mode is a dev-only escape hatch to look at the signed-in
+  // dashboard layout without a real Supabase session. It keeps the old
+  // pre-loaded code path (no streaming) so the mock data lights up
+  // immediately — there is no benefit to streaming mocked data.
+  if (previewPlayer && !userId) {
+    const [pool, tournamentStart, prize, lockMinutes] = await Promise.all([
+      getPoolStats(),
+      getTournamentStart(),
+      getPrizeBreakdown(),
+      getBetLockMinutes(),
+    ]);
+    return (
+      <PlayerHomePreview
+        locale={locale}
+        dict={dict}
+        pool={pool}
+        tournamentStart={tournamentStart}
+        prize={prize}
+        canEdit={true}
+        lockMinutes={lockMinutes}
+        data={mockDashboard()}
+      />
+    );
+  }
+
+  // The real signed-in path. Every per-user query is streamed in its
+  // own Suspense boundary so the shell + hero band paint immediately
+  // and each card lights up as soon as its data lands. No section
+  // blocks any other section.
+  return <PlayerHome locale={locale} dict={dict} userId={userId!} />;
 }
 
 // Dev-only mock so the PlayerHome layout can be previewed without a
@@ -264,7 +285,236 @@ function GuestLanding({
 // a single-container dashboard so widths align and nothing floats.
 // ─────────────────────────────────────────────────────────────────────────────
 
+// PlayerHome — the streaming version used for real signed-in users.
+// Each card sits behind its own <Suspense> so the dashboard "fills in"
+// progressively instead of blocking on the slowest query.
 function PlayerHome({
+  locale,
+  dict,
+  userId,
+}: {
+  locale: Locale;
+  dict: Awaited<ReturnType<typeof getDictionary>>;
+  userId: string;
+}) {
+  const isHebrew = locale === "he";
+  return (
+    <section className="flex flex-col">
+      <HeroBand locale={locale} />
+
+      <Suspense fallback={<HeroStatsCardSkeleton />}>
+        <HeroStatsCardAsync locale={locale} dict={dict} />
+      </Suspense>
+
+      <div className="mx-auto w-full max-w-6xl px-4 md:px-8 lg:px-16 pt-8 md:pt-12 flex flex-col gap-8 md:gap-12">
+        <Suspense fallback={<PrizeStripSkeleton />}>
+          <PrizeStripAsync locale={locale} dict={dict} />
+        </Suspense>
+
+        <Suspense fallback={<StatusRowSkeleton />}>
+          <StatusRowAsync locale={locale} dict={dict} userId={userId} />
+        </Suspense>
+
+        <Suspense fallback={<UpcomingSectionSkeleton />}>
+          <UpcomingSectionAsync locale={locale} dict={dict} userId={userId} />
+        </Suspense>
+
+        <div className="flex flex-col gap-8 md:gap-12 lg:grid lg:grid-cols-12 lg:gap-x-12 lg:gap-y-12">
+          <div className="lg:col-start-1 lg:col-end-6 lg:row-start-1">
+            <Suspense fallback={<LastBetSectionSkeleton />}>
+              <LastBetSectionAsync locale={locale} dict={dict} userId={userId} />
+            </Suspense>
+          </div>
+          <div className="lg:col-start-6 lg:col-end-13 lg:row-start-1">
+            <Suspense fallback={<TrendSectionSkeleton />}>
+              <TrendSectionAsync locale={locale} dict={dict} userId={userId} />
+            </Suspense>
+          </div>
+          <div className="lg:col-start-6 lg:col-end-13 lg:row-start-2">
+            <Suspense fallback={<LeaderboardSectionSkeleton />}>
+              <LeaderboardSectionAsync locale={locale} dict={dict} userId={userId} />
+            </Suspense>
+          </div>
+          <div className="lg:col-start-1 lg:col-end-6 lg:row-start-2">
+            <SpecialsCard locale={locale} isHebrew={isHebrew} />
+          </div>
+        </div>
+
+        <InstallHint locale={locale as "he" | "en"} />
+      </div>
+    </section>
+  );
+}
+
+// ────────────────────────────────────────────────────────────────────
+// Streamed section wrappers. Each one is a server component that
+// owns a single (or small group of) DB queries and renders the
+// existing presentation component. React server components fan their
+// data fetches out in parallel automatically, so the practical
+// behavior is that all sections race to finish; the fastest paints
+// first, the slowest paints last, and the shell is interactive the
+// whole time.
+// ────────────────────────────────────────────────────────────────────
+
+async function HeroStatsCardAsync({
+  locale,
+  dict,
+}: {
+  locale: Locale;
+  dict: Awaited<ReturnType<typeof getDictionary>>;
+}) {
+  const [pool, tournamentStart] = await Promise.all([
+    getPoolStats(),
+    getTournamentStart(),
+  ]);
+  const isHebrew = locale === "he";
+  const countdown = tournamentStart ? computeCountdown(tournamentStart) : null;
+  console.info("[home stats async]", {
+    potIls: pool.potIls,
+    participants: pool.participants,
+    countdownStarted: countdown?.started ?? null,
+  });
+  return (
+    <div className="relative z-10 -mt-10 sm:-mt-14 md:-mt-20 px-4 md:px-8 lg:px-16 flex justify-center">
+      <div className="w-full max-w-6xl bg-surface-container-low border border-outline rounded-lg shadow-[0_8px_24px_rgba(28,20,15,0.12)] p-5 md:p-7 flex flex-col gap-5 md:gap-6">
+        <div className="flex justify-center">
+          <BrandLogo locale={locale} size="hero" />
+        </div>
+        <div aria-hidden className="h-px bg-outline/40" />
+        <div className="grid grid-cols-3 gap-x-3 md:gap-x-6 items-center">
+          <HeroStat
+            icon={<CalendarClock className="h-4 w-4 text-surface-tint" strokeWidth={1.75} />}
+            value={
+              countdown
+                ? countdown.started
+                  ? (isHebrew ? "מתחיל!" : "Live")
+                  : formatCountdownShort(countdown, locale)
+                : "-"
+            }
+            label={
+              countdown?.started
+                ? (isHebrew ? "המונדיאל" : "Tournament")
+                : dict.landing.countdownLabel
+            }
+          />
+          <HeroStat
+            icon={<CircleDollarSign className="h-4 w-4 text-surface-tint" strokeWidth={1.75} />}
+            value={
+              <>
+                {pool.potIls.toLocaleString(isHebrew ? "he-IL" : "en-US")}
+                <span className="text-on-surface-variant font-normal mr-0.5 ms-0.5">
+                  {dict.common.currency}
+                </span>
+              </>
+            }
+            label={dict.landing.potLabel}
+          />
+          <HeroStat
+            icon={<Users className="h-4 w-4 text-surface-tint" strokeWidth={1.75} />}
+            value={String(pool.participants)}
+            label={dict.landing.participantsLabel}
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+async function PrizeStripAsync({
+  locale,
+  dict,
+}: {
+  locale: Locale;
+  dict: Awaited<ReturnType<typeof getDictionary>>;
+}) {
+  const prize = await getPrizeBreakdown();
+  return <PrizeStrip prize={prize} locale={locale} dict={dict} />;
+}
+
+async function StatusRowAsync({
+  locale,
+  dict,
+  userId,
+}: {
+  locale: Locale;
+  dict: Awaited<ReturnType<typeof getDictionary>>;
+  userId: string;
+}) {
+  const rankInfo = await getMyRankSummary(userId);
+  return <StatusRow locale={locale} dict={dict} rankInfo={rankInfo} />;
+}
+
+async function UpcomingSectionAsync({
+  locale,
+  dict,
+  userId,
+}: {
+  locale: Locale;
+  dict: Awaited<ReturnType<typeof getDictionary>>;
+  userId: string;
+}) {
+  // These three fan out in parallel; the section paints when all
+  // three resolve. `lockMinutes` and `access` are both cheap
+  // single-row lookups, the heavy one is the fixtures query.
+  const [upcoming, access, lockMinutes] = await Promise.all([
+    getUpcomingFixtures(userId, 6),
+    getUserAccess(userId),
+    getBetLockMinutes(),
+  ]);
+  return (
+    <UpcomingSection
+      locale={locale}
+      dict={dict}
+      upcoming={upcoming}
+      canEdit={access.canEdit}
+      lockMinutes={lockMinutes}
+    />
+  );
+}
+
+async function LastBetSectionAsync({
+  locale,
+  dict,
+  userId,
+}: {
+  locale: Locale;
+  dict: Awaited<ReturnType<typeof getDictionary>>;
+  userId: string;
+}) {
+  const lastFinal = await getLatestFinalForUser(userId);
+  return <LastBetSection locale={locale} dict={dict} lastFinal={lastFinal} />;
+}
+
+async function TrendSectionAsync({
+  locale,
+  dict,
+  userId,
+}: {
+  locale: Locale;
+  dict: Awaited<ReturnType<typeof getDictionary>>;
+  userId: string;
+}) {
+  const trend = await getPointsTrend(userId);
+  return <TrendSection locale={locale} dict={dict} trend={trend} />;
+}
+
+async function LeaderboardSectionAsync({
+  locale,
+  dict,
+  userId,
+}: {
+  locale: Locale;
+  dict: Awaited<ReturnType<typeof getDictionary>>;
+  userId: string;
+}) {
+  const board = await getLeaderboard(userId);
+  return <LeaderboardSection locale={locale} dict={dict} board={board} />;
+}
+
+// Legacy non-streaming variant kept only for the `?preview=player`
+// dev escape hatch. Mock data has no DB to wait on, so the streaming
+// machinery would only add boilerplate without any payoff here.
+function PlayerHomePreview({
   locale,
   dict,
   pool,
@@ -285,12 +535,6 @@ function PlayerHome({
 }) {
   const isHebrew = locale === "he";
   const countdown = tournamentStart ? computeCountdown(tournamentStart) : null;
-  console.info("[home overview render]", {
-    locale,
-    started: countdown?.started ?? null,
-    potIls: pool.potIls,
-    participants: pool.participants,
-  });
 
   return (
     <section className="flex flex-col">

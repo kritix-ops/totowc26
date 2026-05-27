@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { LogOut, ChevronLeft, ChevronRight } from "lucide-react";
 import { getDictionary, hasLocale, type Locale } from "../dictionaries";
-import { getUser } from "@/lib/supabase/auth";
+import { getRequestUser } from "@/lib/request-user";
 import { getProfileStats, getMyHistory } from "@/db/queries";
 import { db } from "@/db";
 import { profiles } from "@/db/schema";
@@ -20,7 +20,7 @@ export default async function ProfilePage({
   const locale = lang as Locale;
   const dict = await getDictionary(locale);
 
-  const user = await getUser();
+  const user = await getRequestUser();
   if (!user) redirect(localePath(locale, "login"));
 
   const [[profile], stats, history] = await Promise.all([

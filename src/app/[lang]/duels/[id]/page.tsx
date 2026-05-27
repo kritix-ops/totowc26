@@ -5,7 +5,7 @@ import { ChevronLeft, ChevronRight, Swords } from "lucide-react";
 import { getDictionary, hasLocale, type Locale } from "../../dictionaries";
 import { Card, Chip, LabelCaps, SectionHeading } from "@/components/ui";
 import { PayGateBanner } from "@/components/PayGateBanner";
-import { getUser } from "@/lib/supabase/auth";
+import { getRequestUser } from "@/lib/request-user";
 import { getUserAccess } from "@/lib/access";
 import { isAdmin } from "@/lib/admin";
 import { db } from "@/db";
@@ -46,7 +46,7 @@ export default async function DuelDetailPage({ params }: PageParams) {
   const isHebrew = locale === "he";
   const Chev = isHebrew ? ChevronLeft : ChevronRight;
 
-  const user = await getUser();
+  const user = await getRequestUser();
   if (!user) redirect(localePath(locale, "login"));
   const access = await getUserAccess(user.id);
   const admin = await isAdmin(user.id);

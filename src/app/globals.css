@@ -54,7 +54,9 @@
   --font-display: var(--font-display), "Heebo", "Assistant", system-ui, sans-serif;
   --font-display-en: var(--font-display-en), "Space Grotesk", system-ui, sans-serif;
   --font-ui: var(--font-ui), "Assistant", "Heebo", system-ui, sans-serif;
-  --font-label: var(--font-label), "Inter", system-ui, sans-serif;
+  /* font-label intentionally reuses --font-display-en (Space Grotesk)
+     so we do not load a fourth font just for small UI label glyphs. */
+  --font-label: var(--font-display-en), "Space Grotesk", system-ui, sans-serif;
   --font-score: var(--font-score), "Space Grotesk", "Heebo", system-ui, sans-serif;
 
   /* Type ramp (px values from DESIGN.md) */
@@ -168,7 +170,37 @@ html[dir="ltr"] body {
 /* Soft press feedback on interactive pills */
 .press-down {
   transition: transform 150ms ease, box-shadow 150ms ease;
+  /* Drops the iOS 300ms tap-delay so the visual press feedback fires
+     on touchstart, not after the browser confirms it is not a
+     double-tap. Touch-action manipulation is the standard escape
+     hatch — far smaller change than disabling double-tap-to-zoom
+     globally. */
+  touch-action: manipulation;
+  will-change: transform;
 }
 .press-down:active {
   transform: translateY(1px) scale(0.99);
+}
+
+/* useLinkStatus pending hint — a thin underline that pulses in only
+   AFTER 100ms of pending navigation, so it never flashes on routes
+   that prefetch hot. The opacity climbs from 0 to 1 over the first
+   100ms (debounce window) and then breathes at 0.7-1.0 until the new
+   page finishes streaming. */
+@keyframes navLinkPending {
+  0% {
+    opacity: 0;
+  }
+  20% {
+    opacity: 0;
+  }
+  40% {
+    opacity: 1;
+  }
+  70% {
+    opacity: 0.7;
+  }
+  100% {
+    opacity: 1;
+  }
 }

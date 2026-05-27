@@ -1,6 +1,17 @@
 import "server-only";
 import { sql } from "drizzle-orm";
+import { unstable_cache } from "next/cache";
 import { db } from "./index";
+
+// Cache tags used to invalidate cross-request cached queries from the
+// server actions that mutate the underlying tables. Mutations call
+// revalidateTag(...) targeting the specific surface that changed,
+// instead of nuking the whole layout cache the way
+// revalidatePath("/", "layout") used to. See _plans/2026-05-27-perf-
+// overhaul-instant-nav.md §"Phase 4" for the wiring.
+export const CACHE_TAG_FIXTURES = "fixtures";
+export const CACHE_TAG_POOL = "pool";
+export const CACHE_TAG_LEADERBOARD = "leaderboard";
 
 export type LocalizedName = { he: string; en: string };
 
@@ -851,19 +862,28 @@ export type PoolStats = {
   participants: number;
 };
 
-export async function getPoolStats(): Promise<PoolStats> {
-  const rows = await db.execute<{ pot: number; players: number }>(sql`
-    select
-      coalesce(sum(amount_ils) filter (where status = 'approved'), 0)::int as pot,
-      count(distinct user_id) filter (where status = 'approved')::int       as players
-    from public.payments
-  `);
-  const r = (rows as unknown as Array<{ pot: number; players: number }>)[0];
-  return {
-    potIls: Number(r?.pot ?? 0),
-    participants: Number(r?.players ?? 0),
-  };
-}
+// Cached cross-request — the pool only changes when a payment row is
+// inserted or its status flips. Admin payment-actions call
+// revalidateTag(CACHE_TAG_POOL) after the mutation, so every visitor
+// sees the new number on their next paint without us hammering the
+// payments table on every render.
+export const getPoolStats = unstable_cache(
+  async (): Promise<PoolStats> => {
+    const rows = await db.execute<{ pot: number; players: number }>(sql`
+      select
+        coalesce(sum(amount_ils) filter (where status = 'approved'), 0)::int as pot,
+        count(distinct user_id) filter (where status = 'approved')::int       as players
+      from public.payments
+    `);
+    const r = (rows as unknown as Array<{ pot: number; players: number }>)[0];
+    return {
+      potIls: Number(r?.pot ?? 0),
+      participants: Number(r?.players ?? 0),
+    };
+  },
+  ["getPoolStats"],
+  { tags: [CACHE_TAG_POOL], revalidate: 600 },
+);
 
 // ---------- Prize-pool split ----------
 //
@@ -947,45 +967,53 @@ export async function getCategoryPrizeBreakdown(): Promise<CategoryPrizeBreakdow
   return { potIls: pot, prizes, totalAwardedIls };
 }
 
-export async function getPrizeBreakdown(): Promise<PrizeBreakdown> {
-  const rows = await db.execute<{
-    pot: number;
-    pct1: number;
-    pct2: number;
-    pct3: number;
-    pct4: number;
-  }>(sql`
-    select
-      coalesce((
-        select sum(amount_ils) filter (where status = 'approved')
-        from public.payments
-      ), 0)::int                                              as "pot",
-      (select prize_pct_1 from public.settings where id = 1)::int as "pct1",
-      (select prize_pct_2 from public.settings where id = 1)::int as "pct2",
-      (select prize_pct_3 from public.settings where id = 1)::int as "pct3",
-      (select prize_pct_4 from public.settings where id = 1)::int as "pct4"
-  `);
-  const r = (rows as unknown as Array<{
-    pot: number;
-    pct1: number;
-    pct2: number;
-    pct3: number;
-    pct4: number;
-  }>)[0];
-  const pot = Number(r?.pot ?? 0);
-  const pcts: Array<{ rank: 1 | 2 | 3 | 4; pct: number }> = [
-    { rank: 1, pct: Number(r?.pct1 ?? 0) },
-    { rank: 2, pct: Number(r?.pct2 ?? 0) },
-    { rank: 3, pct: Number(r?.pct3 ?? 0) },
-    { rank: 4, pct: Number(r?.pct4 ?? 0) },
-  ];
-  const prizes = pcts.map((p) => ({
-    ...p,
-    ils: Math.floor((pot * p.pct) / 100),
-  }));
-  const totalAwardedIls = prizes.reduce((s, p) => s + p.ils, 0);
-  return { potIls: pot, prizes, totalAwardedIls };
-}
+// Cached cross-request — depends on the same pot the home stats use,
+// plus the prize-percentage settings. Both are invalidated together
+// when either payment status changes or admin updates the percentages,
+// via revalidateTag(CACHE_TAG_POOL).
+export const getPrizeBreakdown = unstable_cache(
+  async (): Promise<PrizeBreakdown> => {
+    const rows = await db.execute<{
+      pot: number;
+      pct1: number;
+      pct2: number;
+      pct3: number;
+      pct4: number;
+    }>(sql`
+      select
+        coalesce((
+          select sum(amount_ils) filter (where status = 'approved')
+          from public.payments
+        ), 0)::int                                              as "pot",
+        (select prize_pct_1 from public.settings where id = 1)::int as "pct1",
+        (select prize_pct_2 from public.settings where id = 1)::int as "pct2",
+        (select prize_pct_3 from public.settings where id = 1)::int as "pct3",
+        (select prize_pct_4 from public.settings where id = 1)::int as "pct4"
+    `);
+    const r = (rows as unknown as Array<{
+      pot: number;
+      pct1: number;
+      pct2: number;
+      pct3: number;
+      pct4: number;
+    }>)[0];
+    const pot = Number(r?.pot ?? 0);
+    const pcts: Array<{ rank: 1 | 2 | 3 | 4; pct: number }> = [
+      { rank: 1, pct: Number(r?.pct1 ?? 0) },
+      { rank: 2, pct: Number(r?.pct2 ?? 0) },
+      { rank: 3, pct: Number(r?.pct3 ?? 0) },
+      { rank: 4, pct: Number(r?.pct4 ?? 0) },
+    ];
+    const prizes = pcts.map((p) => ({
+      ...p,
+      ils: Math.floor((pot * p.pct) / 100),
+    }));
+    const totalAwardedIls = prizes.reduce((s, p) => s + p.ils, 0);
+    return { potIls: pot, prizes, totalAwardedIls };
+  },
+  ["getPrizeBreakdown"],
+  { tags: [CACHE_TAG_POOL], revalidate: 600 },
+);
 
 // ---------- Points-bank history ----------
 //
@@ -1401,14 +1429,24 @@ export async function getOpenGroupBetCount(): Promise<number> {
 // by the landing hero countdown. Returns null if no fixtures have been
 // seeded yet, in which case the caller should hide the countdown rather
 // than show a placeholder.
-export async function getTournamentStart(): Promise<string | null> {
-  const rows = await db.execute<{ kickoff_at: string }>(sql`
-    select min(kickoff_at) as kickoff_at
-    from public.matches
-  `);
-  const r = (rows as unknown as Array<{ kickoff_at: string | null }>)[0];
-  return r?.kickoff_at ?? null;
-}
+//
+// Cached cross-request: the value only moves when the fixtures table
+// changes (admin sync, manual edits). The home page asks for this on
+// every paint, so caching it means most renders skip the DB roundtrip
+// entirely. Revalidation: admin sync actions call
+// revalidateTag(CACHE_TAG_FIXTURES) after fixture imports.
+export const getTournamentStart = unstable_cache(
+  async (): Promise<string | null> => {
+    const rows = await db.execute<{ kickoff_at: string }>(sql`
+      select min(kickoff_at) as kickoff_at
+      from public.matches
+    `);
+    const r = (rows as unknown as Array<{ kickoff_at: string | null }>)[0];
+    return r?.kickoff_at ?? null;
+  },
+  ["getTournamentStart"],
+  { tags: [CACHE_TAG_FIXTURES], revalidate: 3600 },
+);
 
 // Transparency feed surfaces every locked bet across the pool so
 // players can audit who picked what once a bet stops being editable.

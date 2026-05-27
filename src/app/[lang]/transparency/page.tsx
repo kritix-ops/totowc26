@@ -4,7 +4,7 @@ import { Eye, X } from "lucide-react";
 import { clsx } from "clsx";
 import { getDictionary, hasLocale, type Locale } from "../dictionaries";
 import { Card, Chip, LabelCaps } from "@/components/ui";
-import { getUser } from "@/lib/supabase/auth";
+import { getRequestUser } from "@/lib/request-user";
 import {
   getTransparencyFeed,
   getTransparencyUsers,
@@ -36,7 +36,7 @@ export default async function TransparencyPage({
   const dict = await getDictionary(locale);
   const isHebrew = locale === "he";
 
-  const user = await getUser();
+  const user = await getRequestUser();
   if (!user) redirect(localePath(locale, "login"));
 
   const sp = await searchParams;
