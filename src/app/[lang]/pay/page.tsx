@@ -6,6 +6,7 @@ import { getRequestUser } from "@/lib/request-user";
 import { getUserAccess } from "@/lib/access";
 import { getPayboxUrl } from "@/lib/paybox-server";
 import { localePath } from "@/lib/paths";
+import { gatePage } from "@/lib/page-visibility";
 import { getDictionary, hasLocale, type Locale } from "../dictionaries";
 import { PayPanel } from "./PayPanel";
 
@@ -14,6 +15,7 @@ export default async function PayPage({
 }: PageProps<"/[lang]/pay">) {
   const { lang } = await params;
   if (!hasLocale(lang)) notFound();
+  await gatePage("pay", lang);
   const locale = lang as Locale;
   const dict = await getDictionary(locale);
 

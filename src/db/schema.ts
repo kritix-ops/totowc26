@@ -208,12 +208,22 @@ export const matches = pgTable(
     // API-Football v3 fixture ID. Populated by a one-shot mapping
     // script at API_FOOTBALL_KEY activation time. Null until then.
     apiFootballFixtureId: integer("api_football_fixture_id"),
+    // Per-match absolute lock for the 1/X/2 score bet on this fixture.
+    // When non-null, the deadline resolver returns this value verbatim
+    // for the match_score bet type, winning over both the matchday
+    // override and the bet_lock_defaults type default. Custom bets that
+    // happen to be anchored to this match still use their own lock_at.
+    // See _plans/2026-05-27-betting-deadlines.md.
+    lockAtOverride: timestamp("lock_at_override", { withTimezone: true }),
   },
   (t) => ({
     kickoffIdx: index("matches_kickoff_idx").on(t.kickoffAt),
     stageIdx: index("matches_stage_idx").on(t.stage),
     statusIdx: index("matches_status_idx").on(t.status),
     apiFixtureIdx: uniqueIndex("matches_api_fixture_uniq").on(t.apiFixtureId),
+    lockOverrideIdx: index("matches_lock_at_override_idx")
+      .on(t.lockAtOverride)
+      .where(sql`lock_at_override is not null`),
   }),
 );
 
@@ -338,6 +348,12 @@ export const settings = pgTable("settings", {
   // back to the marketing site so the button is never dead.
   payboxUrl: text("paybox_url"),
   betLockMinutes: smallint("bet_lock_minutes").notNull().default(5),
+  // Tournament anchor for the custom_tournament bet type and the live
+  // countdown on tournament-wide bets. Nullable: when null, the
+  // deadline resolver falls back to MIN(matches.kickoff_at) so the
+  // value stays meaningful right after the migration runs, before the
+  // admin visits /admin/deadlines to set it explicitly.
+  tournamentStartAt: timestamp("tournament_start_at", { withTimezone: true }),
   // Points bank
   startingBank: smallint("starting_bank").notNull().default(30),
   // Main bet payouts. Default mode: exact = +15, direction = +5, wrong = 0.
@@ -430,6 +446,16 @@ export const settings = pgTable("settings", {
       ],
       bottomBarCount: 5,
     }),
+  // Admin-controlled page visibility. Array of page keys that are
+  // currently hidden. Default empty - everything visible. The catalog
+  // of hideable keys lives in src/lib/page-visibility.ts; admin/login/
+  // profile/signup/home are never hideable (enforced by the helper, not
+  // the DB, so the catalog can evolve without a migration). See
+  // _plans/2026-05-27-page-visibility.md.
+  hiddenPages: jsonb("hidden_pages")
+    .notNull()
+    .$type<string[]>()
+    .default([]),
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
@@ -481,6 +507,13 @@ export const matchdays = pgTable(
     // Server picks 5 min before the earliest kickoff of the day at the
     // moment the matchday is materialised.
     defaultLockAt: timestamp("default_lock_at", { withTimezone: true }),
+    // Per-matchday override for the deadline resolver. When non-null,
+    // bets anchored to a match or matchday on this date lock this many
+    // minutes before the relevant anchor instead of using the per-type
+    // default from bet_lock_defaults. Stage/group/tournament bets are
+    // anchored elsewhere and are unaffected. See
+    // _plans/2026-05-27-betting-deadlines.md.
+    lockOffsetOverrideMinutes: integer("lock_offset_override_minutes"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -772,6 +805,33 @@ export const syncRuns = pgTable(
   }),
 );
 
+// bet_lock_defaults: one offset per bet type that the deadline resolver
+// in src/lib/deadlines.ts applies when no per-matchday override and no
+// per-bet override is set. Six rows, seeded in migration 0021. The
+// bet_type CHECK constraint in the migration is the source of truth for
+// the allowed values; BET_TYPE_KEYS below mirrors it for the TS layer.
+// See _plans/2026-05-27-betting-deadlines.md.
+export const BET_TYPE_KEYS = [
+  "match_score",
+  "custom_match",
+  "custom_day",
+  "custom_stage",
+  "custom_group",
+  "custom_tournament",
+] as const;
+export type BetTypeKey = (typeof BET_TYPE_KEYS)[number];
+
+export const betLockDefaults = pgTable("bet_lock_defaults", {
+  betType: text("bet_type").primaryKey().$type<BetTypeKey>(),
+  offsetMinutes: integer("offset_minutes").notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  updatedBy: uuid("updated_by").references(() => profiles.id, {
+    onDelete: "set null",
+  }),
+});
+
 // Drizzle relations are added separately if needed
 export type Profile = typeof profiles.$inferSelect;
 export type NewProfile = typeof profiles.$inferInsert;
@@ -794,5 +854,7 @@ export type BetGradingAudit = typeof betGradingAudit.$inferSelect;
 export type NewBetGradingAudit = typeof betGradingAudit.$inferInsert;
 export type Duel = typeof duels.$inferSelect;
 export type NewDuel = typeof duels.$inferInsert;
+export type BetLockDefault = typeof betLockDefaults.$inferSelect;
+export type NewBetLockDefault = typeof betLockDefaults.$inferInsert;
 
 export const _useSql = sql; // re-export to silence unused if any

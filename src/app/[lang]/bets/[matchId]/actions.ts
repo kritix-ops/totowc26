@@ -7,6 +7,10 @@ import { matchBets } from "@/db/schema";
 import { getUser } from "@/lib/supabase/auth";
 import { getUserAccess } from "@/lib/access";
 import { bankCacheTag } from "@/lib/bank";
+import {
+  getDeadlineContext,
+  resolveMatchScoreLock,
+} from "@/lib/deadlines";
 
 // 1/X/2 match-bet submission. The main pick still does not debit the
 // bank at submit time - points (positive or negative) are credited by
@@ -48,33 +52,68 @@ export async function saveBet(
   const h = Math.max(0, Math.min(99, Math.floor(home)));
   const a = Math.max(0, Math.min(99, Math.floor(away)));
 
-  // Fetch the lock gate AND the live risk-mode flags in a single round
-  // trip. risk_enabled is consumed below to decide what to snapshot
-  // into match_bets.stake_paid_main; risk_penalty is the snapshot value.
+  // Fetch the inputs the deadline resolver needs + the live risk-mode
+  // flags in a single round trip. The matchday row is joined by
+  // date(kickoff AT TIME ZONE 'Asia/Jerusalem') = md.date so the
+  // matchday-level offset override applies to the right day. If no
+  // matchday row exists yet (admin hasn't materialised it), md fields
+  // come back null and the resolver falls through to the type default.
   const row = await db.execute<{
-    ok: boolean;
+    status: string;
+    kickoff_at: string;
+    lock_at_override: string | null;
+    matchday_offset: number | null;
     risk_enabled: boolean;
     risk_penalty: number;
   }>(sql`
     select
-      (
-        m.status = 'scheduled'
-        and m.kickoff_at > now() + ((s.bet_lock_minutes || ' minutes')::interval)
-      ) as "ok",
+      m.status::text as "status",
+      m.kickoff_at as "kickoff_at",
+      m.lock_at_override as "lock_at_override",
+      md.lock_offset_override_minutes as "matchday_offset",
       s.match_risk_enabled as "risk_enabled",
       s.match_risk_penalty as "risk_penalty"
-    from public.matches m, public.settings s
+    from public.matches m
+    cross join public.settings s
+    left join public.matchdays md
+      on md.date = (m.kickoff_at at time zone 'Asia/Jerusalem')::date
     where m.id = ${matchId}::uuid and s.id = 1
     limit 1
   `);
   const list = row as unknown as Array<{
-    ok: boolean;
+    status: string;
+    kickoff_at: string;
+    lock_at_override: string | null;
+    matchday_offset: number | null;
     risk_enabled: boolean;
     risk_penalty: number;
   }>;
   if (list.length === 0) return { ok: false, error: "not_found" };
-  if (!list[0].ok) return { ok: false, error: "locked" };
-  const stakeSnapshot = list[0].risk_enabled ? list[0].risk_penalty : null;
+  const r = list[0];
+  if (r.status !== "scheduled") return { ok: false, error: "locked" };
+
+  const context = await getDeadlineContext();
+  const resolved = resolveMatchScoreLock(
+    {
+      matchId,
+      kickoffAt: new Date(r.kickoff_at),
+      lockAtOverride: r.lock_at_override ? new Date(r.lock_at_override) : null,
+      matchdayLockOffsetMinutes: r.matchday_offset,
+    },
+    context,
+  );
+  const now = Date.now();
+  if (resolved.effectiveLockAt.getTime() <= now) {
+    console.info("[bet rejected lock]", {
+      userId: user.id,
+      betType: "match_score",
+      matchId,
+      effectiveLockAt: resolved.effectiveLockAt.toISOString(),
+      skewSeconds: Math.round((now - resolved.effectiveLockAt.getTime()) / 1000),
+    });
+    return { ok: false, error: "locked" };
+  }
+  const stakeSnapshot = r.risk_enabled ? r.risk_penalty : null;
 
   try {
     await db

@@ -5,6 +5,7 @@ import type { Dictionary, Locale } from "@/app/[lang]/dictionaries";
 import { localePath } from "@/lib/paths";
 import { getRequestUser } from "@/lib/request-user";
 import { getViewAs } from "@/lib/view-as";
+import { readHiddenPages } from "@/lib/page-visibility";
 import { NavLink } from "./NavLink";
 import { BrandLogo } from "./BrandLogo";
 import { HeaderUserSection } from "./HeaderUserSection";
@@ -51,6 +52,11 @@ export async function AppShell({
   // on every navigation.
   const reqUser = await getRequestUser();
   const signedIn = !!reqUser;
+
+  // Admin-controlled hide list. Cached per request so the desktop
+  // header, the mobile bottom nav, and any page-level `gatePage` call
+  // share a single read. Stays at "[]" for guests; cheap select either way.
+  const hiddenPages = new Set(await readHiddenPages());
 
   // Reserve 40px at the top of the viewport for the "viewing-as"
   // admin banner only when the cookie indicates an impersonation is
@@ -106,7 +112,7 @@ export async function AppShell({
               Text on md+ for a clear call-to-action, icon-only on
               mobile so it does not crowd the bank pill on narrow
               screens. */}
-          {signedIn && (
+          {signedIn && !hiddenPages.has("rules") && (
             <Link
               href={localePath(locale, "rules")}
               aria-label={dict.nav.rulesCtaLong}
@@ -127,12 +133,24 @@ export async function AppShell({
             className="hidden md:flex items-center justify-center gap-3 lg:gap-6 h-full"
           >
             <NavLink locale={locale} path="" label={dict.nav.home} exact />
-            <NavLink locale={locale} path="bets" label={dict.nav.matchPicks} />
-            <NavLink locale={locale} path="duels" label={dict.nav.duels} />
-            <NavLink locale={locale} path="leaderboard" label={dict.nav.leaders} />
-            <NavLink locale={locale} path="tournament" label={dict.nav.tournament} />
-            <NavLink locale={locale} path="live" label={dict.nav.liveScores} />
-            <NavLink locale={locale} path="transparency" label={dict.nav.transparency} />
+            {!hiddenPages.has("bets") && (
+              <NavLink locale={locale} path="bets" label={dict.nav.matchPicks} />
+            )}
+            {!hiddenPages.has("duels") && (
+              <NavLink locale={locale} path="duels" label={dict.nav.duels} />
+            )}
+            {!hiddenPages.has("leaderboard") && (
+              <NavLink locale={locale} path="leaderboard" label={dict.nav.leaders} />
+            )}
+            {!hiddenPages.has("tournament") && (
+              <NavLink locale={locale} path="tournament" label={dict.nav.tournament} />
+            )}
+            {!hiddenPages.has("live") && (
+              <NavLink locale={locale} path="live" label={dict.nav.liveScores} />
+            )}
+            {!hiddenPages.has("transparency") && (
+              <NavLink locale={locale} path="transparency" label={dict.nav.transparency} />
+            )}
             <Suspense fallback={<DesktopNavExtrasSkeleton />}>
               <DesktopNavExtras locale={locale} dict={dict} userId={reqUser.id} />
             </Suspense>

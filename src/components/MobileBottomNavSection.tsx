@@ -6,6 +6,7 @@ import {
   splitMobileNavItems,
 } from "@/lib/mobile-nav";
 import { MobileNavIcon } from "@/lib/mobile-nav-icons";
+import { readHiddenPages } from "@/lib/page-visibility";
 import { BottomNavLink } from "./NavLink";
 import { MobileMoreSheet } from "./MobileMoreSheet";
 
@@ -30,13 +31,17 @@ export async function MobileBottomNavSection({
   dict: Dictionary;
   userId: string;
 }) {
-  const [access, config] = await Promise.all([
+  const [access, config, hiddenList] = await Promise.all([
     getUserAccess(userId),
     getMobileNavConfig(),
+    readHiddenPages(),
   ]);
-  const { bottom, sheet } = splitMobileNavItems(config, {
-    isAdmin: access.isAdmin,
-  });
+  const hiddenSet = new Set(hiddenList);
+  const { bottom, sheet } = splitMobileNavItems(
+    config,
+    { isAdmin: access.isAdmin },
+    hiddenSet,
+  );
 
   const isHebrew = locale === "he";
   const hasMore = sheet.length > 0;

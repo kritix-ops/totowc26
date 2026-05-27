@@ -6,6 +6,7 @@ import { AlertCircle, Check, Info, Lock, Minus, Plus } from "lucide-react";
 import { clsx } from "clsx";
 import { Card, Chip, LabelCaps } from "@/components/ui";
 import { SearchableChoicePicker } from "@/components/SearchableChoicePicker";
+import { LocksInCountdown } from "@/components/LocksInCountdown";
 import { formatDateTime } from "@/lib/format";
 import type { Locale } from "@/app/[lang]/dictionaries";
 import type {
@@ -126,6 +127,11 @@ export function CustomBetCard({
             <Lock className="h-3 w-3" strokeWidth={2} />
             {lockLabel}
           </span>
+          <LocksInCountdown
+            locale={locale}
+            lockAt={bet.lockAt}
+            variant="inline"
+          />
         </div>
       </div>
 

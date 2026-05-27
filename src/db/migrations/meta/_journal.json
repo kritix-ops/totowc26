@@ -148,6 +148,20 @@
       "when": 1781354000000,
       "tag": "0020_team_api_football_id_and_sync_provider",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1781440400000,
+      "tag": "0021_betting_deadlines",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1781526800000,
+      "tag": "0022_page_visibility",
+      "breakpoints": true
     }
   ]
 }

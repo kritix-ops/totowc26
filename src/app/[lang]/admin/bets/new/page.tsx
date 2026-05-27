@@ -8,6 +8,7 @@ import { localePath } from "@/lib/paths";
 import { db } from "@/db";
 import { settings, groups } from "@/db/schema";
 import { listAnchorMatches, listAnchorDays } from "@/db/admin-queries";
+import { getDeadlineContext } from "@/lib/deadlines";
 import { BetForm } from "../BetForm";
 
 export default async function NewBetPage({
@@ -19,26 +20,37 @@ export default async function NewBetPage({
   const isHebrew = locale === "he";
   const Chev = isHebrew ? ChevronLeft : ChevronRight;
 
-  const [anchorMatches, anchorDays, groupRows, [defaults]] = await Promise.all([
-    listAnchorMatches(),
-    listAnchorDays(),
-    db.select({ id: groups.id }).from(groups).orderBy(groups.displayOrder),
-    db
-      .select({
-        stakeYesNo: settings.stakeYesNo,
-        payoutYesNo: settings.payoutYesNo,
-        stakeNumber: settings.stakeNumber,
-        payoutNumber: settings.payoutNumber,
-        stakeMultiChoice: settings.stakeMultiChoice,
-        payoutMultiChoice: settings.payoutMultiChoice,
-        stakeFreeText: settings.stakeFreeText,
-        payoutFreeText: settings.payoutFreeText,
-        betLockMinutes: settings.betLockMinutes,
-      })
-      .from(settings)
-      .where(eq(settings.id, 1))
-      .limit(1),
-  ]);
+  const [anchorMatches, anchorDays, groupRows, [defaultsRow], deadlineCtx] =
+    await Promise.all([
+      listAnchorMatches(),
+      listAnchorDays(),
+      db.select({ id: groups.id }).from(groups).orderBy(groups.displayOrder),
+      db
+        .select({
+          stakeYesNo: settings.stakeYesNo,
+          payoutYesNo: settings.payoutYesNo,
+          stakeNumber: settings.stakeNumber,
+          payoutNumber: settings.payoutNumber,
+          stakeMultiChoice: settings.stakeMultiChoice,
+          payoutMultiChoice: settings.payoutMultiChoice,
+          stakeFreeText: settings.stakeFreeText,
+          payoutFreeText: settings.payoutFreeText,
+          betLockMinutes: settings.betLockMinutes,
+        })
+        .from(settings)
+        .where(eq(settings.id, 1))
+        .limit(1),
+      getDeadlineContext(),
+    ]);
+  const defaults = defaultsRow
+    ? {
+        ...defaultsRow,
+        deadlineOffsets: deadlineCtx.defaults,
+        tournamentStartAt:
+          (deadlineCtx.tournamentStartAt ?? deadlineCtx.derivedTournamentStartAt)
+            ?.toISOString() ?? null,
+      }
+    : undefined;
 
   return (
     <section className="px-4 md:px-16 py-6 md:py-12 flex flex-col gap-6 md:gap-8 max-w-3xl mx-auto w-full pb-24">

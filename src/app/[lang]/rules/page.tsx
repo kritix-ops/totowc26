@@ -25,6 +25,7 @@ import { db } from "@/db";
 import { settings } from "@/db/schema";
 import { getRequestUser } from "@/lib/request-user";
 import { localePath } from "@/lib/paths";
+import { gatePage } from "@/lib/page-visibility";
 import { Card, LabelCaps, SectionHeading } from "@/components/ui";
 import { CategoryPrizeStrip } from "@/components/CategoryPrizeStrip";
 
@@ -33,6 +34,7 @@ export default async function RulesPage({
 }: PageProps<"/[lang]/rules">) {
   const { lang } = await params;
   if (!hasLocale(lang)) notFound();
+  await gatePage("rules", lang);
   const locale = lang as Locale;
   const dict = await getDictionary(locale);
   const isHebrew = locale === "he";

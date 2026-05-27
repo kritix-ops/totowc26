@@ -1,5 +1,6 @@
 import type { Dictionary, Locale } from "@/app/[lang]/dictionaries";
 import { getUserAccess } from "@/lib/access";
+import { isPageHidden } from "@/lib/page-visibility";
 import { NavLink } from "./NavLink";
 
 // Streams the role-dependent nav items (Pay for paid players, Admin for
@@ -16,9 +17,12 @@ export async function DesktopNavExtras({
   dict: Dictionary;
   userId: string;
 }) {
-  const access = await getUserAccess(userId);
+  const [access, payHidden] = await Promise.all([
+    getUserAccess(userId),
+    isPageHidden("pay"),
+  ]);
   const admin = !!access?.isAdmin;
-  const showPay = !admin;
+  const showPay = !admin && !payHidden;
   return (
     <>
       {showPay && (

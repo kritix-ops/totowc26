@@ -122,8 +122,13 @@ export function normalizeMobileNavConfig(
 
 // Splits a sanitised config into `bottom` (items shown directly in the
 // bar) and `sheet` (items shown inside the More sheet) after applying
-// role gates. The caller decides whether to render a "More" cell:
-// render it iff `sheet.length > 0`.
+// role gates AND the admin-controlled page visibility list. The caller
+// decides whether to render a "More" cell: render it iff `sheet.length > 0`.
+//
+// hiddenPages is the set of keys from settings.hidden_pages (see
+// src/lib/page-visibility.ts). Hiding a page filters it out of nav
+// here without mutating mobileNavConfig.items - the curated order is
+// preserved, so re-enabling the page brings it back in place.
 //
 // Rule: if total visible items ≤ bottomBarCount, every item goes in the
 // bar and the sheet is empty. Otherwise the bar holds (bottomBarCount−1)
@@ -131,8 +136,10 @@ export function normalizeMobileNavConfig(
 export function splitMobileNavItems(
   config: MobileNavConfig,
   role: { isAdmin: boolean },
+  hiddenPages: ReadonlySet<string> = new Set(),
 ): { bottom: MobileNavItemKey[]; sheet: MobileNavItemKey[] } {
   const visible = config.items.filter((k) => {
+    if (hiddenPages.has(k)) return false;
     const meta = MOBILE_NAV_CATALOG[k];
     if (!meta.roleGate) return true;
     if (meta.roleGate === "admin") return role.isAdmin;

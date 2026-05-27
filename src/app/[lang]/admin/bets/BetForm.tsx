@@ -13,6 +13,7 @@ import type {
   GradingConfig,
 } from "@/lib/bets/types";
 import type { AdminAnchorMatch, AdminAnchorDay } from "@/db/admin-queries";
+import type { BetTypeKey } from "@/db/schema";
 import { createCustomBet, updateCustomBet } from "./actions";
 
 // Shared bet-author form. Two modes:
@@ -40,7 +41,17 @@ type Defaults = {
   stakeNumber: number; payoutNumber: number;
   stakeMultiChoice: number; payoutMultiChoice: number;
   stakeFreeText: number; payoutFreeText: number;
+  // Legacy single-knob lock minutes (settings.bet_lock_minutes). Kept
+  // as a fallback for any bet type that doesn't appear in
+  // `deadlineOffsets` (defensive against a partial seed).
   betLockMinutes: number;
+  // Per-bet-type deadline offsets from bet_lock_defaults. Used by
+  // suggestDefaultLockAt to compute the lockAt that matches what the
+  // resolver in src/lib/deadlines.ts would pick for a new bet.
+  deadlineOffsets: Record<BetTypeKey, number>;
+  // Tournament anchor (settings.tournament_start_at). null = no
+  // explicit admin choice; falls back to earliest fixture kickoff.
+  tournamentStartAt: string | null;
 };
 
 export type InitialBet = {
@@ -194,7 +205,7 @@ export function BetForm({
         dayDate,
         anchorMatches,
         anchorDays,
-        defaults?.betLockMinutes ?? 5,
+        defaults,
       );
   const [lockAtLocal, setLockAtLocal] = useState<string>(defaultLockAt);
   const [lockTouched, setLockTouched] = useState(mode === "edit");
@@ -679,16 +690,52 @@ export function BetForm({
       <Section
         title={isHebrew ? "מתי נסגר?" : "When does it lock?"}
         hint={isHebrew
-          ? "ברירת המחדל היא 5 דקות לפני שריקת הפתיחה הרלוונטית. אפשר לעדכן ידנית."
-          : "Defaults to 5 min before the relevant kickoff. Override manually if you want."}
+          ? "ברירת המחדל מחושבת מהעוגן של ההיקף הזה (תאריך הטורניר / יום הימורים / משחק) פחות ברירות המחדל ב-/admin/deadlines. אפשר לעדכן ידנית."
+          : "Default is derived from this scope's anchor (tournament date / matchday / match) minus the offset set in /admin/deadlines. Override manually if you like."}
       >
-        <input
-          type="datetime-local"
-          value={lockAtLocal}
-          onChange={(e) => { setLockAtLocal(e.target.value); setLockTouched(true); }}
-          required
-          className="min-h-[48px] w-full px-3 rounded border border-outline bg-surface-container-lowest text-base"
-        />
+        <div className="flex flex-col gap-2">
+          <input
+            type="datetime-local"
+            value={lockAtLocal}
+            onChange={(e) => {
+              setLockAtLocal(e.target.value);
+              setLockTouched(true);
+            }}
+            required
+            className="min-h-[48px] w-full px-3 rounded border border-outline bg-surface-container-lowest text-base"
+          />
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <p
+              className={clsx(
+                "text-[11px]",
+                lockTouched && lockAtLocal !== defaultLockAt
+                  ? "text-on-surface-variant"
+                  : "text-secondary",
+              )}
+            >
+              {lockTouched && lockAtLocal !== defaultLockAt
+                ? isHebrew
+                  ? `ערך ידני. ברירת המחדל: ${defaultLockAt.replace("T", " ")}`
+                  : `Manual value. Default: ${defaultLockAt.replace("T", " ")}`
+                : isHebrew
+                  ? "הערך תואם לברירת המחדל הנוכחית."
+                  : "Value matches the current default."}
+            </p>
+            {lockTouched && lockAtLocal !== defaultLockAt && (
+              <button
+                type="button"
+                onClick={() => {
+                  setLockAtLocal(defaultLockAt);
+                  setLockTouched(false);
+                }}
+                className="inline-flex items-center gap-1 text-xs font-bold text-primary hover:underline"
+              >
+                <RotateCcw className="h-3 w-3" strokeWidth={2.5} />
+                {isHebrew ? "השתמש בברירת המחדל" : "Use defaults"}
+              </button>
+            )}
+          </div>
+        </div>
       </Section>
 
       {error && (
@@ -980,28 +1027,56 @@ function buildGradingConfig(
   };
 }
 
+// Picks an anchor + offset that matches what the deadline resolver in
+// src/lib/deadlines.ts would pick for a brand-new bet of this scope,
+// so the value the admin sees in the form is the same value the
+// resolver would compute. Falls back to the legacy single-knob
+// betLockMinutes if the per-type table hasn't been seeded yet, and to
+// "kickoff in 24 h" if no fixture data is available at all (rare; new
+// installs before the first sync).
 function suggestDefaultLockAt(
   scope: Scope,
   matchId: string,
   dayDate: string,
   anchorMatches: AdminAnchorMatch[],
   anchorDays: AdminAnchorDay[],
-  betLockMinutes: number,
+  defaults: Defaults | undefined,
 ): string {
+  const fallbackMinutes = defaults?.betLockMinutes ?? 5;
+  const offsets = defaults?.deadlineOffsets;
   let kickoff: Date | null = null;
+  let offsetMinutes = fallbackMinutes;
+
   if (scope === "match" && matchId) {
     const m = anchorMatches.find((x) => x.id === matchId);
     if (m) kickoff = new Date(m.kickoffAt);
+    offsetMinutes = offsets?.custom_match ?? fallbackMinutes;
   } else if (scope === "day" && dayDate) {
     const d = anchorDays.find((x) => x.date === dayDate);
     if (d) kickoff = new Date(d.earliestKickoff);
-  } else if (anchorMatches.length > 0) {
-    kickoff = new Date(anchorMatches[0].kickoffAt);
+    offsetMinutes = offsets?.custom_day ?? fallbackMinutes;
+  } else if (scope === "stage") {
+    // We don't have a "first kickoff per stage" anchor list in the
+    // admin queries yet, so we approximate with the earliest known
+    // kickoff. Per-stage anchor accuracy is in the out-of-scope list
+    // of the deadlines plan §14.
+    if (anchorMatches.length > 0) kickoff = new Date(anchorMatches[0].kickoffAt);
+    offsetMinutes = offsets?.custom_stage ?? 60;
+  } else if (scope === "group") {
+    if (anchorMatches.length > 0) kickoff = new Date(anchorMatches[0].kickoffAt);
+    offsetMinutes = offsets?.custom_group ?? 60;
+  } else if (scope === "tournament") {
+    if (defaults?.tournamentStartAt) {
+      kickoff = new Date(defaults.tournamentStartAt);
+    } else if (anchorMatches.length > 0) {
+      kickoff = new Date(anchorMatches[0].kickoffAt);
+    }
+    offsetMinutes = offsets?.custom_tournament ?? 60;
   }
   if (!kickoff) {
     kickoff = new Date(Date.now() + 24 * 60 * 60 * 1000);
   }
-  const lock = new Date(kickoff.getTime() - betLockMinutes * 60 * 1000);
+  const lock = new Date(kickoff.getTime() - offsetMinutes * 60 * 1000);
   return toLocalDateTimeInputValue(lock);
 }
 

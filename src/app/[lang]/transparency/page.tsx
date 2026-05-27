@@ -12,6 +12,7 @@ import {
 } from "@/db/queries";
 import { localePath } from "@/lib/paths";
 import { formatDateTime } from "@/lib/format";
+import { gatePage } from "@/lib/page-visibility";
 
 type SearchSP = {
   user?: string | string[];
@@ -32,6 +33,7 @@ export default async function TransparencyPage({
 }: PageParams) {
   const { lang } = await params;
   if (!hasLocale(lang)) notFound();
+  await gatePage("transparency", lang);
   const locale = lang as Locale;
   const dict = await getDictionary(locale);
   const isHebrew = locale === "he";

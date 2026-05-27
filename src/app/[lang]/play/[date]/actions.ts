@@ -8,6 +8,7 @@ import { getUser } from "@/lib/supabase/auth";
 import { getUserAccess } from "@/lib/access";
 import { bankBalanceSql, bankCacheTag, lockUserForBetting } from "@/lib/bank";
 import type { PickAnswer } from "@/lib/bets/types";
+import { resolveCustomBetLock } from "@/lib/deadlines";
 
 type Err =
   | "unauth"
@@ -49,6 +50,7 @@ export async function submitCustomBetPick(
       const [bet] = await tx
         .select({
           id: customBets.id,
+          scope: customBets.scope,
           status: customBets.status,
           lockAt: customBets.lockAt,
           stakeSnapshot: customBets.stakeSnapshot,
@@ -63,7 +65,22 @@ export async function submitCustomBetPick(
       if (bet.status !== "open") {
         return { ok: false as const, error: "bet_not_open" as const };
       }
-      if (bet.lockAt.getTime() <= Date.now()) {
+      const resolved = resolveCustomBetLock({
+        id: bet.id,
+        scope: bet.scope,
+        lockAt: bet.lockAt,
+      });
+      const now = Date.now();
+      if (resolved.effectiveLockAt.getTime() <= now) {
+        console.info("[bet rejected lock]", {
+          userId: user.id,
+          betType: `custom_${bet.scope}`,
+          betId: bet.id,
+          effectiveLockAt: resolved.effectiveLockAt.toISOString(),
+          skewSeconds: Math.round(
+            (now - resolved.effectiveLockAt.getTime()) / 1000,
+          ),
+        });
         return { ok: false as const, error: "bet_locked" as const };
       }
       if (!validateAnswer(bet.answerType, bet.answerConfig as unknown, answer)) {

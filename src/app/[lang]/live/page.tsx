@@ -13,6 +13,7 @@ import { db } from "@/db";
 import { settings } from "@/db/schema";
 import { localePath } from "@/lib/paths";
 import { formatDateTime } from "@/lib/format";
+import { gatePage } from "@/lib/page-visibility";
 
 // /[lang]/live - in-play scoreboard + projected earnings.
 //
@@ -42,6 +43,7 @@ export default async function LiveMatchesPage({
 }: PageProps<"/[lang]/live">) {
   const { lang } = await params;
   if (!hasLocale(lang)) notFound();
+  await gatePage("live", lang);
   const locale = lang as Locale;
   const dict = await getDictionary(locale);
 

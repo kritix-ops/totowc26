@@ -1,13 +1,20 @@
 import { notFound, redirect } from "next/navigation";
+import { sql } from "drizzle-orm";
 import { Calendar } from "lucide-react";
 import { getDictionary, hasLocale, type Locale } from "../../dictionaries";
 import { getRequestUser } from "@/lib/request-user";
 import { getUserAccess } from "@/lib/access";
 import { getFixtureWithBets, getMyBet } from "@/db/queries";
+import { db } from "@/db";
 import { Card, LabelCaps } from "@/components/ui";
 import { PayGateBanner } from "@/components/PayGateBanner";
+import { LocksInCountdown } from "@/components/LocksInCountdown";
 import { localePath } from "@/lib/paths";
 import { formatDateTime } from "@/lib/format";
+import {
+  getDeadlineContext,
+  resolveMatchScoreLock,
+} from "@/lib/deadlines";
 import { BetForm } from "./BetForm";
 
 export default async function MatchBetPage({
@@ -23,16 +30,51 @@ export default async function MatchBetPage({
 
   const match = await getFixtureWithBets(matchId);
   if (!match) notFound();
-  const [myBet, access] = await Promise.all([
+  const [myBet, access, context, anchorRow] = await Promise.all([
     getMyBet(matchId, user.id),
     getUserAccess(user.id),
+    getDeadlineContext(),
+    db.execute<{
+      lock_at_override: string | null;
+      matchday_offset: number | null;
+    }>(sql`
+      select
+        m.lock_at_override,
+        md.lock_offset_override_minutes as matchday_offset
+      from public.matches m
+      left join public.matchdays md
+        on md.date = (m.kickoff_at at time zone 'Asia/Jerusalem')::date
+      where m.id = ${matchId}::uuid
+      limit 1
+    `),
   ]);
 
   const isHebrew = locale === "he";
   const homeName = isHebrew ? match.homeNameHe : match.homeNameEn;
   const awayName = isHebrew ? match.awayNameHe : match.awayNameEn;
+  const a = (anchorRow as unknown as Array<{
+    lock_at_override: string | null;
+    matchday_offset: number | null;
+  }>)[0];
+  const resolvedLock = resolveMatchScoreLock(
+    {
+      matchId: match.id,
+      kickoffAt: new Date(match.kickoffAt),
+      lockAtOverride: a?.lock_at_override ? new Date(a.lock_at_override) : null,
+      matchdayLockOffsetMinutes: a?.matchday_offset ?? null,
+    },
+    context,
+  );
+  // Server component runs once per request; reading the wall clock to
+  // gate the form is intentional. Same pattern as the Countdown helper
+  // below. The lint rule targets client components.
+  // eslint-disable-next-line react-hooks/purity
+  const now = Date.now();
   const lockable =
-    match.status === "scheduled" && !myBet?.locked && access.canEdit;
+    match.status === "scheduled" &&
+    !myBet?.locked &&
+    access.canEdit &&
+    resolvedLock.effectiveLockAt.getTime() > now;
 
   return (
     <section className="px-4 md:px-16 py-6 md:py-12 flex flex-col gap-8 md:gap-12 max-w-5xl mx-auto w-full">
@@ -61,7 +103,12 @@ export default async function MatchBetPage({
         </div>
         <Card className="px-4 py-3 inline-flex items-center gap-3 self-start md:self-auto">
           <LabelCaps>{dict.common.locksIn}</LabelCaps>
-          <Countdown to={match.kickoffAt} />
+          <Countdown to={resolvedLock.effectiveLockAt.toISOString()} />
+          <LocksInCountdown
+            locale={locale}
+            lockAt={resolvedLock.effectiveLockAt.toISOString()}
+            variant="inline"
+          />
         </Card>
       </header>
 

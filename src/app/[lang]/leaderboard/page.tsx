@@ -12,6 +12,7 @@ import {
 import { Card, LabelCaps } from "@/components/ui";
 import { CategoryPrizeStrip } from "@/components/CategoryPrizeStrip";
 import { localePath } from "@/lib/paths";
+import { gatePage } from "@/lib/page-visibility";
 
 type SearchSP = { tab?: string | string[] };
 
@@ -28,6 +29,7 @@ export default async function LeaderboardPage({
 }: PageParams) {
   const { lang } = await params;
   if (!hasLocale(lang)) notFound();
+  await gatePage("leaderboard", lang);
   const locale = lang as Locale;
   const dict = await getDictionary(locale);
   const isHebrew = locale === "he";

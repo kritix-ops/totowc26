@@ -12,6 +12,8 @@ import {
   Trophy,
   Languages,
   Smartphone,
+  Clock,
+  EyeOff,
 } from "lucide-react";
 import { eq } from "drizzle-orm";
 import { hasLocale, type Locale } from "../dictionaries";
@@ -132,6 +134,18 @@ export default async function AdminPage({
           path="admin/settings/mobile-nav"
           icon={<Smartphone className="h-5 w-5" strokeWidth={1.75} />}
           label={isHebrew ? "תפריט מובייל" : "Mobile nav"}
+        />
+        <SectionLink
+          locale={locale}
+          path="admin/deadlines"
+          icon={<Clock className="h-5 w-5" strokeWidth={1.75} />}
+          label={isHebrew ? "מועדי סגירה" : "Deadlines"}
+        />
+        <SectionLink
+          locale={locale}
+          path="admin/pages"
+          icon={<EyeOff className="h-5 w-5" strokeWidth={1.75} />}
+          label={isHebrew ? "זמינות עמודים" : "Page visibility"}
         />
       </nav>
 

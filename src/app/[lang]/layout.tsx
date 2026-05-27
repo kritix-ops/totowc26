@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import { Suspense } from "react";
 import { notFound } from "next/navigation";
 import {
   Heebo,
@@ -13,6 +14,7 @@ import {
   type Locale,
 } from "./dictionaries";
 import { AppShell } from "@/components/AppShell";
+import { HiddenPageToast } from "@/components/HiddenPageToast";
 import { ServiceWorkerRegistrar } from "@/components/ServiceWorkerRegistrar";
 import { SplashOverlay } from "@/components/SplashOverlay";
 import {
@@ -118,6 +120,9 @@ export default async function RootLayout({
         <AppShell locale={locale} dict={dict}>
           {children}
         </AppShell>
+        <Suspense fallback={null}>
+          <HiddenPageToast locale={locale} />
+        </Suspense>
         <ServiceWorkerRegistrar />
       </body>
     </html>
