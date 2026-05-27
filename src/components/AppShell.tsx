@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { Suspense } from "react";
-import { BookOpen, Home, ListChecks, Sparkles, Trophy } from "lucide-react";
+import { BookOpen, Home, ListChecks, Swords, Trophy } from "lucide-react";
 import type { Dictionary, Locale } from "@/app/[lang]/dictionaries";
 import { localePath } from "@/lib/paths";
 import { getRequestUser } from "@/lib/request-user";
@@ -127,7 +127,6 @@ export async function AppShell({
           >
             <NavLink locale={locale} path="" label={dict.nav.home} exact />
             <NavLink locale={locale} path="bets" label={dict.nav.matchPicks} />
-            <NavLink locale={locale} path="bets/live" label={dict.nav.play} />
             <NavLink locale={locale} path="duels" label={dict.nav.duels} />
             <NavLink locale={locale} path="leaderboard" label={dict.nav.leaders} />
             <NavLink locale={locale} path="tournament" label={dict.nav.tournament} />
@@ -168,15 +167,16 @@ export async function AppShell({
         <nav
           aria-label={isHebrew ? "ניווט תחתון" : "Bottom"}
           // 5 fixed cells matching the desktop order, then a "More"
-          // trigger for the items that did not fit (World Cup, Pay,
-          // Profile, Admin, Logout). Order is intentionally identical
-          // to the desktop top nav so users switching devices see the
-          // same hierarchy.
+          // trigger for the items that did not fit (Live scores,
+          // World Cup, Pay, Profile, Admin, Logout). Order is
+          // intentionally identical to the desktop top nav so users
+          // switching devices see the same hierarchy. Live BETS is
+          // a tab inside /bets, not a top-level cell.
           className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-surface-container rounded-t-xl border-t border-outline-variant shadow-[0_-4px_12px_rgba(28,20,15,0.05)] grid grid-cols-5 items-stretch min-h-[64px] pb-[env(safe-area-inset-bottom)]"
         >
           <BottomNavLink locale={locale} path="" label={dict.nav.home} icon={<Home className="h-5 w-5" strokeWidth={1.75} />} exact />
           <BottomNavLink locale={locale} path="bets" label={dict.nav.matchPicks} icon={<ListChecks className="h-5 w-5" strokeWidth={1.75} />} />
-          <BottomNavLink locale={locale} path="bets/live" label={dict.nav.play} icon={<Sparkles className="h-5 w-5" strokeWidth={1.75} />} />
+          <BottomNavLink locale={locale} path="duels" label={dict.nav.duels} icon={<Swords className="h-5 w-5" strokeWidth={1.75} />} />
           <BottomNavLink locale={locale} path="leaderboard" label={dict.nav.leaders} icon={<Trophy className="h-5 w-5" strokeWidth={1.75} />} />
           <Suspense fallback={<MobileMoreSkeleton />}>
             <MobileMoreSection locale={locale} dict={dict} userId={reqUser.id} />
