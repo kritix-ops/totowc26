@@ -203,6 +203,8 @@ export function BetForm({
         scope,
         matchId,
         dayDate,
+        stage,
+        groupId,
         anchorMatches,
         anchorDays,
         defaults,
@@ -1034,10 +1036,16 @@ function buildGradingConfig(
 // betLockMinutes if the per-type table hasn't been seeded yet, and to
 // "kickoff in 24 h" if no fixture data is available at all (rare; new
 // installs before the first sync).
+//
+// anchorMatches is pre-sorted by kickoff_at ASC server-side, so the
+// first match of each stage/group is just the first array entry that
+// matches the filter.
 function suggestDefaultLockAt(
   scope: Scope,
   matchId: string,
   dayDate: string,
+  stage: StageId,
+  groupId: string,
   anchorMatches: AdminAnchorMatch[],
   anchorDays: AdminAnchorDay[],
   defaults: Defaults | undefined,
@@ -1056,14 +1064,12 @@ function suggestDefaultLockAt(
     if (d) kickoff = new Date(d.earliestKickoff);
     offsetMinutes = offsets?.custom_day ?? fallbackMinutes;
   } else if (scope === "stage") {
-    // We don't have a "first kickoff per stage" anchor list in the
-    // admin queries yet, so we approximate with the earliest known
-    // kickoff. Per-stage anchor accuracy is in the out-of-scope list
-    // of the deadlines plan §14.
-    if (anchorMatches.length > 0) kickoff = new Date(anchorMatches[0].kickoffAt);
+    const first = anchorMatches.find((x) => x.stage === stage);
+    if (first) kickoff = new Date(first.kickoffAt);
     offsetMinutes = offsets?.custom_stage ?? 60;
   } else if (scope === "group") {
-    if (anchorMatches.length > 0) kickoff = new Date(anchorMatches[0].kickoffAt);
+    const first = anchorMatches.find((x) => x.groupId === groupId);
+    if (first) kickoff = new Date(first.kickoffAt);
     offsetMinutes = offsets?.custom_group ?? 60;
   } else if (scope === "tournament") {
     if (defaults?.tournamentStartAt) {
