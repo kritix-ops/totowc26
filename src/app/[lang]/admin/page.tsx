@@ -25,6 +25,7 @@ import {
   getRecentSyncRuns,
   getPaymentsByStatus,
   getPaymentTotals,
+  getTeamMappingStatus,
 } from "@/db/admin-queries";
 import { SyncPanel } from "./SyncPanel";
 import { PaymentsPanel } from "./PaymentsPanel";
@@ -39,7 +40,7 @@ export default async function AdminPage({
   const locale = lang as Locale;
   const isHebrew = locale === "he";
 
-  const [syncHistory, payments, totals, viewAs, settingsRow] = await Promise.all([
+  const [syncHistory, payments, totals, viewAs, settingsRow, teamMapping] = await Promise.all([
     getRecentSyncRuns(20),
     getPaymentsByStatus("all", 50),
     getPaymentTotals(),
@@ -50,6 +51,7 @@ export default async function AdminPage({
       .where(eq(settings.id, 1))
       .limit(1)
       .then((r) => r[0] ?? null),
+    getTeamMappingStatus(),
   ]);
 
   return (
@@ -141,7 +143,7 @@ export default async function AdminPage({
         fallback={PAYBOX_FALLBACK_URL}
       />
 
-      <SyncPanel locale={locale} history={syncHistory} />
+      <SyncPanel locale={locale} history={syncHistory} teamMapping={teamMapping} />
 
       <PaymentsPanel
         locale={locale}

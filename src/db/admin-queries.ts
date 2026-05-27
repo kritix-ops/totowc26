@@ -50,6 +50,58 @@ export async function getRecentSyncRuns(limit = 20): Promise<SyncRunRow[]> {
   return rows as unknown as SyncRunRow[];
 }
 
+// ---------- team mapping status ----------
+
+// How many teams still need their api_football_team_id set. Drives the
+// banner inside SyncPanel — until this is 0, the API-Football fixture
+// sync (post-PR 2) cannot resolve every fixture's home/away pair.
+export type TeamMappingStatus = {
+  totalTeams: number;
+  mapped: number;
+  unmapped: number;
+  unmappedSample: string[]; // codes, capped so the banner stays compact
+};
+
+export async function getTeamMappingStatus(): Promise<TeamMappingStatus> {
+  const rows = await db.execute<{
+    total: number;
+    mapped: number;
+    unmapped: number;
+    sample: string[] | null;
+  }>(sql`
+    select
+      count(*)::int                                                  as "total",
+      count(*) filter (where api_football_team_id is not null)::int  as "mapped",
+      count(*) filter (where api_football_team_id is null)::int      as "unmapped",
+      coalesce(
+        (
+          select array_agg(code order by code)
+          from (
+            select code
+            from public.teams
+            where api_football_team_id is null
+            order by code asc
+            limit 8
+          ) s
+        ),
+        array[]::text[]
+      ) as "sample"
+    from public.teams
+  `);
+  const r = (rows as unknown as Array<{
+    total: number;
+    mapped: number;
+    unmapped: number;
+    sample: string[] | null;
+  }>)[0];
+  return {
+    totalTeams: Number(r?.total ?? 0),
+    mapped: Number(r?.mapped ?? 0),
+    unmapped: Number(r?.unmapped ?? 0),
+    unmappedSample: r?.sample ?? [],
+  };
+}
+
 // ---------- payments ----------
 
 export type AdminPaymentRow = {

@@ -124,6 +124,12 @@ export const teams = pgTable(
     groupId: varchar("group_id", { length: 2 }).references(() => groups.id, {
       onDelete: "set null",
     }),
+    // API-Football's numeric team id. Populated by the one-shot
+    // scripts/api-football-map-teams.mjs. Once non-null on every WC
+    // team, the cron sync looks teams up by this PK instead of
+    // string-matching names — see _plans/2026-05-27-migrate-fixture-
+    // sync-to-api-football.md.
+    apiFootballTeamId: integer("api_football_team_id"),
   },
   (t) => ({
     groupIdx: index("teams_group_idx").on(t.groupId),
@@ -732,7 +738,10 @@ export const duels = pgTable(
   }),
 );
 
-// sync_runs: audit log of every football-data sync attempt.
+// sync_runs: audit log of every fixture-sync attempt. `provider`
+// records which upstream data source was used: "api-football" on the
+// primary path, "football-data" on the degraded-mode fallback. Null
+// for historical rows (pre-migration 0020).
 export const syncRuns = pgTable(
   "sync_runs",
   {
@@ -756,6 +765,7 @@ export const syncRuns = pgTable(
     unknownTeams: jsonb("unknown_teams").$type<string[] | null>(),
     errorMessage: text("error_message"),
     errorStack: text("error_stack"),
+    provider: text("provider"),
   },
   (t) => ({
     startedIdx: index("sync_runs_started_idx").on(t.startedAt),

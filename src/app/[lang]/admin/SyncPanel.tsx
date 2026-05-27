@@ -11,20 +11,23 @@ import {
   Bot,
   User as UserIcon,
   Terminal,
+  CircleAlert,
 } from "lucide-react";
 import { clsx } from "clsx";
 import { Card, LabelCaps, PillButton } from "@/components/ui";
 import type { Locale } from "../dictionaries";
 import { formatDateTime } from "@/lib/format";
 import { runSyncNow, type RunSyncResult } from "./sync-actions";
-import type { SyncRunRow } from "@/db/admin-queries";
+import type { SyncRunRow, TeamMappingStatus } from "@/db/admin-queries";
 
 export function SyncPanel({
   locale,
   history,
+  teamMapping,
 }: {
   locale: Locale;
   history: SyncRunRow[];
+  teamMapping: TeamMappingStatus;
 }) {
   const isHebrew = locale === "he";
   const router = useRouter();
@@ -147,8 +150,69 @@ export function SyncPanel({
         </LabelCaps>
       )}
 
+      <TeamMappingBanner status={teamMapping} isHebrew={isHebrew} />
+
       <SyncHistory rows={history} isHebrew={isHebrew} />
     </Card>
+  );
+}
+
+function TeamMappingBanner({
+  status,
+  isHebrew,
+}: {
+  status: TeamMappingStatus;
+  isHebrew: boolean;
+}) {
+  if (status.totalTeams === 0) return null;
+
+  const ok = status.unmapped === 0;
+  const Icon = ok ? Check : CircleAlert;
+
+  const titleHe = ok
+    ? "כל הקבוצות ממופות ל-API-Football"
+    : `${status.unmapped} מתוך ${status.totalTeams} קבוצות עדיין ללא מיפוי`;
+  const titleEn = ok
+    ? "All teams mapped to API-Football"
+    : `${status.unmapped} of ${status.totalTeams} teams not yet mapped`;
+
+  const bodyHe = ok
+    ? "סנכרון הפיקסצ׳רים יכול לפעול דרך API-Football בלי לדלג על שורות בגלל אי-התאמת שמות."
+    : "עד שכל הקבוצות ממופות, הסנכרון החדש (PR 2) ידלג עליהן. הרץ מקומית `node --env-file=.env.local scripts/api-football-map-teams.mjs` כדי להשלים את המיפוי.";
+  const bodyEn = ok
+    ? "Fixture sync can resolve every team via API-Football without name-matching skips."
+    : "Until every team is mapped, the new sync (PR 2) will skip them. Run `node --env-file=.env.local scripts/api-football-map-teams.mjs` locally to finish the mapping.";
+
+  return (
+    <div
+      className={clsx(
+        "flex items-start gap-3 p-3 md:p-4 rounded-lg border",
+        ok
+          ? "bg-secondary-container text-on-secondary-container border-transparent"
+          : "bg-error-container text-on-error-container border-transparent",
+      )}
+    >
+      <Icon className="h-5 w-5 mt-0.5 shrink-0" strokeWidth={2} />
+      <div className="flex flex-col gap-1 min-w-0 flex-1">
+        <span className="font-bold text-sm">
+          {isHebrew ? titleHe : titleEn}
+        </span>
+        <span className="text-xs opacity-90">
+          {isHebrew ? bodyHe : bodyEn}
+        </span>
+        {!ok && status.unmappedSample.length > 0 && (
+          <span className="text-xs opacity-90 break-words">
+            <span className="font-bold">
+              {isHebrew ? "לא ממופות: " : "Unmapped: "}
+            </span>
+            <bdi>
+              {status.unmappedSample.join(", ")}
+              {status.unmapped > status.unmappedSample.length && "…"}
+            </bdi>
+          </span>
+        )}
+      </div>
+    </div>
   );
 }
 
