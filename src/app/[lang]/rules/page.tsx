@@ -324,23 +324,11 @@ const PAGE_GUIDE: Array<{
     icon: <ListChecks className="h-5 w-5" strokeWidth={1.75} />,
     he: {
       name: "הימורים",
-      desc: "העמוד המרכזי להימורים, מחולק ל-3 טאבים: ניחושי משחקים (תוצאות לכל משחק), הימורי טורניר (זוכת המונדיאל, מלך השערים) ודירוגי בתים (סדר הסיום בכל בית).",
+      desc: "העמוד המרכזי להימורים, מחולק ל-4 טאבים: ניחושי משחקים (תוצאות לכל משחק), הימורי טורניר (זוכת המונדיאל, מלך השערים), דירוגי בתים (סדר הסיום בכל בית), והימורי לייב (בונוסים יומיים כמו 'יבקעו יותר מ-3 שערים').",
     },
     en: {
       name: "Bets",
-      desc: "The main bets page, split into 3 tabs: Match picks (score predictions per match), Tournament bets (champion, top scorer) and Group rankings (final standings per group).",
-    },
-  },
-  {
-    path: "play",
-    icon: <Sparkles className="h-5 w-5" strokeWidth={1.75} />,
-    he: {
-      name: "הימורי לייב",
-      desc: "הימורי בונוס שהאדמין פותח לכל יום משחקים, למשל 'יבקעו יותר מ-3 שערים' או 'יהיו פנדלים'. שונה לחלוטין מהעמוד 'הימורים'.",
-    },
-    en: {
-      name: "Live bets",
-      desc: "Bonus bets the admin opens for each match day, like 'more than 3 goals will be scored' or 'penalties will be taken'. Completely separate from the main Bets page.",
+      desc: "The main bets page, split into 4 tabs: Match picks (score predictions per match), Tournament bets (champion, top scorer), Group rankings (final standings per group), and Live bets (daily bonuses like 'more than 3 goals').",
     },
   },
   {

@@ -120,7 +120,7 @@ export default async function QuickBetsPage({
         <p>
           {dict.quickBets.hint}{" "}
           <Link
-            href={localePath(locale, "play")}
+            href={localePath(locale, "bets/live")}
             className="underline font-bold"
           >
             {isHebrew ? "אל הימורי לייב" : "to the live-bets hub"}

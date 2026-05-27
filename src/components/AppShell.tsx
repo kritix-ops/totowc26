@@ -127,7 +127,7 @@ export async function AppShell({
           >
             <NavLink locale={locale} path="" label={dict.nav.home} exact />
             <NavLink locale={locale} path="bets" label={dict.nav.matchPicks} />
-            <NavLink locale={locale} path="play" label={dict.nav.play} />
+            <NavLink locale={locale} path="bets/live" label={dict.nav.play} />
             <NavLink locale={locale} path="duels" label={dict.nav.duels} />
             <NavLink locale={locale} path="leaderboard" label={dict.nav.leaders} />
             <NavLink locale={locale} path="tournament" label={dict.nav.tournament} />
@@ -176,7 +176,7 @@ export async function AppShell({
         >
           <BottomNavLink locale={locale} path="" label={dict.nav.home} icon={<Home className="h-5 w-5" strokeWidth={1.75} />} exact />
           <BottomNavLink locale={locale} path="bets" label={dict.nav.matchPicks} icon={<ListChecks className="h-5 w-5" strokeWidth={1.75} />} />
-          <BottomNavLink locale={locale} path="play" label={dict.nav.play} icon={<Sparkles className="h-5 w-5" strokeWidth={1.75} />} />
+          <BottomNavLink locale={locale} path="bets/live" label={dict.nav.play} icon={<Sparkles className="h-5 w-5" strokeWidth={1.75} />} />
           <BottomNavLink locale={locale} path="leaderboard" label={dict.nav.leaders} icon={<Trophy className="h-5 w-5" strokeWidth={1.75} />} />
           <Suspense fallback={<MobileMoreSkeleton />}>
             <MobileMoreSection locale={locale} dict={dict} userId={reqUser.id} />

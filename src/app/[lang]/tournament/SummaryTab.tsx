@@ -336,7 +336,7 @@ function RecentResultsList({
           {isHebrew ? "תוצאות אחרונות" : "Recent results"}
         </SectionHeading>
         <Link
-          href={localePath(locale, "play")}
+          href={localePath(locale, "bets/live")}
           className="inline-flex items-center gap-1 font-[family-name:var(--font-label)] text-[12px] font-bold tracking-[0.05em] text-primary hover:underline"
         >
           {isHebrew ? "כל המשחקים" : "All matches"}

@@ -140,6 +140,10 @@ export async function submitCustomBetPick(
       // Drop this user's cached bank breakdown so the header pill
       // shows the post-stake balance on their next nav.
       updateTag(bankCacheTag(user.id));
+      // The live-bets surface moved into /bets/live; revalidate
+      // both paths so the cutover redirect keeps stale data off
+      // either URL.
+      revalidatePath("/[lang]/bets", "layout");
       revalidatePath("/[lang]/play", "layout");
       return { ok: true, balanceAfter: result.balanceAfter };
     }
