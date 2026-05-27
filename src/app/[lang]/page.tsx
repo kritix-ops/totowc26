@@ -995,7 +995,7 @@ function SpecialsCard({
 }) {
   return (
     <Link
-      href={localePath(locale, "specials")}
+      href={localePath(locale, "bets/tournament")}
       className="press-down group block"
     >
       <Card className="p-5 flex items-center gap-4 min-h-[72px] hover:bg-surface-container transition-colors">
