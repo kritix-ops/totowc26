@@ -20,6 +20,7 @@ import { formatDateTime } from "@/lib/format";
 import {
   runSyncNow,
   refreshApiFootballQuota,
+  setTeamApiFootballId,
   type RunSyncResult,
 } from "./sync-actions";
 import type { SyncRunRow, TeamMappingStatus } from "@/db/admin-queries";
@@ -374,19 +375,163 @@ function TeamMappingBanner({
           {isHebrew ? bodyHe : bodyEn}
         </span>
         {!ok && status.unmappedSample.length > 0 && (
-          <span className="text-xs opacity-90 break-words">
-            <span className="font-bold">
-              {isHebrew ? "לא ממופות: " : "Unmapped: "}
+          <div className="flex flex-col gap-2 mt-1">
+            <span className="text-xs font-bold opacity-90">
+              {isHebrew ? "לא ממופות:" : "Unmapped:"}
             </span>
-            <bdi>
-              {status.unmappedSample.join(", ")}
-              {status.unmapped > status.unmappedSample.length && "…"}
-            </bdi>
-          </span>
+            <ul className="flex flex-wrap gap-1.5">
+              {status.unmappedSample.map((code) => (
+                <li key={code} className="min-w-0">
+                  <UnmappedTeamChip code={code} isHebrew={isHebrew} />
+                </li>
+              ))}
+              {status.unmapped > status.unmappedSample.length && (
+                <li className="self-center text-xs opacity-90">
+                  +{status.unmapped - status.unmappedSample.length}
+                </li>
+              )}
+            </ul>
+          </div>
         )}
       </div>
     </div>
   );
+}
+
+function UnmappedTeamChip({
+  code,
+  isHebrew,
+}: {
+  code: string;
+  isHebrew: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const [value, setValue] = useState("");
+  const [pending, startTransition] = useTransition();
+  const [errorKey, setErrorKey] = useState<
+    "bad_input" | "team_not_found" | "id_already_in_use" | "forbidden" | null
+  >(null);
+  const [done, setDone] = useState(false);
+
+  const reset = () => {
+    setOpen(false);
+    setValue("");
+    setErrorKey(null);
+    setDone(false);
+  };
+
+  const onSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrorKey(null);
+    const parsed = Number(value.trim());
+    if (!Number.isInteger(parsed) || parsed <= 0) {
+      setErrorKey("bad_input");
+      return;
+    }
+    startTransition(async () => {
+      const res = await setTeamApiFootballId(code, parsed);
+      if (res.ok) {
+        setDone(true);
+        // Don't auto-close — let the operator see the success state
+        // for one render. The page revalidate already dropped the
+        // chip from the unmapped list, so the next render removes
+        // it naturally.
+      } else {
+        setErrorKey(res.error);
+      }
+    });
+  };
+
+  if (done) {
+    return (
+      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-secondary text-on-secondary text-xs font-bold">
+        <Check className="h-3.5 w-3.5" strokeWidth={2.5} />
+        <bdi>{code}</bdi>
+      </span>
+    );
+  }
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="inline-flex items-center gap-1 px-2.5 min-h-[32px] rounded-full bg-error text-on-error text-xs font-bold border border-transparent hover:bg-error/90 transition-colors press-down"
+        aria-label={isHebrew ? `מפה ידנית את ${code}` : `Map ${code} manually`}
+      >
+        <bdi>{code}</bdi>
+        <span aria-hidden className="opacity-70">↗</span>
+      </button>
+    );
+  }
+
+  return (
+    <form
+      onSubmit={onSubmit}
+      className="flex flex-col gap-1 rounded-lg bg-surface-container-lowest border border-outline-variant p-2 min-w-[180px]"
+    >
+      <div className="flex items-center gap-2">
+        <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-error-container text-on-error-container text-xs font-bold shrink-0">
+          <bdi>{code}</bdi>
+        </span>
+        <input
+          type="number"
+          inputMode="numeric"
+          min={1}
+          step={1}
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          placeholder={isHebrew ? "ID מ-API-Football" : "API-Football team ID"}
+          autoFocus
+          disabled={pending}
+          className="flex-1 min-w-0 px-2 py-1.5 rounded-md text-sm bg-surface text-on-surface border border-outline-variant focus:border-primary focus:outline-none disabled:opacity-50"
+          aria-label={isHebrew ? `מזהה API-Football עבור ${code}` : `API-Football id for ${code}`}
+        />
+      </div>
+      <div className="flex items-center gap-2 justify-end">
+        <button
+          type="button"
+          onClick={reset}
+          disabled={pending}
+          className="text-xs text-on-surface-variant hover:text-on-surface px-2 py-1 min-h-[32px] press-down"
+        >
+          {isHebrew ? "ביטול" : "Cancel"}
+        </button>
+        <button
+          type="submit"
+          disabled={pending || value.trim() === ""}
+          className="inline-flex items-center gap-1 text-xs font-bold bg-primary text-on-primary rounded-full px-3 py-1 min-h-[32px] disabled:opacity-50 press-down"
+        >
+          {pending ? (isHebrew ? "..." : "...") : isHebrew ? "שמור" : "Save"}
+        </button>
+      </div>
+      {errorKey && (
+        <span className="text-[11px] text-error">
+          {errorMessage(errorKey, isHebrew)}
+        </span>
+      )}
+    </form>
+  );
+}
+
+function errorMessage(
+  key: "bad_input" | "team_not_found" | "id_already_in_use" | "forbidden",
+  isHebrew: boolean,
+): string {
+  if (isHebrew) {
+    switch (key) {
+      case "bad_input":         return "מזהה לא תקין — צריך מספר חיובי שלם.";
+      case "team_not_found":    return "הקבוצה לא נמצאה.";
+      case "id_already_in_use": return "המזהה הזה כבר משויך לקבוצה אחרת.";
+      case "forbidden":         return "אין הרשאה.";
+    }
+  }
+  switch (key) {
+    case "bad_input":         return "Invalid id — must be a positive integer.";
+    case "team_not_found":    return "Team not found.";
+    case "id_already_in_use": return "That id is already mapped to a different team.";
+    case "forbidden":         return "Not allowed.";
+  }
 }
 
 function SyncHistory({
