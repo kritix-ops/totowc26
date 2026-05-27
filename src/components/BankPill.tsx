@@ -26,7 +26,7 @@ export function BankPill({
       href={localePath(locale, "me/bank")}
       aria-label={`${dict.bank.label}: ${balance} / ${starting}`}
       className={clsx(
-        "press-down inline-flex items-center gap-1.5 min-h-[36px] px-2.5 md:px-3 rounded-full",
+        "press-down inline-flex items-center gap-1 md:gap-1.5 shrink-0 min-h-[36px] px-2 md:px-3 rounded-full whitespace-nowrap",
         "font-[family-name:var(--font-label)] text-[12px] md:text-[13px] font-bold tracking-[0.05em]",
         "transition-colors",
         negative
@@ -36,10 +36,10 @@ export function BankPill({
             : "bg-surface-container-high text-on-surface",
       )}
     >
-      <Coins className="h-4 w-4" strokeWidth={2} aria-hidden />
-      <bdi className="tabular-nums">
+      <Coins className="h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />
+      <bdi className="tabular-nums whitespace-nowrap">
         {balance}
-        <span className="opacity-60"> / {starting}</span>
+        <span className="opacity-60">/{starting}</span>
       </bdi>
     </Link>
   );
