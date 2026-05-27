@@ -17,7 +17,9 @@ import "server-only";
 // and the activation notes.
 
 const BASE = "https://v3.football.api-sports.io";
-const WC_LEAGUE = 15;
+// FIFA World Cup (national teams). id 15 is the FIFA *Club* World Cup
+// and returns 0 fixtures for the 2026 season — keep them straight.
+const WC_LEAGUE = 1;
 
 function headers(): Record<string, string> | null {
   const key = process.env.API_FOOTBALL_KEY;

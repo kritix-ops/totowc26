@@ -21,7 +21,24 @@ import postgres from "postgres";
 const url = process.env.DIRECT_URL;
 const apiKey = process.env.API_FOOTBALL_KEY;
 const SEASON = Number(process.env.API_FOOTBALL_SEASON ?? 2026);
-const LEAGUE = 15; // FIFA World Cup on API-Football
+const LEAGUE = 1; // FIFA World Cup (national teams). id 15 is the Club World Cup.
+
+// Explicit aliases bridge the cases where the normalization function alone
+// is not enough. Each entry maps our canonical form to a variant we know
+// API-Football uses. Hoisted to the top of the file so teamNamesEqual()
+// can read it during the main matching loop (const has TDZ).
+const TEAM_NAME_ALIASES = [
+  ["czechia",            "czech republic"],
+  ["bosnia herzegovina", "bosnia and herzegovina"],
+  ["turkiye",            "turkey"],
+  ["cape verde",         "cape verde islands"],
+  ["cape verde",         "cabo verde"],
+  ["dr congo",           "congo dr"],
+  ["dr congo",           "congo democratic republic"],
+  ["dr congo",           "democratic republic of congo"],
+  ["south korea",        "korea republic"],
+  ["ivory coast",        "cote d ivoire"],
+];
 
 if (!url) {
   console.error(
@@ -102,6 +119,11 @@ try {
       continue;
     }
     const candidates = buckets.get(m.ji_date) ?? [];
+    // Three-tier match: strict TLA → exact name → normalized-name. API-Football
+    // names countries differently from us in 5+ cases (e.g. "Czech Republic"
+    // vs our "Czechia", "Turkey" vs "Türkiye") and their `code` field is null
+    // for those teams. Normalization strips accents, punctuation, and common
+    // qualifier words so "DR Congo" matches "Congo DR", etc.
     const match =
       candidates.find(
         (fx) => fx.homeTla === m.home_tla && fx.awayTla === m.away_tla,
@@ -110,6 +132,11 @@ try {
         (fx) =>
           fx.homeName.toLowerCase() === m.home_name_en.toLowerCase() &&
           fx.awayName.toLowerCase() === m.away_name_en.toLowerCase(),
+      ) ??
+      candidates.find(
+        (fx) =>
+          teamNamesEqual(fx.homeName, m.home_name_en) &&
+          teamNamesEqual(fx.awayName, m.away_name_en),
       );
 
     if (!match) {
@@ -118,6 +145,9 @@ try {
         date: m.ji_date,
         home: `${m.home_tla} (${m.home_name_en})`,
         away: `${m.away_tla} (${m.away_name_en})`,
+        candidatesSample: candidates.slice(0, 3).map(
+          (fx) => `${fx.homeName}(${fx.homeTla ?? "-"}) vs ${fx.awayName}(${fx.awayTla ?? "-"})`,
+        ),
       });
       continue;
     }
@@ -136,9 +166,12 @@ try {
     console.warn(`Unmatched (${unmatched.length}):`);
     for (const u of unmatched) {
       console.warn(`  ${u.date}  ${u.home} vs ${u.away}  (match_id=${u.matchId})`);
+      if (u.candidatesSample.length > 0) {
+        console.warn(`    api candidates on this date: ${u.candidatesSample.join(" | ")}`);
+      }
     }
     console.warn(
-      "These will fall back to manual grading. Common cause: API-Football's `code` field is null/non-standard for that team. Add an alias in this script or hand-update the api_football_fixture_id column.",
+      "These will fall back to manual grading. Common cause: API-Football's `code` field is null and our `name_en` doesn't match their team name after normalization. Add an explicit alias in TEAM_NAME_ALIASES below, or hand-update the api_football_fixture_id column directly.",
     );
   }
 } finally {
@@ -157,4 +190,35 @@ function isoToJerusalemDate(iso) {
     day: "2-digit",
   });
   return fmt.format(dt); // en-CA gives YYYY-MM-DD
+}
+
+// Normalize a team name for matching: lowercase, strip diacritics, replace
+// punctuation with spaces, collapse multiple spaces, trim. Then drop a few
+// connective words ("and", "the") that vary between styles. Two names match
+// if their normalized forms are equal, one contains the other, or they
+// share an entry in TEAM_NAME_ALIASES.
+function teamNamesEqual(a, b) {
+  const na = normalizeTeamName(a);
+  const nb = normalizeTeamName(b);
+  if (na === nb) return true;
+  if (na.length > 3 && nb.length > 3 && (na.includes(nb) || nb.includes(na))) {
+    return true;
+  }
+  for (const [canonical, variant] of TEAM_NAME_ALIASES) {
+    const c = normalizeTeamName(canonical);
+    const v = normalizeTeamName(variant);
+    if ((na === c && nb === v) || (na === v && nb === c)) return true;
+  }
+  return false;
+}
+
+function normalizeTeamName(s) {
+  return s
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")        // strip combining diacritical marks
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")            // punctuation/hyphens to spaces
+    .replace(/\b(and|the|of|republic|islands)\b/g, " ") // drop noise words
+    .replace(/\s+/g, " ")
+    .trim();
 }

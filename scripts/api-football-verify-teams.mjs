@@ -15,7 +15,7 @@ import postgres from "postgres";
 const url = process.env.DIRECT_URL;
 const apiKey = process.env.API_FOOTBALL_KEY;
 const SEASON = Number(process.env.API_FOOTBALL_SEASON ?? 2026);
-const LEAGUE = 15; // FIFA World Cup
+const LEAGUE = 1; // FIFA World Cup (national teams). id 15 is the Club World Cup.
 
 if (!url) {
   console.error(

@@ -22,9 +22,12 @@ import type { AutoApiFootballStat } from "@/lib/bets/types";
 
 const BASE = "https://v3.football.api-sports.io";
 
-// FIFA World Cup competition ID on API-Football. Their numbering is
-// stable across seasons - only the `season` query param changes.
-export const API_FOOTBALL_WC_LEAGUE_ID = 15;
+// FIFA World Cup (national teams) competition ID on API-Football.
+// Verified by hitting /leagues?search=world%20cup: id 1 returns the
+// national-team tournament, id 15 is the FIFA *Club* World Cup. Their
+// numbering is stable across seasons; only the `season` query param
+// changes.
+export const API_FOOTBALL_WC_LEAGUE_ID = 1;
 
 export type ApiFootballStats = Partial<Record<AutoApiFootballStat, number>>;
 

@@ -61,7 +61,7 @@ fixture id. Run once locally:
 pnpm api-football:map
 ```
 
-This calls `/fixtures?league=15&season=2026`, buckets by Asia/Jerusalem
+This calls `/fixtures?league=1&season=2026`, buckets by Asia/Jerusalem
 date, then matches against our local `matches` table by TLA → name →
 date. Updates `matches.api_football_fixture_id` where it was `NULL`.
 Idempotent — safe to rerun if the FIFA bracket adjusts during

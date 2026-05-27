@@ -22,7 +22,9 @@
     "api:fixtures": "node --env-file=.env.local scripts/api-sync-fixtures.mjs",
     "api:sync": "node --env-file=.env.local scripts/api-sync-fixtures.mjs && node --env-file=.env.local scripts/score-matches.mjs",
     "api-football:map": "node --env-file=.env.local scripts/api-football-map-fixtures.mjs",
-    "api-football:verify-teams": "node --env-file=.env.local scripts/api-football-verify-teams.mjs"
+    "api-football:verify-teams": "node --env-file=.env.local scripts/api-football-verify-teams.mjs",
+    "api-football:check": "node --env-file=.env.local scripts/api-football-check-mapping.mjs",
+    "api-football:probe": "node --env-file=.env.local scripts/api-football-probe.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.10.3",
