@@ -21,6 +21,10 @@ export type SyncRunRow = {
   unknownTeams: string[] | null;
   errorMessage: string | null;
   errorStack: string | null;
+  // Which upstream the sync row used. "api-football" on the primary
+  // path, "football-data" on the degraded-mode fallback, null for
+  // historical rows written before migration 0020.
+  provider: "api-football" | "football-data" | null;
 };
 
 export async function getRecentSyncRuns(limit = 20): Promise<SyncRunRow[]> {
@@ -41,7 +45,8 @@ export async function getRecentSyncRuns(limit = 20): Promise<SyncRunRow[]> {
       r.scored_matches            as "scoredMatches",
       r.unknown_teams             as "unknownTeams",
       r.error_message             as "errorMessage",
-      r.error_stack               as "errorStack"
+      r.error_stack               as "errorStack",
+      r.provider                  as "provider"
     from public.sync_runs r
     left join public.profiles p on p.id = r.triggered_by
     order by r.started_at desc

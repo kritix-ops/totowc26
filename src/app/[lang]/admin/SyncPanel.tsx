@@ -261,6 +261,7 @@ function SyncHistory({
                     {summaryLine(r, isHebrew)}
                   </span>
                 </div>
+                <ProviderBadge provider={r.provider} className="hidden sm:inline-flex" />
                 <span className="text-xs font-[family-name:var(--font-label)] text-on-surface-variant whitespace-nowrap bidi-ltr">
                   {r.durationMs != null ? `${(r.durationMs / 1000).toFixed(1)}s` : "…"}
                 </span>
@@ -298,6 +299,31 @@ function StatusDot({ ok, pending }: { ok: boolean; pending: boolean }) {
 function SourceIcon({ source }: { source: SyncRunRow["source"] }) {
   const Icon = source === "cron" ? Bot : source === "admin" ? UserIcon : Terminal;
   return <Icon className="h-4 w-4 text-on-surface-variant shrink-0" strokeWidth={1.75} />;
+}
+
+function ProviderBadge({
+  provider,
+  className,
+}: {
+  provider: SyncRunRow["provider"];
+  className?: string;
+}) {
+  if (!provider) return null;
+  const apiFootball = provider === "api-football";
+  return (
+    <span
+      className={clsx(
+        "shrink-0 px-2 py-0.5 rounded-full text-[10px] font-bold tracking-[0.04em] uppercase font-[family-name:var(--font-label)] whitespace-nowrap bidi-ltr",
+        apiFootball
+          ? "bg-primary-container text-on-primary-container"
+          : "bg-tertiary-container text-on-tertiary-container",
+        className,
+      )}
+      aria-label={apiFootball ? "Synced via API-Football" : "Synced via football-data"}
+    >
+      {apiFootball ? "API-Football" : "football-data"}
+    </span>
+  );
 }
 
 function summaryLine(r: SyncRunRow, isHebrew: boolean): string {
@@ -359,6 +385,17 @@ function RunDetail({ run, isHebrew }: { run: SyncRunRow; isHebrew: boolean }) {
                 : isHebrew ? "נכשל" : "failed"
           }
           tone={!run.finishedAt ? "warning" : run.ok ? "good" : "bad"}
+        />
+        <Field
+          label={isHebrew ? "ספק" : "Provider"}
+          value={
+            run.provider === "api-football"
+              ? "API-Football"
+              : run.provider === "football-data"
+                ? "football-data"
+                : "—"
+          }
+          tone={run.provider === "football-data" ? "warning" : undefined}
         />
       </div>
 
