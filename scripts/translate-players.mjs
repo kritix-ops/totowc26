@@ -71,7 +71,11 @@ const flag = (name, fallback = null) => {
 };
 const phase            = flag("phase", "all"); // 'wikidata' | 'translate' | 'review' | 'both' | 'all'
 const batchSize        = Number(flag("batch-size", 20));
-const wikidataDelayMs  = Number(flag("wikidata-delay-ms", 120));
+// WDQS guidance for anonymous traffic is ~60 requests/minute, so 1
+// req/sec is the safe default. Override with --wikidata-delay-ms=300
+// once you confirm the endpoint is happy.
+const wikidataDelayMs  = Number(flag("wikidata-delay-ms", 1000));
+const wikidataRetries  = Number(flag("wikidata-retries", 3));
 const forceRetranslate = flag("force-retranslate", false) === true;
 const dryRun           = flag("dry-run", false) === true;
 
@@ -139,28 +143,64 @@ LIMIT 1
   `.trim();
 }
 
-async function wikidataLookup(nameEn) {
-  const query = buildWikidataQuery(nameEn);
-  const res = await fetch(`${WIKIDATA_ENDPOINT}?format=json&query=${encodeURIComponent(query)}`, {
-    headers: {
-      // WDQS asks for an identifying User-Agent so they can contact
-      // operators when a query is misbehaving. This is the
-      // recommended format from their docs.
-      "user-agent": "totowc26-translate-players/1.0 (https://github.com/kritix-ops/totowc26)",
-      accept: "application/sparql-results+json",
-    },
-  });
-  if (!res.ok) {
-    throw new Error(`Wikidata ${res.status}`);
-  }
-  const json = await res.json();
-  const bindings = json?.results?.bindings ?? [];
-  if (bindings.length === 0) return null;
-  return bindings[0].nameHe?.value ?? null;
-}
-
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
+}
+
+async function wikidataLookup(nameEn) {
+  const query = buildWikidataQuery(nameEn);
+  // Retry loop. WDQS commonly emits 429 (rate-limited), 502 (bad
+  // gateway, the public endpoint is fronted by load balancers that
+  // can drop requests when busy), and 503. All three are transient.
+  // Exponential backoff starting at 2s, capped at the value of the
+  // Retry-After header if present.
+  let lastErr = null;
+  for (let attempt = 0; attempt <= wikidataRetries; attempt += 1) {
+    let res;
+    try {
+      res = await fetch(`${WIKIDATA_ENDPOINT}?format=json&query=${encodeURIComponent(query)}`, {
+        headers: {
+          // WDQS asks for an identifying User-Agent so they can contact
+          // operators when a query is misbehaving. Recommended format
+          // per their docs.
+          "user-agent": "totowc26-translate-players/1.0 (https://github.com/kritix-ops/totowc26)",
+          accept: "application/sparql-results+json",
+        },
+      });
+    } catch (netErr) {
+      // Network-layer fault (DNS, socket reset). Treat as retryable.
+      lastErr = new Error(`Wikidata fetch: ${netErr.message}`);
+      if (attempt < wikidataRetries) {
+        await sleep(2000 * Math.pow(2, attempt));
+        continue;
+      }
+      throw lastErr;
+    }
+    if (res.ok) {
+      const json = await res.json();
+      const bindings = json?.results?.bindings ?? [];
+      if (bindings.length === 0) return null;
+      return bindings[0].nameHe?.value ?? null;
+    }
+    // 429 / 5xx → backoff and retry. 4xx other than 429 means the
+    // query itself is malformed (e.g. an odd character we did not
+    // escape) and is NOT worth retrying.
+    if (res.status !== 429 && res.status < 500) {
+      throw new Error(`Wikidata ${res.status}`);
+    }
+    const retryAfterHeader = res.headers.get("retry-after");
+    const retryAfterMs =
+      retryAfterHeader != null
+        ? Math.max(0, Number(retryAfterHeader) * 1000)
+        : 2000 * Math.pow(2, attempt);
+    lastErr = new Error(`Wikidata ${res.status}`);
+    if (attempt < wikidataRetries) {
+      await sleep(retryAfterMs);
+      continue;
+    }
+    throw lastErr;
+  }
+  throw lastErr ?? new Error("Wikidata: unknown failure");
 }
 
 async function runWikidataPhase() {
