@@ -1,24 +1,25 @@
-import { Crown, Medal, Sparkles, Swords, Trophy } from "lucide-react";
+import { Crown, Medal, Sparkles, Trophy, Wrench } from "lucide-react";
 import { clsx } from "clsx";
 import type { Locale } from "@/app/[lang]/dictionaries";
 import type { CategoryPrizeBreakdown, CategoryPrizeKey } from "@/db/queries";
 
-// 7-way prize-pool breakdown matching the betting overhaul §12 split:
-// king (1/2/3) + matches winner + live winner + duels winner + reserve.
-// Renders one tile per category with the live ILS amount derived from
-// the current pot. Always rendered: before any payments land, the
-// tiles show the configured percentages with `0 ILS` so first-time
-// visitors still see the shape of the prize map.
+// Public prize-pool breakdown. Renders one tile per visible category
+// with the live ILS amount derived from the distributable pot
+// (pot − admin overhead). The two hidden keys (`duels_winner`,
+// `reserve`) are still tracked in the DB so the admin can keep them
+// in the 100% split, but they do not surface to players. The setup-
+// overhead deduction is shown above the tiles so the math is
+// transparent: pot − overhead = distributable.
 
 type KeyMeta = {
   key: CategoryPrizeKey;
   he: string;
   en: string;
   icon: React.ReactNode;
-  highlight: "king-first" | "king-second-third" | "category" | "reserve";
+  highlight: "king-first" | "king-second-third" | "category";
 };
 
-const KEYS: KeyMeta[] = [
+const VISIBLE_KEYS: KeyMeta[] = [
   {
     key: "king_first",
     he: "מלך המונדיאל",
@@ -54,20 +55,6 @@ const KEYS: KeyMeta[] = [
     icon: <Sparkles className="h-4 w-4" strokeWidth={1.75} />,
     highlight: "category",
   },
-  {
-    key: "duels_winner",
-    he: "אלוף הדו-קרב",
-    en: "Duels winner",
-    icon: <Swords className="h-4 w-4" strokeWidth={1.75} />,
-    highlight: "category",
-  },
-  {
-    key: "reserve",
-    he: "רזרבה",
-    en: "Reserve",
-    icon: <Trophy className="h-4 w-4" strokeWidth={1.75} />,
-    highlight: "reserve",
-  },
 ];
 
 export function CategoryPrizeStrip({
@@ -79,6 +66,7 @@ export function CategoryPrizeStrip({
 }) {
   const isHebrew = locale === "he";
   const byKey = new Map(prize.prizes.map((p) => [p.key, p]));
+  const currency = isHebrew ? "ש״ח" : "ILS";
   return (
     <section
       aria-label={isHebrew ? "חלוקת הקופה לפי קטגוריות" : "Category prize split"}
@@ -89,15 +77,31 @@ export function CategoryPrizeStrip({
           <Trophy className="h-5 w-5 text-tertiary" strokeWidth={1.75} />
           {isHebrew ? "חלוקת הקופה" : "Prize pool"}
         </h2>
-        <span className="text-xs text-on-surface-variant">
-          {isHebrew ? "מקופה נוכחית:" : "from current pot:"}{" "}
-          <bdi>
-            {prize.potIls.toLocaleString()} {isHebrew ? "ש״ח" : "ILS"}
-          </bdi>
-        </span>
       </div>
+
+      {/* Pot math: makes the overhead deduction visible and the
+          distributable amount explicit, so players can see exactly
+          what the percentages below run on. */}
+      <dl className="grid grid-cols-3 gap-2 text-center">
+        <PotStat
+          label={isHebrew ? "קופה" : "Pot"}
+          value={`${prize.potIls.toLocaleString()} ${currency}`}
+        />
+        <PotStat
+          label={isHebrew ? "עלות הקמה" : "Setup cost"}
+          value={`-${prize.overheadIls.toLocaleString()} ${currency}`}
+          icon={<Wrench className="h-3.5 w-3.5" strokeWidth={2} />}
+          tone="muted"
+        />
+        <PotStat
+          label={isHebrew ? "לחלוקה" : "Distributable"}
+          value={`${prize.distributableIls.toLocaleString()} ${currency}`}
+          tone="strong"
+        />
+      </dl>
+
       <ul className="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-3">
-        {KEYS.map((meta) => {
+        {VISIBLE_KEYS.map((meta) => {
           const p = byKey.get(meta.key) ?? { pct: 0, ils: 0, key: meta.key };
           return (
             <li
@@ -108,9 +112,7 @@ export function CategoryPrizeStrip({
                   ? "bg-tertiary-fixed text-on-tertiary-fixed-variant border-tertiary-fixed-dim md:col-span-2"
                   : meta.highlight === "king-second-third"
                     ? "bg-primary-fixed text-on-primary-fixed-variant border-primary-fixed-dim"
-                    : meta.highlight === "category"
-                      ? "bg-secondary-container text-on-secondary-container border-secondary-fixed"
-                      : "bg-surface-container-lowest text-on-surface border-outline-variant",
+                    : "bg-secondary-container text-on-secondary-container border-secondary-fixed",
               )}
             >
               <span className="font-[family-name:var(--font-label)] text-[10px] font-bold tracking-[0.05em] uppercase opacity-80 inline-flex items-center gap-1.5">
@@ -121,7 +123,7 @@ export function CategoryPrizeStrip({
               </span>
               <span className="font-[family-name:var(--font-score)] text-xl md:text-2xl leading-none font-bold tabular-nums">
                 <bdi>
-                  {p.ils.toLocaleString()} {isHebrew ? "ש״ח" : "ILS"}
+                  {p.ils.toLocaleString()} {currency}
                 </bdi>
               </span>
             </li>
@@ -129,5 +131,38 @@ export function CategoryPrizeStrip({
         })}
       </ul>
     </section>
+  );
+}
+
+function PotStat({
+  label,
+  value,
+  icon,
+  tone,
+}: {
+  label: string;
+  value: string;
+  icon?: React.ReactNode;
+  tone?: "muted" | "strong";
+}) {
+  return (
+    <div
+      className={clsx(
+        "rounded-lg p-2 flex flex-col items-center gap-0.5 border",
+        tone === "strong"
+          ? "bg-tertiary-fixed text-on-tertiary-fixed-variant border-tertiary-fixed-dim"
+          : tone === "muted"
+            ? "bg-surface-container-lowest text-on-surface-variant border-outline-variant"
+            : "bg-surface-container-lowest text-on-surface border-outline-variant",
+      )}
+    >
+      <dt className="font-[family-name:var(--font-label)] text-[10px] font-bold tracking-[0.05em] uppercase opacity-80 inline-flex items-center gap-1">
+        {icon}
+        {label}
+      </dt>
+      <dd className="font-[family-name:var(--font-score)] text-sm md:text-base leading-none font-bold tabular-nums">
+        <bdi>{value}</bdi>
+      </dd>
+    </div>
   );
 }

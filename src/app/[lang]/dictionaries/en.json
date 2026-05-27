@@ -19,11 +19,6 @@
     "bank": "Bank",
     "bankShort": "Bank"
   },
-  "prizes": {
-    "label": "Prize pool",
-    "rankLabel": "#{n}",
-    "fromPot": "from current pot: {pot} ILS"
-  },
   "bank": {
     "label": "Points Bank",
     "balance": "Balance",
@@ -373,7 +368,7 @@
     "bankBody": "Every player starts with {startingBank} points. Live bets and duels stake part of the bank - get it right and you keep your stake plus a payout; get it wrong and the stake stays in the pool. Match picks are mostly upside (see above). Your balance is the pill in the top header.",
     "prizesTitle": "Pot and prizes",
     "prizesEntry": "Entry fee: 100 ILS via Paybox.",
-    "prizesBody": "The pot splits by the percentages below. It grows every time the admin approves another payment.",
+    "prizesBody": "A fixed setup cost is pulled off the pot first (Paybox fees, hosting, design). What remains after the deduction is what splits by the percentages below. The pot grows every time the admin approves another payment.",
     "ctaBack": "Back to home"
   }
 }

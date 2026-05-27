@@ -57,6 +57,8 @@ export type ScoringPayload = {
   prizeLiveWinnerPct: number;
   prizeDuelsWinnerPct: number;
   prizeReservePct: number;
+  // Fixed ILS amount pulled off the pot before the category split runs.
+  adminOverheadIls: number;
 };
 
 // Keys that must be non-negative finite integers in [0, 32000].
@@ -91,6 +93,7 @@ const INTEGER_KEYS = [
   "prizeLiveWinnerPct",
   "prizeDuelsWinnerPct",
   "prizeReservePct",
+  "adminOverheadIls",
 ] as const satisfies ReadonlyArray<keyof ScoringPayload>;
 
 const BOOLEAN_KEYS = [
@@ -222,6 +225,7 @@ export async function saveScoringSettings(
         prizeLiveWinnerPct: payload.prizeLiveWinnerPct,
         prizeDuelsWinnerPct: payload.prizeDuelsWinnerPct,
         prizeReservePct: payload.prizeReservePct,
+        adminOverheadIls: payload.adminOverheadIls,
         updatedAt: new Date(),
       })
       .where(eq(settings.id, 1));

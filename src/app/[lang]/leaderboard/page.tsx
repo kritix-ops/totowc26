@@ -7,7 +7,6 @@ import { getRequestUser } from "@/lib/request-user";
 import {
   getCategoryPrizeBreakdown,
   getLeaderboard,
-  getPrizeBreakdown,
   type LeaderboardTab,
 } from "@/db/queries";
 import { Card, LabelCaps } from "@/components/ui";
@@ -43,18 +42,22 @@ export default async function LeaderboardPage({
       ? (rawTab as LeaderboardTab)
       : "overall";
 
-  const [rows, prize, categoryPrize] = await Promise.all([
+  const [rows, categoryPrize] = await Promise.all([
     getLeaderboard(user.id, tab),
-    getPrizeBreakdown(),
     getCategoryPrizeBreakdown(),
   ]);
 
-  // Per-rank legacy prize ILS amounts only render alongside the
-  // overall tab. Category tabs surface their single-winner prize
-  // through the strip above the list.
+  // Per-rank prize ILS amounts only render alongside the overall tab,
+  // and they come from the category split (king 1/2/3) so the chip
+  // next to each row matches the strip above the list. Category tabs
+  // surface their single-winner prize through the standalone card.
   const prizeByRank =
     tab === "overall"
-      ? new Map<number, number>(prize.prizes.map((p) => [p.rank, p.ils]))
+      ? new Map<number, number>([
+          [1, categoryPrize.prizes.find((p) => p.key === "king_first")?.ils ?? 0],
+          [2, categoryPrize.prizes.find((p) => p.key === "king_second")?.ils ?? 0],
+          [3, categoryPrize.prizes.find((p) => p.key === "king_third")?.ils ?? 0],
+        ])
       : new Map<number, number>();
 
   // Map each category tab to the matching slot in the 7-way split so
@@ -164,7 +167,7 @@ export default async function LeaderboardPage({
                     <span className="bidi-ltr">{row.points}</span>
                   </span>
                   <LabelCaps as="div">{dict.common.points}</LabelCaps>
-                  {prizeIls > 0 && row.rank <= 4 && (
+                  {prizeIls > 0 && row.rank <= 3 && (
                     <span
                       className="mt-1 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-tertiary-fixed text-on-tertiary-fixed-variant text-[11px] font-bold tabular-nums"
                       aria-label={

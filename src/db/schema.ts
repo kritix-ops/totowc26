@@ -343,6 +343,11 @@ export const settings = pgTable("settings", {
   prizePct2: smallint("prize_pct_2").notNull().default(30),
   prizePct3: smallint("prize_pct_3").notNull().default(15),
   prizePct4: smallint("prize_pct_4").notNull().default(5),
+  // Fixed ILS amount pulled off the pot before percentages are applied.
+  // Covers setup costs (paybox fees, hosting, design). The 7-way category
+  // split runs on max(0, pot - admin_overhead_ils), so a higher overhead
+  // proportionally shrinks every prize tile. Default 100.
+  adminOverheadIls: integer("admin_overhead_ils").notNull().default(100),
   // Public-signup gate. When false, /[lang]/signup renders a closed page
   // and the "להגיש בקשה" link on /[lang]/login is hidden. Default true so
   // existing deployments keep accepting requests after the migration runs.

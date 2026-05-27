@@ -51,6 +51,19 @@ const GROUPS: Group[] = [
     ],
   },
   {
+    title: { he: "עלות הקמה (קופה)", en: "Setup overhead (pot)" },
+    hint: {
+      he: "סכום קבוע בש״ח שמנוכה מהקופה לפני שהאחוזים מתחלקים. מכסה דמי Paybox, אחסון ועיצוב. אפס = ללא ניכוי. ברירת מחדל: 100.",
+      en: "Fixed ILS amount pulled off the pot before the category percentages run. Covers paybox fees, hosting and design. Zero = no deduction. Default: 100.",
+    },
+    fields: [
+      {
+        key: "adminOverheadIls",
+        label: { he: "עלות הקמה (ש״ח)", en: "Setup overhead (ILS)" },
+      },
+    ],
+  },
+  {
     title: {
       he: "ניקוד משחקים (1/X/2)",
       en: "Match scoring (1/X/2)",
@@ -475,6 +488,10 @@ function CategoryPrizeCard({
   const over = sum > 100;
   const under = sum < 100;
   const ok = sum === 100;
+  // Distributable pot = pot − admin overhead, floored at 0. Each
+  // category's ILS preview runs on this so the admin sees the same
+  // numbers players will see on the public prize strip.
+  const distributableIls = Math.max(0, potIls - (Number(values.adminOverheadIls) || 0));
   return (
     <Card className="p-5 md:p-6 flex flex-col gap-4">
       <div className="flex flex-col gap-1">
@@ -486,12 +503,17 @@ function CategoryPrizeCard({
             ? "מלך המונדיאל זוכה במקומות 1/2/3, ובנוסף יש אלוף בודד לכל קטגוריה (משחקים/לייב/דו-קרב). הסכום חייב להיות בדיוק 100%."
             : "The overall king gets 1st/2nd/3rd; each category (matches/live/duels) also has a single winner. Total must be exactly 100%."}
         </p>
+        <p className="text-xs text-on-surface-variant">
+          {isHebrew
+            ? `קופה ${potIls.toLocaleString()} ש״ח · עלות הקמה ${(Number(values.adminOverheadIls) || 0).toLocaleString()} ש״ח · לחלוקה ${distributableIls.toLocaleString()} ש״ח`
+            : `Pot ${potIls.toLocaleString()} ILS · Overhead ${(Number(values.adminOverheadIls) || 0).toLocaleString()} ILS · Distributable ${distributableIls.toLocaleString()} ILS`}
+        </p>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {CATEGORY_PRIZE_FIELDS.map((f) => {
           const pct = Number(values[f.key]) || 0;
-          const ils = Math.floor((potIls * pct) / 100);
+          const ils = Math.floor((distributableIls * pct) / 100);
           return (
             <div key={f.key} className="flex flex-col gap-1.5">
               <label
@@ -515,7 +537,7 @@ function CategoryPrizeCard({
                 />
                 <span className="flex-1 h-12 px-3 flex items-center justify-between rounded-lg bg-surface-container-low border border-outline-variant">
                   <span className="text-xs text-on-surface-variant">
-                    {isHebrew ? "מקופה נוכחית" : "of current pot"}
+                    {isHebrew ? "מהסכום לחלוקה" : "of distributable"}
                   </span>
                   <span className="font-[family-name:var(--font-score)] text-lg font-bold tabular-nums">
                     <bdi>

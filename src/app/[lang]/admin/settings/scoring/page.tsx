@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { ChevronLeft, ChevronRight, Settings } from "lucide-react";
 import { hasLocale, type Locale } from "../../../dictionaries";
 import { requireAdmin } from "@/lib/admin";
-import { getPrizeBreakdown } from "@/db/queries";
+import { getCategoryPrizeBreakdown } from "@/db/queries";
 import { db } from "@/db";
 import { settings } from "@/db/schema";
 import { eq } from "drizzle-orm";
@@ -58,10 +58,11 @@ export default async function AdminScoringSettingsPage({
         prizeLiveWinnerPct: settings.prizeLiveWinnerPct,
         prizeDuelsWinnerPct: settings.prizeDuelsWinnerPct,
         prizeReservePct: settings.prizeReservePct,
+        adminOverheadIls: settings.adminOverheadIls,
       })
       .from(settings)
       .where(eq(settings.id, 1)),
-    getPrizeBreakdown(),
+    getCategoryPrizeBreakdown(),
   ]);
 
   const initial = {
@@ -97,6 +98,7 @@ export default async function AdminScoringSettingsPage({
     prizeLiveWinnerPct: cfg?.prizeLiveWinnerPct ?? 15,
     prizeDuelsWinnerPct: cfg?.prizeDuelsWinnerPct ?? 12,
     prizeReservePct: cfg?.prizeReservePct ?? 10,
+    adminOverheadIls: cfg?.adminOverheadIls ?? 100,
   };
 
   return (

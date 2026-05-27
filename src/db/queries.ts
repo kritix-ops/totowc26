@@ -947,6 +947,10 @@ export type CategoryPrizeKey =
 
 export type CategoryPrizeBreakdown = {
   potIls: number;
+  // Fixed setup cost pulled off the pot before percentages are applied.
+  // The whole category split runs on `distributableIls`.
+  overheadIls: number;
+  distributableIls: number;
   prizes: Array<{ key: CategoryPrizeKey; pct: number; ils: number }>;
   totalAwardedIls: number;
 };
@@ -958,6 +962,7 @@ export type CategoryPrizeBreakdown = {
 async function loadCategoryPrizeBreakdownFromDb(): Promise<CategoryPrizeBreakdown> {
   const rows = await db.execute<{
     pot: number;
+    overhead: number;
     king_first: number;
     king_second: number;
     king_third: number;
@@ -971,6 +976,7 @@ async function loadCategoryPrizeBreakdownFromDb(): Promise<CategoryPrizeBreakdow
         select sum(amount_ils) filter (where status = 'approved')
         from public.payments
       ), 0)::int                                                        as "pot",
+      (select admin_overhead_ils        from public.settings where id = 1)::int as "overhead",
       (select prize_king_first_pct      from public.settings where id = 1)::int as "king_first",
       (select prize_king_second_pct     from public.settings where id = 1)::int as "king_second",
       (select prize_king_third_pct      from public.settings where id = 1)::int as "king_third",
@@ -981,6 +987,7 @@ async function loadCategoryPrizeBreakdownFromDb(): Promise<CategoryPrizeBreakdow
   `);
   const r = (rows as unknown as Array<{
     pot: number;
+    overhead: number;
     king_first: number;
     king_second: number;
     king_third: number;
@@ -990,6 +997,11 @@ async function loadCategoryPrizeBreakdownFromDb(): Promise<CategoryPrizeBreakdow
     reserve: number;
   }>)[0];
   const pot = Number(r?.pot ?? 0);
+  const overhead = Number(r?.overhead ?? 0);
+  // Distributable pot floors at 0 — if the pot has not covered the
+  // setup cost yet, every category prize is 0 ILS but the percentages
+  // still render so users can see the shape of the eventual split.
+  const distributable = Math.max(0, pot - overhead);
   const keys: Array<{ key: CategoryPrizeKey; pct: number }> = [
     { key: "king_first",     pct: Number(r?.king_first ?? 0) },
     { key: "king_second",    pct: Number(r?.king_second ?? 0) },
@@ -1001,10 +1013,16 @@ async function loadCategoryPrizeBreakdownFromDb(): Promise<CategoryPrizeBreakdow
   ];
   const prizes = keys.map((k) => ({
     ...k,
-    ils: Math.floor((pot * k.pct) / 100),
+    ils: Math.floor((distributable * k.pct) / 100),
   }));
   const totalAwardedIls = prizes.reduce((s, p) => s + p.ils, 0);
-  return { potIls: pot, prizes, totalAwardedIls };
+  return {
+    potIls: pot,
+    overheadIls: overhead,
+    distributableIls: distributable,
+    prizes,
+    totalAwardedIls,
+  };
 }
 
 export const getCategoryPrizeBreakdown = unstable_cache(
