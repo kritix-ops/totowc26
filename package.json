@@ -25,7 +25,8 @@
     "api-football:verify-teams": "node --env-file=.env.local scripts/api-football-verify-teams.mjs",
     "api-football:check": "node --env-file=.env.local scripts/api-football-check-mapping.mjs",
     "api-football:probe": "node --env-file=.env.local scripts/api-football-probe.mjs",
-    "api-football:squads": "node --env-file=.env.local scripts/api-football-sync-squads.mjs"
+    "api-football:squads": "node --env-file=.env.local scripts/api-football-sync-squads.mjs",
+    "translate:players": "node --env-file=.env.local scripts/translate-players.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.10.3",
