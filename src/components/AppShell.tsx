@@ -124,13 +124,15 @@ export async function AppShell({
         {signedIn ? (
           <nav
             aria-label={isHebrew ? "ניווט ראשי" : "Main"}
-            className="hidden md:flex items-center justify-center gap-6 h-full"
+            className="hidden md:flex items-center justify-center gap-3 lg:gap-6 h-full"
           >
             <NavLink locale={locale} path="" label={dict.nav.home} exact />
             <NavLink locale={locale} path="bets" label={dict.nav.matchPicks} />
             <NavLink locale={locale} path="duels" label={dict.nav.duels} />
             <NavLink locale={locale} path="leaderboard" label={dict.nav.leaders} />
             <NavLink locale={locale} path="tournament" label={dict.nav.tournament} />
+            <NavLink locale={locale} path="live" label={dict.nav.liveScores} />
+            <NavLink locale={locale} path="transparency" label={dict.nav.transparency} />
             <Suspense fallback={<DesktopNavExtrasSkeleton />}>
               <DesktopNavExtras locale={locale} dict={dict} userId={reqUser.id} />
             </Suspense>
