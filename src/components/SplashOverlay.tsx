@@ -92,6 +92,7 @@ export function SplashOverlay({ locale }: { locale: "he" | "en" }) {
           pipeline. `object-contain` keeps the full poster - including the
           brand strip - visible inside any viewport (tall phones letterbox
           with cream above/below, tablets letterbox on the sides). */}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
         src={src}
         alt=""

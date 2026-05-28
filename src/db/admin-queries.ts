@@ -1,6 +1,5 @@
 import "server-only";
 import { sql } from "drizzle-orm";
-import { db } from "./index";
 import { execFirstRow, execRows } from "./helpers";
 
 // ---------- sync_runs ----------

@@ -4,7 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Check, X, RotateCcw, AlertCircle } from "lucide-react";
 import { clsx } from "clsx";
-import { Card, Chip, LabelCaps, SectionHeading } from "@/components/ui";
+import { Card, Chip, SectionHeading } from "@/components/ui";
 import type { Locale } from "../dictionaries";
 import { formatDateTime } from "@/lib/format";
 import type { AdminPaymentRow } from "@/db/admin-queries";

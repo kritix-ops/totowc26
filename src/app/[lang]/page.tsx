@@ -155,6 +155,12 @@ function mockDashboard(): DashboardData {
 
 type DashboardData = Awaited<ReturnType<typeof loadDashboard>>;
 
+// Defines the shape DashboardData reads via Awaited<ReturnType<...>>; the
+// real signed-in path streams each section independently (see PlayerHome
+// + the per-Suspense fetchers below) so this aggregate function is never
+// actually called at runtime. Kept as the single source of truth for the
+// dashboard payload shape.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 async function loadDashboard(userId: string) {
   const [upcoming, lastFinal, rankInfo, trend, board] = await Promise.all([
     getUpcomingFixtures(userId, 6),

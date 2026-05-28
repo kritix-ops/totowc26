@@ -48,7 +48,6 @@ import {
   manualMarkPaid,
   bulkApprovePending,
   removeUser,
-  resendMagicLink,
   resetUserPicks,
   invitePlayer,
   regenerateInviteLink,

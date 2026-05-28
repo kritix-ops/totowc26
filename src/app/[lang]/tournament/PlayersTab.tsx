@@ -1,6 +1,6 @@
 import Image from "next/image";
 import { Goal, Square, Star } from "lucide-react";
-import { Card, LabelCaps, SectionHeading } from "@/components/ui";
+import { Card, SectionHeading } from "@/components/ui";
 import { Flag } from "@/components/Flag";
 import {
   getLiveTopScorers,

@@ -42,7 +42,6 @@ const E2E_TEST_LABEL = "__e2e_reminder_test__";
 
 function log(stage, payload = {}) {
   const ts = new Date().toISOString();
-  // eslint-disable-next-line no-console
   console.log(`[${ts}] [e2e ${stage}]`, JSON.stringify(payload, null, 0));
 }
 

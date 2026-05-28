@@ -132,7 +132,6 @@ export function PlayerFilterBar({
         <div className="flex flex-col gap-4 p-3 md:p-4 rounded-2xl border border-outline-variant bg-surface-container-lowest">
           <FilterSection
             label={isHebrew ? "נבחרת" : "Team"}
-            isHebrew={isHebrew}
           >
             <SearchableChoicePicker
               options={teamOptions}
@@ -147,7 +146,6 @@ export function PlayerFilterBar({
 
           <FilterSection
             label={isHebrew ? "מקור התרגום" : "Translation source"}
-            isHebrew={isHebrew}
           >
             <PillRow
               items={[
@@ -166,7 +164,6 @@ export function PlayerFilterBar({
 
           <FilterSection
             label={isHebrew ? "עמדה" : "Position"}
-            isHebrew={isHebrew}
           >
             <PillRow
               items={[
@@ -185,7 +182,6 @@ export function PlayerFilterBar({
 
           <FilterSection
             label={isHebrew ? "נעילה" : "Lock"}
-            isHebrew={isHebrew}
           >
             <PillRow
               items={[
@@ -321,11 +317,9 @@ function verdictActivePalette(
 
 function FilterSection({
   label,
-  isHebrew: _isHebrew,
   children,
 }: {
   label: string;
-  isHebrew: boolean;
   children: React.ReactNode;
 }) {
   return (
