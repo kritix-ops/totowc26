@@ -54,6 +54,7 @@ export type BackupFile = {
 
 export type BackupReport = {
   commitSha: string;
+  commitUrl: string;
   parentSha: string;
   totalRows: number;
   totalBytes: number;
@@ -118,9 +119,9 @@ async function dumpTable(name: TableName): Promise<BackupFile> {
   const rows = await execRows<Record<string, unknown>>(
     sql.raw(`select * from public."${name}"`),
   );
-  console.info("[cron backup query]", { table: name, rows: rows.length });
+  console.info("[backup query]", { table: name, rows: rows.length });
   const csv = rowsToCsv(headers, rows);
-  console.info("[cron backup serialize]", { table: name, bytes: csv.length });
+  console.info("[backup serialize]", { table: name, bytes: csv.length });
   return {
     path: `tables/${name}.csv`,
     content: csv,
@@ -261,7 +262,7 @@ async function assertRepoIsPrivate(token: string, owner: string, repo: string) {
     token,
     `/repos/${owner}/${repo}`,
   );
-  console.info("[cron backup github verify]", {
+  console.info("[backup github verify]", {
     private: info.private,
     visibility: info.visibility,
   });
@@ -301,7 +302,7 @@ async function pushCommit(args: {
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     if (!msg.includes("404") && !msg.includes("409")) throw err;
-    console.info("[cron backup github bootstrap]", { owner, repo, branch });
+    console.info("[backup github bootstrap]", { owner, repo, branch });
     await githubFetch(token, `/repos/${owner}/${repo}/contents/.bootstrap`, {
       method: "PUT",
       body: JSON.stringify({
@@ -336,7 +337,7 @@ async function pushCommit(args: {
     );
     blobShas.push(blob.sha);
   }
-  console.info("[cron backup github blobs]", { count: blobShas.length });
+  console.info("[backup github blobs]", { count: blobShas.length });
 
   // 3. Build a flat tree referencing the new blobs.
   const tree = await githubFetch<{ sha: string }>(
@@ -375,7 +376,7 @@ async function pushCommit(args: {
     body: JSON.stringify({ sha: commit.sha, force: false }),
   });
 
-  console.info("[cron backup github commit]", {
+  console.info("[backup github commit]", {
     commitSha: commit.sha,
     parentSha,
   });
@@ -411,7 +412,7 @@ export async function runBackup(opts: BackupOptions = {}): Promise<BackupReport>
 
   const ilParts = ilDateParts(startedAt.getTime());
   const ilDate = `${ilParts.year}-${ilParts.month}-${ilParts.day}`;
-  console.info("[cron backup start]", { ilDate, source });
+  console.info("[backup start]", { ilDate, source });
 
   try {
     // Dump every table.
@@ -495,7 +496,7 @@ export async function runBackup(opts: BackupOptions = {}): Promise<BackupReport>
       })
       .where(eq(syncRuns.id, run.id));
 
-    console.info("[cron backup done]", {
+    console.info("[backup done]", {
       commitSha,
       parentSha,
       durationMs,
@@ -506,6 +507,7 @@ export async function runBackup(opts: BackupOptions = {}): Promise<BackupReport>
 
     return {
       commitSha,
+      commitUrl: `https://github.com/${owner}/${repo}/commit/${commitSha}`,
       parentSha,
       totalRows,
       totalBytes,
@@ -521,7 +523,7 @@ export async function runBackup(opts: BackupOptions = {}): Promise<BackupReport>
     const finishedAt = new Date();
     const message = err instanceof Error ? err.message : String(err);
     const stack = err instanceof Error ? err.stack ?? null : null;
-    console.error("[cron backup error]", { message, stack });
+    console.error("[backup error]", { message, stack });
     await db
       .update(syncRuns)
       .set({

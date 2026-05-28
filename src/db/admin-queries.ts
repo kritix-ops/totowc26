@@ -56,6 +56,51 @@ export async function getRecentSyncRuns(limit = 20): Promise<SyncRunRow[]> {
       r.provider                     as "provider"
     from public.sync_runs r
     left join public.profiles p on p.id = r.triggered_by
+    where r.provider is distinct from 'github-backup'
+    order by r.started_at desc
+    limit ${limit}
+  `);
+}
+
+// ---------- backup runs (CSV → GitHub) ----------
+
+// Per-row shape for the admin BackupPanel history list. Same physical
+// table as sync_runs but a narrower projection: backup runs only fill
+// `fetched` (file count) and `inserted` (total row count), so the
+// scoredBets / scoredMatches / reminders columns aren't useful here.
+export type BackupRunRow = {
+  id: string;
+  startedAt: string;
+  finishedAt: string | null;
+  durationMs: number | null;
+  source: string;
+  triggeredByName: string | null;
+  ok: boolean;
+  fileCount: number | null;
+  rowCount: number | null;
+  errorMessage: string | null;
+  errorStack: string | null;
+};
+
+export async function getRecentBackupRuns(
+  limit = 10,
+): Promise<BackupRunRow[]> {
+  return execRows<BackupRunRow>(sql`
+    select
+      r.id::text       as "id",
+      r.started_at     as "startedAt",
+      r.finished_at    as "finishedAt",
+      r.duration_ms    as "durationMs",
+      r.source         as "source",
+      p.display_name   as "triggeredByName",
+      r.ok             as "ok",
+      r.fetched        as "fileCount",
+      r.inserted       as "rowCount",
+      r.error_message  as "errorMessage",
+      r.error_stack    as "errorStack"
+    from public.sync_runs r
+    left join public.profiles p on p.id = r.triggered_by
+    where r.provider = 'github-backup'
     order by r.started_at desc
     limit ${limit}
   `);

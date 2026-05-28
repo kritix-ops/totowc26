@@ -30,6 +30,7 @@ import { db } from "@/db";
 import { settings } from "@/db/schema";
 import {
   countDuplicateCustomBets,
+  getRecentBackupRuns,
   getRecentSyncRuns,
   getPaymentsByStatus,
   getPaymentTotals,
@@ -37,6 +38,7 @@ import {
 } from "@/db/admin-queries";
 import { fetchApiFootballStatus } from "@/lib/api-football";
 import { countPendingSignups } from "./signup-requests/queries";
+import { BackupPanel } from "./BackupPanel";
 import { SyncPanel } from "./SyncPanel";
 import { PaymentsPanel } from "./PaymentsPanel";
 import { ViewAsPanel } from "./ViewAsPanel";
@@ -53,6 +55,7 @@ export default async function AdminPage({
 
   const [
     syncHistory,
+    backupHistory,
     payments,
     totals,
     viewAs,
@@ -63,6 +66,7 @@ export default async function AdminPage({
     pendingSignupCount,
   ] = await Promise.all([
     getRecentSyncRuns(20),
+    getRecentBackupRuns(10),
     getPaymentsByStatus("all", 50),
     getPaymentTotals(),
     getViewAs(),
@@ -229,6 +233,8 @@ export default async function AdminPage({
         teamMapping={teamMapping}
         apiFootballQuota={apiFootballQuota}
       />
+
+      <BackupPanel locale={locale} history={backupHistory} />
 
       <PaymentsPanel
         locale={locale}
