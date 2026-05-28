@@ -293,9 +293,11 @@ async function pushCommit(args: {
     parentSha = ref.object.sha;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    if (!msg.includes("404")) throw err;
-    // 404 = empty repo, no branch yet. We'll create the initial commit
-    // and then point the branch at it via a fresh ref.
+    // GitHub returns 409 "Git Repository is empty" for a brand-new repo
+    // with zero commits, and 404 once a branch is partially set up but
+    // the named ref is missing. Both mean "no parent, build the first
+    // commit and create the ref from scratch."
+    if (!msg.includes("404") && !msg.includes("409")) throw err;
     parentSha = null;
   }
 
