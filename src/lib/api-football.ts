@@ -180,52 +180,6 @@ export type ApiFootballFixture = {
   awayTla: string | null;
 };
 
-// Pull every fixture for a competition + season. Used once at activation
-// time by scripts/api-football-map-fixtures.mjs to backfill
-// matches.api_football_fixture_id. Single round-trip; API-Football returns
-// the whole tournament in one paginated batch.
-export async function fetchSeasonFixtures(
-  league: number,
-  season: number,
-): Promise<ApiFootballFixture[] | null> {
-  const key = process.env.API_FOOTBALL_KEY;
-  if (!key) {
-    console.warn("[api-football stubbed]", {
-      reason: "API_FOOTBALL_KEY not set",
-      league,
-      season,
-    });
-    return null;
-  }
-
-  try {
-    const res = await fetch(
-      `${BASE}/fixtures?league=${league}&season=${season}`,
-      {
-        headers: {
-          "x-rapidapi-key": key,
-          "x-rapidapi-host": "v3.football.api-sports.io",
-        },
-        cache: "no-store",
-      },
-    );
-    if (!res.ok) {
-      console.warn("[api-football error]", {
-        endpoint: "fixtures",
-        league,
-        season,
-        status: res.status,
-      });
-      return null;
-    }
-    const json = (await res.json()) as ApiFootballFixturesResponse;
-    return parseFixturesResponse(json);
-  } catch (err) {
-    console.error("[api-football fetch failed]", { league, season, err });
-    return null;
-  }
-}
-
 // ---------- response shape + parser ----------
 
 type ApiFootballStatItem = {

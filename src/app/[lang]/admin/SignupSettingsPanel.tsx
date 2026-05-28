@@ -62,7 +62,7 @@ export function PublicSignupSettingsPanel({
           </SectionHeading>
           <p className="text-sm text-on-surface-variant leading-6">
             {isHebrew
-              ? "כשהמתג פתוח, כל מי שמגיע לעמוד הכניסה רואה לינק 'להגיש בקשה' ויכול לשלוח את פרטיו לאישור. כשסגור, רק אדמין יכול להזמין שחקנים חדשים דרך מסך המשתתפים."
+              ? "כשהמתג פתוח, כל מי שמגיע לעמוד הכניסה רואה קישור 'להגיש בקשה' ויכול לשלוח את פרטיו לאישור. כשסגור, רק אדמין יכול להזמין משתתפים חדשים דרך מסך המשתתפים."
               : "When on, anyone visiting the login page sees a 'Request to join' link and can submit their details for approval. When off, only admins can invite new players via the Players screen."}
           </p>
         </div>

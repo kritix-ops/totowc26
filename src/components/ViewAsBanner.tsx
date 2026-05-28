@@ -56,7 +56,7 @@ export function ViewAsBanner({
         onClick={handleExit}
         disabled={pending}
         className={clsx(
-          "press-down inline-flex items-center gap-1.5 min-h-[36px] px-3 rounded-full bg-surface text-on-surface font-[family-name:var(--font-label)] text-[12px] font-bold tracking-[0.05em] hover:bg-surface-container transition-colors",
+          "press-down inline-flex items-center gap-1.5 min-h-[44px] px-4 rounded-full bg-surface text-on-surface font-[family-name:var(--font-label)] text-[12px] font-bold tracking-[0.05em] hover:bg-surface-container transition-colors",
           pending && "opacity-60 cursor-wait",
         )}
       >

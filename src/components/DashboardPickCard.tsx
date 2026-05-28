@@ -201,7 +201,7 @@ function Stepper({
         onClick={() => onBump(-1)}
         disabled={disabled}
         aria-label={`${ariaLabel} -`}
-        className="h-9 w-7 inline-flex items-center justify-center text-on-surface hover:text-primary disabled:opacity-50"
+        className="h-11 w-11 inline-flex items-center justify-center text-on-surface hover:text-primary disabled:opacity-50"
       >
         <Minus className="h-3.5 w-3.5" strokeWidth={2.5} />
       </button>
@@ -213,7 +213,7 @@ function Stepper({
         onClick={() => onBump(1)}
         disabled={disabled}
         aria-label={`${ariaLabel} +`}
-        className="h-9 w-7 inline-flex items-center justify-center text-on-surface hover:text-primary disabled:opacity-50"
+        className="h-11 w-11 inline-flex items-center justify-center text-on-surface hover:text-primary disabled:opacity-50"
       >
         <Plus className="h-3.5 w-3.5" strokeWidth={2.5} />
       </button>

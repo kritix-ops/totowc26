@@ -280,7 +280,7 @@ function SummaryStrip({
       value: `${summary.playedMatches} / ${summary.totalMatches}`,
     },
     {
-      label: isHebrew ? "סה״כ שערים" : "Goals",
+      label: isHebrew ? "סה\"כ שערים" : "Goals",
       value: String(summary.totalGoals),
       tone: "primary",
     },
@@ -482,7 +482,7 @@ function GoalsBars({
       </div>
       <p className="text-xs text-on-surface-variant text-center">
         {isHebrew
-          ? `סה״כ ${total} שערים על פני ${perDay.length} ימי משחק`
+          ? `סה"כ ${total} שערים על פני ${perDay.length} ימי משחק`
           : `${total} goals across ${perDay.length} match days`}
       </p>
     </div>

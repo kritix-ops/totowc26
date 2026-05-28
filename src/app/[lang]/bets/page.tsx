@@ -104,6 +104,7 @@ export default async function QuickBetsPage({
                   <li key={m.id}>
                     <QuickPickRow
                       locale={locale}
+                      dict={dict}
                       match={m}
                       lockMinutes={lockMinutes}
                       canEdit={access.canEdit}
@@ -123,7 +124,7 @@ export default async function QuickBetsPage({
             href={localePath(locale, "bets/live")}
             className="underline font-bold"
           >
-            {isHebrew ? "אל הימורי לייב" : "to the live-bets hub"}
+            {isHebrew ? "להימורי לייב" : "to the live-bets hub"}
           </Link>
           .
         </p>

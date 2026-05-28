@@ -8,6 +8,7 @@ import { signupRequests, profiles } from "@/db/schema";
 import { getUser } from "@/lib/supabase/auth";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 import { sendEmail } from "@/lib/email/client";
+import { getEmailCopy, interpolate } from "@/lib/email/copy";
 import { UserApprovalEmail } from "@/lib/email/templates/UserApprovalEmail";
 
 type Ok = { ok: true };
@@ -111,10 +112,22 @@ export async function approveSignupRequest(
   console.info("[signup approved]", { requestId, userId, by: adminId });
 
   // 6) Approval email.
+  const emails = await getEmailCopy("he");
+  const approvalCopy = emails.userApproval;
   const r = await sendEmail({
     to: row.email,
-    subject: "אושרת! ברוך הבא לטוטו מונדיאל",
-    react: UserApprovalEmail({ displayName: row.displayName, recoveryUrl }),
+    subject: approvalCopy.preview,
+    react: UserApprovalEmail({
+      preview: approvalCopy.preview,
+      heading: interpolate(approvalCopy.heading, {
+        displayName: row.displayName,
+      }),
+      body: approvalCopy.body,
+      buttonText: approvalCopy.buttonText,
+      fallbackHint: approvalCopy.fallbackHint,
+      footer: approvalCopy.footer,
+      recoveryUrl,
+    }),
   });
   console.info("[signup email] user_approval", {
     requestId,

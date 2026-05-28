@@ -27,7 +27,9 @@ import {
 } from "./api-football";
 import type { AutoApiFootballStat } from "./bets/types";
 import { sendEmail } from "./email/client";
+import { getEmailCopy, interpolate } from "./email/copy";
 import { BetLockReminderEmail } from "./email/templates/BetLockReminderEmail";
+import { formatMinutesRemainingHe } from "./format-he";
 import { notifyUsers } from "./notifications";
 import { isPushConfigured, sendPush } from "./push";
 import TEAM_NAMES from "../../data/team-names.json";
@@ -681,11 +683,11 @@ export async function scoreFinalMatches(): Promise<{
         const title = `${m.home_name_he} ${m.home_score}–${m.away_score} ${m.away_name_he}`;
         const yourPick = `${b.homeScore}–${b.awayScore}`;
         const body = exact
-          ? `ניחשת בדיוק (${yourPick}) — קיבלת ${points} נקודות.`
+          ? `ניחשת בדיוק (${yourPick}) - קיבלת ${points} נקודות.`
           : correctOutcome
-            ? `ניחשת את הכיוון (${yourPick}) — קיבלת ${points} נקודות.`
+            ? `ניחשת את הכיוון (${yourPick}) - קיבלת ${points} נקודות.`
             : points < 0
-              ? `הניחוש שלך (${yourPick}) לא היה נכון — הופחתו ${-points} נקודות.`
+              ? `הניחוש שלך (${yourPick}) לא היה נכון - הופחתו ${-points} נקודות.`
               : `הניחוש שלך (${yourPick}) לא היה נכון.`;
         await notifyUsers(
           { kind: "user", userId: b.userId },
@@ -877,7 +879,7 @@ export async function scoreAutoCustomBets(): Promise<number> {
       for (const g of gradedPicks) {
         try {
           const body = g.correct
-            ? `הניחוש שלך נכון — קיבלת ${g.points} נקודות.`
+            ? `הניחוש שלך נכון - קיבלת ${g.points} נקודות.`
             : `הניחוש שלך לא היה נכון.`;
           await notifyUsers(
             { kind: "user", userId: g.userId },
@@ -1388,6 +1390,12 @@ export async function sendDueReminders(): Promise<number> {
   `);
   const rows = result as unknown as ReminderCandidate[];
 
+  // Loaded once outside the loop so an admin override that lands
+  // mid-batch doesn't produce two different copy versions in the same
+  // run. Cached under CONTENT_OVERRIDES_TAG by getDictionary.
+  const emails = await getEmailCopy("he");
+  const reminderCopy = emails.betLockReminder;
+
   let sent = 0;
   let failed = 0;
   for (const r of rows) {
@@ -1400,20 +1408,37 @@ export async function sendDueReminders(): Promise<number> {
       hour: "2-digit",
       minute: "2-digit",
     }).format(lockDate);
+    const remaining = formatMinutesRemainingHe(
+      Math.max(0, r.minutes_remaining),
+    );
+    const slots = {
+      playerName: r.display_name,
+      remaining,
+      minutes: Math.max(0, r.minutes_remaining),
+      stake: r.stake_snapshot,
+      payout: r.payout_snapshot,
+      questionEn: r.question_en,
+      gradingRuleEn: r.grading_rule_en,
+      betUrl,
+    };
     try {
       const result = await sendEmail({
         to: r.email,
         subject: `תזכורת: ${r.question_he.slice(0, 60)}`,
         react: BetLockReminderEmail({
-          playerName: r.display_name,
+          preview: interpolate(reminderCopy.preview, slots),
+          heading: interpolate(reminderCopy.heading, slots),
+          costLabel: reminderCopy.costLabel,
+          winLabel: reminderCopy.winLabel,
+          lockedLabel: reminderCopy.lockedLabel,
+          buttonText: reminderCopy.buttonText,
+          englishParagraph: interpolate(reminderCopy.englishParagraph, slots),
+          footer: reminderCopy.footer,
           questionHe: r.question_he,
-          questionEn: r.question_en,
           gradingRuleHe: r.grading_rule_he,
-          gradingRuleEn: r.grading_rule_en,
           stake: r.stake_snapshot,
           payout: r.payout_snapshot,
           lockAtLabel,
-          minutesRemaining: Math.max(0, r.minutes_remaining),
           betUrl,
         }),
       });
@@ -1540,12 +1565,7 @@ async function sendPushReminders(
     const url = buildBetUrl(r.scope, r.matchday_date);
     const minutes = Math.max(0, r.minutes_remaining);
     const payload = {
-      title:
-        minutes <= 0
-          ? `הימור נסגר ברגעים אלה`
-          : minutes < 60
-            ? `הימור נסגר בעוד ${minutes} דקות`
-            : `הימור נסגר בעוד שעה`,
+      title: `הימור נסגר ${formatMinutesRemainingHe(minutes)}`,
       body: r.question_he.slice(0, 140),
       url,
       tag: `bet-lock-${r.bet_id}`,

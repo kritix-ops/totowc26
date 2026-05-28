@@ -48,12 +48,12 @@ export function DuplicateRow({
 
   const onCancel = () => {
     const firstMsg = isHebrew
-      ? "לבטל את הרשומה הזו? היא תעלם ממסך המשתתפים."
+      ? "לבטל את הרשומה הזו? היא תיעלם ממסך המשתתפים."
       : "Cancel this copy? It will disappear from the player view.";
     if (!window.confirm(firstMsg)) return;
     if (row.pickCount > 0) {
       const secondMsg = isHebrew
-        ? "יש כבר ניחושים פעילים על הרשומה הזו. הביטול יחזיר את הסטייקים. להמשיך?"
+        ? "יש כבר ניחושים פעילים על הרשומה הזו. הביטול יחזיר את ההשקעות. להמשיך?"
         : "This copy already has picks. Cancelling will refund their stakes. Continue?";
       if (!window.confirm(secondMsg)) return;
     }

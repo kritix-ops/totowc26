@@ -60,7 +60,7 @@ export default async function AdminBroadcastPage({
           className="inline-flex items-center gap-1 text-sm text-on-surface-variant hover:text-primary self-start"
         >
           <ChevronBack className="h-4 w-4" />
-          {isHebrew ? "חזרה לניהול" : "Back to admin"}
+          {isHebrew ? "חזרה לדף הניהול" : "Back to admin"}
         </Link>
         <h1 className="font-[family-name:var(--font-display)] text-[24px] leading-8 md:text-[36px] md:leading-[40px] font-bold text-primary inline-flex items-center gap-3">
           <Megaphone className="h-6 w-6 md:h-8 md:w-8" strokeWidth={1.75} />
@@ -68,7 +68,7 @@ export default async function AdminBroadcastPage({
         </h1>
         <p className="text-base text-on-surface-variant">
           {isHebrew
-            ? "שלח הודעה לשחקן יחיד, לכל מי שהפעיל push, או לכולם. הוודעה נשמרת תמיד במסך 'התראות' של הנמענים. סימון 'גם push' שולח התראת מערכת מיידית למי שיש לו subscription פעיל."
+            ? "שלח הודעה למשתתף יחיד, לכל מי שהפעיל push, או לכולם. ההודעה נשמרת תמיד במסך 'התראות' של הנמענים. סימון 'גם push' שולח התראת מערכת מיידית למי שיש לו מנוי push פעיל."
             : "Send an announcement to a single player, everyone with push opt-in, or everyone. The message always lands in the recipient's notifications feed. Tick 'also push' to fire a system notification to any active subscription."}
         </p>
       </header>
@@ -88,7 +88,7 @@ export default async function AdminBroadcastPage({
         <Card className="p-4 md:p-5 bg-tertiary-fixed text-on-tertiary-fixed-variant border border-tertiary-fixed-dim">
           <p className="text-sm">
             {isHebrew
-              ? "VAPID לא מוגדר ⇒ 'גם push' תתעלם והודעה תישמר רק במסך התראות."
+              ? "VAPID לא מוגדר - 'גם push' לא יישלח וההודעה תישמר רק במסך ההתראות."
               : "VAPID isn't configured ⇒ 'also push' is ignored and the message is feed-only."}
           </p>
         </Card>

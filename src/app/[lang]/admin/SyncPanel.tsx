@@ -16,6 +16,10 @@ import {
 import { clsx } from "clsx";
 import { Card, LabelCaps, PillButton } from "@/components/ui";
 import type { Locale } from "../dictionaries";
+import {
+  translateAdminError,
+  type LocalizedTuple,
+} from "@/lib/admin/errors";
 import { formatDateTime } from "@/lib/format";
 import {
   runSyncNow,
@@ -60,11 +64,11 @@ export function SyncPanel({
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div className="flex flex-col gap-1 min-w-0 flex-1">
           <h3 className="font-[family-name:var(--font-display)] text-lg md:text-xl leading-snug font-bold text-on-surface">
-            {isHebrew ? "סנכרון מהאתר הרשמי" : "Sync from football-data"}
+            {isHebrew ? "סנכרון מספקי הנתונים" : "Sync from football-data"}
           </h3>
           <p className="text-sm text-on-surface-variant">
             {isHebrew
-              ? "מושך משחקים, תוצאות וניקוד אוטומטי. רץ אוטומטית פעם ביום ב-6:00 UTC, או הפעל כאן ידנית."
+              ? "מושך משחקים, תוצאות וניקוד אוטומטי. רץ פעם ביום ב-6:00 UTC, או הפעל כאן ידנית."
               : "Pulls fixtures, results and auto-scores bets. Runs once daily at 06:00 UTC, or fire it manually."}
           </p>
         </div>
@@ -359,7 +363,7 @@ function TeamMappingBanner({
     : `${status.unmapped} of ${status.totalTeams} teams not yet mapped`;
 
   const bodyHe = ok
-    ? "סנכרון הפיקסצ׳רים יכול לפעול דרך API-Football בלי לדלג על שורות בגלל אי-התאמת שמות."
+    ? "סנכרון המשחקים יכול לפעול דרך API-Football בלי לדלג על שורות בגלל אי-התאמת שמות."
     : "עד שכל הקבוצות ממופות, הסנכרון החדש (PR 2) ידלג עליהן. הרץ מקומית `node --env-file=.env.local scripts/api-football-map-teams.mjs` כדי להשלים את המיפוי.";
   const bodyEn = ok
     ? "Fixture sync can resolve every team via API-Football without name-matching skips."
@@ -522,24 +526,21 @@ function UnmappedTeamChip({
   );
 }
 
+// Per-form map. The team-mapping wording is sync-panel-specific so we
+// don't spread COMMON_ADMIN_ERRORS — every code here is form-specific
+// already.
+const TEAM_MAP_ERRORS = {
+  bad_input:         ["מזהה לא תקין - צריך מספר חיובי שלם.", "Invalid id — must be a positive integer."],
+  team_not_found:    ["הקבוצה לא נמצאה.", "Team not found."],
+  id_already_in_use: ["המזהה הזה כבר משויך לקבוצה אחרת.", "That id is already mapped to a different team."],
+  forbidden:         ["אין הרשאה.", "Not allowed."],
+} as const satisfies Record<string, LocalizedTuple>;
+
 function errorMessage(
-  key: "bad_input" | "team_not_found" | "id_already_in_use" | "forbidden",
+  key: keyof typeof TEAM_MAP_ERRORS,
   isHebrew: boolean,
 ): string {
-  if (isHebrew) {
-    switch (key) {
-      case "bad_input":         return "מזהה לא תקין — צריך מספר חיובי שלם.";
-      case "team_not_found":    return "הקבוצה לא נמצאה.";
-      case "id_already_in_use": return "המזהה הזה כבר משויך לקבוצה אחרת.";
-      case "forbidden":         return "אין הרשאה.";
-    }
-  }
-  switch (key) {
-    case "bad_input":         return "Invalid id — must be a positive integer.";
-    case "team_not_found":    return "Team not found.";
-    case "id_already_in_use": return "That id is already mapped to a different team.";
-    case "forbidden":         return "Not allowed.";
-  }
+  return translateAdminError(key, TEAM_MAP_ERRORS, isHebrew);
 }
 
 function SyncHistory({
@@ -756,7 +757,7 @@ function RunDetail({ run, isHebrew }: { run: SyncRunRow; isHebrew: boolean }) {
             value={String(run.lockedExpiredCustomBets ?? 0)}
           />
           <Field
-            label={isHebrew ? "ק׳ לא ידועות" : "Unknown teams"}
+            label={isHebrew ? "קבוצות לא ידועות" : "Unknown teams"}
             value={String(run.unknownTeams?.length ?? 0)}
             tone={run.unknownTeams && run.unknownTeams.length > 0 ? "warning" : undefined}
           />

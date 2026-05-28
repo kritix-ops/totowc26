@@ -127,7 +127,7 @@ const GROUPS: Group[] = [
     fields: [
       {
         key: "duelMaxStake",
-        label: { he: "סטייק מקסימלי", en: "Max stake" },
+        label: { he: "השקעה מקסימלית", en: "Max stake" },
         hint: {
           he: "סף עליון 1-20 (אכוף גם בבסיס הנתונים).",
           en: "Hard ceiling 1-20 (DB CHECK mirrors this).",
@@ -162,7 +162,7 @@ const GROUPS: Group[] = [
     fields: [
       {
         key: "liveOddsBaseStake",
-        label: { he: "סטייק בסיס", en: "Base stake" },
+        label: { he: "השקעת בסיס", en: "Base stake" },
       },
       {
         key: "liveOddsMaxPayout",
@@ -462,7 +462,7 @@ function ToggleField({
 function translateError(code: string, isHebrew: boolean): string {
   const map: Record<string, [string, string]> = {
     invalid: [
-      "ערכים לא תקינים. כל ערך מספרי שלם בין 0-32000, תשלומים ≥ 1, מקסימום סטייק בדו-קרב 1-20. סכום אחוזי הקטגוריות חייב להיות בדיוק 100. אחוזי הליגה הישנים ≤ 100.",
+      "ערכים לא תקינים. כל ערך מספרי שלם בין 0-32000, תשלומים ≥ 1, מקסימום השקעה בדו-קרב 1-20. סכום אחוזי הקטגוריות חייב להיות בדיוק 100. אחוזי הליגה הישנים ≤ 100.",
       "Invalid values. Integers 0-32000, payouts ≥ 1, duel stake 1-20. Category prize percentages must sum to exactly 100. Legacy split must sum to ≤ 100.",
     ],
     unauth:    ["יש להתחבר", "Sign in required"],

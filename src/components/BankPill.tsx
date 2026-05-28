@@ -26,7 +26,7 @@ export function BankPill({
       href={localePath(locale, "me/bank")}
       aria-label={`${dict.bank.label}: ${balance} / ${starting}`}
       className={clsx(
-        "press-down inline-flex items-center gap-1 md:gap-1.5 shrink-0 min-h-[36px] px-2 md:px-3 rounded-full whitespace-nowrap",
+        "press-down inline-flex items-center gap-1 md:gap-1.5 shrink-0 min-h-[44px] px-3 md:px-4 rounded-full whitespace-nowrap",
         "font-[family-name:var(--font-label)] text-[12px] md:text-[13px] font-bold tracking-[0.05em]",
         "transition-colors",
         negative

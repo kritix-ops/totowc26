@@ -2,7 +2,6 @@
 
 import { useState, useTransition } from "react";
 import { ArrowUpRight, ChevronLeft, ChevronRight, X } from "lucide-react";
-import { clsx } from "clsx";
 import type { Locale } from "@/app/[lang]/dictionaries";
 import { Card } from "./ui";
 import { WhatsAppGlyph } from "./WhatsAppGlyph";
@@ -66,9 +65,9 @@ export function WhatsAppInviteCard({
       onClick={handleDismiss}
       aria-label={closeLabel}
       title={closeLabel}
-      className="press-down inline-flex items-center justify-center w-7 h-7 rounded-full text-on-surface-variant hover:text-on-surface hover:bg-surface-variant transition-colors shrink-0"
+      className="press-down inline-flex items-center justify-center w-11 h-11 rounded-full text-on-surface-variant hover:text-on-surface hover:bg-surface-variant transition-colors shrink-0"
     >
-      <X className="h-3.5 w-3.5" strokeWidth={2.5} />
+      <X className="h-4 w-4" strokeWidth={2.5} />
     </button>
   );
 
@@ -104,12 +103,7 @@ export function WhatsAppInviteCard({
             />
           </Card>
         </a>
-        <span
-          className={clsx(
-            "absolute top-2 z-10",
-            isHebrew ? "left-2" : "right-2",
-          )}
-        >
+        <span className="absolute top-2 end-2 z-10">
           {closeButton}
         </span>
       </div>
@@ -148,10 +142,7 @@ export function WhatsAppInviteCard({
         </Card>
       </a>
       <span
-        className={clsx(
-          "absolute top-2 z-10",
-          isHebrew ? "left-2" : "right-2",
-        )}
+        className="absolute top-2 end-2 z-10"
       >
         {closeButton}
       </span>

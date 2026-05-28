@@ -125,7 +125,7 @@ function GroupCard({
               {isHebrew ? "הש" : "GD"}
             </Th>
             <Th className="text-center w-8" title={isHebrew ? "נקודות" : "Points"}>
-              {isHebrew ? "נק׳" : "Pts"}
+              {isHebrew ? "נק'" : "Pts"}
             </Th>
             {hasAnyForm && (
               <Th

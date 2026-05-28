@@ -32,10 +32,10 @@ export const HIDEABLE_PAGE_LABELS: Record<
     hintEn: "The score-prediction surface and per-match pages.",
   },
   duels: {
-    he: "דואלים",
+    he: "דו-קרבים",
     en: "Duels",
     pathSegment: "/duels",
-    hintHe: "מסך 1 על 1 ליצירה והצטרפות.",
+    hintHe: "מסך 1 על 1 ליצירת דו-קרב והצטרפות.",
     hintEn: "1v1 duel creation and join screen.",
   },
   leaderboard: {
@@ -93,7 +93,7 @@ export const NEVER_HIDEABLE: Array<{
     key: "home",
     he: "בית",
     en: "Home",
-    whyHe: "יעד ההפניה לעמודים מוסתרים — חייב להישאר זמין.",
+    whyHe: "יעד ההפניה לעמודים מוסתרים - חייב להישאר זמין.",
     whyEn: "The redirect target for hidden pages — must stay reachable.",
   },
   {
@@ -121,7 +121,7 @@ export const NEVER_HIDEABLE: Array<{
     key: "signup",
     he: "הרשמה",
     en: "Signup",
-    whyHe: "מסלול הצטרפות חדשים — לעולם לא מוסתר.",
+    whyHe: "מסלול הצטרפות לחדשים - לעולם לא מוסתר.",
     whyEn: "New-player intake — never hidden.",
   },
 ];

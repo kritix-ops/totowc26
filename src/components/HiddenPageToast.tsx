@@ -74,7 +74,7 @@ export function HiddenPageToast({ locale }: { locale: Locale }) {
         <Info className="h-4 w-4 text-primary shrink-0" strokeWidth={2} />
         <span className="text-sm font-bold">
           {isHebrew
-            ? `העמוד "${pageLabel}" אינו זמין כרגע.`
+            ? `העמוד "${pageLabel}" לא זמין כרגע.`
             : `The "${pageLabel}" page is currently unavailable.`}
         </span>
       </div>

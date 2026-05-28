@@ -44,7 +44,7 @@ export default async function AdminBetsDuplicatesPage({
           </h1>
           <p className="text-sm text-on-surface-variant">
             {isHebrew
-              ? "כאן רואים הימורים פעילים שמופיעים פעמיים או יותר עם אותה שאלה ואותו עוגן (טורניר/שלב/בית/יום/משחק). בחר איזה רשומה להשאיר ובטל את האחרות — ביטול מסיר את הרשומה ממסך המשתתפים בלי למחוק נתונים."
+              ? "כאן רואים הימורים פעילים שמופיעים פעמיים או יותר עם אותה שאלה ואותו עוגן (טורניר/שלב/בית/יום/משחק). בחר איזו רשומה להשאיר ובטל את האחרות - ביטול מסיר את הרשומה ממסך המשתתפים בלי למחוק נתונים."
               : "Active bets that appear twice or more with the same question + anchor (tournament / stage / group / day / match). Keep one row, cancel the rest — cancellation removes the row from the player view without deleting data."}
           </p>
         </div>

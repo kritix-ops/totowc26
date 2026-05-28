@@ -42,7 +42,7 @@ export default async function AdminBetsPage({
           className="inline-flex items-center gap-1 text-sm text-on-surface-variant hover:text-on-surface w-fit"
         >
           <Chev className="h-4 w-4" strokeWidth={2} />
-          {isHebrew ? "חזרה לניהול" : "Back to admin"}
+          {isHebrew ? "חזרה לדף הניהול" : "Back to admin"}
         </Link>
         <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
           <div className="flex flex-col gap-1">
@@ -102,7 +102,7 @@ export default async function AdminBetsPage({
                 </span>
                 <span className="text-xs">
                   {isHebrew
-                    ? "לחץ לסקירה ובחירת איזה רשומה להשאיר."
+                    ? "לחץ לסקירה ובחירת איזו רשומה להשאיר."
                     : "Tap to review and pick which copy to keep."}
                 </span>
               </div>

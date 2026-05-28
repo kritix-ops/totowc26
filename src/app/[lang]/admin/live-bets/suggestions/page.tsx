@@ -254,7 +254,7 @@ function DatePicker({
               >
                 <span>{d.date}</span>
                 <span className="opacity-70">
-                  {d.fixtureCount} {isHebrew ? "מ" : "fx"}
+                  {d.fixtureCount} {isHebrew ? "משחקים" : "fx"}
                 </span>
               </Link>
             );

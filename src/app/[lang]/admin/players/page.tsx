@@ -64,7 +64,7 @@ export default async function AdminPlayersPage({
           className="inline-flex items-center gap-1 text-sm text-on-surface-variant hover:text-on-surface w-fit"
         >
           <ChevBack className="h-4 w-4" strokeWidth={2} />
-          {isHebrew ? "חזרה לניהול" : "Back to admin"}
+          {isHebrew ? "חזרה לדף הניהול" : "Back to admin"}
         </Link>
         <h1 className="font-[family-name:var(--font-display)] text-[28px] leading-9 md:text-[40px] md:leading-[44px] font-bold text-primary inline-flex items-center gap-3">
           <Languages className="h-6 w-6 md:h-7 md:w-7" strokeWidth={1.75} />
@@ -72,7 +72,7 @@ export default async function AdminPlayersPage({
         </h1>
         <p className="text-sm text-on-surface-variant">
           {isHebrew
-            ? "תור סקירה לכל השחקנים בטורניר. חיפוש חכם, פילטרים לכל פרמטר, ספירה דינמית פר קטגוריה. עריכה ידנית של שם נועלת את השורה — סנכרון אוטומטי לא ידרוס אותה."
+            ? "תור סקירה לכל השחקנים בטורניר. חיפוש חכם, פילטרים לכל פרמטר, ספירה דינמית לכל קטגוריה. עריכה ידנית של שם נועלת את השורה - סנכרון אוטומטי לא ידרוס אותה."
             : "Review queue for every tournament player. Smart search, filters across every parameter, dynamic per-bucket counts. A manual edit locks the row so future automatic syncs do not stomp it."}
         </p>
       </header>

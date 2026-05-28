@@ -5,6 +5,12 @@ import { useRouter } from "next/navigation";
 import { AlertCircle, Plus, RotateCcw, Trash2 } from "lucide-react";
 import { clsx } from "clsx";
 import { PillButton, LabelCaps } from "@/components/ui";
+import {
+  COMMON_ADMIN_ERRORS,
+  translateAdminError,
+  type LocalizedTuple,
+} from "@/lib/admin/errors";
+import { isoToLocalInputValue, localInputValueToIso } from "@/lib/format";
 import { localePath } from "@/lib/paths";
 import type { Locale } from "../../dictionaries";
 import type {
@@ -198,7 +204,7 @@ export function BetForm({
   // every render - it's a few field reads, not expensive - and rely on
   // the `lockTouched` flag below to avoid stomping admin's manual input.
   const defaultLockAt = initialBet?.lockAt
-    ? toLocalDateTimeInputValue(new Date(initialBet.lockAt))
+    ? isoToLocalInputValue(initialBet.lockAt)
     : suggestDefaultLockAt(
         scope,
         matchId,
@@ -243,10 +249,15 @@ export function BetForm({
       return;
     }
 
-    // Convert the <input type="datetime-local"> string (naive local time)
-    // to a proper ISO. The browser interpreted it in the user's local
-    // timezone, which matches what we want.
-    const lockAtIso = new Date(lockAtLocal).toISOString();
+    // Reinterpret the widget value as Asia/Jerusalem wall time. Using
+    // `new Date(lockAtLocal).toISOString()` would treat the string as
+    // the BROWSER's local timezone, which silently breaks the lock time
+    // for any admin editing from outside IL.
+    const lockAtIso = localInputValueToIso(lockAtLocal);
+    if (!lockAtIso) {
+      setError(isHebrew ? "זמן סגירה לא תקין" : "Invalid lock time");
+      return;
+    }
 
     const payload = {
       scope,
@@ -411,7 +422,7 @@ export function BetForm({
       )}
 
       {/* 3. Question (HE + EN) */}
-      <Section title={isHebrew ? "השאלה לשחקנים" : "Question for players"}>
+      <Section title={isHebrew ? "השאלה למשתתפים" : "Question for players"}>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <LabeledInput
             label="HE"
@@ -436,7 +447,7 @@ export function BetForm({
       <Section
         title={isHebrew ? "איך מודדים את התשובה?" : "How is this graded?"}
         hint={isHebrew
-          ? "משפט אחד שאי-אפשר לפרש לרעה. מופיע לשחקנים לפני שהם מהמרים - זה המקום למנוע ויכוחים."
+          ? "משפט אחד שאי-אפשר לפרש לרעה. מופיע למשתתפים לפני שהם מהמרים - זה המקום למנוע ויכוחים."
           : "One sentence that can't be misread. Shown to players before they stake - this is where you prevent fights."}
       >
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -445,7 +456,7 @@ export function BetForm({
             value={gradingRuleHe}
             onChange={setGradingRuleHe}
             required
-            placeholder={isHebrew ? "למשל: כרטיס אדום אחד או יותר ב‑90 הדקות (לא כולל הארכה) באחד המשחקים של היום." : "e.g."}
+            placeholder={isHebrew ? "למשל: כרטיס אדום אחד או יותר ב-90 הדקות (לא כולל הארכה) באחד המשחקים של היום." : "e.g."}
             dir="rtl"
           />
           <LabeledTextarea
@@ -1083,12 +1094,10 @@ function suggestDefaultLockAt(
     kickoff = new Date(Date.now() + 24 * 60 * 60 * 1000);
   }
   const lock = new Date(kickoff.getTime() - offsetMinutes * 60 * 1000);
-  return toLocalDateTimeInputValue(lock);
-}
-
-function toLocalDateTimeInputValue(d: Date): string {
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  // Use the Asia/Jerusalem-aware formatter so the suggested wall time
+  // is what the admin actually expects to see, even when the browser
+  // is in another timezone.
+  return isoToLocalInputValue(lock.toISOString());
 }
 
 function scopeHelp(scope: Scope, isHebrew: boolean): string {
@@ -1116,23 +1125,22 @@ function scopeHelp(scope: Scope, isHebrew: boolean): string {
   }
 }
 
+const ERROR_MAP = {
+  ...COMMON_ADMIN_ERRORS,
+  forbidden:              ["אין הרשאה", "Not allowed"],
+  invalid_scope_anchor:   ["סוג ההימור והעוגן אינם תואמים", "Scope and anchor don't match"],
+  invalid_question:       ["שאלה ריקה בעברית או באנגלית", "Question missing in Hebrew or English"],
+  invalid_grading_rule:   ["כלל דירוג חייב להיות לפחות 3 תווים", "Grading rule must be 3+ characters"],
+  invalid_stake_payout:   ["עלות או תשלום לא תקין", "Invalid stake or payout"],
+  invalid_answer_config:  ["תצורת תשובה לא תקינה", "Invalid answer config"],
+  invalid_grading_config: ["תצורת דירוג לא תקינה", "Invalid grading config"],
+  invalid_lock_at:        ["זמן סגירה חייב להיות בעתיד", "Lock time must be in the future"],
+  match_not_found:        ["המשחק לא נמצא", "Match not found"],
+  group_not_found:        ["הבית לא נמצא", "Group not found"],
+  bet_not_found:          ["ההימור לא נמצא", "Bet not found"],
+  invalid_status:         ["אפשר לערוך רק טיוטה. בטל את ההימור וצור אחד חדש.", "Only drafts can be edited. Cancel and recreate."],
+} as const satisfies Record<string, LocalizedTuple>;
+
 function translateError(err: string, isHebrew: boolean): string {
-  const map: Record<string, [string, string]> = {
-    unauth:                ["יש להתחבר", "Sign in required"],
-    forbidden:             ["אין הרשאה", "Not allowed"],
-    invalid_scope_anchor:  ["סוג ההימור והעוגן אינם תואמים", "Scope and anchor don't match"],
-    invalid_question:      ["שאלה ריקה בעברית או באנגלית", "Question missing in Hebrew or English"],
-    invalid_grading_rule:  ["כלל דירוג חייב להיות לפחות 3 תווים", "Grading rule must be 3+ characters"],
-    invalid_stake_payout:  ["עלות או תשלום לא תקין", "Invalid stake or payout"],
-    invalid_answer_config: ["תצורת תשובה לא תקינה", "Invalid answer config"],
-    invalid_grading_config:["תצורת דירוג לא תקינה", "Invalid grading config"],
-    invalid_lock_at:       ["זמן סגירה חייב להיות בעתיד", "Lock time must be in the future"],
-    match_not_found:       ["המשחק לא נמצא", "Match not found"],
-    group_not_found:       ["הבית לא נמצא", "Group not found"],
-    bet_not_found:         ["ההימור לא נמצא", "Bet not found"],
-    invalid_status:        ["אפשר לערוך רק טיוטה. בטל את ההימור ותיצור אחד חדש.", "Only drafts can be edited. Cancel and recreate."],
-    db:                    ["שגיאת שמירה", "Save failed"],
-  };
-  const e = map[err];
-  return e ? e[isHebrew ? 0 : 1] : err;
+  return translateAdminError(err, ERROR_MAP, isHebrew);
 }

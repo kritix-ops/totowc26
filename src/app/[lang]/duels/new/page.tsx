@@ -79,6 +79,7 @@ export default async function NewDuelPage({ params }: PageParams) {
 
       <NewDuelForm
         locale={locale}
+        dict={dict}
         balance={balance}
         duelMaxStake={duelMaxStake}
         defaultJoinWindow={defaultJoinWindow}

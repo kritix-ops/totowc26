@@ -106,7 +106,7 @@ export function BroadcastForm({
             }
             subtitle={
               isHebrew
-                ? "כל משתתף ייצור שורה במסך ההתראות שלו"
+                ? "כל משתתף יקבל שורה במסך ההתראות שלו"
                 : "Every player gets the message in their feed"
             }
           />
@@ -155,7 +155,7 @@ export function BroadcastForm({
             {recipients.map((r) => (
               <option key={r.id} value={r.id}>
                 {r.displayName}
-                {r.email ? ` — ${r.email}` : ""}
+                {r.email ? ` - ${r.email}` : ""}
                 {r.subscriptionCount > 0
                   ? isHebrew ? "  · push פעיל" : "  · push active"
                   : ""}
@@ -200,7 +200,7 @@ export function BroadcastForm({
           required
           placeholder={
             isHebrew
-              ? "הזן את גוף ההודעה. יישמר במסך התראות של הנמענים."
+              ? "הזן את גוף ההודעה. יישמר במסך ההתראות של הנמענים."
               : "Body text. Lands in the recipient's notifications feed."
           }
           className="px-3 py-2 bg-surface-container-lowest border border-outline rounded-lg text-on-surface text-base focus:outline-none focus:border-primary resize-y"
@@ -253,7 +253,7 @@ export function BroadcastForm({
                 ? "התראת מערכת מיידית לכל מי שיש לו subscription פעיל ו-opt-in מאופשר."
                 : "Immediate system notification to every recipient with an active subscription and opt-in on."
               : isHebrew
-                ? "VAPID לא מוגדר. ההודעה תישמר רק במסך התראות."
+                ? "VAPID לא מוגדר. ההודעה תישמר רק במסך ההתראות."
                 : "VAPID isn't configured. The message goes to the feed only."}
           </span>
         </span>
@@ -284,7 +284,7 @@ export function BroadcastForm({
               {result.result.pushExpired > 0 && (
                 <span className="text-tertiary">
                   {isHebrew
-                    ? ` · ${result.result.pushExpired} dead נוקו`
+                    ? ` · ${result.result.pushExpired} מנויים שפגו נוקו`
                     : ` · ${result.result.pushExpired} dead cleaned`}
                 </span>
               )}

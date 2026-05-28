@@ -267,7 +267,7 @@ export function MobileNavForm({
                     </span>
                     {gate === "player" && (
                       <span className="shrink-0 text-[10px] font-bold tracking-wide px-2 py-1 rounded-full bg-secondary-fixed text-on-secondary-fixed-variant border border-secondary-fixed-dim">
-                        {isHebrew ? "רק שחקנים" : "Players only"}
+                        {isHebrew ? "רק משתתפים" : "Players only"}
                       </span>
                     )}
                     {gate === "admin" && (
@@ -354,7 +354,7 @@ export function MobileNavForm({
                   </span>
                   {gate === "player" && (
                     <span className="shrink-0 text-[10px] font-bold tracking-wide px-2 py-1 rounded-full bg-secondary-fixed text-on-secondary-fixed-variant border border-secondary-fixed-dim">
-                      {isHebrew ? "רק שחקנים" : "Players only"}
+                      {isHebrew ? "רק משתתפים" : "Players only"}
                     </span>
                   )}
                   {gate === "admin" && (

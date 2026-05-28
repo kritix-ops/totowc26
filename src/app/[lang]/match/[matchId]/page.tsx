@@ -540,7 +540,7 @@ function PredictionCard({
         )}
         <p className="text-[11px] text-on-surface-variant text-center">
           {isHebrew
-            ? "תחזית האלגוריתם של API-Football. לא נכנס לחישוב הניקוד."
+            ? "תחזית האלגוריתם של API-Football. אינה משפיעה על חישוב הניקוד."
             : "Predicted by API-Football's model. Never feeds scoring."}
         </p>
       </Card>

@@ -6,6 +6,7 @@ import { db } from "@/db";
 import { signupRequests, settings } from "@/db/schema";
 import { allow } from "@/lib/rate-limit";
 import { sendEmail } from "@/lib/email/client";
+import { getEmailCopy, interpolate } from "@/lib/email/copy";
 import { AdminSignupNotification } from "@/lib/email/templates/AdminSignupNotification";
 import { UserSignupConfirmation } from "@/lib/email/templates/UserSignupConfirmation";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
@@ -158,11 +159,26 @@ export async function submitSignupRequest(
     process.env.ADMIN_NOTIFICATION_EMAIL ??
     process.env.EMAIL_REPLY_TO ??
     "";
+  const emails = await getEmailCopy("he");
   if (adminTo) {
+    const adminCopy = emails.adminSignupNotification;
     const r = await sendEmail({
       to: adminTo,
-      subject: `בקשת הרשמה חדשה - ${displayName}`,
-      react: AdminSignupNotification({ displayName, phone, email, adminUrl }),
+      subject: interpolate(adminCopy.preview, { displayName }),
+      react: AdminSignupNotification({
+        preview: interpolate(adminCopy.preview, { displayName }),
+        heading: adminCopy.heading,
+        body: adminCopy.body,
+        nameLabel: adminCopy.nameLabel,
+        phoneLabel: adminCopy.phoneLabel,
+        emailLabel: adminCopy.emailLabel,
+        buttonText: adminCopy.buttonText,
+        footer: adminCopy.footer,
+        displayName,
+        phone,
+        email,
+        adminUrl,
+      }),
     });
     console.info("[signup email] admin_notification", {
       requestId,
@@ -174,10 +190,17 @@ export async function submitSignupRequest(
   }
 
   // 6b) Fire registrant confirmation email - best effort.
+  const userCopy = emails.userSignupConfirmation;
   const r2 = await sendEmail({
     to: email,
-    subject: "קיבלנו את הבקשה שלך לטוטו מונדיאל",
-    react: UserSignupConfirmation({ displayName }),
+    subject: userCopy.preview,
+    react: UserSignupConfirmation({
+      preview: userCopy.preview,
+      heading: interpolate(userCopy.heading, { displayName }),
+      body1: userCopy.body1,
+      body2: userCopy.body2,
+      footer: userCopy.footer,
+    }),
   });
   console.info("[signup email] user_confirmation", {
     requestId,

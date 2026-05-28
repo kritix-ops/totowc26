@@ -96,7 +96,7 @@ export async function sendTestPush(
     return { ok: false, error: "no_subscriptions" };
   }
 
-  const title = payload.title?.trim() || "טוטו מונדיאל — בדיקה";
+  const title = payload.title?.trim() || "טוטו מונדיאל - בדיקה";
   const body = payload.body?.trim() || "התראת בדיקה. אם רואים את זה, push עובד.";
 
   let sent = 0;

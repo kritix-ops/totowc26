@@ -72,7 +72,7 @@ export function PaymentsPanel({
           </SectionHeading>
           <p className="text-sm text-on-surface-variant">
             {isHebrew
-              ? "אשר תשלומים שמשתתפים סימנו ככבר שילמו."
+              ? "אשר תשלומים שמשתתפים סימנו כשולמו."
               : "Approve payments marked as paid by players."}
           </p>
         </div>

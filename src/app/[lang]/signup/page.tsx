@@ -1,6 +1,6 @@
 import { notFound, redirect } from "next/navigation";
 import { eq } from "drizzle-orm";
-import { hasLocale, type Locale } from "../dictionaries";
+import { getDictionary, hasLocale, type Locale } from "../dictionaries";
 import { db } from "@/db";
 import { settings } from "@/db/schema";
 import { getRequestUser } from "@/lib/request-user";
@@ -19,6 +19,7 @@ export default async function SignupPage({
   if (!hasLocale(lang)) notFound();
   const locale = lang as Locale;
   const isHebrew = locale === "he";
+  const dict = await getDictionary(locale);
 
   // Already signed in? Send them where they belong.
   const user = await getRequestUser();
@@ -44,7 +45,7 @@ export default async function SignupPage({
         </div>
 
         {open ? (
-          <SignupForm locale={locale} />
+          <SignupForm locale={locale} dict={dict} />
         ) : (
           <ClosedNotice isHebrew={isHebrew} />
         )}

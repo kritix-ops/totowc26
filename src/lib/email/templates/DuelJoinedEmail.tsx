@@ -18,53 +18,52 @@ import { styles } from "../styles";
 // the opener knows the clock has started.
 
 type Props = {
-  openerName: string;
-  joinerName: string;
+  preview: string;
+  heading: string;
+  questionLabel: string;
+  body: string;
+  buttonText: string;
+  englishParagraph: string;
+  footer: string;
+  // Real data props - questionHe is bolded inside the body block.
   questionHe: string;
-  questionEn: string;
-  stake: number;
   duelUrl: string;
 };
 
 export function DuelJoinedEmail({
-  openerName,
-  joinerName,
+  preview,
+  heading,
+  questionLabel,
+  body,
+  buttonText,
+  englishParagraph,
+  footer,
   questionHe,
-  questionEn,
-  stake,
   duelUrl,
 }: Props) {
   return (
     <Html lang="he" dir="rtl">
       <Head />
-      <Preview>מישהו הצטרף לדו-קרב שלך</Preview>
+      <Preview>{preview}</Preview>
       <Body style={styles.body}>
         <Container style={styles.container}>
-          <Heading style={styles.heading}>
-            {openerName}, {joinerName} הצטרף לדו-קרב
-          </Heading>
+          <Heading style={styles.heading}>{heading}</Heading>
           <Text style={styles.paragraph}>
-            השאלה: <strong>{questionHe}</strong>
+            {questionLabel} <strong>{questionHe}</strong>
           </Text>
-          <Text style={styles.paragraph}>
-            הסטייק של {stake} נקודות מכל צד ננעל בבנק עד שהדו-קרב יוכרע. מי
-            שצדק לוקח את שניהם.
-          </Text>
+          <Text style={styles.paragraph}>{body}</Text>
 
           <Section style={styles.buttonWrap}>
             <Link href={duelUrl} style={styles.button}>
-              פתח את הדו-קרב
+              {buttonText}
             </Link>
           </Section>
 
           <Hr style={styles.divider} />
 
-          <Text style={styles.muted}>
-            English: {joinerName} accepted your duel - &quot;{questionEn}&quot;,{" "}
-            {stake} pts per side. Winner takes both stakes.
-          </Text>
+          <Text style={styles.muted}>{englishParagraph}</Text>
 
-          <Text style={styles.footer}>טוטו מונדיאל</Text>
+          <Text style={styles.footer}>{footer}</Text>
         </Container>
       </Body>
     </Html>

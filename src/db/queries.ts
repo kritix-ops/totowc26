@@ -2,7 +2,9 @@ import "server-only";
 import { sql } from "drizzle-orm";
 import { unstable_cache } from "next/cache";
 import { db } from "./index";
+import { execFirstRow, execRows } from "./helpers";
 import type { MultiChoiceOption } from "@/lib/bets/types";
+import { duelCaseSql, duelDeltaSql } from "@/lib/bank";
 import { STAR_PLAYER_RANK, TEAM_RANK } from "@/lib/players/curation";
 
 // Cache tags used to invalidate cross-request cached queries from the
@@ -22,11 +24,10 @@ export const CACHE_TAG_SETTINGS = "settings";
 // a settings table round-trip on every navigation.
 export const getBetLockMinutes = unstable_cache(
   async (): Promise<number> => {
-    const rows = await db.execute<{ bet_lock_minutes: number }>(sql`
+    const row = await execFirstRow<{ bet_lock_minutes: number }>(sql`
       select bet_lock_minutes from public.settings where id = 1
     `);
-    const r = (rows as unknown as Array<{ bet_lock_minutes: number }>)[0];
-    return r?.bet_lock_minutes ?? 5;
+    return row?.bet_lock_minutes ?? 5;
   },
   ["getBetLockMinutes"],
   { tags: [CACHE_TAG_SETTINGS], revalidate: 600 },
@@ -65,7 +66,7 @@ export async function getUpcomingFixtures(
   userId: string,
   limit = 10,
 ): Promise<FixtureWithMyBet[]> {
-  const rows = await db.execute<FixtureWithMyBet>(sql`
+  return execRows<FixtureWithMyBet>(sql`
     select
       m.id::text                       as "id",
       m.home_team                      as "homeCode",
@@ -96,7 +97,6 @@ export async function getUpcomingFixtures(
     order by m.kickoff_at asc
     limit ${limit}
   `);
-  return rows as unknown as FixtureWithMyBet[];
 }
 
 // Latest final match for which the user has a bet (i.e. their most recent
@@ -104,7 +104,7 @@ export async function getUpcomingFixtures(
 export async function getLatestFinalForUser(
   userId: string,
 ): Promise<FixtureWithMyBet | null> {
-  const rows = await db.execute<FixtureWithMyBet>(sql`
+  return execFirstRow<FixtureWithMyBet>(sql`
     select
       m.id::text          as "id",
       m.home_team         as "homeCode",
@@ -135,8 +135,6 @@ export async function getLatestFinalForUser(
     order by coalesce(m.finalized_at, m.kickoff_at) desc
     limit 1
   `);
-  const list = rows as unknown as FixtureWithMyBet[];
-  return list[0] ?? null;
 }
 
 export type LeaderboardEntry = {
@@ -180,7 +178,7 @@ async function loadLeaderboardFromDb(
   currentUserId: string,
   tab: LeaderboardTab,
 ): Promise<LeaderboardEntry[]> {
-  const rows = await db.execute<LeaderboardEntry>(sql`
+  return execRows<LeaderboardEntry>(sql`
     with match_points as (
       select p.id as user_id,
         coalesce((
@@ -211,22 +209,7 @@ async function loadLeaderboardFromDb(
     ),
     duel_stats as (
       select p.id as user_id,
-        coalesce((
-          select sum(
-            case
-              when d.status = 'open' and d.opener_id = p.id then -d.stake
-              when d.status = 'matched' and (d.opener_id = p.id or d.joiner_id = p.id) then -d.stake
-              when d.status = 'settled' and d.opener_id = p.id
-                then case when d.resolved_value = d.opener_answer then d.stake else -d.stake end
-              when d.status = 'settled' and d.joiner_id = p.id
-                then case when d.resolved_value = d.opener_answer then -d.stake else d.stake end
-              else 0
-            end
-          )::int
-          from public.duels d
-          where (d.opener_id = p.id or d.joiner_id = p.id)
-            and d.status <> 'cancelled'
-        ), 0) as delta,
+        ${duelDeltaSql(sql`p.id`)} as delta,
         coalesce((
           select count(*)::int from public.duels d
           where (d.opener_id = p.id or d.joiner_id = p.id)
@@ -303,7 +286,6 @@ async function loadLeaderboardFromDb(
     from scored
     order by "rank", display_name asc
   `);
-  return rows as unknown as LeaderboardEntry[];
 }
 
 export async function getLeaderboard(
@@ -343,7 +325,7 @@ export async function getMyRankSummary(
 // day of the match kickoff so the chart shows accumulation across the
 // tournament without us needing a separate matchday column.
 export async function getPointsTrend(userId: string): Promise<number[]> {
-  const rows = await db.execute<{ points: number }>(sql`
+  const rows = await execRows<{ points: number }>(sql`
     select coalesce(sum(coalesce(mb.points_earned, 0)), 0)::int as "points"
     from public.matches m
     join public.match_bets mb
@@ -352,16 +334,13 @@ export async function getPointsTrend(userId: string): Promise<number[]> {
     group by date_trunc('day', m.kickoff_at)
     order by date_trunc('day', m.kickoff_at) asc
   `);
-  const trend = (rows as unknown as Array<{ points: number }>).map((r) =>
-    Number(r.points),
-  );
-  return trend;
+  return rows.map((r) => Number(r.points));
 }
 
 export async function getFixtureWithBets(
   matchId: string,
 ): Promise<FixtureRow | null> {
-  const rows = await db.execute<FixtureRow>(sql`
+  return execFirstRow<FixtureRow>(sql`
     select
       m.id::text          as "id",
       m.home_team         as "homeCode",
@@ -385,8 +364,6 @@ export async function getFixtureWithBets(
     where m.id = ${matchId}::uuid
     limit 1
   `);
-  const list = rows as unknown as FixtureRow[];
-  return list[0] ?? null;
 }
 
 export type FriendBet = {
@@ -402,7 +379,7 @@ export async function getMatchBets(
   matchId: string,
   currentUserId: string,
 ): Promise<FriendBet[]> {
-  const rows = await db.execute<FriendBet>(sql`
+  return execRows<FriendBet>(sql`
     select
       p.id::text                  as "userId",
       p.display_name              as "displayName",
@@ -415,7 +392,6 @@ export async function getMatchBets(
     where mb.match_id = ${matchId}::uuid
     order by mb.points_earned desc nulls last, p.display_name asc
   `);
-  return rows as unknown as FriendBet[];
 }
 
 export type MyBet = {
@@ -430,7 +406,7 @@ export async function getMyBet(
   matchId: string,
   userId: string,
 ): Promise<MyBet | null> {
-  const rows = await db.execute<MyBet>(sql`
+  return execFirstRow<MyBet>(sql`
     select
       home_score    as "homeScore",
       away_score    as "awayScore",
@@ -441,8 +417,6 @@ export async function getMyBet(
     where match_id = ${matchId}::uuid and user_id = ${userId}
     limit 1
   `);
-  const list = rows as unknown as MyBet[];
-  return list[0] ?? null;
 }
 
 // Profile screen: aggregate stats for one user.
@@ -488,21 +462,27 @@ export type ProfileStats = {
   memberSince: string | null;
 };
 
+// Row shape returned by the profile-stats aggregate. Kept as a local
+// type because the SELECT projects raw snake_case names that are
+// transformed into the camelCase ProfileStats just below; if these were
+// exported we'd risk a consumer leaking the DB-shape into UI code.
+type ProfileStatsRow = {
+  starting_bank: number;
+  points_from_matches: number;
+  points_from_live_bets: number;
+  points_from_tournament_bets: number;
+  points_from_duels: number;
+  points_from_adjustments: number;
+  bets_placed: number;
+  bets_final: number;
+  exact_count: number;
+  outcome_count: number;
+  total_final_matches: number;
+  member_since: string | null;
+};
+
 export async function getProfileStats(userId: string): Promise<ProfileStats> {
-  const rows = await db.execute<{
-    starting_bank: number;
-    points_from_matches: number;
-    points_from_live_bets: number;
-    points_from_tournament_bets: number;
-    points_from_duels: number;
-    points_from_adjustments: number;
-    bets_placed: number;
-    bets_final: number;
-    exact_count: number;
-    outcome_count: number;
-    total_final_matches: number;
-    member_since: string | null;
-  }>(sql`
+  const r = await execFirstRow<ProfileStatsRow>(sql`
     select
       (select starting_bank from public.settings where id = 1)::int as starting_bank,
 
@@ -527,22 +507,7 @@ export async function getProfileStats(userId: string): Promise<ProfileStats> {
           and cb.scope in ('tournament', 'stage', 'group')
       ), 0) as points_from_tournament_bets,
 
-      coalesce((
-        select sum(
-          case
-            when d.status = 'open' and d.opener_id = ${userId} then -d.stake
-            when d.status = 'matched' and (d.opener_id = ${userId} or d.joiner_id = ${userId}) then -d.stake
-            when d.status = 'settled' and d.opener_id = ${userId}
-              then case when d.resolved_value = d.opener_answer then d.stake else -d.stake end
-            when d.status = 'settled' and d.joiner_id = ${userId}
-              then case when d.resolved_value = d.opener_answer then -d.stake else d.stake end
-            else 0
-          end
-        )::int
-        from public.duels d
-        where (d.opener_id = ${userId} or d.joiner_id = ${userId})
-          and d.status <> 'cancelled'
-      ), 0) as points_from_duels,
+      ${duelDeltaSql(userId)} as points_from_duels,
 
       coalesce((
         select sum(pa.delta)::int
@@ -571,20 +536,9 @@ export async function getProfileStats(userId: string): Promise<ProfileStats> {
 
       (select created_at from public.profiles where id = ${userId})::text as member_since
   `);
-  const r = (rows as unknown as Array<{
-    starting_bank: number;
-    points_from_matches: number;
-    points_from_live_bets: number;
-    points_from_tournament_bets: number;
-    points_from_duels: number;
-    points_from_adjustments: number;
-    bets_placed: number;
-    bets_final: number;
-    exact_count: number;
-    outcome_count: number;
-    total_final_matches: number;
-    member_since: string | null;
-  }>)[0];
+  if (!r) {
+    throw new Error(`profile stats row missing for user ${userId}`);
+  }
 
   const startingBank = Number(r.starting_bank);
   const pointsFromMatches = Number(r.points_from_matches);
@@ -605,7 +559,7 @@ export async function getProfileStats(userId: string): Promise<ProfileStats> {
   const outcomeAcc = betsFinal > 0 ? Math.round((Number(r.outcome_count) / betsFinal) * 100) : 0;
 
   // Streak: count trailing correct-outcome bets among the most recent finals.
-  const streakRows = await db.execute<{ was_correct_outcome: boolean | null }>(sql`
+  const streakRows = await execRows<{ was_correct_outcome: boolean | null }>(sql`
     select mb.was_correct_outcome
     from public.match_bets mb
     join public.matches m on m.id = mb.match_id
@@ -614,7 +568,7 @@ export async function getProfileStats(userId: string): Promise<ProfileStats> {
     limit 50
   `);
   let streak = 0;
-  for (const row of streakRows as unknown as Array<{ was_correct_outcome: boolean | null }>) {
+  for (const row of streakRows) {
     if (row.was_correct_outcome) streak += 1;
     else break;
   }
@@ -666,7 +620,7 @@ export async function getMyHistory(
   userId: string,
   limit = 20,
 ): Promise<HistoryRow[]> {
-  const rows = await db.execute<HistoryRow>(sql`
+  return execRows<HistoryRow>(sql`
     select
       m.id::text       as "matchId",
       m.status::text   as "status",
@@ -693,7 +647,6 @@ export async function getMyHistory(
     order by coalesce(m.finalized_at, m.kickoff_at) desc
     limit ${limit}
   `);
-  return rows as unknown as HistoryRow[];
 }
 
 // Profile screen: the user's own custom-bet picks (live + tournament).
@@ -743,7 +696,7 @@ export async function getMyCustomPicks(
     scopes.map((s) => sql`${s}`),
     sql`, `,
   );
-  const rows = await db.execute<MyCustomPickRow>(sql`
+  return execRows<MyCustomPickRow>(sql`
     select
       pk.id::text                                 as "pickId",
       cb.id::text                                 as "customBetId",
@@ -779,7 +732,6 @@ export async function getMyCustomPicks(
     order by pk.updated_at desc
     limit ${limit}
   `);
-  return rows as unknown as MyCustomPickRow[];
 }
 
 // Profile screen: the user's duels (either side). Returns most-recent-first
@@ -807,7 +759,7 @@ export async function getMyDuels(
   userId: string,
   limit = 10,
 ): Promise<MyDuelRow[]> {
-  const rows = await db.execute<MyDuelRow>(sql`
+  return execRows<MyDuelRow>(sql`
     select
       d.id::text                                          as "duelId",
       d.question_he                                       as "questionHe",
@@ -828,15 +780,7 @@ export async function getMyDuels(
       d.stake::int                                        as "stake",
       d.status::text                                      as "status",
       d.resolved_value                                    as "resolvedValue",
-      case
-        when d.status = 'open' and d.opener_id = ${userId} then -d.stake
-        when d.status = 'matched' and (d.opener_id = ${userId} or d.joiner_id = ${userId}) then -d.stake
-        when d.status = 'settled' and d.opener_id = ${userId}
-          then case when d.resolved_value = d.opener_answer then d.stake else -d.stake end
-        when d.status = 'settled' and d.joiner_id = ${userId}
-          then case when d.resolved_value = d.opener_answer then -d.stake else d.stake end
-        else 0
-      end::int                                            as "myPointsDelta",
+      (${duelCaseSql(userId)})::int                       as "myPointsDelta",
       d.created_at::text                                  as "createdAt",
       d.join_deadline_at::text                            as "joinDeadlineAt",
       d.resolve_at::text                                  as "resolveAt",
@@ -848,7 +792,6 @@ export async function getMyDuels(
     order by d.created_at desc
     limit ${limit}
   `);
-  return rows as unknown as MyDuelRow[];
 }
 
 export type TeamRow = {
@@ -859,12 +802,11 @@ export type TeamRow = {
 };
 
 export async function getAllTeams(): Promise<TeamRow[]> {
-  const rows = await db.execute<TeamRow>(sql`
+  return execRows<TeamRow>(sql`
     select code, name_he as "nameHe", name_en as "nameEn", flag
     from public.teams
     order by name_en asc
   `);
-  return rows as unknown as TeamRow[];
 }
 
 export function localizedTeam(
@@ -896,7 +838,7 @@ export type PlayerRow = {
 };
 
 export async function getSquadByTeam(teamCode: string): Promise<PlayerRow[]> {
-  const rows = await db.execute<PlayerRow>(sql`
+  return execRows<PlayerRow>(sql`
     select
       p.id::text                 as "id",
       p.api_football_id          as "apiFootballId",
@@ -910,11 +852,10 @@ export async function getSquadByTeam(teamCode: string): Promise<PlayerRow[]> {
     where p.team_code = ${teamCode}
     order by p.jersey_number nulls last, p.name_en asc
   `);
-  return rows as unknown as PlayerRow[];
 }
 
 export async function getAllPlayers(): Promise<PlayerRow[]> {
-  const rows = await db.execute<PlayerRow>(sql`
+  return execRows<PlayerRow>(sql`
     select
       p.id::text                 as "id",
       p.api_football_id          as "apiFootballId",
@@ -927,11 +868,10 @@ export async function getAllPlayers(): Promise<PlayerRow[]> {
     from public.players p
     order by p.team_code asc, p.jersey_number nulls last, p.name_en asc
   `);
-  return rows as unknown as PlayerRow[];
 }
 
 export async function getPlayerById(id: string): Promise<PlayerRow | null> {
-  const rows = await db.execute<PlayerRow>(sql`
+  return execFirstRow<PlayerRow>(sql`
     select
       p.id::text                 as "id",
       p.api_football_id          as "apiFootballId",
@@ -945,8 +885,6 @@ export async function getPlayerById(id: string): Promise<PlayerRow | null> {
     where p.id = ${id}::uuid
     limit 1
   `);
-  const list = rows as unknown as PlayerRow[];
-  return list[0] ?? null;
 }
 
 // Pick the right name for the current locale. Falls back to nameEn
@@ -1093,23 +1031,28 @@ export type LiveGroup = {
   rows: LiveStandingRow[];
 };
 
+// Raw row shape from the group-standings CTE. Lifted to a type so the
+// for-loop below can stay typed without an `as unknown as Array<...>`
+// cast at the iteration site.
+type LiveStandingsRowRaw = {
+  group_id: string;
+  display_order: number;
+  code: string;
+  name_he: string;
+  name_en: string;
+  flag: string;
+  played: number;
+  won: number;
+  drawn: number;
+  lost: number;
+  goals_for: number;
+  goals_against: number;
+  goal_diff: number;
+  points: number;
+};
+
 export async function getLiveStandings(): Promise<LiveGroup[]> {
-  const rows = await db.execute<{
-    group_id: string;
-    display_order: number;
-    code: string;
-    name_he: string;
-    name_en: string;
-    flag: string;
-    played: number;
-    won: number;
-    drawn: number;
-    lost: number;
-    goals_for: number;
-    goals_against: number;
-    goal_diff: number;
-    points: number;
-  }>(sql`
+  const rows = await execRows<LiveStandingsRowRaw>(sql`
     with leg as (
       -- One row per (team, match) for every finished group-stage match.
       -- Materialising both sides via UNION lets the aggregation below stay
@@ -1180,22 +1123,7 @@ export async function getLiveStandings(): Promise<LiveGroup[]> {
   const grouped = new Map<string, LiveGroup>();
   let runningPos = 0;
   let lastGroup: string | null = null;
-  for (const r of rows as unknown as Array<{
-    group_id: string;
-    display_order: number;
-    code: string;
-    name_he: string;
-    name_en: string;
-    flag: string;
-    played: number;
-    won: number;
-    drawn: number;
-    lost: number;
-    goals_for: number;
-    goals_against: number;
-    goal_diff: number;
-    points: number;
-  }>) {
+  for (const r of rows) {
     if (r.group_id !== lastGroup) {
       runningPos = 0;
       lastGroup = r.group_id;
@@ -1239,14 +1167,12 @@ export type TeamProfile = {
 };
 
 export async function getTeamByCode(code: string): Promise<TeamProfile | null> {
-  const rows = await db.execute<TeamProfile>(sql`
+  return execFirstRow<TeamProfile>(sql`
     select code, name_he as "nameHe", name_en as "nameEn", flag, group_id as "groupId"
     from public.teams
     where code = ${code.toUpperCase()}
     limit 1
   `);
-  const list = rows as unknown as TeamProfile[];
-  return list[0] ?? null;
 }
 
 export type TeamMatchRow = {
@@ -1267,7 +1193,7 @@ export type TeamMatchRow = {
 
 export async function getTeamMatches(code: string): Promise<TeamMatchRow[]> {
   const upper = code.toUpperCase();
-  const rows = await db.execute<TeamMatchRow>(sql`
+  return execRows<TeamMatchRow>(sql`
     select
       m.id::text                                    as "matchId",
       m.kickoff_at                                  as "kickoffAt",
@@ -1295,7 +1221,6 @@ export async function getTeamMatches(code: string): Promise<TeamMatchRow[]> {
        or m.away_team = ${upper}
     order by m.kickoff_at asc
   `);
-  return rows as unknown as TeamMatchRow[];
 }
 
 // ---------- Head-to-head ----------
@@ -1316,7 +1241,7 @@ export type H2HMatch = {
 export async function getHeadToHead(a: string, b: string): Promise<H2HMatch[]> {
   const A = a.toUpperCase();
   const B = b.toUpperCase();
-  const rows = await db.execute<H2HMatch>(sql`
+  return execRows<H2HMatch>(sql`
     select
       m.id::text                              as "matchId",
       m.kickoff_at                            as "kickoffAt",
@@ -1333,7 +1258,6 @@ export async function getHeadToHead(a: string, b: string): Promise<H2HMatch[]> {
        or (m.home_team = ${B} and m.away_team = ${A})
     order by m.kickoff_at asc
   `);
-  return rows as unknown as H2HMatch[];
 }
 
 // ---------- Public pool stats ----------
@@ -1355,13 +1279,12 @@ export type PoolStats = {
 // payments table on every render.
 export const getPoolStats = unstable_cache(
   async (): Promise<PoolStats> => {
-    const rows = await db.execute<{ pot: number; players: number }>(sql`
+    const r = await execFirstRow<{ pot: number; players: number }>(sql`
       select
         coalesce(sum(amount_ils) filter (where status = 'approved'), 0)::int as pot,
         count(distinct user_id) filter (where status = 'approved')::int       as players
       from public.payments
     `);
-    const r = (rows as unknown as Array<{ pot: number; players: number }>)[0];
     return {
       potIls: Number(r?.pot ?? 0),
       participants: Number(r?.players ?? 0),
@@ -1377,15 +1300,9 @@ export const getPoolStats = unstable_cache(
 // percentages (settings.prize_pct_N); each amount = floor(pot * pct / 100)
 // so it tracks the live pot without any cash math in the admin UI.
 
-export type PrizeBreakdown = {
-  potIls: number;
-  prizes: Array<{ rank: 1 | 2 | 3 | 4; pct: number; ils: number }>;
-  totalAwardedIls: number;
-};
-
 // 7-way category prize split (king 1/2/3 + matches/live/duels winner + reserve).
-// Mirrors PrizeBreakdown but groups by category rather than rank 1-4 so the
-// new prize UI can render alongside the four-tab leaderboard.
+// Groups by category rather than rank 1-4 so the prize UI can render
+// alongside the four-tab leaderboard.
 export type CategoryPrizeKey =
   | "king_first"
   | "king_second"
@@ -1410,7 +1327,7 @@ export type CategoryPrizeBreakdown = {
 // page. Tagged with both pool and settings — payments and the prize
 // percentages both invalidate it.
 async function loadCategoryPrizeBreakdownFromDb(): Promise<CategoryPrizeBreakdown> {
-  const rows = await db.execute<{
+  const r = await execFirstRow<{
     pot: number;
     overhead: number;
     king_first: number;
@@ -1435,17 +1352,6 @@ async function loadCategoryPrizeBreakdownFromDb(): Promise<CategoryPrizeBreakdow
       (select prize_duels_winner_pct    from public.settings where id = 1)::int as "duels_winner",
       (select prize_reserve_pct         from public.settings where id = 1)::int as "reserve"
   `);
-  const r = (rows as unknown as Array<{
-    pot: number;
-    overhead: number;
-    king_first: number;
-    king_second: number;
-    king_third: number;
-    matches_winner: number;
-    live_winner: number;
-    duels_winner: number;
-    reserve: number;
-  }>)[0];
   const pot = Number(r?.pot ?? 0);
   const overhead = Number(r?.overhead ?? 0);
   // Distributable pot floors at 0 — if the pot has not covered the
@@ -1481,54 +1387,6 @@ export const getCategoryPrizeBreakdown = unstable_cache(
   { tags: [CACHE_TAG_POOL, CACHE_TAG_SETTINGS], revalidate: 600 },
 );
 
-// Cached cross-request — depends on the same pot the home stats use,
-// plus the prize-percentage settings. Both are invalidated together
-// when either payment status changes or admin updates the percentages,
-// via revalidateTag(CACHE_TAG_POOL).
-export const getPrizeBreakdown = unstable_cache(
-  async (): Promise<PrizeBreakdown> => {
-    const rows = await db.execute<{
-      pot: number;
-      pct1: number;
-      pct2: number;
-      pct3: number;
-      pct4: number;
-    }>(sql`
-      select
-        coalesce((
-          select sum(amount_ils) filter (where status = 'approved')
-          from public.payments
-        ), 0)::int                                              as "pot",
-        (select prize_pct_1 from public.settings where id = 1)::int as "pct1",
-        (select prize_pct_2 from public.settings where id = 1)::int as "pct2",
-        (select prize_pct_3 from public.settings where id = 1)::int as "pct3",
-        (select prize_pct_4 from public.settings where id = 1)::int as "pct4"
-    `);
-    const r = (rows as unknown as Array<{
-      pot: number;
-      pct1: number;
-      pct2: number;
-      pct3: number;
-      pct4: number;
-    }>)[0];
-    const pot = Number(r?.pot ?? 0);
-    const pcts: Array<{ rank: 1 | 2 | 3 | 4; pct: number }> = [
-      { rank: 1, pct: Number(r?.pct1 ?? 0) },
-      { rank: 2, pct: Number(r?.pct2 ?? 0) },
-      { rank: 3, pct: Number(r?.pct3 ?? 0) },
-      { rank: 4, pct: Number(r?.pct4 ?? 0) },
-    ];
-    const prizes = pcts.map((p) => ({
-      ...p,
-      ils: Math.floor((pot * p.pct) / 100),
-    }));
-    const totalAwardedIls = prizes.reduce((s, p) => s + p.ils, 0);
-    return { potIls: pot, prizes, totalAwardedIls };
-  },
-  ["getPrizeBreakdown"],
-  { tags: [CACHE_TAG_POOL], revalidate: 600 },
-);
-
 // ---------- Points-bank history ----------
 //
 // Returns every event that touches a user's bank, ordered chronologically.
@@ -1549,7 +1407,7 @@ export type BankEvent = {
 };
 
 export async function getBankHistory(userId: string): Promise<BankEvent[]> {
-  const rows = await db.execute<BankEvent>(sql`
+  return execRows<BankEvent>(sql`
     with start_event as (
       select
         p.created_at::text                                             as "at",
@@ -1605,7 +1463,6 @@ export async function getBankHistory(userId: string): Promise<BankEvent[]> {
     order by "at" desc
     limit 500
   `);
-  return rows as unknown as BankEvent[];
 }
 
 // ---------- Custom bets - player surfaces ----------
@@ -1630,7 +1487,7 @@ export type PlayDayRow = {
 };
 
 export async function listOpenPlayDays(): Promise<PlayDayRow[]> {
-  const rows = await db.execute<PlayDayRow>(sql`
+  return execRows<PlayDayRow>(sql`
     with days as (
       -- Every Asia/Jerusalem date that has either fixtures OR open bets.
       select to_char((m.kickoff_at at time zone 'Asia/Jerusalem')::date,
@@ -1677,7 +1534,6 @@ export async function listOpenPlayDays(): Promise<PlayDayRow[]> {
     left join bet_counts bc on bc.date::text = d.date
     order by d.date asc
   `);
-  return rows as unknown as PlayDayRow[];
 }
 
 export type PlayFixture = {
@@ -1829,7 +1685,7 @@ export type TournamentPlayBetRow = {
 export async function getTournamentPlayBets(
   userId: string,
 ): Promise<TournamentPlayBetRow[]> {
-  const rows = await db.execute<TournamentPlayBetRow>(sql`
+  return execRows<TournamentPlayBetRow>(sql`
     select
       cb.id::text                                 as "id",
       cb.scope::text                              as "scope",
@@ -1864,7 +1720,6 @@ export async function getTournamentPlayBets(
       end asc nulls last,
       cb.lock_at asc
   `);
-  return rows as unknown as TournamentPlayBetRow[];
 }
 
 // Per-group bets for /play/groups. Returned with the group's display
@@ -1890,7 +1745,7 @@ export type GroupPlayBetRow = {
 export async function getGroupPlayBets(
   userId: string,
 ): Promise<GroupPlayBetRow[]> {
-  const rows = await db.execute<GroupPlayBetRow>(sql`
+  return execRows<GroupPlayBetRow>(sql`
     select
       cb.id::text                                 as "id",
       cb.group_id                                 as "groupId",
@@ -1915,28 +1770,27 @@ export async function getGroupPlayBets(
       and cb.scope = 'group'
     order by g.display_order asc, cb.lock_at asc
   `);
-  return rows as unknown as GroupPlayBetRow[];
 }
 
 // Counters for the pinned cards on /play. Cheap - single index scan each.
 export async function getOpenTournamentBetCount(): Promise<number> {
-  const rows = await db.execute<{ n: number }>(sql`
+  const row = await execFirstRow<{ n: number }>(sql`
     select count(*)::int as n
     from public.custom_bets
     where status = 'open'
       and scope in ('tournament', 'stage')
       and lock_at > now()
   `);
-  return (rows as unknown as Array<{ n: number }>)[0]?.n ?? 0;
+  return row?.n ?? 0;
 }
 
 export async function getOpenGroupBetCount(): Promise<number> {
-  const rows = await db.execute<{ n: number }>(sql`
+  const row = await execFirstRow<{ n: number }>(sql`
     select count(*)::int as n
     from public.custom_bets
     where status = 'open' and scope = 'group' and lock_at > now()
   `);
-  return (rows as unknown as Array<{ n: number }>)[0]?.n ?? 0;
+  return row?.n ?? 0;
 }
 
 // Earliest scheduled match kickoff - i.e. when the tournament starts. Used
@@ -1951,12 +1805,11 @@ export async function getOpenGroupBetCount(): Promise<number> {
 // revalidateTag(CACHE_TAG_FIXTURES) after fixture imports.
 export const getTournamentStart = unstable_cache(
   async (): Promise<string | null> => {
-    const rows = await db.execute<{ kickoff_at: string }>(sql`
+    const row = await execFirstRow<{ kickoff_at: string | null }>(sql`
       select min(kickoff_at) as kickoff_at
       from public.matches
     `);
-    const r = (rows as unknown as Array<{ kickoff_at: string | null }>)[0];
-    return r?.kickoff_at ?? null;
+    return row?.kickoff_at ?? null;
   },
   ["getTournamentStart"],
   { tags: [CACHE_TAG_FIXTURES], revalidate: 3600 },
@@ -2023,7 +1876,7 @@ export async function getTransparencyFeed(
     }
   }
 
-  const rows = await db.execute<TransparencyRow>(sql`
+  return execRows<TransparencyRow>(sql`
     with combined as (
       select
         'match'::text                                              as category,
@@ -2120,13 +1973,12 @@ export async function getTransparencyFeed(
     order by src.event_time desc
     limit ${limit}
   `);
-  return rows as unknown as TransparencyRow[];
 }
 
 export async function getTransparencyUsers(): Promise<
   Array<{ id: string; displayName: string }>
 > {
-  const rows = await db.execute<{ id: string; displayName: string }>(sql`
+  return execRows<{ id: string; displayName: string }>(sql`
     select distinct p.id::text as "id", p.display_name as "displayName"
     from public.profiles p
     where exists (select 1 from public.match_bets mb where mb.user_id = p.id)
@@ -2134,7 +1986,6 @@ export async function getTransparencyUsers(): Promise<
        or exists (select 1 from public.duels d where d.opener_id = p.id or d.joiner_id = p.id)
     order by p.display_name asc
   `);
-  return rows as unknown as Array<{ id: string; displayName: string }>;
 }
 
 // Aggregated per-user performance card for /me/bank.
@@ -2179,22 +2030,7 @@ export async function getBankStats(userId: string): Promise<BankStats> {
         from public.user_custom_bet_picks pk where pk.user_id = ${userId}
       ), 0)                                                       as live_points,
 
-      coalesce((
-        select sum(
-          case
-            when d.status = 'open' and d.opener_id = ${userId} then -d.stake
-            when d.status = 'matched' and (d.opener_id = ${userId} or d.joiner_id = ${userId}) then -d.stake
-            when d.status = 'settled' and d.opener_id = ${userId}
-              then case when d.resolved_value = d.opener_answer then d.stake else -d.stake end
-            when d.status = 'settled' and d.joiner_id = ${userId}
-              then case when d.resolved_value = d.opener_answer then -d.stake else d.stake end
-            else 0
-          end
-        )::int
-        from public.duels d
-        where (d.opener_id = ${userId} or d.joiner_id = ${userId})
-          and d.status <> 'cancelled'
-      ), 0)                                                       as duel_delta,
+      ${duelDeltaSql(userId)}                                     as duel_delta,
 
       coalesce((
         select count(*)::int from public.match_bets mb
@@ -2280,7 +2116,7 @@ export type LiveMatchRow = {
 };
 
 export async function getLiveMatches(userId: string): Promise<LiveMatchRow[]> {
-  const rows = await db.execute<LiveMatchRow>(sql`
+  return execRows<LiveMatchRow>(sql`
     select
       m.id::text                                          as "id",
       m.home_team                                         as "homeCode",
@@ -2308,6 +2144,5 @@ export async function getLiveMatches(userId: string): Promise<LiveMatchRow[]> {
       m.kickoff_at asc
     limit 50
   `);
-  return rows as unknown as LiveMatchRow[];
 }
 

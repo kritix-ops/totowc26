@@ -94,7 +94,7 @@ export function PublishRow(props: Props) {
         </div>
         <div className="flex items-center gap-2 tabular-nums bidi-ltr">
           <span className="text-xs text-on-surface-variant">
-            {isHebrew ? "סטייק" : "Stake"}
+            {isHebrew ? "השקעה" : "Stake"}
           </span>
           <span className="text-base font-bold">{stake}</span>
           <span className="text-on-surface-variant">→</span>
@@ -153,7 +153,7 @@ export function PublishRow(props: Props) {
             />
           </label>
           <label className="flex flex-col gap-1 text-[11px] font-bold text-on-surface">
-            {isHebrew ? "סטייק" : "Stake"}
+            {isHebrew ? "השקעה" : "Stake"}
             <input
               type="number"
               min={1}

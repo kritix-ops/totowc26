@@ -266,7 +266,7 @@ function statusHint(status: Status, isHebrew: boolean): string {
         : "Permission denied. Allow notifications in your browser site settings.";
     case "vapid_missing":
       return isHebrew
-        ? "המערכת עוד לא מוגדרת לpush. אדמין צריך להריץ pnpm push:vapid."
+        ? "המערכת עוד לא מוגדרת ל-push. אדמין צריך להריץ pnpm push:vapid."
         : "Server not configured for push. Admin needs to run pnpm push:vapid.";
     case "loading":
       return isHebrew ? "מחבר..." : "Connecting...";

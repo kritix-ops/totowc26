@@ -4,11 +4,17 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Lock, Eye, EyeOff, AlertCircle, CheckCircle2 } from "lucide-react";
 import { clsx } from "clsx";
-import type { Locale } from "../dictionaries";
+import type { Dictionary, Locale } from "../dictionaries";
 import { PillButton, LabelCaps } from "@/components/ui";
 import { setPasswordAction, type SetPasswordResult } from "./actions";
 
-export function SetPasswordForm({ locale }: { locale: Locale }) {
+export function SetPasswordForm({
+  locale,
+  dict,
+}: {
+  locale: Locale;
+  dict: Dictionary;
+}) {
   const isHebrew = locale === "he";
   const router = useRouter();
   const [showPw, setShowPw] = useState(false);
@@ -36,7 +42,7 @@ export function SetPasswordForm({ locale }: { locale: Locale }) {
       className="bg-[#FBF6EB] p-5 md:p-6 rounded-lg border border-outline shadow-[0_8px_24px_rgba(28,20,15,0.08)] flex flex-col gap-5"
     >
       <label className="flex flex-col gap-2">
-        <LabelCaps>{isHebrew ? "סיסמה חדשה" : "New password"}</LabelCaps>
+        <LabelCaps>{dict.forms.setPassword.newPasswordLabel}</LabelCaps>
         <FieldWrap isHebrew={isHebrew} icon={<Lock className="h-5 w-5 text-outline" strokeWidth={1.5} />}>
           <input
             type={showPw ? "text" : "password"}
@@ -45,11 +51,7 @@ export function SetPasswordForm({ locale }: { locale: Locale }) {
             minLength={12}
             autoComplete="new-password"
             dir="ltr"
-            placeholder={
-              isHebrew
-                ? "לפחות 12 תווים, אותיות וספרות"
-                : "At least 12 characters, letters and numbers"
-            }
+            placeholder={dict.forms.setPassword.newPasswordPlaceholder}
             className={clsx(
               "w-full h-12 bg-transparent border-0 focus:outline-none text-[16px] text-on-surface placeholder:text-outline-variant",
               isHebrew ? "text-right pr-9 pl-10" : "text-left pl-9 pr-10",
@@ -58,7 +60,7 @@ export function SetPasswordForm({ locale }: { locale: Locale }) {
           <button
             type="button"
             onClick={() => setShowPw((v) => !v)}
-            aria-label={showPw ? (isHebrew ? "הסתר" : "Hide") : (isHebrew ? "הצג" : "Show")}
+            aria-label={showPw ? dict.forms.setPassword.hide : dict.forms.setPassword.show}
             className={clsx(
               "absolute top-1/2 -translate-y-1/2 min-w-[44px] min-h-[44px] flex items-center justify-center text-outline hover:text-on-surface",
               isHebrew ? "left-0" : "right-0",
@@ -70,7 +72,7 @@ export function SetPasswordForm({ locale }: { locale: Locale }) {
       </label>
 
       <label className="flex flex-col gap-2">
-        <LabelCaps>{isHebrew ? "אישור סיסמה" : "Confirm password"}</LabelCaps>
+        <LabelCaps>{dict.forms.setPassword.confirmPasswordLabel}</LabelCaps>
         <FieldWrap isHebrew={isHebrew} icon={<CheckCircle2 className="h-5 w-5 text-outline" strokeWidth={1.5} />}>
           <input
             type={showPw ? "text" : "password"}
@@ -79,7 +81,7 @@ export function SetPasswordForm({ locale }: { locale: Locale }) {
             minLength={12}
             autoComplete="new-password"
             dir="ltr"
-            placeholder={isHebrew ? "הקלד שוב" : "Type it again"}
+            placeholder={dict.forms.setPassword.confirmPasswordPlaceholder}
             className={clsx(
               "w-full h-12 bg-transparent border-0 focus:outline-none text-[16px] text-on-surface placeholder:text-outline-variant",
               isHebrew ? "text-right pr-9" : "text-left pl-9",
@@ -91,7 +93,7 @@ export function SetPasswordForm({ locale }: { locale: Locale }) {
       {error && (
         <p className="inline-flex items-start gap-2 text-sm text-error">
           <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" strokeWidth={2} />
-          <span>{translate(error, isHebrew)}</span>
+          <span>{translate(error, dict)}</span>
         </p>
       )}
 
@@ -100,7 +102,7 @@ export function SetPasswordForm({ locale }: { locale: Locale }) {
         disabled={pending}
         className={clsx("w-full py-4 text-base", pending && "opacity-70 cursor-wait")}
       >
-        {pending ? (isHebrew ? "שומר..." : "Saving...") : (isHebrew ? "שמור והמשך" : "Save and continue")}
+        {pending ? dict.forms.setPassword.pendingLabel : dict.forms.setPassword.submitCta}
       </PillButton>
     </form>
   );
@@ -132,19 +134,7 @@ function FieldWrap({
 
 function translate(
   code: Exclude<SetPasswordResult, { ok: true }>["error"],
-  isHebrew: boolean,
+  dict: Dictionary,
 ): string {
-  const map: Record<string, [string, string]> = {
-    weak: [
-      "הסיסמה חייבת לכלול לפחות 12 תווים, אותיות וספרות",
-      "Password must be 12+ characters with letters and numbers",
-    ],
-    mismatch: ["הסיסמאות לא תואמות", "Passwords do not match"],
-    unauth: [
-      "פג תוקף ההזמנה. בקש מהמנהל לשלוח קישור חדש",
-      "Invite expired. Ask the organizer to re-send the link",
-    ],
-    unknown: ["שגיאה לא צפויה", "Something went wrong"],
-  };
-  return map[code][isHebrew ? 0 : 1];
+  return dict.errors.setPassword[code] ?? dict.errors.setPassword.unknown;
 }

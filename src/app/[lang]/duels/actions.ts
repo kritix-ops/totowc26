@@ -10,6 +10,7 @@ import { getUserAccess } from "@/lib/access";
 import { bankBalanceSql, bankCacheTag, lockUserForBetting } from "@/lib/bank";
 import { CACHE_TAG_LEADERBOARD } from "@/db/queries";
 import { sendEmail } from "@/lib/email/client";
+import { getEmailCopy, interpolate } from "@/lib/email/copy";
 import { DuelJoinedEmail } from "@/lib/email/templates/DuelJoinedEmail";
 
 // 1v1 duel server actions. See _plans/2026-05-27-betting-overhaul.md §7
@@ -401,15 +402,26 @@ async function notifyDuelJoined(
       (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "");
     const duelUrl = base ? `${base}/he/duels/${duelId}` : `/he/duels/${duelId}`;
 
+    const emails = await getEmailCopy("he");
+    const duelCopy = emails.duelJoined;
+    const slots = {
+      openerName: r.opener_name,
+      joinerName: r.joiner_name,
+      stake: r.stake,
+      questionEn: r.question_en,
+    };
     await sendEmail({
       to: r.opener_email,
-      subject: `מישהו הצטרף לדו-קרב שלך: ${r.question_he.slice(0, 60)}`,
+      subject: `${duelCopy.preview}: ${r.question_he.slice(0, 60)}`,
       react: DuelJoinedEmail({
-        openerName: r.opener_name,
-        joinerName: r.joiner_name,
+        preview: duelCopy.preview,
+        heading: interpolate(duelCopy.heading, slots),
+        questionLabel: duelCopy.questionLabel,
+        body: interpolate(duelCopy.body, slots),
+        buttonText: duelCopy.buttonText,
+        englishParagraph: interpolate(duelCopy.englishParagraph, slots),
+        footer: duelCopy.footer,
         questionHe: r.question_he,
-        questionEn: r.question_en,
-        stake: r.stake,
         duelUrl,
       }),
     });

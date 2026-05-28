@@ -32,14 +32,14 @@ export async function GuestHeaderActions({
       {signupOpen && (
         <Link
           href={localePath(locale, "signup")}
-          className="press-down inline-flex items-center justify-center min-h-[40px] px-3 md:px-4 rounded-full bg-surface-container-lowest border border-primary text-primary font-[family-name:var(--font-label)] text-[12px] md:text-[13px] font-bold tracking-[0.05em] hover:bg-primary-container transition-[background-color,color] duration-150"
+          className="press-down inline-flex items-center justify-center min-h-[44px] px-3 md:px-4 rounded-full bg-surface-container-lowest border border-primary text-primary font-[family-name:var(--font-label)] text-[12px] md:text-[13px] font-bold tracking-[0.05em] hover:bg-primary-container transition-[background-color,color] duration-150"
         >
           {dict.nav.signup}
         </Link>
       )}
       <Link
         href={localePath(locale, "login")}
-        className="press-down inline-flex items-center gap-1.5 min-h-[40px] px-3 md:px-4 rounded-full bg-primary text-on-primary font-[family-name:var(--font-label)] text-[12px] md:text-[13px] font-bold tracking-[0.05em] hover:bg-surface-tint transition-[background-color,color] duration-150"
+        className="press-down inline-flex items-center gap-1.5 min-h-[44px] px-3 md:px-4 rounded-full bg-primary text-on-primary font-[family-name:var(--font-label)] text-[12px] md:text-[13px] font-bold tracking-[0.05em] hover:bg-surface-tint transition-[background-color,color] duration-150"
       >
         <LogIn className="hidden md:block h-4 w-4" strokeWidth={2} />
         {dict.nav.signin}

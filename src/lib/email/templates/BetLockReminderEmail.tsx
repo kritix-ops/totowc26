@@ -18,58 +18,64 @@ import { styles } from "../styles";
 // skips the user. See _plans/2026-05-28-lock-reminders.md.
 
 type Props = {
-  playerName: string;
+  preview: string;
+  heading: string;
+  costLabel: string;
+  winLabel: string;
+  lockedLabel: string;
+  buttonText: string;
+  englishParagraph: string;
+  footer: string;
+  // Real data - rendered inside the layout, never copy-editable.
   questionHe: string;
-  questionEn: string;
   gradingRuleHe: string;
-  gradingRuleEn: string;
   stake: number;
   payout: number;
-  lockAtLabel: string;     // already-formatted "10:55, 11 ביוני"
-  minutesRemaining: number; // approximate; for the headline
+  lockAtLabel: string;
   betUrl: string;
 };
 
 export function BetLockReminderEmail({
-  playerName,
+  preview,
+  heading,
+  costLabel,
+  winLabel,
+  lockedLabel,
+  buttonText,
+  englishParagraph,
+  footer,
   questionHe,
-  questionEn,
   gradingRuleHe,
-  gradingRuleEn,
   stake,
   payout,
   lockAtLabel,
-  minutesRemaining,
   betUrl,
 }: Props) {
-  const headlineRemaining = formatRemainingHe(minutesRemaining);
   return (
     <Html lang="he" dir="rtl">
       <Head />
-      <Preview>תזכורת: הימור נסגר {headlineRemaining}</Preview>
+      <Preview>{preview}</Preview>
       <Body style={styles.body}>
         <Container style={styles.container}>
-          <Heading style={styles.heading}>
-            {playerName}, ההימור נסגר {headlineRemaining}
-          </Heading>
+          <Heading style={styles.heading}>{heading}</Heading>
           <Text style={styles.paragraph}>
             <strong>{questionHe}</strong>
           </Text>
           <Text style={styles.muted}>{gradingRuleHe}</Text>
           <Text style={styles.fieldRow}>
-            <span style={styles.fieldLabel}>עלות:</span>
+            <span style={styles.fieldLabel}>{costLabel}</span>
             <strong>{stake}</strong>
             <span style={{ margin: "0 8px", opacity: 0.4 }}>·</span>
-            <span style={styles.fieldLabel}>זכייה:</span>
+            <span style={styles.fieldLabel}>{winLabel}</span>
             <strong>{payout}</strong>
             <span style={{ margin: "0 8px", opacity: 0.4 }}>·</span>
-            <span style={styles.fieldLabel}>ננעל:</span>
+            <span style={styles.fieldLabel}>{lockedLabel}</span>
             <strong>{lockAtLabel}</strong>
           </Text>
 
           <Section style={styles.buttonWrap}>
             <Link href={betUrl} style={styles.button}>
-              פתח את ההימור
+              {buttonText}
             </Link>
           </Section>
 
@@ -77,25 +83,13 @@ export function BetLockReminderEmail({
 
           <Hr style={styles.divider} />
 
-          <Text style={styles.muted}>
-            English: bet <strong>&quot;{questionEn}&quot;</strong> locks{" "}
-            in ~{minutesRemaining} minutes. Stake {stake}, payout {payout}.
-            Rule: {gradingRuleEn}. Open: {betUrl}
-          </Text>
+          <Text style={styles.muted}>{englishParagraph}</Text>
 
-          <Text style={styles.footer}>טוטו מונדיאל</Text>
+          <Text style={styles.footer}>{footer}</Text>
         </Container>
       </Body>
     </Html>
   );
-}
-
-function formatRemainingHe(minutes: number): string {
-  if (minutes <= 0) return "ברגעים אלה";
-  if (minutes < 60) return `בעוד ${minutes} דקות`;
-  const hours = Math.round(minutes / 60);
-  if (hours === 1) return "בעוד שעה";
-  return `בעוד ${hours} שעות`;
 }
 
 export default BetLockReminderEmail;

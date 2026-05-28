@@ -43,7 +43,7 @@ export default async function BankHistoryPage({
         </h1>
         <p className="text-base text-on-surface-variant">
           {isHebrew
-            ? "כל תנועה שהשפיעה על הבנק שלך - מתחילה מהיתרה הראשונית, דרך השקעות ותשלומים, ועד התאמות אדמין."
+            ? "כל תנועה שהשפיעה על הבנק שלך - מהיתרה הראשונית, דרך השקעות ותשלומים, ועד התאמות אדמין."
             : "Every event that touched your bank - from the starting balance through stakes, payouts, and admin adjustments."}
         </p>
       </header>

@@ -723,7 +723,7 @@ function PicksBucket({
               {dict.profile.noPicksInCategory}
             </span>
             <span className="text-xs font-bold text-primary inline-flex items-center gap-1">
-              {isHebrew ? "להמרים" : "Place a bet"}
+              {isHebrew ? "להמר" : "Place a bet"}
               <ArrowUpRight className="h-3.5 w-3.5" strokeWidth={2} />
             </span>
           </Card>
@@ -1091,7 +1091,7 @@ function PointsBadge({
       return (
         <span className="inline-flex flex-col items-end gap-0.5 min-w-[64px]">
           <span className="font-[family-name:var(--font-label)] text-[10px] font-bold tracking-[0.05em] text-on-surface-variant uppercase">
-            {isHebrew ? "סטייק" : "Stake"}
+            {isHebrew ? "השקעה" : "Stake"}
           </span>
           <span className="inline-flex items-center gap-1 text-on-surface-variant font-[family-name:var(--font-score)] font-bold tabular-nums text-sm bidi-ltr">
             <Clock className="h-3 w-3" strokeWidth={2} />

@@ -9,27 +9,35 @@ import {
 } from "react-email";
 import { styles } from "../styles";
 
+// All copy comes pre-rendered from the sender (which reads it from the
+// admin-editable dictionary via getEmailCopy + interpolate). The
+// template is purely layout - no business logic, no slot substitution.
+
 type Props = {
-  displayName: string;
+  preview: string;
+  heading: string;
+  body1: string;
+  body2: string;
+  footer: string;
 };
 
-export function UserSignupConfirmation({ displayName }: Props) {
+export function UserSignupConfirmation({
+  preview,
+  heading,
+  body1,
+  body2,
+  footer,
+}: Props) {
   return (
     <Html lang="he" dir="rtl">
       <Head />
-      <Preview>קיבלנו את בקשתך לטוטו מונדיאל</Preview>
+      <Preview>{preview}</Preview>
       <Body style={styles.body}>
         <Container style={styles.container}>
-          <Heading style={styles.heading}>שלום {displayName} 👋</Heading>
-          <Text style={styles.paragraph}>
-            קיבלנו את הבקשה שלך להצטרף לטוטו מונדיאל. הבקשה ממתינה עכשיו לאישור
-            של מנהל הקבוצה - נחזור אליך במייל ברגע שתאושר.
-          </Text>
-          <Text style={styles.paragraph}>
-            אין צורך לעשות שום דבר נוסף בינתיים. אם הגעת לכאן בטעות, אפשר להתעלם
-            מהמייל הזה.
-          </Text>
-          <Text style={styles.footer}>טוטו מונדיאל · בהצלחה</Text>
+          <Heading style={styles.heading}>{heading}</Heading>
+          <Text style={styles.paragraph}>{body1}</Text>
+          <Text style={styles.paragraph}>{body2}</Text>
+          <Text style={styles.footer}>{footer}</Text>
         </Container>
       </Body>
     </Html>

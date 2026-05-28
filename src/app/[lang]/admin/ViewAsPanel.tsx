@@ -52,11 +52,11 @@ export function ViewAsPanel({
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div className="flex flex-col gap-1 min-w-0">
           <SectionHeading as="h2" underline="thin">
-            {isHebrew ? "צפייה כמשתמש" : "View as player"}
+            {isHebrew ? "צפייה כמשתתף" : "View as player"}
           </SectionHeading>
           <p className="text-sm text-on-surface-variant">
             {isHebrew
-              ? "הצג את האפליקציה כאילו אתה משתמש רגיל. שימושי לבדיקה איך זה נראה ופועל בצד של השחקן. שמירת הימורים תיכשל בדיוק כמו אצל משתמש לא משלם."
+              ? "הצג את האפליקציה כאילו אתה משתתף רגיל. שימושי לבדוק איך זה נראה ופועל בצד של המשתתף. שמירת הימורים תיכשל בדיוק כמו אצל משתתף שלא שילם."
               : "Render the app as if you were a regular player. Useful for previewing the player experience. Bet saves will fail exactly like they do for unpaid players."}
           </p>
         </div>
@@ -77,7 +77,7 @@ export function ViewAsPanel({
           pending={pending && pendingTarget === "paid"}
           onClick={() => apply("paid")}
           icon={<Check className="h-4 w-4" strokeWidth={2.5} />}
-          title={isHebrew ? "משתמש ששילם" : "Paid player"}
+          title={isHebrew ? "משתתף ששילם" : "Paid player"}
           subtitle={isHebrew ? "כל המסכים פעילים" : "All actions enabled"}
         />
         <RoleButton
@@ -85,7 +85,7 @@ export function ViewAsPanel({
           pending={pending && pendingTarget === "unpaid"}
           onClick={() => apply("unpaid")}
           icon={<Eye className="h-4 w-4" strokeWidth={2} />}
-          title={isHebrew ? "משתמש שלא שילם" : "Unpaid player"}
+          title={isHebrew ? "משתתף שלא שילם" : "Unpaid player"}
           subtitle={isHebrew ? "צפייה בלבד + באנר" : "Read-only + gate banner"}
         />
       </div>

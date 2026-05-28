@@ -154,6 +154,7 @@ export default async function DuelDetailPage({ params }: PageParams) {
 
       <DuelActions
         locale={locale}
+        dict={dict}
         duelId={duel.id}
         status={duel.status}
         iAmOpener={iAmOpener}

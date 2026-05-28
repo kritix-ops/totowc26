@@ -39,7 +39,6 @@ export function ProfileMenu({
   const pathname = usePathname() ?? "/";
   const router = useRouter();
   const [, startTransition] = useTransition();
-  const isHebrew = locale === "he";
   const initial = (displayName.trim()[0] ?? "?").toUpperCase();
 
   useEffect(() => {
@@ -97,7 +96,7 @@ export function ProfileMenu({
         aria-haspopup="menu"
         aria-expanded={open}
         aria-label={labels.openMenu}
-        className="press-down w-10 h-10 md:w-10 md:h-10 rounded-full bg-primary text-on-primary flex items-center justify-center font-bold text-base ring-2 ring-tertiary-fixed-dim shrink-0 hover:brightness-105 transition-[filter,transform] cursor-pointer"
+        className="press-down w-11 h-11 rounded-full bg-primary text-on-primary flex items-center justify-center font-bold text-base ring-2 ring-tertiary-fixed-dim shrink-0 hover:brightness-105 transition-[filter,transform] cursor-pointer"
       >
         {initial}
       </button>
@@ -105,7 +104,7 @@ export function ProfileMenu({
       {open && (
         <div
           role="menu"
-          className={`absolute top-full mt-2 ${isHebrew ? "left-0" : "right-0"} z-50 min-w-[220px] bg-surface-container-low border border-outline-variant rounded-xl shadow-[0_12px_32px_rgba(28,20,15,0.16)] overflow-hidden`}
+          className="absolute top-full mt-2 end-0 z-50 min-w-[220px] bg-surface-container-low border border-outline-variant rounded-xl shadow-[0_12px_32px_rgba(28,20,15,0.16)] overflow-hidden"
         >
           <div className="px-4 py-3 border-b border-outline-variant">
             <p className="font-bold text-sm text-on-surface truncate">

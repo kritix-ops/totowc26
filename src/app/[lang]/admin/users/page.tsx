@@ -33,7 +33,7 @@ export default async function AdminUsersPage({
           className="inline-flex items-center gap-1 text-sm text-on-surface-variant hover:text-primary self-start"
         >
           <ChevronBack className="h-4 w-4" />
-          {isHebrew ? "חזרה לניהול" : "Back to admin"}
+          {isHebrew ? "חזרה לדף הניהול" : "Back to admin"}
         </Link>
         <h1 className="font-[family-name:var(--font-display)] text-[28px] leading-9 md:text-[44px] md:leading-[48px] font-bold text-primary">
           {isHebrew ? "ניהול משתתפים" : "User management"}

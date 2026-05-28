@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { AlertCircle, Check } from "lucide-react";
 import { clsx } from "clsx";
 import { Card, PillButton, SectionHeading } from "@/components/ui";
-import type { Locale } from "../../dictionaries";
+import type { Dictionary, Locale } from "../../dictionaries";
 import { cancelDuel, joinDuel, settleDuel } from "../actions";
 
 // All viewer-context-dependent CTAs for the duel detail page live here.
@@ -14,6 +14,7 @@ import { cancelDuel, joinDuel, settleDuel } from "../actions";
 
 type Props = {
   locale: Locale;
+  dict: Dictionary;
   duelId: string;
   status: "open" | "matched" | "settled" | "cancelled";
   iAmOpener: boolean;
@@ -24,6 +25,7 @@ type Props = {
 
 export function DuelActions({
   locale,
+  dict,
   duelId,
   status,
   iAmOpener,
@@ -40,7 +42,7 @@ export function DuelActions({
   const [showCancel, setShowCancel] = useState(false);
   const [showSettle, setShowSettle] = useState(false);
 
-  const dict = {
+  const labels = {
     joinCta: isHebrew
       ? "הצטרף וקח את הצד ההפוך"
       : "Join - take the opposite side",
@@ -118,7 +120,7 @@ export function DuelActions({
     sections.push(
       <Card key="join" className="p-5 md:p-6 flex flex-col gap-3">
         {!canEdit ? (
-          <p className="text-sm text-on-surface-variant">{dict.notPaid}</p>
+          <p className="text-sm text-on-surface-variant">{labels.notPaid}</p>
         ) : (
           <PillButton
             type="button"
@@ -126,7 +128,7 @@ export function DuelActions({
             disabled={pending}
             className={clsx("min-h-[48px]", pending && "opacity-60 cursor-not-allowed")}
           >
-            {pending ? dict.pending : dict.joinCta}
+            {pending ? labels.pending : labels.joinCta}
           </PillButton>
         )}
       </Card>,
@@ -136,7 +138,7 @@ export function DuelActions({
   if (status === "open" && iAmOpener) {
     sections.push(
       <Card key="self" className="p-5 md:p-6 text-sm text-on-surface-variant">
-        {dict.joinSelfBlocked}
+        {labels.joinSelfBlocked}
       </Card>,
     );
   }
@@ -148,7 +150,7 @@ export function DuelActions({
         key="closed"
         className="p-5 md:p-6 text-sm text-on-surface-variant bg-tertiary-fixed text-on-tertiary-fixed-variant"
       >
-        {dict.closedLabel}
+        {labels.closedLabel}
       </Card>,
     );
   }
@@ -161,12 +163,12 @@ export function DuelActions({
     sections.push(
       <Card key="cancel" className="p-5 md:p-6 flex flex-col gap-3">
         <SectionHeading underline="thin" as="h2">
-          {dict.cancelCta}
+          {labels.cancelCta}
         </SectionHeading>
         {showCancel ? (
           <div className="flex flex-col gap-2">
             <label className="flex flex-col gap-1.5 text-sm font-bold text-on-surface">
-              {dict.cancelReason}
+              {labels.cancelReason}
               <input
                 type="text"
                 value={reason}
@@ -194,7 +196,7 @@ export function DuelActions({
                 disabled={pending}
                 className={clsx("min-h-[44px]", pending && "opacity-60 cursor-not-allowed")}
               >
-                {pending ? dict.pending : dict.cancelConfirm}
+                {pending ? labels.pending : labels.cancelConfirm}
               </PillButton>
             </div>
           </div>
@@ -205,7 +207,7 @@ export function DuelActions({
             onClick={() => setShowCancel(true)}
             className="self-start min-h-[44px]"
           >
-            {dict.cancelCta}
+            {labels.cancelCta}
           </PillButton>
         )}
       </Card>,
@@ -217,12 +219,12 @@ export function DuelActions({
     sections.push(
       <Card key="settle" className="p-5 md:p-6 flex flex-col gap-3">
         <SectionHeading underline="thin" as="h2">
-          {dict.settleCta}
+          {labels.settleCta}
         </SectionHeading>
         {showSettle ? (
           <div className="flex flex-col gap-3">
             <p className="text-sm text-on-surface-variant">
-              {dict.settleQuestion}
+              {labels.settleQuestion}
             </p>
             <div className="grid grid-cols-2 gap-2">
               {[true, false].map((v) => (
@@ -237,7 +239,7 @@ export function DuelActions({
                       : "bg-surface-container-lowest text-on-surface border-outline",
                   )}
                 >
-                  {v ? dict.yes : dict.no}
+                  {v ? labels.yes : labels.no}
                 </button>
               ))}
             </div>
@@ -263,7 +265,7 @@ export function DuelActions({
                     "opacity-60 cursor-not-allowed",
                 )}
               >
-                {pending ? dict.pending : dict.confirm}
+                {pending ? labels.pending : labels.confirm}
               </PillButton>
             </div>
           </div>
@@ -273,7 +275,7 @@ export function DuelActions({
             onClick={() => setShowSettle(true)}
             className="self-start min-h-[44px]"
           >
-            {dict.settleCta}
+            {labels.settleCta}
           </PillButton>
         )}
       </Card>,
@@ -286,7 +288,7 @@ export function DuelActions({
       {error && (
         <p className="inline-flex items-center gap-1.5 text-sm text-error">
           <AlertCircle className="h-4 w-4" strokeWidth={2} />
-          {translateError(error, isHebrew)}
+          {translateError(error, dict)}
         </p>
       )}
       {!error && !pending && status === "settled" && (
@@ -299,27 +301,7 @@ export function DuelActions({
   );
 }
 
-function translateError(code: string, isHebrew: boolean): string {
-  const map: Record<string, [string, string]> = {
-    unauth: ["יש להתחבר", "Sign in required"],
-    not_paid: [
-      "התשלום שלך עדיין לא אושר",
-      "Your entry payment is not approved yet",
-    ],
-    forbidden: ["אין הרשאה לפעולה הזו", "Not allowed"],
-    invalid_input: ["נתונים לא תקינים", "Invalid values"],
-    insufficient_funds: ["אין מספיק נקודות", "Not enough points"],
-    duel_not_found: ["הדו-קרב לא נמצא", "Duel not found"],
-    duel_already_joined: ["מישהו אחר הצטרף לפניך", "Someone else already joined"],
-    duel_closed: ["ההצטרפות נסגרה", "Join window is closed"],
-    duel_self_join: [
-      "אי אפשר להצטרף לדו-קרב שאתה פתחת",
-      "Can't join your own duel",
-    ],
-    already_settled: ["הדו-קרב כבר הוכרע או בוטל", "Duel already settled or cancelled"],
-    stake_too_high: ["הסטייק חורג מהמקסימום", "Stake exceeds max"],
-    stake_too_low: ["הסטייק חייב להיות לפחות 1", "Stake must be ≥ 1"],
-    db: ["שגיאת שמירה", "Save failed"],
-  };
-  return (map[code] ?? map.db)[isHebrew ? 0 : 1];
+function translateError(code: string, dict: Dictionary): string {
+  const map = dict.errors.duel as Record<string, string>;
+  return map[code] ?? map.db;
 }

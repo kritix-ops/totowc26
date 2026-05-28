@@ -1,11 +1,11 @@
-"use client";
+﻿"use client";
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { AlertCircle } from "lucide-react";
 import { clsx } from "clsx";
 import { Card, PillButton, SectionHeading } from "@/components/ui";
-import type { Locale } from "../../dictionaries";
+import type { Dictionary, Locale } from "../../dictionaries";
 import { openDuel } from "../actions";
 
 type FixtureOption = {
@@ -42,21 +42,22 @@ type AutoStat =
 type Comparator = "<" | "<=" | "=" | ">=" | ">";
 
 const STAT_LABELS: Record<AutoStat, { he: string; en: string }> = {
-  corners:           { he: "קרנות", en: "Corners" },
-  yellow_cards:      { he: "כרטיסים צהובים", en: "Yellow cards" },
-  red_cards:         { he: "כרטיסים אדומים", en: "Red cards" },
-  shots:             { he: "בעיטות סה״כ", en: "Total shots" },
-  shots_on_goal:     { he: "בעיטות למסגרת", en: "Shots on goal" },
-  shots_inside_box:  { he: "בעיטות מתוך הרחבה", en: "Shots inside box" },
-  shots_outside_box: { he: "בעיטות מחוץ לרחבה", en: "Shots outside box" },
-  fouls:             { he: "עבירות", en: "Fouls" },
-  offsides:          { he: "נבדלים", en: "Offsides" },
-  saves:             { he: "הצלות שוערים", en: "Goalkeeper saves" },
-  total_passes:      { he: "מסירות סה״כ", en: "Total passes" },
+  corners:           { he: "׳§׳¨׳ ׳•׳×", en: "Corners" },
+  yellow_cards:      { he: "׳›׳¨׳˜׳™׳¡׳™׳ ׳¦׳”׳•׳‘׳™׳", en: "Yellow cards" },
+  red_cards:         { he: "׳›׳¨׳˜׳™׳¡׳™׳ ׳׳“׳•׳׳™׳", en: "Red cards" },
+  shots:             { he: "׳‘׳¢׳™׳˜׳•׳× ׳¡׳”\"׳›", en: "Total shots" },
+  shots_on_goal:     { he: "׳‘׳¢׳™׳˜׳•׳× ׳׳׳¡׳’׳¨׳×", en: "Shots on goal" },
+  shots_inside_box:  { he: "׳‘׳¢׳™׳˜׳•׳× ׳׳×׳•׳ ׳”׳¨׳—׳‘׳”", en: "Shots inside box" },
+  shots_outside_box: { he: "׳‘׳¢׳™׳˜׳•׳× ׳׳—׳•׳¥ ׳׳¨׳—׳‘׳”", en: "Shots outside box" },
+  fouls:             { he: "׳¢׳‘׳™׳¨׳•׳×", en: "Fouls" },
+  offsides:          { he: "׳ ׳‘׳“׳׳™׳", en: "Offsides" },
+  saves:             { he: "׳”׳¦׳׳•׳× ׳©׳•׳¢׳¨׳™׳", en: "Goalkeeper saves" },
+  total_passes:      { he: "׳׳¡׳™׳¨׳•׳× ׳¡׳”\"׳›", en: "Total passes" },
 };
 
 export function NewDuelForm({
   locale,
+  dict,
   balance,
   duelMaxStake,
   defaultJoinWindow,
@@ -64,6 +65,7 @@ export function NewDuelForm({
   upcomingMatchdays,
 }: {
   locale: Locale;
+  dict: Dictionary;
   balance: number;
   duelMaxStake: number;
   defaultJoinWindow: number;
@@ -98,37 +100,37 @@ export function NewDuelForm({
     useState<Comparator>(">");
   const [autoGradeThreshold, setAutoGradeThreshold] = useState<number>(2);
 
-  const dict = {
-    title: isHebrew ? "דו-קרב חדש" : "New duel",
-    scopeQ: isHebrew ? "על מה הדו-קרב?" : "What does this duel hinge on?",
-    scopeMatch: isHebrew ? "משחק" : "Match",
-    scopeDay: isHebrew ? "יום משחקים" : "Match day",
-    scopeTournament: isHebrew ? "טורניר" : "Tournament",
-    matchPicker: isHebrew ? "בחר משחק" : "Pick a match",
-    matchdayDate: isHebrew ? "בחר תאריך יום משחקים" : "Pick a match-day date",
-    answerQ: isHebrew ? "התשובה שלך" : "Your answer",
-    yes: isHebrew ? "כן" : "Yes",
-    no: isHebrew ? "לא" : "No",
+  const labels = {
+    title: isHebrew ? "׳“׳•-׳§׳¨׳‘ ׳—׳“׳©" : "New duel",
+    scopeQ: isHebrew ? "׳¢׳ ׳׳” ׳”׳“׳•-׳§׳¨׳‘?" : "What does this duel hinge on?",
+    scopeMatch: isHebrew ? "׳׳©׳—׳§" : "Match",
+    scopeDay: isHebrew ? "׳™׳•׳ ׳׳©׳—׳§׳™׳" : "Match day",
+    scopeTournament: isHebrew ? "׳˜׳•׳¨׳ ׳™׳¨" : "Tournament",
+    matchPicker: isHebrew ? "׳‘׳—׳¨ ׳׳©׳—׳§" : "Pick a match",
+    matchdayDate: isHebrew ? "׳‘׳—׳¨ ׳×׳׳¨׳™׳ ׳™׳•׳ ׳׳©׳—׳§׳™׳" : "Pick a match-day date",
+    answerQ: isHebrew ? "׳”׳×׳©׳•׳‘׳” ׳©׳׳" : "Your answer",
+    yes: isHebrew ? "׳›׳" : "Yes",
+    no: isHebrew ? "׳׳" : "No",
     stakeQ: isHebrew
-      ? `סטייק (עד ${maxStake})`
+      ? `׳”׳©׳§׳¢׳” (׳¢׳“ ${maxStake})`
       : `Stake (up to ${maxStake})`,
-    questionHe: isHebrew ? "השאלה (עברית)" : "Question (Hebrew)",
-    questionEn: isHebrew ? "השאלה (אנגלית)" : "Question (English)",
-    ruleHe: isHebrew ? "כלל הכרעה (עברית)" : "Grading rule (Hebrew)",
-    ruleEn: isHebrew ? "כלל הכרעה (אנגלית)" : "Grading rule (English)",
+    questionHe: isHebrew ? "׳”׳©׳׳׳” (׳¢׳‘׳¨׳™׳×)" : "Question (Hebrew)",
+    questionEn: isHebrew ? "׳”׳©׳׳׳” (׳׳ ׳’׳׳™׳×)" : "Question (English)",
+    ruleHe: isHebrew ? "׳›׳׳ ׳”׳›׳¨׳¢׳” (׳¢׳‘׳¨׳™׳×)" : "Grading rule (Hebrew)",
+    ruleEn: isHebrew ? "׳›׳׳ ׳”׳›׳¨׳¢׳” (׳׳ ׳’׳׳™׳×)" : "Grading rule (English)",
     questionHint: isHebrew
-      ? "משפט אחד שגם משתמש אחר יבין בלי לקרוא תקנון."
+      ? "׳׳©׳₪׳˜ ׳׳—׳“ ׳©׳’׳ ׳׳©׳×׳׳© ׳׳—׳¨ ׳™׳‘׳™׳ ׳‘׳׳™ ׳׳§׳¨׳•׳ ׳×׳§׳ ׳•׳."
       : "One sentence another player can read without consulting a rulebook.",
     ruleHint: isHebrew
-      ? "מה בדיוק ייספר? משפט שאי אפשר לפרש לרעה."
+      ? "׳׳” ׳‘׳“׳™׳•׳§ ׳™׳™׳¡׳₪׳¨? ׳׳©׳₪׳˜ ׳©׳׳™ ׳׳₪׳©׳¨ ׳׳₪׳¨׳© ׳׳¨׳¢׳”."
       : "Exactly what counts? Phrase it so it can't be argued.",
-    submit: isHebrew ? "פתח דו-קרב" : "Open duel",
-    submitPending: isHebrew ? "פותח..." : "Opening...",
+    submit: isHebrew ? "׳₪׳×׳— ׳“׳•-׳§׳¨׳‘" : "Open duel",
+    submitPending: isHebrew ? "׳₪׳•׳×׳—..." : "Opening...",
     deadlineHint: isHebrew
-      ? `הדדליין להצטרפות נקבע ל-${defaultJoinWindow} שעות (או דקות לפני המשחק - המוקדם מבניהם).`
+      ? `׳”׳“׳“׳׳™׳™׳ ׳׳”׳¦׳˜׳¨׳₪׳•׳× ׳ ׳§׳‘׳¢ ׳-${defaultJoinWindow} ׳©׳¢׳•׳× (׳׳• ׳“׳§׳•׳× ׳׳₪׳ ׳™ ׳”׳׳©׳—׳§ - ׳”׳׳•׳§׳“׳ ׳׳‘׳™׳ ׳™׳”׳).`
       : `Join deadline defaults to ${defaultJoinWindow}h from now or the kickoff - whichever is earlier.`,
     bankWarning: isHebrew
-      ? `הסטייק יינעל בבנק עד שהדו-קרב יוכרע או יבוטל. יתרה נוכחית: ${balance}.`
+      ? `׳”׳”׳©׳§׳¢׳” ׳×׳™׳ ׳¢׳ ׳‘׳‘׳ ׳§ ׳¢׳“ ׳©׳”׳“׳•-׳§׳¨׳‘ ׳™׳•׳›׳¨׳¢ ׳׳• ׳™׳‘׳•׳˜׳. ׳™׳×׳¨׳” ׳ ׳•׳›׳—׳™׳×: ${balance}.`
       : `Your stake is locked in the bank until the duel resolves or cancels. Current balance: ${balance}.`,
   };
 
@@ -182,7 +184,7 @@ export function NewDuelForm({
     <form onSubmit={submit} className="flex flex-col gap-6">
       <Card className="p-5 md:p-6 flex flex-col gap-4">
         <SectionHeading underline="thin" as="h2">
-          {dict.scopeQ}
+          {labels.scopeQ}
         </SectionHeading>
         <div className="grid grid-cols-3 gap-2">
           {(["match", "day", "tournament"] as const).map((s) => (
@@ -198,17 +200,17 @@ export function NewDuelForm({
               )}
             >
               {s === "match"
-                ? dict.scopeMatch
+                ? labels.scopeMatch
                 : s === "day"
-                  ? dict.scopeDay
-                  : dict.scopeTournament}
+                  ? labels.scopeDay
+                  : labels.scopeTournament}
             </button>
           ))}
         </div>
 
         {scope === "match" && (
           <label className="flex flex-col gap-1.5 text-sm font-bold text-on-surface">
-            {dict.matchPicker}
+            {labels.matchPicker}
             <select
               value={matchId}
               onChange={(e) => setMatchId(e.target.value)}
@@ -227,7 +229,7 @@ export function NewDuelForm({
 
         {scope === "day" && (
           <label className="flex flex-col gap-1.5 text-sm font-bold text-on-surface">
-            {dict.matchdayDate}
+            {labels.matchdayDate}
             <select
               value={matchdayDate}
               onChange={(e) => setMatchdayDate(e.target.value)}
@@ -237,7 +239,7 @@ export function NewDuelForm({
               <option value="">-</option>
               {upcomingMatchdays.map((d) => (
                 <option key={d.date} value={d.date}>
-                  {d.label} · {d.fixtureCount}
+                  {d.label} ֲ· {d.fixtureCount}
                 </option>
               ))}
             </select>
@@ -247,12 +249,12 @@ export function NewDuelForm({
 
       <Card className="p-5 md:p-6 flex flex-col gap-4">
         <SectionHeading underline="thin" as="h2">
-          {dict.title}
+          {labels.title}
         </SectionHeading>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <label className="flex flex-col gap-1.5 text-sm font-bold text-on-surface">
-            {dict.questionHe}
+            {labels.questionHe}
             <input
               type="text"
               value={questionHe}
@@ -263,7 +265,7 @@ export function NewDuelForm({
             />
           </label>
           <label className="flex flex-col gap-1.5 text-sm font-bold text-on-surface">
-            {dict.questionEn}
+            {labels.questionEn}
             <input
               type="text"
               value={questionEn}
@@ -275,12 +277,12 @@ export function NewDuelForm({
           </label>
         </div>
         <p className="text-xs text-on-surface-variant -mt-2">
-          {dict.questionHint}
+          {labels.questionHint}
         </p>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <label className="flex flex-col gap-1.5 text-sm font-bold text-on-surface">
-            {dict.ruleHe}
+            {labels.ruleHe}
             <textarea
               value={ruleHe}
               onChange={(e) => setRuleHe(e.target.value)}
@@ -291,7 +293,7 @@ export function NewDuelForm({
             />
           </label>
           <label className="flex flex-col gap-1.5 text-sm font-bold text-on-surface">
-            {dict.ruleEn}
+            {labels.ruleEn}
             <textarea
               value={ruleEn}
               onChange={(e) => setRuleEn(e.target.value)}
@@ -303,14 +305,14 @@ export function NewDuelForm({
           </label>
         </div>
         <p className="text-xs text-on-surface-variant -mt-2">
-          {dict.ruleHint}
+          {labels.ruleHint}
         </p>
       </Card>
 
       <Card className="p-5 md:p-6 flex flex-col gap-4">
         <div className="flex flex-col gap-2">
           <SectionHeading underline="thin" as="h2">
-            {dict.answerQ}
+            {labels.answerQ}
           </SectionHeading>
           <div className="grid grid-cols-2 gap-2">
             {[true, false].map((v) => (
@@ -325,7 +327,7 @@ export function NewDuelForm({
                     : "bg-surface-container-lowest text-on-surface border-outline",
                 )}
               >
-                {v ? dict.yes : dict.no}
+                {v ? labels.yes : labels.no}
               </button>
             ))}
           </div>
@@ -333,7 +335,7 @@ export function NewDuelForm({
 
         <div className="flex flex-col gap-2">
           <SectionHeading underline="thin" as="h2">
-            {dict.stakeQ}
+            {labels.stakeQ}
           </SectionHeading>
           <input
             type="number"
@@ -350,10 +352,10 @@ export function NewDuelForm({
             dir="ltr"
           />
           <p className="text-xs text-on-surface-variant">
-            {dict.bankWarning}
+            {labels.bankWarning}
           </p>
           <p className="text-xs text-on-surface-variant">
-            {dict.deadlineHint}
+            {labels.deadlineHint}
           </p>
         </div>
       </Card>
@@ -364,12 +366,12 @@ export function NewDuelForm({
             <div className="flex flex-col gap-1 min-w-0">
               <SectionHeading underline="thin" as="h2">
                 {isHebrew
-                  ? "הכרעה אוטומטית מסטטיסטיקות"
+                  ? "׳”׳›׳¨׳¢׳” ׳׳•׳˜׳•׳׳˜׳™׳× ׳׳¡׳˜׳˜׳™׳¡׳˜׳™׳§׳•׳×"
                   : "Auto-settle from match stats"}
               </SectionHeading>
               <p className="text-xs text-on-surface-variant">
                 {isHebrew
-                  ? "במקום שאדמין יכריע ידנית, הדו-קרב יוכרע אוטומטית מהסטטיסטיקות של API-Football אחרי שהמשחק יסתיים. רק לדו-קרב על משחק יחיד."
+                  ? "׳‘׳׳§׳•׳ ׳©׳׳“׳׳™׳ ׳™׳›׳¨׳™׳¢ ׳™׳“׳ ׳™׳×, ׳”׳“׳•-׳§׳¨׳‘ ׳™׳•׳›׳¨׳¢ ׳׳•׳˜׳•׳׳˜׳™׳× ׳׳”׳¡׳˜׳˜׳™׳¡׳˜׳™׳§׳•׳× ׳©׳ API-Football ׳׳—׳¨׳™ ׳©׳”׳׳©׳—׳§ ׳™׳¡׳×׳™׳™׳. ׳¨׳§ ׳׳“׳•-׳§׳¨׳‘ ׳¢׳ ׳׳©׳—׳§ ׳™׳—׳™׳“."
                   : "Instead of an admin settling manually, the duel resolves automatically from the fixture's API-Football stats once the match ends. Match-scope only."}
               </p>
             </div>
@@ -386,15 +388,15 @@ export function NewDuelForm({
               )}
             >
               {autoGradeOn
-                ? isHebrew ? "פעיל" : "On"
-                : isHebrew ? "כבוי" : "Off"}
+                ? isHebrew ? "׳₪׳¢׳™׳" : "On"
+                : isHebrew ? "׳›׳‘׳•׳™" : "Off"}
             </button>
           </div>
 
           {autoGradeOn && (
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <label className="flex flex-col gap-1.5 text-xs font-bold text-on-surface">
-                {isHebrew ? "סטטיסטיקה" : "Stat"}
+                {isHebrew ? "׳¡׳˜׳˜׳™׳¡׳˜׳™׳§׳”" : "Stat"}
                 <select
                   value={autoGradeStat}
                   onChange={(e) => setAutoGradeStat(e.target.value as AutoStat)}
@@ -409,7 +411,7 @@ export function NewDuelForm({
                 </select>
               </label>
               <label className="flex flex-col gap-1.5 text-xs font-bold text-on-surface">
-                {isHebrew ? "השוואה" : "Comparator"}
+                {isHebrew ? "׳”׳©׳•׳•׳׳”" : "Comparator"}
                 <select
                   value={autoGradeComparator}
                   onChange={(e) =>
@@ -426,7 +428,7 @@ export function NewDuelForm({
                 </select>
               </label>
               <label className="flex flex-col gap-1.5 text-xs font-bold text-on-surface">
-                {isHebrew ? "סף" : "Threshold"}
+                {isHebrew ? "׳¡׳£" : "Threshold"}
                 <input
                   type="number"
                   min={0}
@@ -447,7 +449,7 @@ export function NewDuelForm({
               </label>
               <p className="sm:col-span-3 text-xs text-on-surface-variant">
                 {isHebrew
-                  ? "כן יזכה אם הערך של הסטטיסטיקה (סכום שני הצדדים) מקיים את ההשוואה."
+                  ? "׳›׳ ׳™׳–׳›׳” ׳׳ ׳”׳¢׳¨׳ ׳©׳ ׳”׳¡׳˜׳˜׳™׳¡׳˜׳™׳§׳” (׳¡׳›׳•׳ ׳©׳ ׳™ ׳”׳¦׳“׳“׳™׳) ׳׳§׳™׳™׳ ׳׳× ׳”׳”׳©׳•׳•׳׳”."
                   : "Yes wins if the combined stat across both teams satisfies the comparator."}
               </p>
             </div>
@@ -458,7 +460,7 @@ export function NewDuelForm({
       {error && (
         <p className="inline-flex items-center gap-1.5 text-sm text-error">
           <AlertCircle className="h-4 w-4" strokeWidth={2} />
-          {translateError(error, isHebrew)}
+          {translateError(error, dict)}
         </p>
       )}
 
@@ -470,47 +472,13 @@ export function NewDuelForm({
           (pending || !valid) && "opacity-60 cursor-not-allowed",
         )}
       >
-        {pending ? dict.submitPending : dict.submit}
+        {pending ? labels.submitPending : labels.submit}
       </PillButton>
     </form>
   );
 }
 
-function translateError(code: string, isHebrew: boolean): string {
-  const map: Record<string, [string, string]> = {
-    unauth: ["יש להתחבר", "Sign in required"],
-    not_paid: [
-      "התשלום שלך עדיין לא אושר",
-      "Your entry payment is not approved yet",
-    ],
-    invalid_input: [
-      "חסרים פרטים. ודא שכל השדות מלאים והכלל הוא לפחות 3 תווים.",
-      "Missing fields. Make sure every field is filled and the rule is 3+ characters.",
-    ],
-    stake_too_high: [
-      "הסטייק חורג מהמקסימום שהוגדר באדמין.",
-      "Stake exceeds the admin-configured max.",
-    ],
-    stake_too_low: ["הסטייק חייב להיות לפחות 1.", "Stake must be at least 1."],
-    insufficient_funds: [
-      "אין מספיק נקודות בבנק.",
-      "Not enough points in your bank.",
-    ],
-    rate_limited: [
-      "פתחת יותר מדי דו-קרבים בעת האחרונה. נסה שוב מאוחר יותר.",
-      "You've opened too many duels recently. Try again later.",
-    ],
-    match_not_found: ["המשחק לא נמצא.", "Match not found."],
-    match_locked: ["המשחק כבר נעול.", "Match is locked."],
-    matchday_empty: [
-      "אין משחקים מתוזמנים בתאריך הזה.",
-      "No scheduled matches on this date.",
-    ],
-    deadline_past: [
-      "תאריך ההכרעה כבר עבר.",
-      "Resolution date already passed.",
-    ],
-    db: ["שגיאת שמירה", "Save failed"],
-  };
-  return (map[code] ?? map.db)[isHebrew ? 0 : 1];
+function translateError(code: string, dict: Dictionary): string {
+  const map = dict.errors.duelNew as Record<string, string>;
+  return map[code] ?? map.db;
 }

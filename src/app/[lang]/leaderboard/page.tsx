@@ -113,7 +113,7 @@ export default async function LeaderboardPage({
           </span>
           <span className="font-[family-name:var(--font-display)] text-xl font-bold tabular-nums">
             <bdi>
-              {categoryPrizeIls.toLocaleString()} {isHebrew ? "ש״ח" : "ILS"}
+              {categoryPrizeIls.toLocaleString()} {isHebrew ? "ש\"ח" : "ILS"}
             </bdi>
           </span>
         </Card>
@@ -174,13 +174,13 @@ export default async function LeaderboardPage({
                       className="mt-1 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-tertiary-fixed text-on-tertiary-fixed-variant text-[11px] font-bold tabular-nums"
                       aria-label={
                         isHebrew
-                          ? `פרס למקום ${row.rank}: ${prizeIls} ש״ח`
+                          ? `פרס למקום ${row.rank}: ${prizeIls} ש"ח`
                           : `Prize for rank ${row.rank}: ${prizeIls} ILS`
                       }
                     >
                       <Trophy className="h-3 w-3" strokeWidth={2} />
                       <bdi>
-                        {prizeIls.toLocaleString()} {isHebrew ? "ש״ח" : "ILS"}
+                        {prizeIls.toLocaleString()} {isHebrew ? "ש\"ח" : "ILS"}
                       </bdi>
                     </span>
                   )}

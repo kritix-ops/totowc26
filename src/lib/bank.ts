@@ -72,24 +72,36 @@ export function bankBalanceSql(userId: string): SQL {
   )::int`;
 }
 
-// SQL expression returning the user's net change from every duel they
-// are on either side of. See _plans/2026-05-27-betting-overhaul.md §7.3
-// for the rule table this CASE mirrors.
-function duelDeltaSql(userId: string): SQL {
+// Per-row SQL CASE that resolves a single duel to this user's net point
+// change. The CASE references `d.*` columns so the caller must select
+// from `public.duels d`. `userRef` accepts either a JS string (a literal
+// userId, parameterised by drizzle) or a raw SQL fragment (e.g. `p.id`
+// inside a CTE that joins profiles). See
+// _plans/2026-05-27-betting-overhaul.md §7.3 for the rule table.
+//
+// Exported because the leaderboard, profile-stats, my-duels and
+// bank-stats queries all embed the same arithmetic — keeping a single
+// source of truth means the netting rules cannot drift between surfaces.
+export function duelCaseSql(userRef: string | SQL): SQL {
+  return sql`case
+    when d.status = 'open' and d.opener_id = ${userRef} then -d.stake
+    when d.status = 'matched' and (d.opener_id = ${userRef} or d.joiner_id = ${userRef}) then -d.stake
+    when d.status = 'settled' and d.opener_id = ${userRef}
+      then case when d.resolved_value = d.opener_answer then d.stake else -d.stake end
+    when d.status = 'settled' and d.joiner_id = ${userRef}
+      then case when d.resolved_value = d.opener_answer then -d.stake else d.stake end
+    else 0
+  end`;
+}
+
+// Aggregate variant of `duelCaseSql`: sums the per-duel deltas across
+// every duel the user is on either side of, excluding cancelled rows
+// (cancelled = refunded → 0). Returns 0 if the user has no duels.
+export function duelDeltaSql(userRef: string | SQL): SQL {
   return sql`coalesce((
-    select sum(
-      case
-        when d.status = 'open' and d.opener_id = ${userId} then -d.stake
-        when d.status = 'matched' and (d.opener_id = ${userId} or d.joiner_id = ${userId}) then -d.stake
-        when d.status = 'settled' and d.opener_id = ${userId}
-          then case when d.resolved_value = d.opener_answer then d.stake else -d.stake end
-        when d.status = 'settled' and d.joiner_id = ${userId}
-          then case when d.resolved_value = d.opener_answer then -d.stake else d.stake end
-        else 0
-      end
-    )::int
+    select sum(${duelCaseSql(userRef)})::int
     from public.duels d
-    where (d.opener_id = ${userId} or d.joiner_id = ${userId})
+    where (d.opener_id = ${userRef} or d.joiner_id = ${userRef})
       and d.status <> 'cancelled'
   ), 0)`;
 }

@@ -13,37 +13,48 @@ import {
 import { styles } from "../styles";
 
 type Props = {
-  displayName: string;
+  preview: string;
+  heading: string;
+  body: string;
+  buttonText: string;
+  fallbackHint: string;
+  footer: string;
   // Recovery link from Supabase admin.generateLink({ type: "recovery", ... }).
-  // The registrant clicks once and lands on /he/set-password.
+  // Stays a real prop (not a copy slot) - the URL is per-recipient and
+  // must never be admin-editable.
   recoveryUrl: string;
 };
 
-export function UserApprovalEmail({ displayName, recoveryUrl }: Props) {
+export function UserApprovalEmail({
+  preview,
+  heading,
+  body,
+  buttonText,
+  fallbackHint,
+  footer,
+  recoveryUrl,
+}: Props) {
   return (
     <Html lang="he" dir="rtl">
       <Head />
-      <Preview>אושרת! ברוך הבא לטוטו מונדיאל</Preview>
+      <Preview>{preview}</Preview>
       <Body style={styles.body}>
         <Container style={styles.container}>
-          <Heading style={styles.heading}>שלום {displayName}, אושרת!</Heading>
-          <Text style={styles.paragraph}>
-            הבקשה שלך לטוטו מונדיאל אושרה. לחץ על הכפתור כדי להגדיר סיסמה ולהתחיל
-            להמר.
-          </Text>
+          <Heading style={styles.heading}>{heading}</Heading>
+          <Text style={styles.paragraph}>{body}</Text>
 
           <Section style={styles.buttonWrap}>
             <Link href={recoveryUrl} style={styles.button}>
-              להגדרת סיסמה והתחברות
+              {buttonText}
             </Link>
           </Section>
 
           <Hr style={styles.divider} />
 
-          <Text style={styles.muted}>אם הכפתור לא עובד, העתק את הקישור הבא:</Text>
+          <Text style={styles.muted}>{fallbackHint}</Text>
           <Text style={styles.fallbackLink}>{recoveryUrl}</Text>
 
-          <Text style={styles.footer}>טוטו מונדיאל · בהצלחה</Text>
+          <Text style={styles.footer}>{footer}</Text>
         </Container>
       </Body>
     </Html>

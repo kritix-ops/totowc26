@@ -5,6 +5,7 @@ import { db } from "@/db";
 import { profiles } from "@/db/schema";
 import { getUser } from "@/lib/supabase/auth";
 import { sendEmail } from "@/lib/email/client";
+import { getEmailCopy, interpolate } from "@/lib/email/copy";
 import { AdminSignupNotification } from "@/lib/email/templates/AdminSignupNotification";
 import { UserSignupConfirmation } from "@/lib/email/templates/UserSignupConfirmation";
 import { UserApprovalEmail } from "@/lib/email/templates/UserApprovalEmail";
@@ -85,31 +86,54 @@ export async function sendTestEmail(
     recoveryUrl: "https://example.com/he/set-password?token=test",
   };
 
-  const subjectAndReact =
-    template === "admin_notification"
-      ? {
-          subject: `[בדיקה] בקשת הרשמה חדשה - ${sample.displayName}`,
-          react: AdminSignupNotification({
-            displayName: sample.displayName,
-            phone: sample.phone,
-            email: sample.email,
-            adminUrl: sample.adminUrl,
-          }),
-        }
-      : template === "user_confirmation"
-        ? {
-            subject: "[בדיקה] קיבלנו את הבקשה שלך לטוטו מונדיאל",
-            react: UserSignupConfirmation({
-              displayName: sample.displayName,
-            }),
-          }
-        : {
-            subject: "[בדיקה] ברוך הבא לטוטו מונדיאל",
-            react: UserApprovalEmail({
-              displayName: sample.displayName,
-              recoveryUrl: sample.recoveryUrl,
-            }),
-          };
+  const emails = await getEmailCopy("he");
+  let subjectAndReact: { subject: string; react: React.ReactElement };
+  if (template === "admin_notification") {
+    const c = emails.adminSignupNotification;
+    subjectAndReact = {
+      subject: `[בדיקה] ${interpolate(c.preview, { displayName: sample.displayName })}`,
+      react: AdminSignupNotification({
+        preview: interpolate(c.preview, { displayName: sample.displayName }),
+        heading: c.heading,
+        body: c.body,
+        nameLabel: c.nameLabel,
+        phoneLabel: c.phoneLabel,
+        emailLabel: c.emailLabel,
+        buttonText: c.buttonText,
+        footer: c.footer,
+        displayName: sample.displayName,
+        phone: sample.phone,
+        email: sample.email,
+        adminUrl: sample.adminUrl,
+      }),
+    };
+  } else if (template === "user_confirmation") {
+    const c = emails.userSignupConfirmation;
+    subjectAndReact = {
+      subject: `[בדיקה] ${c.preview}`,
+      react: UserSignupConfirmation({
+        preview: c.preview,
+        heading: interpolate(c.heading, { displayName: sample.displayName }),
+        body1: c.body1,
+        body2: c.body2,
+        footer: c.footer,
+      }),
+    };
+  } else {
+    const c = emails.userApproval;
+    subjectAndReact = {
+      subject: `[בדיקה] ${c.preview}`,
+      react: UserApprovalEmail({
+        preview: c.preview,
+        heading: interpolate(c.heading, { displayName: sample.displayName }),
+        body: c.body,
+        buttonText: c.buttonText,
+        fallbackHint: c.fallbackHint,
+        footer: c.footer,
+        recoveryUrl: sample.recoveryUrl,
+      }),
+    };
+  }
 
   const result = await sendEmail({
     to: target,

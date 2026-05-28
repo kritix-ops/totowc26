@@ -4,7 +4,7 @@ import { db } from "@/db";
 import { profiles } from "@/db/schema";
 import { getRequestUser } from "@/lib/request-user";
 import { localePath } from "@/lib/paths";
-import { hasLocale, type Locale } from "../dictionaries";
+import { getDictionary, hasLocale, type Locale } from "../dictionaries";
 import { BrandLogo } from "@/components/BrandLogo";
 import { SetPasswordForm } from "./SetPasswordForm";
 
@@ -25,6 +25,7 @@ export default async function SetPasswordPage({
     .limit(1);
 
   const isHebrew = locale === "he";
+  const dict = await getDictionary(locale);
   const displayFont = isHebrew
     ? "font-[family-name:var(--font-display)]"
     : "font-[family-name:var(--font-display-en)]";
@@ -45,7 +46,7 @@ export default async function SetPasswordPage({
               : "Choose a password to finish joining the pool"}
           </p>
         </div>
-        <SetPasswordForm locale={locale} />
+        <SetPasswordForm locale={locale} dict={dict} />
       </div>
     </section>
   );

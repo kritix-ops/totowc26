@@ -33,6 +33,11 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import type { Locale } from "../../dictionaries";
+import {
+  COMMON_ADMIN_ERRORS,
+  translateAdminError,
+  type LocalizedTuple,
+} from "@/lib/admin/errors";
 import { formatDateTime } from "@/lib/format";
 import { localePath } from "@/lib/paths";
 import { PillButton, LabelCaps, Chip } from "@/components/ui";
@@ -1058,24 +1063,30 @@ function ConfirmPanel({
   );
 }
 
-function translateError(code: string, isHebrew: boolean) {
-  const map: Record<string, [string, string]> = {
-    unauthorized: ["יש להתחבר", "Sign in required"],
-    forbidden: ["נדרשת הרשאת אדמין", "Admin access required"],
-    last_admin: ["לא ניתן להסיר את האדמין האחרון", "Cannot remove the last admin"],
-    cannot_demote_self: ["לא ניתן להוריד את עצמך", "Cannot demote yourself"],
-    cannot_remove_self: ["לא ניתן להסיר את עצמך", "Cannot remove yourself"],
-    invalid: ["שם או טלפון לא תקינים", "Invalid name or phone"],
-    invalid_email: ["מייל לא תקין", "Invalid email"],
-    name_too_short: ["השם קצר מדי", "Name too short"],
-    phone_too_short: ["מספר טלפון קצר מדי", "Phone too short"],
-    email_taken: ["מייל כבר רשום במערכת", "Email already registered"],
-    create_failed: ["יצירת המשתמש נכשלה", "User creation failed"],
-    no_link: ["לא הצלחנו לייצר קישור", "Failed to generate link"],
-    db: ["שגיאת מסד נתונים", "Database error"],
-  };
-  const t = map[code];
-  return t ? (isHebrew ? t[0] : t[1]) : code;
+// UsersExplorer overrides a few common copies with user-management
+// wording ("Admin access required" vs the generic "Admin role required",
+// "Invalid name or phone" vs the generic "Invalid value", and the
+// historical "unauthorized" alias that pairs with the same-named error
+// returned by users/actions.ts).
+const ERROR_MAP = {
+  ...COMMON_ADMIN_ERRORS,
+  unauthorized:       ["יש להתחבר", "Sign in required"],
+  forbidden:          ["נדרשת הרשאת אדמין", "Admin access required"],
+  invalid:            ["שם או טלפון לא תקינים", "Invalid name or phone"],
+  db:                 ["שגיאת מסד נתונים", "Database error"],
+  last_admin:         ["לא ניתן להסיר את האדמין האחרון", "Cannot remove the last admin"],
+  cannot_demote_self: ["לא ניתן להוריד את עצמך", "Cannot demote yourself"],
+  cannot_remove_self: ["לא ניתן להסיר את עצמך", "Cannot remove yourself"],
+  invalid_email:      ["מייל לא תקין", "Invalid email"],
+  name_too_short:     ["השם קצר מדי", "Name too short"],
+  phone_too_short:    ["מספר טלפון קצר מדי", "Phone too short"],
+  email_taken:        ["מייל כבר רשום במערכת", "Email already registered"],
+  create_failed:      ["יצירת המשתמש נכשלה", "User creation failed"],
+  no_link:            ["לא הצלחנו לייצר קישור", "Failed to generate link"],
+} as const satisfies Record<string, LocalizedTuple>;
+
+function translateError(code: string, isHebrew: boolean): string {
+  return translateAdminError(code, ERROR_MAP, isHebrew);
 }
 
 function InviteDialog({
@@ -1117,7 +1128,7 @@ function InviteDialog({
   };
 
   const waText = isHebrew
-    ? `היי ${name}, צירפתי אותך לטוטו המונדיאל. הקליק כדי לקבוע סיסמה ולהיכנס:\n${inviteUrl ?? ""}`
+    ? `היי ${name}, צירפתי אותך לטוטו המונדיאל. לחץ כדי לקבוע סיסמה ולהיכנס:\n${inviteUrl ?? ""}`
     : `Hey ${name}, I added you to our World Cup pool. Click to set a password and sign in:\n${inviteUrl ?? ""}`;
   const waUrl = `https://wa.me/?text=${encodeURIComponent(waText)}`;
 

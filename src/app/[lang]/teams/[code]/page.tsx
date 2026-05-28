@@ -104,10 +104,10 @@ export default async function TeamPage({
             <Stat label={isHebrew ? "ניצחונות" : "W"} value={groupRow.won} tone="good" />
             <Stat label={isHebrew ? "תיקו" : "D"} value={groupRow.drawn} />
             <Stat label={isHebrew ? "הפסדים" : "L"} value={groupRow.lost} tone="bad" />
-            <Stat label={isHebrew ? "ש׳ זכות" : "GF"} value={groupRow.goalsFor} />
-            <Stat label={isHebrew ? "ש׳ חובה" : "GA"} value={groupRow.goalsAgainst} />
+            <Stat label={isHebrew ? "ש' זכות" : "GF"} value={groupRow.goalsFor} />
+            <Stat label={isHebrew ? "ש' חובה" : "GA"} value={groupRow.goalsAgainst} />
             <Stat
-              label={isHebrew ? "נק׳" : "Pts"}
+              label={isHebrew ? "נק'" : "Pts"}
               value={groupRow.points}
               big
             />
@@ -134,7 +134,7 @@ export default async function TeamPage({
               tone="bad"
             />
             <Stat
-              label={isHebrew ? "ש׳ ממוצע" : "Goals avg"}
+              label={isHebrew ? "ש' ממוצע" : "Goals avg"}
               value={apiStats.played > 0 ? Math.round((apiStats.goalsFor / apiStats.played) * 10) / 10 : 0}
             />
             <Stat
@@ -299,7 +299,7 @@ function CoachCard({
           <span className="text-xs text-on-surface-variant truncate">
             {[
               coach.nationality,
-              coach.age ? `${coach.age}${isHebrew ? " ש׳" : "y"}` : null,
+              coach.age ? `${coach.age}${isHebrew ? " ש'" : "y"}` : null,
               coach.startYear ? `${isHebrew ? "מ-" : "since "}${coach.startYear}` : null,
             ]
               .filter(Boolean)
@@ -407,7 +407,7 @@ function PlayerCard({
             <span className="font-bold me-1 bidi-ltr">#{player.number}</span>
           )}
           {player.age != null
-            ? `${player.age}${isHebrew ? " ש׳" : "y"}`
+            ? `${player.age}${isHebrew ? " ש'" : "y"}`
             : ""}
         </span>
       </div>

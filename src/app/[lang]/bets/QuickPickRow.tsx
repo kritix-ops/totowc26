@@ -6,7 +6,7 @@ import { Check, AlertCircle, Minus, Plus } from "lucide-react";
 import { clsx } from "clsx";
 import { Card } from "@/components/ui";
 import { Flag } from "@/components/Flag";
-import type { Locale } from "../dictionaries";
+import type { Dictionary, Locale } from "../dictionaries";
 import { formatDateTime } from "@/lib/format";
 import { saveBet, type SaveBetResult } from "./[matchId]/actions";
 
@@ -42,11 +42,13 @@ export type QuickPickRowData = {
 
 export function QuickPickRow({
   locale,
+  dict,
   match,
   lockMinutes,
   canEdit,
 }: {
   locale: Locale;
+  dict: Dictionary;
   match: QuickPickRowData;
   lockMinutes: number;
   canEdit: boolean;
@@ -205,7 +207,7 @@ export function QuickPickRow({
       {error && (
         <span className="inline-flex items-center gap-1 text-[11px] text-error">
           <AlertCircle className="h-3 w-3" strokeWidth={2} />
-          {translateError(error, isHebrew)}
+          {translateError(error, dict)}
         </span>
       )}
     </Card>
@@ -250,17 +252,7 @@ function Stepper({
   );
 }
 
-function translateError(code: string, isHebrew: boolean): string {
-  const map: Record<string, [string, string]> = {
-    unauth: ["יש להתחבר", "Sign in required"],
-    not_paid: [
-      "התשלום שלך לא אושר עדיין",
-      "Your entry payment is not approved yet",
-    ],
-    locked: ["המשחק נעול", "Match is locked"],
-    invalid: ["ערכים לא תקינים", "Invalid values"],
-    not_found: ["המשחק לא נמצא", "Match not found"],
-    db: ["שגיאת שמירה", "Save failed"],
-  };
-  return (map[code] ?? map.db)[isHebrew ? 0 : 1];
+function translateError(code: string, dict: Dictionary): string {
+  const map = dict.errors.quickPick as Record<string, string>;
+  return map[code] ?? map.db;
 }

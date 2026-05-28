@@ -12,6 +12,15 @@ import {
 import { palette, styles } from "../styles";
 
 type Props = {
+  preview: string;
+  heading: string;
+  body: string;
+  nameLabel: string;
+  phoneLabel: string;
+  emailLabel: string;
+  buttonText: string;
+  footer: string;
+  // Real recipient data - never copy-editable.
   displayName: string;
   phone: string;
   email: string;
@@ -19,6 +28,14 @@ type Props = {
 };
 
 export function AdminSignupNotification({
+  preview,
+  heading,
+  body,
+  nameLabel,
+  phoneLabel,
+  emailLabel,
+  buttonText,
+  footer,
   displayName,
   phone,
   email,
@@ -27,27 +44,25 @@ export function AdminSignupNotification({
   return (
     <Html lang="he" dir="rtl">
       <Head />
-      <Preview>{`בקשת הרשמה חדשה - ${displayName}`}</Preview>
+      <Preview>{preview}</Preview>
       <Body style={styles.body}>
         <Container style={styles.container}>
-          <Heading style={styles.heading}>בקשת הרשמה חדשה</Heading>
-          <Text style={styles.paragraph}>
-            מישהו ביקש להצטרף לטוטו מונדיאל. הפרטים שהוגשו:
-          </Text>
+          <Heading style={styles.heading}>{heading}</Heading>
+          <Text style={styles.paragraph}>{body}</Text>
 
           <Section>
             <Text style={styles.fieldRow}>
-              <span style={styles.fieldLabel}>שם:</span>
+              <span style={styles.fieldLabel}>{nameLabel}</span>
               {displayName}
             </Text>
             <Text style={styles.fieldRow}>
-              <span style={styles.fieldLabel}>טלפון:</span>
+              <span style={styles.fieldLabel}>{phoneLabel}</span>
               <Link href={`tel:${phone}`} style={{ color: palette.primary }}>
                 {phone}
               </Link>
             </Text>
             <Text style={styles.fieldRow}>
-              <span style={styles.fieldLabel}>מייל:</span>
+              <span style={styles.fieldLabel}>{emailLabel}</span>
               <Link href={`mailto:${email}`} style={{ color: palette.primary }}>
                 {email}
               </Link>
@@ -56,11 +71,11 @@ export function AdminSignupNotification({
 
           <Section style={styles.buttonWrap}>
             <Link href={adminUrl} style={styles.button}>
-              לאישור הבקשה
+              {buttonText}
             </Link>
           </Section>
 
-          <Text style={styles.footer}>טוטו מונדיאל · הודעת מערכת</Text>
+          <Text style={styles.footer}>{footer}</Text>
         </Container>
       </Body>
     </Html>

@@ -58,7 +58,7 @@ export default async function AdminPushTestPage({
           className="inline-flex items-center gap-1 text-sm text-on-surface-variant hover:text-primary self-start"
         >
           <ChevronBack className="h-4 w-4" />
-          {isHebrew ? "חזרה לניהול" : "Back to admin"}
+          {isHebrew ? "חזרה לדף הניהול" : "Back to admin"}
         </Link>
         <h1 className="font-[family-name:var(--font-display)] text-[24px] leading-8 md:text-[36px] md:leading-[40px] font-bold text-primary inline-flex items-center gap-3">
           <Bell className="h-6 w-6 md:h-8 md:w-8" strokeWidth={1.75} />
@@ -66,7 +66,7 @@ export default async function AdminPushTestPage({
         </h1>
         <p className="text-base text-on-surface-variant">
           {isHebrew
-            ? "שליחת התראת בדיקה לסובסקריפשן ספציפי, לכל המשתתפים שהפעילו push, או רק לעצמך. עוקף את חלון התזכורות ואת טבלת ה-dedup — לא מתעד שליחה אמיתית."
+            ? "שליחת התראת בדיקה למנוי ספציפי, לכל המשתתפים שהפעילו push, או רק לעצמך. עוקף את חלון התזכורות ואת טבלת ה-dedup - לא מתעד שליחה אמיתית."
             : "Send a smoke-test notification to one user, everyone with push opt-in, or just yourself. Bypasses the reminder window and dedup table — does NOT count as a real reminder."}
         </p>
       </header>
@@ -87,7 +87,7 @@ export default async function AdminPushTestPage({
             {isHebrew ? "מצב נוכחי" : "Current state"}
           </strong>
           {isHebrew
-            ? `${candidates.length} משתתפים עם סובסקריפשנים פעילים; ${optedInCount} מהם הפעילו את הוpt-in.`
+            ? `${candidates.length} משתתפים עם מנויים פעילים; ${optedInCount} מהם הפעילו את ה-opt-in.`
             : `${candidates.length} players have active subscriptions; ${optedInCount} of them currently have opt-in on.`}
         </p>
       </Card>

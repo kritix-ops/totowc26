@@ -1,7 +1,4 @@
 import { clsx } from "clsx";
-import type { Team } from "@/lib/mock-data";
-import { TEAMS } from "@/lib/mock-data";
-import { Flag } from "./Flag";
 
 export function Card({
   children,
@@ -97,32 +94,6 @@ export function ScoreDigit({ value, dark }: { value: number | string; dark?: boo
       )}
     >
       <span className="bidi-ltr">{value}</span>
-    </div>
-  );
-}
-
-export function TeamCrest({
-  team,
-  size = "md",
-  showName = true,
-  locale = "he",
-}: {
-  team: string | Team;
-  size?: "sm" | "md" | "lg";
-  showName?: boolean;
-  locale?: "he" | "en";
-}) {
-  const t = typeof team === "string" ? TEAMS[team] : team;
-  if (!t) return null;
-  const px = size === "sm" ? 36 : size === "md" ? 48 : 64;
-  return (
-    <div className="flex flex-col items-center gap-2">
-      <Flag code={t.code} size={px} />
-      {showName && (
-        <span className="text-sm font-bold text-on-surface">
-          {t[locale]}
-        </span>
-      )}
     </div>
   );
 }

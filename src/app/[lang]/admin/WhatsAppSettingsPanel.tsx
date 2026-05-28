@@ -126,7 +126,7 @@ export function WhatsAppSettingsPanel({
           {hidden ? (
             <span className="text-sm text-on-surface-variant">
               {isHebrew
-                ? "השלם קישור כדי שהשחקנים יראו את כרטיס ההזמנה."
+                ? "הזן קישור כדי שהמשתתפים יראו את כרטיס ההזמנה."
                 : "Fill in a URL to show the invite card to players."}
             </span>
           ) : (

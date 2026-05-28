@@ -74,7 +74,7 @@
     "participantsLabel": "משתתפים"
   },
   "onboarding": {
-    "title": "ברוכים הבאים לטוטו",
+    "title": "ברוך הבא לטוטו",
     "subtitle": "כמה פרטים קצרים ואתה בפנים",
     "fullName": "שם מלא",
     "fullNamePlaceholder": "ישראל ישראלי",
@@ -90,7 +90,7 @@
     "copyNumber": "העתק מספר",
     "iPaid": "שילמתי",
     "statusPending": "ממתין לאישור מנהל",
-    "statusApproved": "שולם, בהצלחה במונדיאל",
+    "statusApproved": "שולם. בהצלחה במונדיאל!",
     "payboxOpen": "פתח Paybox",
     "payboxHelp": "פתח את Paybox, השלם תשלום של 100 ש\"ח, וחזור לסמן 'שילמתי'."
   },
@@ -115,7 +115,7 @@
   },
   "duels": {
     "title": "דו-קרב",
-    "subtitle": "אתגרים 1 על 1 בין חברים. תפתח שאלה עם תשובה ותסכן נקודות, מישהו אחר יקבל את הצד ההפוך - מי שצדק לוקח הכל.",
+    "subtitle": "אתגרים 1 על 1 בין חברים. אתה פותח שאלה עם תשובה ומסכן נקודות, מישהו אחר לוקח את הצד ההפוך - ומי שצדק לוקח את הכל.",
     "tabOpen": "פתוחים",
     "tabMine": "שלי",
     "newCta": "פתח דו-קרב",
@@ -127,7 +127,7 @@
     "statusCancelled": "בוטל",
     "openerLabel": "פתח",
     "joinerLabel": "הצטרף",
-    "stakeLabel": "סטייק",
+    "stakeLabel": "השקעה",
     "deadlineLabel": "סגירה",
     "resolveAtLabel": "הכרעה",
     "scopeMatch": "משחק",
@@ -150,7 +150,7 @@
     "newMatchPicker": "בחר משחק",
     "newMatchdayDate": "בחר תאריך יום משחקים",
     "newOpenerAnswerQuestion": "התשובה שלך",
-    "newStakeQuestion": "סטייק (עד {max})",
+    "newStakeQuestion": "השקעה (עד {max})",
     "newQuestionHe": "השאלה (עברית)",
     "newQuestionEn": "השאלה (אנגלית)",
     "newRuleHe": "כלל הכרעה (עברית)",
@@ -168,11 +168,11 @@
   },
   "live": {
     "title": "הימורי לייב",
-    "subtitle": "הימורים מותאמים שהאדמין פותח לכל יום משחקים. סטייק והתשלום נקבעים מראש לכל הימור.",
+    "subtitle": "הימורים מותאמים שהאדמין פותח לכל יום משחקים. ההשקעה והתשלום נקבעים מראש לכל הימור.",
     "daysHeading": "ימי הימורי לייב",
     "backToLive": "חזרה להימורי לייב",
     "dayWideTitle": "הימורי לייב יומיים",
-    "dayWideHint": "ההימורים האלה מתייחסים לסכום של כל משחקי היום, לא למשחק יחיד.",
+    "dayWideHint": "ההימורים האלה מתייחסים לכלל משחקי היום, לא למשחק יחיד.",
     "emptyDay": "האדמין עוד לא פרסם הימורי לייב ליום הזה. בדוק שוב קרוב יותר לפתיחה.",
     "liveTitle": "תוצאות חיות",
     "liveSubtitleWithCount": "{n} משחקים חיים. המסך מתעדכן אוטומטית כל 30 שניות.",
@@ -239,13 +239,13 @@
     "newsEmptyTitle": "אין כרגע כותרות חדשות",
     "newsEmptyBody": "ננסה למשוך כותרות חדשות בעוד כמה דקות. אפשר לרענן או לחזור מאוחר יותר.",
     "newsComingSoonTitle": "חדשות מהמונדיאל - בקרוב",
-    "newsComingSoonBody": "אנחנו עובדים על פיד חדשות חי שירכז את הכותרות החשובות מכל הסיקור. שווה לחזור.",
+    "newsComingSoonBody": "אנחנו עובדים על פיד חדשות חי שירכז את הכותרות החשובות מכל מקורות הסיקור. שווה לחזור.",
     "topScorersHeading": "מלכי השערים",
     "topScorersEmpty": "טבלת המבקיעים תופיע כשיהיו שערים.",
     "topAssistsHeading": "מלכי הבישולים",
     "topAssistsEmpty": "טבלת המבשלים תופיע כשיהיו בישולים.",
     "topAssistsAssistsAbbr": "בישולים",
-    "topAssistsGoalsHint": "ש׳",
+    "topAssistsGoalsHint": "ש'",
     "topYellowsHeading": "טבלת הכרטיסים",
     "topYellowsEmpty": "טבלת הכרטיסים תופיע כשיהיו כרטיסים.",
     "topYellowsYellowAbbr": "צ",
@@ -255,7 +255,7 @@
     "injuriesPoweredBy": "מתעדכן כל שעה מ-API-Football",
     "formHeading": "צורה",
     "formTooltip": "5 משחקים אחרונים, הימני הוא החדש ביותר",
-    "formNone": "—"
+    "formNone": "-"
   },
   "bracket": {
     "title": "אלוף המונדיאל",
@@ -285,7 +285,7 @@
     "categoryLive": "הימור לייב",
     "categoryDuel": "דו-קרב",
     "pickedLabel": "ניחש",
-    "stakeLabel": "סטייק"
+    "stakeLabel": "השקעה"
   },
   "leaderboard": {
     "title": "טבלת המובילים",
@@ -294,9 +294,9 @@
     "tabMatches": "משחקים",
     "tabLive": "לייב",
     "tabDuels": "דו-קרב",
-    "subtitleOverall": "מלך המונדיאל - יתרת הבנק הכוללת כולל ניחושי משחקים, לייב, דו-קרב והתאמות.",
+    "subtitleOverall": "מלך המונדיאל - יתרת הבנק הכוללת מניחושי משחקים, לייב, דו-קרב והתאמות.",
     "subtitleMatches": "אלוף הניחושים - נקודות מניחושי 1/X/2 בלבד. שובר שוויון: כמות תוצאות מדויקות.",
-    "subtitleLive": "אלוף הלייב - רווח/הפסד נטו מהימורי לייב (תשלומים פחות סטייקים).",
+    "subtitleLive": "אלוף הלייב - רווח/הפסד נטו מהימורי לייב (תשלומים פחות השקעות).",
     "subtitleDuels": "אלוף הדו-קרב - דלתא מצטברת מדו-קרבים. שובר שוויון: כמות דו-קרבים שהשתתפת בהם."
   },
   "matchDetail": {
@@ -318,12 +318,12 @@
     "streak": "רצף הצלחות",
     "totalPoints": "סה\"כ נקודות",
     "availablePoints": "זמין להימור",
-    "balanceHint": "הנקודות שלך משמשות גם לדירוג בטבלה וגם להמרים חדשים",
+    "balanceHint": "הנקודות שלך משמשות גם לדירוג בטבלה וגם להימורים חדשים",
     "pointsByCategory": "פירוט הנקודות",
     "pointsFromMatches": "ניחושי משחקים",
     "pointsFromLiveBets": "הימורי לייב",
     "pointsFromTournamentBets": "הימורי טורניר",
-    "pointsFromDuels": "דו־קרבות",
+    "pointsFromDuels": "דו-קרבים",
     "pointsFromAdjustments": "התאמות",
     "matchAccuracy": "פגיעות במשחקים",
     "matchAccuracyHint": "כיוונים נכונים מתוך כל המשחקים שנגמרו",
@@ -348,7 +348,7 @@
     "pickAnswerExact": "תוצאה בול!",
     "pickAnswerCorrect": "כיוון נכון",
     "pickAnswerWrong": "לא קלע",
-    "pickStakeLabel": "הימור",
+    "pickStakeLabel": "השקעה",
     "pickPayoutLabel": "ניחוש",
     "pickDuelOpponent": "מול",
     "pickDuelAwaiting": "מחכה ליריב",
@@ -427,5 +427,163 @@
     "prizesEntry": "דמי השתתפות: 120 ש\"ח לכל משתתף, דרך Paybox.",
     "prizesBody": "מהקופה מנוכה תחילה סכום קבוע לעלות API (מנוי API-Football שמספק את לוח המשחקים, התוצאות בזמן אמת והסטטיסטיקות). הסכום שנשאר אחרי הניכוי הוא זה שמתחלק לפי האחוזים שלמטה. הקופה גדלה בכל פעם שהאדמין מאשר תשלום נוסף.",
     "ctaBack": "חזרה לראשי"
+  },
+  "errors": {
+    "auth": {
+      "invalid_email": "כתובת מייל לא תקינה",
+      "weak_password": "הסיסמה חייבת לכלול לפחות 12 תווים, אותיות וספרות",
+      "invalid_credentials": "מייל או סיסמה שגויים. אם זו ההתחברות הראשונה שלך, השתמש בקישור ההזמנה",
+      "email_taken": "המייל כבר רשום",
+      "rate_limit": "יותר מדי ניסיונות. נסה בעוד דקה",
+      "email_not_confirmed": "יש לאשר את המייל",
+      "unknown": "שגיאה לא צפויה"
+    },
+    "setPassword": {
+      "weak": "הסיסמה חייבת לכלול לפחות 12 תווים, אותיות וספרות",
+      "mismatch": "הסיסמאות לא תואמות",
+      "unauth": "פג תוקף ההזמנה. בקש מהמנהל לשלוח קישור חדש",
+      "unknown": "שגיאה לא צפויה"
+    },
+    "signup": {
+      "invalid": "אחד מהפרטים לא תקין. בדוק שם, טלפון ומייל",
+      "duplicate": "כבר הגשת בקשה לטוטו, נחזור אליך בקרוב",
+      "rate_limited": "יותר מדי ניסיונות. נסה שוב בעוד שעה",
+      "closed": "ההרשמה סגורה כרגע. פנה למנהל הקבוצה",
+      "unknown": "משהו השתבש. נסה שוב בעוד דקה"
+    },
+    "duel": {
+      "unauth": "יש להתחבר",
+      "not_paid": "התשלום שלך עדיין לא אושר",
+      "forbidden": "אין הרשאה לפעולה הזו",
+      "invalid_input": "נתונים לא תקינים",
+      "insufficient_funds": "אין מספיק נקודות",
+      "duel_not_found": "הדו-קרב לא נמצא",
+      "duel_already_joined": "מישהו אחר הצטרף לפניך",
+      "duel_closed": "ההצטרפות נסגרה",
+      "duel_self_join": "אי אפשר להצטרף לדו-קרב שאתה פתחת",
+      "already_settled": "הדו-קרב כבר הוכרע או בוטל",
+      "stake_too_high": "ההשקעה חורגת מהמקסימום",
+      "stake_too_low": "ההשקעה חייבת להיות לפחות 1",
+      "db": "שגיאת שמירה"
+    },
+    "duelNew": {
+      "unauth": "יש להתחבר",
+      "not_paid": "התשלום שלך עדיין לא אושר",
+      "invalid_input": "חסרים פרטים. ודא שכל השדות מלאים והכלל הוא לפחות 3 תווים.",
+      "stake_too_high": "ההשקעה חורגת מהמקסימום שהוגדר באדמין.",
+      "stake_too_low": "ההשקעה חייבת להיות לפחות 1.",
+      "insufficient_funds": "אין מספיק נקודות בבנק.",
+      "rate_limited": "פתחת יותר מדי דו-קרבים לאחרונה. נסה שוב מאוחר יותר.",
+      "match_not_found": "המשחק לא נמצא.",
+      "match_locked": "המשחק כבר נעול.",
+      "matchday_empty": "אין משחקים מתוזמנים בתאריך הזה.",
+      "deadline_past": "תאריך ההכרעה כבר עבר.",
+      "db": "שגיאת שמירה"
+    },
+    "quickPick": {
+      "unauth": "יש להתחבר",
+      "not_paid": "התשלום שלך לא אושר עדיין",
+      "locked": "המשחק נעול",
+      "invalid": "ערכים לא תקינים",
+      "not_found": "המשחק לא נמצא",
+      "db": "שגיאת שמירה"
+    },
+    "matchBet": {
+      "unauth": "יש להתחבר",
+      "not_paid": "תשלום עדיין לא אושר. ההימור לא נשמר.",
+      "locked": "ההימור נסגר. לא ניתן לערוך עוד.",
+      "invalid": "תוצאה לא תקינה",
+      "not_found": "המשחק לא נמצא",
+      "db": "שגיאת שמירה",
+      "fallback": "שגיאה"
+    }
+  },
+  "forms": {
+    "login": {
+      "emailLabel": "מייל",
+      "passwordLabel": "סיסמה",
+      "showPassword": "הצג סיסמה",
+      "hidePassword": "הסתר סיסמה",
+      "pendingLabel": "טוען...",
+      "submitCta": "התחבר",
+      "footerHint": "טוטו חברים. אם אין לך עדיין חשבון, אפשר להגיש בקשה ומנהל הקבוצה יאשר."
+    },
+    "signup": {
+      "displayNameLabel": "שם להצגה",
+      "displayNamePlaceholder": "השם שיופיע בטבלה",
+      "phoneLabel": "טלפון",
+      "emailLabel": "מייל",
+      "pendingLabel": "שולח...",
+      "submitCta": "להגיש בקשה",
+      "footerHint": "הבקשה תאושר ידנית על ידי המנהל. תקבל מייל אישור בהמשך עם קישור להתחברות."
+    },
+    "setPassword": {
+      "newPasswordLabel": "סיסמה חדשה",
+      "newPasswordPlaceholder": "לפחות 12 תווים, אותיות וספרות",
+      "confirmPasswordLabel": "אישור סיסמה",
+      "confirmPasswordPlaceholder": "הקלד שוב",
+      "show": "הצג",
+      "hide": "הסתר",
+      "pendingLabel": "שומר...",
+      "submitCta": "שמור והמשך"
+    },
+    "onboarding": {
+      "profileTitle": "פרטים אישיים",
+      "profileSavedBadge": "נשמר",
+      "profilePendingBadge": "ממתין",
+      "profileValidationError": "השם חייב לכלול לפחות 2 תווים והטלפון לפחות 7 ספרות",
+      "profileSavingPending": "שומר...",
+      "profileUpdateCta": "עדכן",
+      "profileSaveCta": "שמור פרטים",
+      "paymentNotPaid": "טרם שולם",
+      "payViaConnector": "דרך",
+      "goToDashboard": "מעבר לראשי"
+    }
+  },
+  "emails": {
+    "betLockReminder": {
+      "preview": "תזכורת: הימור נסגר {remaining}",
+      "heading": "{playerName}, ההימור נסגר {remaining}",
+      "costLabel": "עלות:",
+      "winLabel": "זכייה:",
+      "lockedLabel": "ננעל:",
+      "buttonText": "פתח את ההימור",
+      "englishParagraph": "English: bet \"{questionEn}\" locks in ~{minutes} minutes. Stake {stake}, payout {payout}. Rule: {gradingRuleEn}. Open: {betUrl}",
+      "footer": "טוטו מונדיאל"
+    },
+    "userSignupConfirmation": {
+      "preview": "קיבלנו את בקשתך לטוטו מונדיאל",
+      "heading": "שלום {displayName}",
+      "body1": "קיבלנו את הבקשה שלך להצטרף לטוטו מונדיאל. הבקשה ממתינה עכשיו לאישור של מנהל הקבוצה - נחזור אליך במייל ברגע שתאושר.",
+      "body2": "אין צורך לעשות שום דבר נוסף בינתיים. אם הגעת לכאן בטעות, אפשר להתעלם מהמייל הזה.",
+      "footer": "טוטו מונדיאל · בהצלחה"
+    },
+    "userApproval": {
+      "preview": "אושרת! ברוך הבא לטוטו מונדיאל",
+      "heading": "שלום {displayName}, אושרת!",
+      "body": "הבקשה שלך לטוטו מונדיאל אושרה. לחץ על הכפתור כדי להגדיר סיסמה ולהתחיל להמר.",
+      "buttonText": "להגדרת סיסמה והתחברות",
+      "fallbackHint": "אם הכפתור לא עובד, העתק את הקישור הבא:",
+      "footer": "טוטו מונדיאל · בהצלחה"
+    },
+    "duelJoined": {
+      "preview": "מישהו הצטרף לדו-קרב שלך",
+      "heading": "{openerName}, {joinerName} הצטרף לדו-קרב",
+      "questionLabel": "השאלה:",
+      "body": "ההשקעה של {stake} נקודות מכל צד ננעלת בבנק עד שהדו-קרב יוכרע. מי שצדק לוקח את שתיהן.",
+      "buttonText": "פתח את הדו-קרב",
+      "englishParagraph": "English: {joinerName} accepted your duel - \"{questionEn}\", {stake} pts per side. Winner takes both stakes.",
+      "footer": "טוטו מונדיאל"
+    },
+    "adminSignupNotification": {
+      "preview": "בקשת הרשמה חדשה - {displayName}",
+      "heading": "בקשת הרשמה חדשה",
+      "body": "מישהו ביקש להצטרף לטוטו מונדיאל. הפרטים שהוגשו:",
+      "nameLabel": "שם:",
+      "phoneLabel": "טלפון:",
+      "emailLabel": "מייל:",
+      "buttonText": "לאישור הבקשה",
+      "footer": "טוטו מונדיאל · הודעת מערכת"
+    }
   }
 }

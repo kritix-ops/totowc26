@@ -82,7 +82,7 @@ export function InstallHint({ locale }: { locale: "he" | "en" }) {
         type="button"
         onClick={dismiss}
         aria-label={isHebrew ? "סגור" : "Dismiss"}
-        className={`absolute top-1 ${isHebrew ? "left-1" : "right-1"} min-w-[40px] min-h-[40px] flex items-center justify-center text-on-surface-variant hover:text-on-surface`}
+        className="absolute top-1 end-1 min-w-[44px] min-h-[44px] flex items-center justify-center text-on-surface-variant hover:text-on-surface"
       >
         <X className="h-4 w-4" strokeWidth={2} />
       </button>
@@ -111,7 +111,7 @@ export function InstallHint({ locale }: { locale: "he" | "en" }) {
           <button
             type="button"
             onClick={install}
-            className="press-down self-start inline-flex items-center gap-1.5 min-h-[40px] px-4 rounded-full bg-primary text-on-primary font-[family-name:var(--font-label)] text-[12px] font-bold tracking-[0.05em] hover:bg-surface-tint transition-colors"
+            className="press-down self-start inline-flex items-center gap-1.5 min-h-[44px] px-4 rounded-full bg-primary text-on-primary font-[family-name:var(--font-label)] text-[12px] font-bold tracking-[0.05em] hover:bg-surface-tint transition-colors"
           >
             <Download className="h-4 w-4" strokeWidth={2} />
             {isHebrew ? "התקן" : "Install"}

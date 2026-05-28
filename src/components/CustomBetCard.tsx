@@ -198,7 +198,7 @@ export function CustomBetCard({
             onClick={onSubmit}
             disabled={!editable || pending || overdrawn || !hasChoice || !dirty}
             className={clsx(
-              "press-down inline-flex items-center justify-center gap-2 min-h-[40px] px-5 rounded-full text-sm font-bold transition-colors",
+              "press-down inline-flex items-center justify-center gap-2 min-h-[44px] px-5 rounded-full text-sm font-bold transition-colors",
               "bg-primary text-on-primary shadow-md hover:bg-surface-tint",
               "disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-primary",
             )}
@@ -471,7 +471,7 @@ function DynamicPickerWidget({
   if (error) {
     return (
       <div className="w-full min-h-[52px] px-4 inline-flex items-center justify-start rounded-full border border-error bg-error-container text-on-error-container text-sm">
-        {isHebrew ? "טעינה נכשלה — סגור ופתח מחדש" : "Failed to load — close and reopen"}
+        {isHebrew ? "טעינה נכשלה - סגור ופתח מחדש" : "Failed to load — close and reopen"}
       </div>
     );
   }
@@ -529,7 +529,7 @@ function translateError(
     unauth:            ["יש להתחבר", "Sign in required"],
     not_paid:          ["תשלום עדיין לא אושר", "Payment not approved yet"],
     bet_not_found:     ["ההימור לא נמצא", "Bet not found"],
-    bet_not_open:      ["ההימור עוד לא פתוח להגשה", "Bet isn't open yet"],
+    bet_not_open:      ["ההימור עדיין לא פתוח להגשה", "Bet isn't open yet"],
     bet_locked:        ["ההימור נסגר. לא ניתן לעדכן.", "Bet locked"],
     invalid_answer:    ["תשובה לא תקינה", "Invalid answer"],
     insufficient_bank:

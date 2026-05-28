@@ -140,7 +140,7 @@ export async function AppShell({
               href={localePath(locale, "rules")}
               aria-label={dict.nav.rulesCtaLong}
               title={dict.nav.rulesCtaLong}
-              className="press-down inline-flex items-center gap-1.5 min-h-[36px] px-2 md:px-3 rounded-full bg-tertiary-fixed text-on-tertiary-fixed-variant border border-tertiary-fixed-dim hover:bg-tertiary-container transition-[background-color,color] duration-150 shrink-0"
+              className="press-down inline-flex items-center justify-center gap-1.5 min-w-[44px] min-h-[44px] px-2 md:px-3 rounded-full bg-tertiary-fixed text-on-tertiary-fixed-variant border border-tertiary-fixed-dim hover:bg-tertiary-container transition-[background-color,color] duration-150 shrink-0"
             >
               <BookOpen className="h-4 w-4" strokeWidth={2} />
               <span className="hidden md:inline font-[family-name:var(--font-label)] text-[12px] font-bold tracking-[0.05em]">

@@ -223,7 +223,7 @@ function RequestCard({
                 type="text"
                 value={rejectNote}
                 onChange={(e) => setRejectNote(e.target.value)}
-                placeholder={isHebrew ? "לא ראיתי שמכיר את הקבוצה..." : "Don't recognize this person..."}
+                placeholder={isHebrew ? "לא מכיר את המבקש..." : "Don't recognize this person..."}
                 className="w-full h-12 px-3 rounded-md border border-outline bg-surface text-[16px] text-on-surface focus:outline-none focus:border-primary"
               />
               <div className="flex gap-2 flex-wrap">

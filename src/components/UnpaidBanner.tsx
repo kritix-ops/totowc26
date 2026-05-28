@@ -28,13 +28,13 @@ export function UnpaidBanner({ locale }: { locale: Locale }) {
         <Lock className="h-4 w-4 shrink-0" strokeWidth={2} />
         <span className="font-[family-name:var(--font-label)] text-[12px] md:text-[13px] font-bold tracking-[0.05em] truncate">
           {isHebrew
-            ? "צפייה בלבד — שלם כדי לפתוח את כל ההימורים"
+            ? "צפייה בלבד - שלם כדי לפתוח את כל ההימורים"
             : "View-only — pay to unlock every bet"}
         </span>
       </span>
       <Link
         href={localePath(locale, "pay")}
-        className="press-down inline-flex items-center gap-1.5 min-h-[36px] px-3 rounded-full bg-primary text-on-primary font-[family-name:var(--font-label)] text-[12px] font-bold tracking-[0.05em] hover:bg-surface-tint transition-colors shrink-0"
+        className="press-down inline-flex items-center gap-1.5 min-h-[44px] px-4 rounded-full bg-primary text-on-primary font-[family-name:var(--font-label)] text-[12px] font-bold tracking-[0.05em] hover:bg-surface-tint transition-colors shrink-0"
       >
         {isHebrew ? "תשלום" : "Pay now"}
         <Arrow className="h-3.5 w-3.5" strokeWidth={2.5} />

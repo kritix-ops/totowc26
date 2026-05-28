@@ -186,7 +186,7 @@ export function BetForm({
         {error && (
           <p className="inline-flex items-center gap-2 text-sm text-error self-start md:self-end">
             <AlertCircle className="h-4 w-4" strokeWidth={2} />
-            {translate(error, isHebrew)}
+            {translate(error, dict)}
           </p>
         )}
         {saved && !error && (
@@ -265,19 +265,9 @@ function ScoreStepper({
 
 function translate(
   code: Exclude<SaveBetResult, { ok: true }>["error"],
-  isHebrew: boolean,
+  dict: Dictionary,
 ): string {
-  const map: Record<string, [string, string]> = {
-    unauth:   ["יש להתחבר", "Sign in required"],
-    not_paid: [
-      "תשלום עדיין לא אושר. ההימור לא נשמר.",
-      "Payment not approved yet. Bet not saved.",
-    ],
-    locked:   ["ההימור נסגר. לא ניתן לערוך עוד.", "Bet is locked. Cannot edit."],
-    invalid:  ["תוצאה לא תקינה", "Invalid score"],
-    db:       ["שגיאת שמירה", "Save failed"],
-    not_found: ["המשחק לא נמצא", "Match not found"],
-  };
-  return (map[code] ?? ["שגיאה", "Error"])[isHebrew ? 0 : 1];
+  const map = dict.errors.matchBet as Record<string, string>;
+  return map[code] ?? map.fallback;
 }
 

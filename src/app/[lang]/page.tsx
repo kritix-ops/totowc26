@@ -868,7 +868,7 @@ function TrendSection({
             />
             <p className="text-sm text-on-surface-variant max-w-xs">
               {isHebrew
-                ? "הגרף יתחיל להתמלא כשהמשחקים יסתיימו ויחושבו נקודות."
+                ? "הגרף יתחיל להתמלא כשהמשחקים יסתיימו והנקודות יחושבו."
                 : "The chart fills in once matches finish and points are tallied."}
             </p>
           </div>
@@ -1062,7 +1062,7 @@ async function CommunityCardAsync({
       title={dict.profile.whatsappTitle}
       subtitle={
         isHebrew
-          ? "התראות, דיבורים על משחקים, וצחוקים בין החברים"
+          ? "עדכונים, ויכוחים על משחקים והקנטות בין החברים"
           : "Live banter and updates with the rest of the pool"
       }
       ctaLabel={dict.profile.whatsappCta}
@@ -1138,7 +1138,7 @@ function LeaderboardPreview({
     return (
       <Card className="p-6 text-center text-on-surface-variant">
         {isHebrew
-          ? "אין עדיין משתתפים מדורגים. תתעדכן ברגע שייסגרו הימורים."
+          ? "אין עדיין משתתפים מדורגים. הטבלה תתעדכן ברגע שייסגרו הימורים."
           : "No ranked players yet. Updates as bets settle."}
       </Card>
     );

@@ -96,7 +96,7 @@ export function PushTestForm({ locale, candidates, optedInCount }: Props) {
             }
             subtitle={
               isHebrew
-                ? "מכבד את הoptin-בפרופיל. עוקף את חלון התזכורות ואת ה-dedup."
+                ? "מכבד את ה-opt-in בפרופיל. עוקף את חלון התזכורות ואת ה-dedup."
                 : "Honors the opt-in flag. Bypasses reminder window and dedup."
             }
           />
@@ -115,7 +115,7 @@ export function PushTestForm({ locale, candidates, optedInCount }: Props) {
           {candidates.length === 0 ? (
             <p className="text-sm text-on-surface-variant italic">
               {isHebrew
-                ? "אף משתתף עדיין לא הירשם ל-push."
+                ? "אף משתתף עדיין לא נרשם ל-push."
                 : "No players have subscribed to push yet."}
             </p>
           ) : (
@@ -136,7 +136,7 @@ export function PushTestForm({ locale, candidates, optedInCount }: Props) {
               {selected && !selected.pushOptIn && (
                 <p className="text-[11px] text-tertiary">
                   {isHebrew
-                    ? "שים לב: ה-opt-in של המשתתף הזה כבוי. הבדיקה תישלח לסובסקריפשן עצמו ועוקפת את הדגל — הוא יקבל את ההתראה."
+                    ? "שים לב: ה-opt-in של המשתתף הזה כבוי. הבדיקה תישלח למנוי עצמו ועוקפת את הדגל - הוא יקבל את ההתראה."
                     : "Note: this player has opt-in off. The test bypasses that flag and will deliver to their device."}
                 </p>
               )}
@@ -159,7 +159,7 @@ export function PushTestForm({ locale, candidates, optedInCount }: Props) {
             type="text"
             value={title}
             onChange={(e) => setTitle(e.target.value)}
-            placeholder={isHebrew ? "טוטו מונדיאל — בדיקה" : "Toto Mundial — test"}
+            placeholder={isHebrew ? "טוטו מונדיאל - בדיקה" : "Toto Mundial - test"}
             className="h-12 px-3 bg-surface-container-lowest border border-outline rounded-lg text-on-surface text-base focus:outline-none focus:border-primary"
           />
         </div>
@@ -210,7 +210,7 @@ export function PushTestForm({ locale, candidates, optedInCount }: Props) {
               {result.expired > 0 && (
                 <span className="text-tertiary">
                   {isHebrew
-                    ? ` · ${result.expired} סובסקריפשנים מתות נוקו`
+                    ? ` · ${result.expired} מנויים שפגו נוקו`
                     : ` · ${result.expired} dead subs cleaned`}
                 </span>
               )}
@@ -276,7 +276,7 @@ function ModeOption({
 function translateError(code: string, isHebrew: boolean): string {
   const map: Record<string, [string, string]> = {
     no_subscriptions: [
-      "אין סובסקריפשנים תואמים — בחר משתתף אחר או בקש מהמשתתפים להפעיל push.",
+      "אין מנויים תואמים - בחר משתתף אחר או בקש מהמשתתפים להפעיל push.",
       "No matching subscriptions — pick another player or ask players to enable push.",
     ],
     vapid_missing: [

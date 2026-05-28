@@ -995,6 +995,57 @@ export const pushSubscriptions = pgTable(
   }),
 );
 
+// content_overrides: one row per (key, locale) the admin has edited
+// from /admin/content. Defaults still live in he.json / en.json. The
+// dictionary loader merges any rows here on top of the JSON, so an
+// empty table = ship the JSON as-is. See
+// _plans/2026-05-28-admin-content-editor.md.
+export const contentOverrides = pgTable(
+  "content_overrides",
+  {
+    key: text("key").notNull(),
+    locale: text("locale").notNull(),
+    value: text("value").notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedBy: uuid("updated_by").references(() => profiles.id, {
+      onDelete: "set null",
+    }),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.key, t.locale] }),
+  }),
+);
+
+// content_override_history: append-only audit of every save from
+// /admin/content. We never delete from here; "Reset to default" writes
+// a row with new_value = null. Lets us answer "who changed the rules
+// page copy" without a UI surface yet.
+export const contentOverrideHistory = pgTable(
+  "content_override_history",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    key: text("key").notNull(),
+    locale: text("locale").notNull(),
+    oldValue: text("old_value"),
+    newValue: text("new_value"),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedBy: uuid("updated_by").references(() => profiles.id, {
+      onDelete: "set null",
+    }),
+  },
+  (t) => ({
+    keyLocaleIdx: index("content_override_history_key_locale_idx").on(
+      t.key,
+      t.locale,
+      t.updatedAt,
+    ),
+  }),
+);
+
 // Drizzle relations are added separately if needed
 export type Profile = typeof profiles.$inferSelect;
 export type NewProfile = typeof profiles.$inferInsert;
@@ -1025,5 +1076,8 @@ export type PushSubscriptionRow = typeof pushSubscriptions.$inferSelect;
 export type NewPushSubscription = typeof pushSubscriptions.$inferInsert;
 export type UserNotification = typeof userNotifications.$inferSelect;
 export type NewUserNotification = typeof userNotifications.$inferInsert;
-
-export const _useSql = sql; // re-export to silence unused if any
+export type ContentOverride = typeof contentOverrides.$inferSelect;
+export type NewContentOverride = typeof contentOverrides.$inferInsert;
+export type ContentOverrideHistory = typeof contentOverrideHistory.$inferSelect;
+export type NewContentOverrideHistory =
+  typeof contentOverrideHistory.$inferInsert;

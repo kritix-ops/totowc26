@@ -168,11 +168,11 @@ export function PageVisibilityForm({
 
       <Card className="p-5 md:p-6 flex flex-col gap-3 bg-surface-container-lowest border-outline-variant">
         <SectionHeading underline="thin" as="h2">
-          {isHebrew ? "מערכת — לא ניתן להסתיר" : "System — not hideable"}
+          {isHebrew ? "מערכת - לא ניתן להסתיר" : "System - not hideable"}
         </SectionHeading>
         <p className="text-sm text-on-surface-variant">
           {isHebrew
-            ? "העמודים האלו תמיד פעילים — נדרשים לתפעול הבסיסי של המערכת."
+            ? "העמודים האלו תמיד פעילים - נדרשים לתפעול הבסיסי של המערכת."
             : "These pages are always available — required for the system to function."}
         </p>
         <ul className="flex flex-col gap-2">

@@ -152,7 +152,7 @@ export function TournamentTemplateCard({
 
       <div className="flex items-center gap-3 tabular-nums bidi-ltr text-sm">
         <span className="text-on-surface-variant">
-          {isHebrew ? "סטייק" : "Stake"}
+          {isHebrew ? "השקעה" : "Stake"}
         </span>
         <span className="font-bold">{stake}</span>
         <span className="text-on-surface-variant">→</span>
@@ -212,7 +212,7 @@ export function TournamentTemplateCard({
             />
           </label>
           <label className="flex flex-col gap-1 text-xs font-bold text-on-surface">
-            {isHebrew ? "סטייק" : "Stake"}
+            {isHebrew ? "השקעה" : "Stake"}
             <input
               type="number"
               min={1}

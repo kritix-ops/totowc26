@@ -335,7 +335,7 @@ function HebrewNameField({
         <bdi dir="rtl">{nameHe}</bdi>
       ) : (
         <span className="text-on-surface-variant font-normal">
-          {isHebrew ? "— אין עדיין שם בעברית" : "— No Hebrew name yet"}
+          {isHebrew ? "- אין עדיין שם בעברית" : "- No Hebrew name yet"}
         </span>
       )}
     </div>

@@ -37,7 +37,7 @@ export default async function LoginPage({
         <LoginForm locale={locale} dict={dict} />
         {signupOpen && (
           <p className="text-sm text-on-surface-variant text-center">
-            {isHebrew ? "עוד לא רשום? " : "Not a member yet? "}
+            {isHebrew ? "עדיין לא רשום? " : "Not a member yet? "}
             <a
               href={localePath(locale, "signup")}
               className="text-primary underline underline-offset-2 font-medium"

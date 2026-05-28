@@ -131,7 +131,7 @@ export function OnboardingForm({
           onClick={() => router.push(localePath(locale))}
           className="w-full py-4 text-base"
         >
-          {isHebrew ? "מעבר לדאשבורד" : "Go to dashboard"}
+          {dict.forms.onboarding.goToDashboard}
         </PillButton>
       )}
     </div>
@@ -151,7 +151,7 @@ function ProfileStep(props: {
   onSubmit: (e: React.FormEvent<HTMLFormElement>) => void;
   error: string | null;
 }) {
-  const { isHebrew, displayFont, dict, profileSaved } = props;
+  const { displayFont, dict, profileSaved } = props;
   return (
     <form
       onSubmit={props.onSubmit}
@@ -161,12 +161,12 @@ function ProfileStep(props: {
         <h2
           className={`${displayFont} text-xl md:text-2xl leading-8 font-bold`}
         >
-          {isHebrew ? "פרטים אישיים" : "Your details"}
+          {dict.forms.onboarding.profileTitle}
         </h2>
         <StatusBadge
           ok={profileSaved}
-          okLabel={isHebrew ? "נשמר" : "Saved"}
-          pendingLabel={isHebrew ? "ממתין" : "Pending"}
+          okLabel={dict.forms.onboarding.profileSavedBadge}
+          pendingLabel={dict.forms.onboarding.profilePendingBadge}
         />
       </div>
 
@@ -199,9 +199,7 @@ function ProfileStep(props: {
       {props.error && (
         <p className="inline-flex items-center gap-2 text-sm text-error">
           <AlertCircle className="h-4 w-4" strokeWidth={2} />
-          {isHebrew
-            ? "שם חייב לפחות 2 תווים וטלפון לפחות 7 ספרות"
-            : "Name needs 2+ chars, phone needs 7+ digits"}
+          {dict.forms.onboarding.profileValidationError}
         </p>
       )}
 
@@ -211,10 +209,10 @@ function ProfileStep(props: {
         className={clsx("w-full py-4 text-base", props.pending && "opacity-70 cursor-wait")}
       >
         {props.pending
-          ? isHebrew ? "שומר..." : "Saving..."
+          ? dict.forms.onboarding.profileSavingPending
           : profileSaved
-            ? isHebrew ? "עדכן" : "Update"
-            : isHebrew ? "שמור פרטים" : "Save details"}
+            ? dict.forms.onboarding.profileUpdateCta
+            : dict.forms.onboarding.profileSaveCta}
       </PillButton>
     </form>
   );
@@ -235,7 +233,7 @@ function PaymentStep(props: {
   pending: boolean;
   payboxUrl: string;
 }) {
-  const { isHebrew, displayFont, dict } = props;
+  const { displayFont, dict } = props;
   const locked = !props.profileSaved || props.isApproved;
   // Legacy "bit" rows still show their original method label in the
   // status row; everything below the recipient block is Paybox only.
@@ -260,7 +258,7 @@ function PaymentStep(props: {
           pending={props.isPending}
           okLabel={dict.onboarding.statusApproved}
           pendingLabel={dict.onboarding.statusPending}
-          notStartedLabel={isHebrew ? "טרם שולם" : "Not paid"}
+          notStartedLabel={dict.forms.onboarding.paymentNotPaid}
         />
       </div>
 
@@ -270,7 +268,7 @@ function PaymentStep(props: {
           <bdi>{dict.onboarding.entryFee}</bdi> {dict.common.currency}
         </span>{" "}
         <span className="text-sm">
-          {isHebrew ? "דרך" : "via"}{" "}
+          {dict.forms.onboarding.payViaConnector}{" "}
           <span className="font-bold text-on-surface">{methodLabel}</span>
         </span>
       </p>

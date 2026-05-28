@@ -99,7 +99,7 @@ export default async function EditBetPage({
         </h1>
         <p className="text-sm text-on-surface-variant">
           {isHebrew
-            ? "אפשר לערוך רק טיוטה. אחרי פרסום, ההימור נעול - בטל ויצר חדש אם צריך."
+            ? "אפשר לערוך רק טיוטה. אחרי פרסום, ההימור נעול - בטל וצור חדש אם צריך."
             : "Only drafts are editable. After publish, cancel and recreate instead."}
         </p>
       </header>

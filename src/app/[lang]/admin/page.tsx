@@ -17,6 +17,7 @@ import {
   EyeOff,
   Bell,
   Megaphone,
+  Type,
 } from "lucide-react";
 import { eq } from "drizzle-orm";
 import { hasLocale, type Locale } from "../dictionaries";
@@ -188,6 +189,12 @@ export default async function AdminPage({
           path="admin/pages"
           icon={<EyeOff className="h-5 w-5" strokeWidth={1.75} />}
           label={isHebrew ? "זמינות עמודים" : "Page visibility"}
+        />
+        <SectionLink
+          locale={locale}
+          path="admin/content"
+          icon={<Type className="h-5 w-5" strokeWidth={1.75} />}
+          label={isHebrew ? "עריכת תוכן" : "Content editor"}
         />
       </nav>
 

@@ -109,7 +109,7 @@ export default async function AdminScoringSettingsPage({
           className="inline-flex items-center gap-1 text-sm text-on-surface-variant hover:text-primary self-start"
         >
           <ChevronBack className="h-4 w-4" />
-          {isHebrew ? "חזרה לניהול" : "Back to admin"}
+          {isHebrew ? "חזרה לדף הניהול" : "Back to admin"}
         </Link>
         <h1 className="font-[family-name:var(--font-display)] text-[24px] leading-8 md:text-[36px] md:leading-[40px] font-bold text-primary inline-flex items-center gap-3">
           <Settings className="h-6 w-6 md:h-8 md:w-8" strokeWidth={1.75} />

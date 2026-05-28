@@ -10,7 +10,7 @@ import { signIn, type AuthErrorCode } from "./actions";
 
 export function LoginForm({
   locale,
-  dict: _dict,
+  dict,
 }: {
   locale: Locale;
   dict: Dictionary;
@@ -40,7 +40,7 @@ export function LoginForm({
       className="bg-[#FBF6EB] p-5 md:p-6 rounded-lg border border-outline shadow-[0_8px_24px_rgba(28,20,15,0.08)] flex flex-col gap-5"
     >
       <label className="flex flex-col gap-2">
-        <LabelCaps>{isHebrew ? "מייל" : "Email"}</LabelCaps>
+        <LabelCaps>{dict.forms.login.emailLabel}</LabelCaps>
         <FieldWrap isHebrew={isHebrew} icon={<Mail className="h-5 w-5 text-outline" strokeWidth={1.5} />}>
           <input
             type="email"
@@ -59,7 +59,7 @@ export function LoginForm({
       </label>
 
       <label className="flex flex-col gap-2">
-        <LabelCaps>{isHebrew ? "סיסמה" : "Password"}</LabelCaps>
+        <LabelCaps>{dict.forms.login.passwordLabel}</LabelCaps>
         <FieldWrap isHebrew={isHebrew} icon={<Lock className="h-5 w-5 text-outline" strokeWidth={1.5} />}>
           <input
             type={showPw ? "text" : "password"}
@@ -76,7 +76,7 @@ export function LoginForm({
           <button
             type="button"
             onClick={() => setShowPw((v) => !v)}
-            aria-label={showPw ? (isHebrew ? "הסתר סיסמה" : "Hide password") : (isHebrew ? "הצג סיסמה" : "Show password")}
+            aria-label={showPw ? dict.forms.login.hidePassword : dict.forms.login.showPassword}
             className={clsx(
               "absolute top-1/2 -translate-y-1/2 min-w-[44px] min-h-[44px] flex items-center justify-center text-outline hover:text-on-surface",
               isHebrew ? "left-0" : "right-0",
@@ -90,7 +90,7 @@ export function LoginForm({
       {error && (
         <p className="inline-flex items-start gap-2 text-sm text-error">
           <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" strokeWidth={2} />
-          <span>{translate(error, isHebrew)}</span>
+          <span>{translate(error, dict)}</span>
         </p>
       )}
 
@@ -99,13 +99,11 @@ export function LoginForm({
         disabled={pending}
         className={clsx("w-full py-4 text-base", pending && "opacity-70 cursor-wait")}
       >
-        {pending ? (isHebrew ? "טוען..." : "Loading...") : (isHebrew ? "התחבר" : "Sign in")}
+        {pending ? dict.forms.login.pendingLabel : dict.forms.login.submitCta}
       </PillButton>
 
       <p className="text-xs text-on-surface-variant text-center leading-5">
-        {isHebrew
-          ? "טוטו חברים. אם אין לך עדיין חשבון, אפשר להגיש בקשה ומנהל הקבוצה יאשר."
-          : "Friends only pool. If you do not have an account yet, request to join and the organizer will approve."}
+        {dict.forms.login.footerHint}
       </p>
     </form>
   );
@@ -135,21 +133,6 @@ function FieldWrap({
   );
 }
 
-function translate(code: AuthErrorCode, isHebrew: boolean): string {
-  const map: Record<AuthErrorCode, [string, string]> = {
-    invalid_email: ["כתובת מייל לא תקינה", "Invalid email"],
-    weak_password: [
-      "הסיסמה חייבת לכלול לפחות 12 תווים, אותיות וספרות",
-      "Password must be 12+ characters with letters and numbers",
-    ],
-    invalid_credentials: [
-      "מייל או סיסמה שגויים. אם זו ההתחברות הראשונה שלך, השתמש בקישור ההזמנה",
-      "Wrong email or password. First time? Use your invite link",
-    ],
-    email_taken: ["המייל כבר רשום", "This email is already registered"],
-    rate_limit: ["יותר מדי ניסיונות. נסה בעוד דקה", "Too many attempts. Try again in a minute"],
-    email_not_confirmed: ["יש לאשר את המייל", "Email confirmation required"],
-    unknown: ["שגיאה לא צפויה", "Something went wrong"],
-  };
-  return map[code][isHebrew ? 0 : 1];
+function translate(code: AuthErrorCode, dict: Dictionary): string {
+  return dict.errors.auth[code] ?? dict.errors.auth.unknown;
 }

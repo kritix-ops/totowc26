@@ -67,7 +67,7 @@ export default async function NotificationsPage({
         </h1>
         <p className="text-sm text-on-surface-variant inline-flex items-center gap-1.5">
           <CheckCheck className="h-4 w-4" strokeWidth={2} />
-          {isHebrew ? "כל ההתראות סומנו כנקראו" : "All notifications marked as read"}
+          {isHebrew ? "כל ההתראות סומנו כנקראות" : "All notifications marked as read"}
         </p>
       </header>
 

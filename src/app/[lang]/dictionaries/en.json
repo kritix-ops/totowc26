@@ -427,5 +427,163 @@
     "prizesEntry": "Entry fee: 120 ILS per player, via Paybox.",
     "prizesBody": "A fixed API cost is pulled off the pot first (API-Football subscription that powers the schedule, live scores, and stats). What remains after the deduction is what splits by the percentages below. The pot grows every time the admin approves another payment.",
     "ctaBack": "Back to home"
+  },
+  "errors": {
+    "auth": {
+      "invalid_email": "Invalid email",
+      "weak_password": "Password must be 12+ characters with letters and numbers",
+      "invalid_credentials": "Wrong email or password. First time? Use your invite link",
+      "email_taken": "This email is already registered",
+      "rate_limit": "Too many attempts. Try again in a minute",
+      "email_not_confirmed": "Email confirmation required",
+      "unknown": "Something went wrong"
+    },
+    "setPassword": {
+      "weak": "Password must be 12+ characters with letters and numbers",
+      "mismatch": "Passwords do not match",
+      "unauth": "Invite expired. Ask the organizer to re-send the link",
+      "unknown": "Something went wrong"
+    },
+    "signup": {
+      "invalid": "One of the fields is invalid. Check name, phone, and email",
+      "duplicate": "You already have a request on file. We will get back to you",
+      "rate_limited": "Too many attempts. Try again in an hour",
+      "closed": "Signups are closed right now. Contact the organizer",
+      "unknown": "Something went wrong. Try again in a minute"
+    },
+    "duel": {
+      "unauth": "Sign in required",
+      "not_paid": "Your entry payment is not approved yet",
+      "forbidden": "Not allowed",
+      "invalid_input": "Invalid values",
+      "insufficient_funds": "Not enough points",
+      "duel_not_found": "Duel not found",
+      "duel_already_joined": "Someone else already joined",
+      "duel_closed": "Join window is closed",
+      "duel_self_join": "Can't join your own duel",
+      "already_settled": "Duel already settled or cancelled",
+      "stake_too_high": "Stake exceeds max",
+      "stake_too_low": "Stake must be ≥ 1",
+      "db": "Save failed"
+    },
+    "duelNew": {
+      "unauth": "Sign in required",
+      "not_paid": "Your entry payment is not approved yet",
+      "invalid_input": "Missing fields. Make sure every field is filled and the rule is 3+ characters.",
+      "stake_too_high": "Stake exceeds the admin-configured max.",
+      "stake_too_low": "Stake must be at least 1.",
+      "insufficient_funds": "Not enough points in your bank.",
+      "rate_limited": "You've opened too many duels recently. Try again later.",
+      "match_not_found": "Match not found.",
+      "match_locked": "Match is locked.",
+      "matchday_empty": "No scheduled matches on this date.",
+      "deadline_past": "Resolution date already passed.",
+      "db": "Save failed"
+    },
+    "quickPick": {
+      "unauth": "Sign in required",
+      "not_paid": "Your entry payment is not approved yet",
+      "locked": "Match is locked",
+      "invalid": "Invalid values",
+      "not_found": "Match not found",
+      "db": "Save failed"
+    },
+    "matchBet": {
+      "unauth": "Sign in required",
+      "not_paid": "Payment not approved yet. Bet not saved.",
+      "locked": "Bet is locked. Cannot edit.",
+      "invalid": "Invalid score",
+      "not_found": "Match not found",
+      "db": "Save failed",
+      "fallback": "Error"
+    }
+  },
+  "forms": {
+    "login": {
+      "emailLabel": "Email",
+      "passwordLabel": "Password",
+      "showPassword": "Show password",
+      "hidePassword": "Hide password",
+      "pendingLabel": "Loading...",
+      "submitCta": "Sign in",
+      "footerHint": "Friends only pool. If you do not have an account yet, request to join and the organizer will approve."
+    },
+    "signup": {
+      "displayNameLabel": "Display name",
+      "displayNamePlaceholder": "Name shown on the leaderboard",
+      "phoneLabel": "Phone",
+      "emailLabel": "Email",
+      "pendingLabel": "Sending...",
+      "submitCta": "Request to join",
+      "footerHint": "Each request is reviewed by the organizer. You will get an approval email with a sign-in link."
+    },
+    "setPassword": {
+      "newPasswordLabel": "New password",
+      "newPasswordPlaceholder": "At least 12 characters, letters and numbers",
+      "confirmPasswordLabel": "Confirm password",
+      "confirmPasswordPlaceholder": "Type it again",
+      "show": "Show",
+      "hide": "Hide",
+      "pendingLabel": "Saving...",
+      "submitCta": "Save and continue"
+    },
+    "onboarding": {
+      "profileTitle": "Your details",
+      "profileSavedBadge": "Saved",
+      "profilePendingBadge": "Pending",
+      "profileValidationError": "Name needs 2+ chars, phone needs 7+ digits",
+      "profileSavingPending": "Saving...",
+      "profileUpdateCta": "Update",
+      "profileSaveCta": "Save details",
+      "paymentNotPaid": "Not paid",
+      "payViaConnector": "via",
+      "goToDashboard": "Go to dashboard"
+    }
+  },
+  "emails": {
+    "betLockReminder": {
+      "preview": "Reminder: bet locks {remaining}",
+      "heading": "{playerName}, your bet locks {remaining}",
+      "costLabel": "Cost:",
+      "winLabel": "Payout:",
+      "lockedLabel": "Locks:",
+      "buttonText": "Open the bet",
+      "englishParagraph": "Bet \"{questionEn}\" locks in ~{minutes} minutes. Stake {stake}, payout {payout}. Rule: {gradingRuleEn}. Open: {betUrl}",
+      "footer": "Toto Mundial"
+    },
+    "userSignupConfirmation": {
+      "preview": "We received your Toto Mundial request",
+      "heading": "Hi {displayName}",
+      "body1": "We received your request to join Toto Mundial. It's now waiting for the organizer to approve - we'll email you again the moment it goes through.",
+      "body2": "Nothing else to do for now. If you landed here by mistake, feel free to ignore this email.",
+      "footer": "Toto Mundial · Good luck"
+    },
+    "userApproval": {
+      "preview": "You're approved! Welcome to Toto Mundial",
+      "heading": "Hi {displayName}, you're in!",
+      "body": "Your request to join Toto Mundial was approved. Tap the button to set a password and start betting.",
+      "buttonText": "Set password and sign in",
+      "fallbackHint": "If the button doesn't work, copy this link:",
+      "footer": "Toto Mundial · Good luck"
+    },
+    "duelJoined": {
+      "preview": "Someone joined your duel",
+      "heading": "{openerName}, {joinerName} joined the duel",
+      "questionLabel": "Question:",
+      "body": "{stake} points from each side are locked in the bank until the duel resolves. The winner takes both stakes.",
+      "buttonText": "Open the duel",
+      "englishParagraph": "{joinerName} accepted your duel - \"{questionEn}\", {stake} pts per side. Winner takes both stakes.",
+      "footer": "Toto Mundial"
+    },
+    "adminSignupNotification": {
+      "preview": "New signup request - {displayName}",
+      "heading": "New signup request",
+      "body": "Someone asked to join Toto Mundial. Submitted details:",
+      "nameLabel": "Name:",
+      "phoneLabel": "Phone:",
+      "emailLabel": "Email:",
+      "buttonText": "Review and approve",
+      "footer": "Toto Mundial · System message"
+    }
   }
 }
