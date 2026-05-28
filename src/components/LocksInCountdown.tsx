@@ -4,6 +4,7 @@ import { useEffect, useState, useSyncExternalStore } from "react";
 import { Lock, Clock } from "lucide-react";
 import { clsx } from "clsx";
 import type { Locale } from "@/app/[lang]/dictionaries";
+import { MS_PER_DAY } from "@/lib/time";
 
 // Live "נסגר בעוד ..." countdown for any bet that has an effective lock
 // time. Renders nothing when the lock is more than 24 hours away (the
@@ -26,7 +27,6 @@ type Props = {
   className?: string;
 };
 
-const DAY_MS = 24 * 60 * 60 * 1000;
 // Slower tick for users with reduced-motion. 5s is fast enough that
 // the countdown feels alive when the 60s "urgent" red threshold is
 // near, but slow enough not to flash every second. A 60s tick would
@@ -75,7 +75,7 @@ export function LocksInCountdown({
   }
 
   // Beyond 24 h, the absolute lock chip on the card is more useful.
-  if (remaining > DAY_MS) return null;
+  if (remaining > MS_PER_DAY) return null;
 
   const urgent = remaining <= 60_000;
   const label = formatRemaining(remaining);

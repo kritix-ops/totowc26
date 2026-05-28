@@ -13,6 +13,7 @@ import { CACHE_TAG_LEADERBOARD } from "@/db/queries";
 import { sendEmail } from "@/lib/email/client";
 import { getEmailCopy, interpolate } from "@/lib/email/copy";
 import { DuelJoinedEmail } from "@/lib/email/templates/DuelJoinedEmail";
+import { MS_PER_HOUR, MS_PER_MINUTE, daysFromNow } from "@/lib/time";
 
 // 1v1 duel server actions. See _plans/2026-05-27-betting-overhaul.md §7
 // for the design rationale.
@@ -177,7 +178,7 @@ export async function openDuel(input: OpenDuelInput): Promise<OpenDuelResult> {
   } else {
     // tournament - no anchor; resolve_at is set to "kickoff + 60d" as
     // a safe far-future fallback. Admin can settle manually anytime.
-    resolveAt = new Date(Date.now() + 60 * 24 * 60 * 60 * 1000);
+    resolveAt = new Date(daysFromNow(60));
   }
 
   // Join deadline can never sit later than 60 minutes before the
@@ -187,8 +188,8 @@ export async function openDuel(input: OpenDuelInput): Promise<OpenDuelResult> {
   // surface except the global match-picks cap.
   const defaultDeadline = new Date(
     Math.min(
-      resolveAt.getTime() - 60 * 60_000,
-      Date.now() + s.duelDefaultJoinWindowHours * 60 * 60 * 1000,
+      resolveAt.getTime() - 60 * MS_PER_MINUTE,
+      Date.now() + s.duelDefaultJoinWindowHours * MS_PER_HOUR,
     ),
   );
   const joinDeadlineAt = input.joinDeadlineAt

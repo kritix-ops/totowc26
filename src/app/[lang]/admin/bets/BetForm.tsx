@@ -16,6 +16,7 @@ import {
   localInputValueToIso,
 } from "@/lib/format";
 import { localePath } from "@/lib/paths";
+import { daysFromNow } from "@/lib/time";
 import type { Locale } from "../../dictionaries";
 import type {
   AnswerConfig,
@@ -1098,7 +1099,7 @@ function suggestDefaultLockAt(
     offsetMinutes = offsets?.custom_tournament ?? 60;
   }
   if (!kickoff) {
-    kickoff = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    kickoff = new Date(daysFromNow(1));
   }
   const lock = new Date(kickoff.getTime() - offsetMinutes * 60 * 1000);
   // Use the Asia/Jerusalem-aware formatter so the suggested wall time

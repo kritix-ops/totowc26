@@ -11,6 +11,7 @@ import { execFirstRow, execRows } from "@/db/helpers";
 import { settings } from "@/db/schema";
 import { localePath } from "@/lib/paths";
 import { serverNow } from "@/lib/server-now";
+import { MS_PER_DAY, MS_PER_MINUTE } from "@/lib/time";
 import type { DynamicOptionSource } from "@/lib/bets/types";
 import { TournamentTemplateCard } from "./TournamentTemplateCard";
 
@@ -66,9 +67,9 @@ export default async function TournamentSuggestionsPage({
   // resolve earlier the admin edits the field per row. If we have no
   // fixtures seeded yet we fall back to a 60-day window so the date
   // input has a sane non-past default.
-  const fallbackLock = new Date(serverNow() + 60 * 24 * 60 * 60 * 1000).toISOString();
+  const fallbackLock = new Date(serverNow() + 60 * MS_PER_DAY).toISOString();
   const defaultLockIso = lastFixtureRow?.kickoff_at
-    ? new Date(new Date(lastFixtureRow.kickoff_at).getTime() - 5 * 60_000).toISOString()
+    ? new Date(new Date(lastFixtureRow.kickoff_at).getTime() - 5 * MS_PER_MINUTE).toISOString()
     : fallbackLock;
 
   const templates = buildTemplates({
