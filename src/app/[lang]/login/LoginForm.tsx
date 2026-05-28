@@ -138,7 +138,10 @@ function FieldWrap({
 function translate(code: AuthErrorCode, isHebrew: boolean): string {
   const map: Record<AuthErrorCode, [string, string]> = {
     invalid_email: ["כתובת מייל לא תקינה", "Invalid email"],
-    weak_password: ["הסיסמה חייבת לפחות 6 תווים", "Password must be 6+ characters"],
+    weak_password: [
+      "הסיסמה חייבת לכלול לפחות 12 תווים, אותיות וספרות",
+      "Password must be 12+ characters with letters and numbers",
+    ],
     invalid_credentials: [
       "מייל או סיסמה שגויים. אם זו ההתחברות הראשונה שלך, השתמש בקישור ההזמנה",
       "Wrong email or password. First time? Use your invite link",
