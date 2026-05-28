@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { ChevronsDown } from "lucide-react";
 import { Card } from "@/components/ui";
 import type { Locale } from "@/app/[lang]/dictionaries";
 import type { AdminPlayerReviewRow } from "@/db/admin-queries";
@@ -17,6 +18,15 @@ import {
   hasAnyFilter,
   filterCounts,
 } from "./player-filters";
+
+// Initial visible-row count + how many more we reveal per
+// "Load more" click. Rendering all 1,357 PlayerReviewRow nodes at
+// once hydrated for ~1.5 s on mid-tier mobile and blocked input
+// focus until the work finished — exactly what the user reported
+// as "clicking the search box freezes everything". Capping the
+// initial render to PAGE_SIZE rows keeps hydration well under
+// 100 ms and the rest stream in only when the admin asks for them.
+const PAGE_SIZE = 50;
 
 // Owns all client-side filter state for the /admin/players queue.
 //
@@ -46,6 +56,7 @@ export function PlayerReviewBoard({
     ...EMPTY_FILTERS,
     verdict: initialVerdict,
   }));
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
 
   // Single pass over all 1,357 rows: applies every filter and
   // returns the filtered list. useMemo means we recompute only when
@@ -54,6 +65,23 @@ export function PlayerReviewBoard({
     () => rows.filter((r) => matchesPlayerFilters(r, filters)),
     [rows, filters],
   );
+
+  // Slice to first `visibleCount` rows for rendering. Hydrating the
+  // full 1,357-row list on mount was blocking input focus for over
+  // a second — the perf regression that prompted this pagination.
+  const visibleRows = useMemo(
+    () => filtered.slice(0, visibleCount),
+    [filtered, visibleCount],
+  );
+  const hiddenRemaining = filtered.length - visibleRows.length;
+  const nextChunk = Math.min(PAGE_SIZE, hiddenRemaining);
+
+  // Whenever the filter set changes, reset back to the first page
+  // so the admin sees the top of the new result list rather than
+  // arbitrarily-deep page 4 they happened to have loaded before.
+  useEffect(() => {
+    setVisibleCount(PAGE_SIZE);
+  }, [filters]);
 
   // Dynamic counts for every filter dimension, computed against the
   // OTHER active filters. Lets the verdict chip strip show "190
@@ -86,11 +114,26 @@ export function PlayerReviewBoard({
           {isHebrew ? "אין שורות שמתאימות לסינון." : "No rows match these filters."}
         </Card>
       ) : (
-        <ul className="flex flex-col gap-2">
-          {filtered.map((row) => (
-            <PlayerReviewRow key={row.id} locale={locale} row={row} />
-          ))}
-        </ul>
+        <>
+          <ul className="flex flex-col gap-2">
+            {visibleRows.map((row) => (
+              <PlayerReviewRow key={row.id} locale={locale} row={row} />
+            ))}
+          </ul>
+
+          {hiddenRemaining > 0 && (
+            <button
+              type="button"
+              onClick={() => setVisibleCount((c) => c + PAGE_SIZE)}
+              className="press-down self-center inline-flex items-center gap-2 min-h-[44px] px-5 rounded-full text-sm font-bold text-primary bg-surface-container-low border border-outline-variant hover:bg-surface-container"
+            >
+              <ChevronsDown className="h-4 w-4" strokeWidth={2.5} />
+              {isHebrew
+                ? `טען עוד ${nextChunk} (נשארו ${hiddenRemaining})`
+                : `Load ${nextChunk} more (${hiddenRemaining} remaining)`}
+            </button>
+          )}
+        </>
       )}
     </section>
   );
