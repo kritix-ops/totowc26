@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 import type { Dictionary, Locale } from "@/app/[lang]/dictionaries";
 import { db } from "@/db";
-import { profiles } from "@/db/schema";
+import { profiles, settings } from "@/db/schema";
 import { getMyRankSummary } from "@/db/queries";
 import { getUserAccess } from "@/lib/access";
 import { getBankBreakdown } from "@/lib/bank";
@@ -27,7 +27,7 @@ export async function HeaderUserSection({
   userId: string;
   userEmail: string | null;
 }) {
-  const [rankSummary, access, bank, profileRow] = await Promise.all([
+  const [rankSummary, access, bank, profileRow, settingsRow] = await Promise.all([
     getMyRankSummary(userId),
     getUserAccess(userId),
     getBankBreakdown(userId),
@@ -35,6 +35,12 @@ export async function HeaderUserSection({
       .select({ displayName: profiles.displayName })
       .from(profiles)
       .where(eq(profiles.id, userId))
+      .limit(1)
+      .then((r) => r[0] ?? null),
+    db
+      .select({ whatsappGroupUrl: settings.whatsappGroupUrl })
+      .from(settings)
+      .where(eq(settings.id, 1))
       .limit(1)
       .then((r) => r[0] ?? null),
   ]);
@@ -68,6 +74,7 @@ export async function HeaderUserSection({
         locale={locale}
         displayName={displayName}
         isAdmin={admin}
+        whatsappGroupUrl={settingsRow?.whatsappGroupUrl ?? null}
         labels={{
           profile: dict.nav.profile,
           admin: dict.nav.admin,
@@ -76,6 +83,7 @@ export async function HeaderUserSection({
           languageOther: dict.profile.languageOther,
           logout: dict.profile.logout,
           openMenu: dict.nav.openMenu,
+          whatsapp: dict.profile.whatsappMenu,
         }}
       />
     </>

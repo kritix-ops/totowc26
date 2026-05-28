@@ -6,6 +6,7 @@ import { useEffect, useRef, useState, useTransition } from "react";
 import { BookOpen, Globe2, LogOut, Shield, User as UserIcon } from "lucide-react";
 import type { Locale } from "@/app/[lang]/dictionaries";
 import { localePath } from "@/lib/paths";
+import { WhatsAppGlyph } from "./WhatsAppGlyph";
 
 type Labels = {
   profile: string;
@@ -15,6 +16,7 @@ type Labels = {
   languageOther: string;
   logout: string;
   openMenu: string;
+  whatsapp: string;
 };
 
 const LOCALES = ["he", "en"] as const;
@@ -23,11 +25,13 @@ export function ProfileMenu({
   locale,
   displayName,
   isAdmin,
+  whatsappGroupUrl,
   labels,
 }: {
   locale: Locale;
   displayName: string;
   isAdmin: boolean;
+  whatsappGroupUrl: string | null;
   labels: Labels;
 }) {
   const [open, setOpen] = useState(false);
@@ -140,6 +144,26 @@ export function ProfileMenu({
             <BookOpen className="h-5 w-5 text-on-surface-variant" strokeWidth={1.75} />
             <span className="font-bold text-sm">{labels.rules}</span>
           </Link>
+
+          {whatsappGroupUrl && (
+            <a
+              href={whatsappGroupUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={close}
+              role="menuitem"
+              className="flex items-center gap-3 px-4 min-h-[48px] text-on-surface hover:bg-surface-container transition-colors border-t border-outline-variant"
+            >
+              <span
+                className="w-5 h-5 rounded-full flex items-center justify-center shrink-0"
+                style={{ backgroundColor: "#25D366" }}
+                aria-hidden
+              >
+                <WhatsAppGlyph className="w-3.5 h-3.5 text-white" />
+              </span>
+              <span className="font-bold text-sm">{labels.whatsapp}</span>
+            </a>
+          )}
 
           <button
             type="button"
