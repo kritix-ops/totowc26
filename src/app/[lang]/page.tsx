@@ -1003,7 +1003,7 @@ function SpecialsCard({
 }) {
   return (
     <Link
-      href={localePath(locale, "bets/tournament")}
+      href={localePath(locale, "bets")}
       className="press-down group block"
     >
       <Card className="p-5 flex items-center gap-4 min-h-[72px] hover:bg-surface-container transition-colors">
@@ -1015,12 +1015,12 @@ function SpecialsCard({
         </div>
         <div className="flex flex-col min-w-0 flex-1">
           <span className="font-bold text-base text-on-surface">
-            {isHebrew ? "הימורי על הטורניר" : "Tournament specials"}
+            {isHebrew ? "כל ההימורים" : "All bets"}
           </span>
           <span className="text-sm text-on-surface-variant truncate">
             {isHebrew
-              ? "מלך השערים · פנדלים בגמר"
-              : "Top scorer · Final on penalties"}
+              ? "ניחושי משחקים, לייב, טורניר ובתים"
+              : "Match picks, live, tournament, groups"}
           </span>
         </div>
         <ArrowUpRight
