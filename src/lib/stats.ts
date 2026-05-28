@@ -2,6 +2,7 @@ import "server-only";
 
 import { sql } from "drizzle-orm";
 import { db } from "@/db";
+import { execFirstRow, execRows } from "@/db/helpers";
 import { fetchTopScorers, type FDScorer } from "./football-data";
 import {
   fetchTopScorers as fetchTopScorersApiFootball,
@@ -112,7 +113,7 @@ export type RecentResult = {
 };
 
 export async function getRecentResults(limit = 10): Promise<RecentResult[]> {
-  const rows = await db.execute<RecentResult>(sql`
+  return execRows<RecentResult>(sql`
     select
       m.id::text                                  as "matchId",
       m.kickoff_at                                as "kickoffAt",
@@ -137,7 +138,6 @@ export async function getRecentResults(limit = 10): Promise<RecentResult[]> {
     order by coalesce(m.finalized_at, m.kickoff_at) desc
     limit ${limit}
   `);
-  return rows as unknown as RecentResult[];
 }
 
 // ---------- Goals per matchday ----------
@@ -153,11 +153,7 @@ export type GoalsPerDay = {
 };
 
 export async function getGoalsPerDay(): Promise<GoalsPerDay[]> {
-  const rows = await db.execute<{
-    day: string;
-    matches: number;
-    goals: number;
-  }>(sql`
+  const rows = await execRows<GoalsPerDay>(sql`
     select
       to_char(date_trunc('day', m.kickoff_at at time zone 'Asia/Jerusalem'), 'YYYY-MM-DD') as day,
       count(*)::int as matches,
@@ -169,7 +165,7 @@ export async function getGoalsPerDay(): Promise<GoalsPerDay[]> {
     group by date_trunc('day', m.kickoff_at at time zone 'Asia/Jerusalem')
     order by date_trunc('day', m.kickoff_at at time zone 'Asia/Jerusalem') asc
   `);
-  return (rows as unknown as GoalsPerDay[]).map((r) => ({
+  return rows.map((r) => ({
     day: r.day,
     matches: Number(r.matches),
     goals: Number(r.goals),
@@ -196,7 +192,7 @@ export type TeamCardRow = {
 };
 
 export async function getAllTeamsWithRecord(): Promise<TeamCardRow[]> {
-  const rows = await db.execute<TeamCardRow>(sql`
+  const rows = await execRows<TeamCardRow>(sql`
     with leg as (
       select m.home_team as code,
         case when m.home_score > m.away_score then 1 else 0 end as won,
@@ -240,7 +236,7 @@ export async function getAllTeamsWithRecord(): Promise<TeamCardRow[]> {
     group by t.code, t.name_he, t.name_en, t.flag, t.group_id
     order by t.group_id asc nulls last, t.name_en asc
   `);
-  return (rows as unknown as TeamCardRow[]).map((r) => ({
+  return rows.map((r) => ({
     code: r.code,
     nameHe: r.nameHe,
     nameEn: r.nameEn,
@@ -358,9 +354,9 @@ export async function getFormByCode(): Promise<Map<string, string>> {
 
   // Pull local teams once so the lookup loop is O(rows × teams) instead
   // of N queries.
-  const localTeams = (await db.execute<{ code: string; name_en: string }>(sql`
+  const localTeams = await execRows<{ code: string; name_en: string }>(sql`
     select code, name_en from public.teams
-  `)) as unknown as Array<{ code: string; name_en: string }>;
+  `);
   const local = localTeams.map((t) => ({ code: t.code, nameEn: t.name_en }));
 
   const map = new Map<string, string>();
@@ -421,7 +417,7 @@ function normalizeName(s: string): string {
 export type { ApiStandingRow };
 
 export async function getTournamentSummary(): Promise<TournamentSummary> {
-  const rows = await db.execute<{
+  const r = await execFirstRow<{
     total_matches: number;
     played_matches: number;
     total_goals: number;
@@ -439,22 +435,15 @@ export async function getTournamentSummary(): Promise<TournamentSummary> {
                        and home_score = away_score)::int            as draw_count
     from public.matches
   `);
-  const r = (rows as unknown as Array<{
-    total_matches: number;
-    played_matches: number;
-    total_goals: number;
-    clean_sheets: number;
-    draw_count: number;
-  }>)[0];
-  const played = Number(r.played_matches);
-  const goals = Number(r.total_goals);
+  const played = Number(r?.played_matches ?? 0);
+  const goals = Number(r?.total_goals ?? 0);
   return {
-    totalMatches: Number(r.total_matches),
+    totalMatches: Number(r?.total_matches ?? 0),
     playedMatches: played,
     totalGoals: goals,
     avgGoalsPerMatch: played > 0 ? Math.round((goals / played) * 100) / 100 : 0,
-    cleanSheets: Number(r.clean_sheets),
-    drawCount: Number(r.draw_count),
+    cleanSheets: Number(r?.clean_sheets ?? 0),
+    drawCount: Number(r?.draw_count ?? 0),
   };
 }
 
@@ -473,10 +462,10 @@ export async function getApiTeamIdByCode(code: string): Promise<number | null> {
   const teams = await fetchTeams();
   if (!teams) return null;
 
-  const local = (await db.execute<{ code: string; name_en: string }>(sql`
+  const local = await execFirstRow<{ code: string; name_en: string }>(sql`
     select code, name_en from public.teams where code = ${code} limit 1
-  `)) as unknown as Array<{ code: string; name_en: string }>;
-  const ourName = local[0]?.name_en;
+  `);
+  const ourName = local?.name_en;
   if (!ourName) return null;
 
   // Normalize both sides identically. apiNameToLocalTla goes the other
@@ -538,10 +527,9 @@ export async function getMatchEnrichment(
   // stays fresh. Default is the 12h "finished match" cache.
   liveMode = false,
 ): Promise<ApiMatchDetails | null> {
-  const rows = (await db.execute<{ api_football_fixture_id: number | null; status: string }>(sql`
+  const row = await execFirstRow<{ api_football_fixture_id: number | null; status: string }>(sql`
     select api_football_fixture_id, status::text from public.matches where id = ${matchId}::uuid limit 1
-  `)) as unknown as Array<{ api_football_fixture_id: number | null; status: string }>;
-  const row = rows[0];
+  `);
   if (!row || row.api_football_fixture_id == null) return null;
 
   // Auto-pick live mode for matches in `live` status when caller didn't
@@ -568,10 +556,10 @@ export async function getMatchEnrichment(
 export async function getMatchPrediction(
   matchId: string,
 ): Promise<ApiPrediction | null> {
-  const rows = (await db.execute<{ api_football_fixture_id: number | null }>(sql`
+  const row = await execFirstRow<{ api_football_fixture_id: number | null }>(sql`
     select api_football_fixture_id from public.matches where id = ${matchId}::uuid limit 1
-  `)) as unknown as Array<{ api_football_fixture_id: number | null }>;
-  const fid = rows[0]?.api_football_fixture_id;
+  `);
+  const fid = row?.api_football_fixture_id;
   if (fid == null) return null;
   const pred = await fetchPrediction(fid);
   if (pred) {
@@ -633,10 +621,10 @@ export async function getTeamInjuries(code: string): Promise<Array<{
 }> | null> {
   const injuries = await fetchInjuries();
   if (!injuries) return null;
-  const local = (await db.execute<{ name_en: string }>(sql`
+  const local = await execFirstRow<{ name_en: string }>(sql`
     select name_en from public.teams where code = ${code} limit 1
-  `)) as unknown as Array<{ name_en: string }>;
-  const ourName = local[0]?.name_en;
+  `);
+  const ourName = local?.name_en;
   if (!ourName) return [];
   const norm = normalizeName(ourName);
   const aliasTeamNames: Record<string, string[]> = {
