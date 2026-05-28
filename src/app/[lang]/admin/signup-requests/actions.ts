@@ -6,7 +6,7 @@ import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import { signupRequests, profiles } from "@/db/schema";
 import { isAdmin } from "@/lib/admin";
-import { getUser } from "@/lib/supabase/auth";
+import { buildInviteCallbackUrl, getUser } from "@/lib/supabase/auth";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 import { sendEmail } from "@/lib/email/client";
 import { getEmailCopy, interpolate } from "@/lib/email/copy";
@@ -84,16 +84,19 @@ export async function approveSignupRequest(
   const link = await admin.auth.admin.generateLink({
     type: "recovery",
     email: row.email,
-    options: {
-      redirectTo: `${origin}/auth/callback?next=/he/set-password`,
-    },
   });
   if (link.error) {
     console.error("[signup approve] generateLink failed:", link.error);
     return { ok: false, error: link.error.message };
   }
-  const recoveryUrl = link.data.properties?.action_link;
-  if (!recoveryUrl) return { ok: false, error: "no_link" };
+  const hashedToken = link.data.properties?.hashed_token;
+  if (!hashedToken) return { ok: false, error: "no_link" };
+  const recoveryUrl = buildInviteCallbackUrl({
+    origin,
+    hashedToken,
+    type: "recovery",
+    next: "/he/set-password",
+  });
 
   // 5) Update the request row.
   await db

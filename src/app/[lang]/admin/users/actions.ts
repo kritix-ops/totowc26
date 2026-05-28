@@ -5,7 +5,7 @@ import { eq, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { profiles, payments, pointAdjustments } from "@/db/schema";
 import { isAdmin } from "@/lib/admin";
-import { getUser } from "@/lib/supabase/auth";
+import { buildInviteCallbackUrl, getUser } from "@/lib/supabase/auth";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 import { lockUserForBetting, getBankBalanceWith } from "@/lib/bank";
 
@@ -221,15 +221,18 @@ export async function invitePlayer(
   const link = await admin.auth.admin.generateLink({
     type: "recovery",
     email: mail,
-    options: {
-      redirectTo: `${origin}/auth/callback?next=/he/set-password`,
-    },
   });
   if (link.error) {
     return { ok: false, error: link.error.message };
   }
-  const url = link.data.properties?.action_link;
-  if (!url) return { ok: false, error: "no_link" };
+  const hashedToken = link.data.properties?.hashed_token;
+  if (!hashedToken) return { ok: false, error: "no_link" };
+  const url = buildInviteCallbackUrl({
+    origin,
+    hashedToken,
+    type: "recovery",
+    next: "/he/set-password",
+  });
 
   revalidatePath("/", "layout");
   return { ok: true, inviteUrl: url, userId };
@@ -247,13 +250,16 @@ export async function regenerateInviteLink(
   const link = await admin.auth.admin.generateLink({
     type: "recovery",
     email: email.trim().toLowerCase(),
-    options: {
-      redirectTo: `${origin}/auth/callback?next=/he/set-password`,
-    },
   });
   if (link.error) return { ok: false, error: link.error.message };
-  const url = link.data.properties?.action_link;
-  if (!url) return { ok: false, error: "no_link" };
+  const hashedToken = link.data.properties?.hashed_token;
+  if (!hashedToken) return { ok: false, error: "no_link" };
+  const url = buildInviteCallbackUrl({
+    origin,
+    hashedToken,
+    type: "recovery",
+    next: "/he/set-password",
+  });
   const userId = link.data.user?.id ?? "";
   return { ok: true, inviteUrl: url, userId };
 }
