@@ -89,8 +89,10 @@ async function main() {
       process.exit(2);
     }
 
-    // 1b. Verify at least one paid player exists; otherwise nothing
-    // will be picked up by the sender.
+    // 1b. Verify at least one paid player exists; if none, we'll
+    // temporarily approve the admin's payment so the sender has
+    // someone to email. The temp payment is tagged with E2E_TEST_LABEL
+    // in `note` and deleted in cleanup.
     const paidPlayers = await sql`
       select count(*)::int as n
       from public.payments
@@ -98,12 +100,6 @@ async function main() {
     `;
     const paidCount = paidPlayers[0].n;
     log("paid players found", { count: paidCount });
-    if (paidCount === 0) {
-      console.error(
-        "No players with payments.status='approved'. Sender will find nobody to email.",
-      );
-      process.exit(3);
-    }
 
     // 2. Snapshot the current reminder_offset_minutes so we can
     // restore it in cleanup.
@@ -123,6 +119,23 @@ async function main() {
       process.exit(4);
     }
     const adminId = adminRows[0].id;
+
+    // 2c. If nobody is paid, temporarily approve a payment for the
+    // admin so the reminder sender has someone to email. The temp
+    // payment carries E2E_TEST_LABEL in `note` so cleanup can find it.
+    let createdTempPayment = false;
+    if (paidCount === 0) {
+      await sql`
+        insert into public.payments
+          (user_id, method, amount_ils, status, note, decided_by, decided_at)
+        values
+          (${adminId}::uuid, 'bit', 1, 'approved',
+           ${"E2E temp " + E2E_TEST_LABEL},
+           ${adminId}::uuid, now())
+      `;
+      createdTempPayment = true;
+      log("temp payment inserted", { adminId });
+    }
 
     // 3. Clean up any leftover test bets from a prior crashed run.
     await sql`
@@ -185,6 +198,35 @@ async function main() {
       }, {}),
     });
 
+    // 7b. Diagnostic: run the exact candidate query (without the
+    // pick/sent/email filters) to see why nothing came out if total=0.
+    // This DOES exclude the bet we just inserted because lock_at might
+    // already have moved out of the window or the bet may have been
+    // cleaned up — narrow specifically to our test bet id.
+    if (sentRows.length === 0) {
+      const diag = await sql`
+        select
+          p.id::text as user_id, p.display_name, au.email,
+          (pk.id is not null) as has_pick,
+          exists(select 1 from public.payments pm
+                 where pm.user_id = p.id and pm.status='approved') as is_paid,
+          (au.email is not null) as has_email
+        from public.profiles p
+        left join public.user_custom_bet_picks pk
+          on pk.user_id = p.id and pk.custom_bet_id = ${betId}::uuid
+        left join auth.users au on au.id = p.id
+      `;
+      log("diagnostic — all profiles vs filters", {
+        rows: diag.map((r) => ({
+          displayName: r.display_name,
+          hasEmail: r.has_email,
+          isPaid: r.is_paid,
+          hasPick: r.has_pick,
+          wouldBeSentTo: r.has_email && r.is_paid && !r.has_pick,
+        })),
+      });
+    }
+
     // 8. Print verification checklist for the operator.
     console.log("");
     console.log("====================================================");
@@ -226,6 +268,21 @@ async function main() {
       log("cleanup deleted bets", { count: deleted.length });
     } catch (err) {
       console.warn("[e2e cleanup failed]", err?.message ?? err);
+    }
+    try {
+      // Always delete any temp payment we tagged, even on partial-run
+      // failures. The note pattern is unique to this script so we
+      // can't accidentally clobber a real payment.
+      const deletedPayments = await sql`
+        delete from public.payments
+        where note like ${"%" + E2E_TEST_LABEL + "%"}
+        returning id::text as id
+      `;
+      if (deletedPayments.length > 0) {
+        log("cleanup deleted temp payments", { count: deletedPayments.length });
+      }
+    } catch (err) {
+      console.warn("[e2e cleanup payments failed]", err?.message ?? err);
     }
     await sql.end();
   }

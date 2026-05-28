@@ -1234,6 +1234,12 @@ export async function sendDueReminders(): Promise<number> {
     return 0;
   }
 
+  // lock_at is returned as a postgres timestamptz which postgres-js
+  // hands back as an ISO 8601 string the JS Date constructor accepts.
+  // matchday_date is a calendar date so we serialise it explicitly to
+  // YYYY-MM-DD for the URL builder. Avoid to_char on timestamptz: its
+  // OF format can emit a 2-digit offset ("+02") that breaks
+  // Intl.DateTimeFormat on the receiving end.
   const result = await db.execute<ReminderCandidate>(drizzleSql`
     select
       cb.id::text                                                 as "bet_id",
@@ -1245,7 +1251,7 @@ export async function sendDueReminders(): Promise<number> {
       cb.payout_snapshot                                          as "payout_snapshot",
       cb.scope::text                                              as "scope",
       to_char(md.date, 'YYYY-MM-DD')                              as "matchday_date",
-      to_char(cb.lock_at, 'YYYY-MM-DD"T"HH24:MI:SSOF')            as "lock_at",
+      cb.lock_at                                                  as "lock_at",
       ceil(extract(epoch from (cb.lock_at - now())) / 60)::int    as "minutes_remaining",
       p.id::text                                                  as "user_id",
       p.display_name                                              as "display_name",
@@ -1388,7 +1394,7 @@ async function sendPushReminders(
       cb.question_he                                              as "question_he",
       cb.scope::text                                              as "scope",
       to_char(md.date, 'YYYY-MM-DD')                              as "matchday_date",
-      to_char(cb.lock_at, 'YYYY-MM-DD"T"HH24:MI:SSOF')            as "lock_at",
+      cb.lock_at                                                  as "lock_at",
       ceil(extract(epoch from (cb.lock_at - now())) / 60)::int    as "minutes_remaining",
       p.id::text                                                  as "user_id",
       ps.id::text                                                 as "subscription_id",
