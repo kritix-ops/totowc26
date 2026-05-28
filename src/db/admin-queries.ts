@@ -1,6 +1,7 @@
 import "server-only";
 import { sql } from "drizzle-orm";
 import { db } from "./index";
+import { execFirstRow, execRows } from "./helpers";
 
 // ---------- sync_runs ----------
 
@@ -33,7 +34,7 @@ export type SyncRunRow = {
 };
 
 export async function getRecentSyncRuns(limit = 20): Promise<SyncRunRow[]> {
-  const rows = await db.execute<SyncRunRow>(sql`
+  return execRows<SyncRunRow>(sql`
     select
       r.id::text                  as "id",
       r.started_at                as "startedAt",
@@ -59,7 +60,6 @@ export async function getRecentSyncRuns(limit = 20): Promise<SyncRunRow[]> {
     order by r.started_at desc
     limit ${limit}
   `);
-  return rows as unknown as SyncRunRow[];
 }
 
 // ---------- team mapping status ----------
@@ -75,7 +75,7 @@ export type TeamMappingStatus = {
 };
 
 export async function getTeamMappingStatus(): Promise<TeamMappingStatus> {
-  const rows = await db.execute<{
+  const r = await execFirstRow<{
     total: number;
     mapped: number;
     unmapped: number;
@@ -100,12 +100,6 @@ export async function getTeamMappingStatus(): Promise<TeamMappingStatus> {
       ) as "sample"
     from public.teams
   `);
-  const r = (rows as unknown as Array<{
-    total: number;
-    mapped: number;
-    unmapped: number;
-    sample: string[] | null;
-  }>)[0];
   return {
     totalTeams: Number(r?.total ?? 0),
     mapped: Number(r?.mapped ?? 0),
@@ -134,7 +128,7 @@ export async function getPaymentsByStatus(
   status: "pending" | "approved" | "rejected" | "all",
   limit = 50,
 ): Promise<AdminPaymentRow[]> {
-  const rows = await db.execute<AdminPaymentRow>(sql`
+  return execRows<AdminPaymentRow>(sql`
     select
       pay.id::text             as "id",
       pay.user_id::text        as "userId",
@@ -156,7 +150,6 @@ export async function getPaymentsByStatus(
       pay.submitted_at desc
     limit ${limit}
   `);
-  return rows as unknown as AdminPaymentRow[];
 }
 
 export type PaymentTotals = {
@@ -197,7 +190,7 @@ export async function listCustomBets(opts: {
   const status = opts.status ?? null;
   const scope = opts.scope ?? null;
   const limit = opts.limit ?? 100;
-  const rows = await db.execute<AdminCustomBetRow>(sql`
+  return execRows<AdminCustomBetRow>(sql`
     select
       cb.id::text                                 as "id",
       cb.scope::text                              as "scope",
@@ -239,7 +232,6 @@ export async function listCustomBets(opts: {
       cb.created_at desc
     limit ${limit}
   `);
-  return rows as unknown as AdminCustomBetRow[];
 }
 
 // Surface bets that share an identical (scope, anchor, question_he)
@@ -257,7 +249,7 @@ export type AdminDuplicateBetRow = AdminCustomBetRow & {
 };
 
 export async function listDuplicateCustomBets(): Promise<AdminDuplicateBetRow[]> {
-  const rows = await db.execute<AdminDuplicateBetRow>(sql`
+  return execRows<AdminDuplicateBetRow>(sql`
     with active as (
       select
         cb.id,
@@ -322,13 +314,12 @@ export async function listDuplicateCustomBets(): Promise<AdminDuplicateBetRow[]>
     left join public.matches   m  on m.id  = a.match_id
     order by a.dedup_key asc, a.created_at asc
   `);
-  return rows as unknown as AdminDuplicateBetRow[];
 }
 
 // Cheap counter for the /admin/bets banner. Counts the rows above without
 // pulling them — same predicate, just COUNT(*).
 export async function countDuplicateCustomBets(): Promise<number> {
-  const rows = await db.execute<{ n: number }>(sql`
+  const r = await execFirstRow<{ n: number }>(sql`
     with active as (
       select
         (
@@ -350,7 +341,6 @@ export async function countDuplicateCustomBets(): Promise<number> {
     )
     select coalesce(sum(n), 0)::int as "n" from grp
   `);
-  const r = (rows as unknown as Array<{ n: number }>)[0];
   return Number(r?.n ?? 0);
 }
 
@@ -405,7 +395,7 @@ export async function getAdminCustomBetDetail(
 ): Promise<AdminCustomBetDetail | null> {
   if (!/^[0-9a-f-]{36}$/i.test(id)) return null;
 
-  const betRows = await db.execute<Omit<AdminCustomBetDetail, "picks">>(sql`
+  const bet = await execFirstRow<Omit<AdminCustomBetDetail, "picks">>(sql`
     select
       cb.id::text                                 as "id",
       cb.scope::text                              as "scope",
@@ -439,10 +429,9 @@ export async function getAdminCustomBetDetail(
     where cb.id = ${id}::uuid
     limit 1
   `);
-  const bet = (betRows as unknown as Array<Omit<AdminCustomBetDetail, "picks">>)[0];
   if (!bet) return null;
 
-  const pickRows = await db.execute<AdminCustomBetPickRow>(sql`
+  const picks = await execRows<AdminCustomBetPickRow>(sql`
     select
       pk.id::text          as "pickId",
       pk.user_id::text     as "userId",
@@ -459,10 +448,7 @@ export async function getAdminCustomBetDetail(
     order by pk.created_at asc
   `);
 
-  return {
-    ...bet,
-    picks: pickRows as unknown as AdminCustomBetPickRow[],
-  };
+  return { ...bet, picks };
 }
 
 // Matches that haven't kicked off yet - used by the admin form when scope
@@ -481,7 +467,7 @@ export type AdminAnchorMatch = {
 };
 
 export async function listAnchorMatches(limit = 200): Promise<AdminAnchorMatch[]> {
-  const rows = await db.execute<AdminAnchorMatch>(sql`
+  return execRows<AdminAnchorMatch>(sql`
     select
       m.id::text       as "id",
       m.kickoff_at     as "kickoffAt",
@@ -500,7 +486,6 @@ export async function listAnchorMatches(limit = 200): Promise<AdminAnchorMatch[]
     order by m.kickoff_at asc
     limit ${limit}
   `);
-  return rows as unknown as AdminAnchorMatch[];
 }
 
 // Distinct upcoming matchday dates (Asia/Jerusalem) across all scheduled
@@ -513,7 +498,7 @@ export type AdminAnchorDay = {
 };
 
 export async function listAnchorDays(): Promise<AdminAnchorDay[]> {
-  const rows = await db.execute<AdminAnchorDay>(sql`
+  return execRows<AdminAnchorDay>(sql`
     select
       to_char((m.kickoff_at at time zone 'Asia/Jerusalem')::date, 'YYYY-MM-DD') as "date",
       count(*)::int                       as "matchCount",
@@ -523,11 +508,10 @@ export async function listAnchorDays(): Promise<AdminAnchorDay[]> {
     group by (m.kickoff_at at time zone 'Asia/Jerusalem')::date
     order by (m.kickoff_at at time zone 'Asia/Jerusalem')::date asc
   `);
-  return rows as unknown as AdminAnchorDay[];
 }
 
 export async function getPaymentTotals(): Promise<PaymentTotals> {
-  const rows = await db.execute<{
+  const r = await execFirstRow<{
     pending_count: number;
     approved_count: number;
     rejected_count: number;
@@ -541,17 +525,11 @@ export async function getPaymentTotals(): Promise<PaymentTotals> {
                                                         as approved_sum
     from public.payments
   `);
-  const r = (rows as unknown as Array<{
-    pending_count: number;
-    approved_count: number;
-    rejected_count: number;
-    approved_sum: number;
-  }>)[0];
   return {
-    pendingCount: Number(r.pending_count),
-    approvedCount: Number(r.approved_count),
-    rejectedCount: Number(r.rejected_count),
-    approvedSumIls: Number(r.approved_sum),
+    pendingCount: Number(r?.pending_count ?? 0),
+    approvedCount: Number(r?.approved_count ?? 0),
+    rejectedCount: Number(r?.rejected_count ?? 0),
+    approvedSumIls: Number(r?.approved_sum ?? 0),
   };
 }
 
@@ -580,7 +558,7 @@ export async function listFixturesForDate(
 ): Promise<LiveBetsFixtureRow[]> {
   // Accept only YYYY-MM-DD so we can interpolate safely below.
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return [];
-  const rows = await db.execute<LiveBetsFixtureRow>(sql`
+  return execRows<LiveBetsFixtureRow>(sql`
     select
       m.id::text                   as "id",
       m.api_football_fixture_id    as "apiFootballFixtureId",
@@ -598,7 +576,6 @@ export async function listFixturesForDate(
     where (m.kickoff_at at time zone 'Asia/Jerusalem')::date = ${date}::date
     order by m.kickoff_at asc
   `);
-  return rows as unknown as LiveBetsFixtureRow[];
 }
 
 export type LiveBetsDateRow = {
@@ -610,7 +587,7 @@ export type LiveBetsDateRow = {
 // fixture, ordered earliest first. Drives the date picker on the
 // suggestions page.
 export async function listLiveBetsDates(): Promise<LiveBetsDateRow[]> {
-  const rows = await db.execute<LiveBetsDateRow>(sql`
+  return execRows<LiveBetsDateRow>(sql`
     select
       to_char((m.kickoff_at at time zone 'Asia/Jerusalem')::date,
               'YYYY-MM-DD')                          as "date",
@@ -620,7 +597,6 @@ export async function listLiveBetsDates(): Promise<LiveBetsDateRow[]> {
     group by (m.kickoff_at at time zone 'Asia/Jerusalem')::date
     order by 1 asc
   `);
-  return rows as unknown as LiveBetsDateRow[];
 }
 
 // ---------- player translation review queue ----------
@@ -667,7 +643,7 @@ export async function listPlayersForReview(opts?: {
   // We sort by a manually-computed bucket so the four verdict
   // groups have a stable, intuitive order independent of how
   // Postgres collates the verdict strings alphabetically.
-  const rows = await db.execute<AdminPlayerReviewRow>(sql`
+  return execRows<AdminPlayerReviewRow>(sql`
     select
       p.id::text                       as "id",
       p.api_football_id                as "apiFootballId",
@@ -709,7 +685,6 @@ export async function listPlayersForReview(opts?: {
       p.name_en asc
     limit ${limit}
   `);
-  return rows as unknown as AdminPlayerReviewRow[];
 }
 
 export async function getPlayerReviewCounts(): Promise<{
@@ -719,7 +694,7 @@ export async function getPlayerReviewCounts(): Promise<{
   unreviewed: number;
   total: number;
 }> {
-  const rows = await db.execute<{
+  const r = await execFirstRow<{
     reject: number;
     flag: number;
     approved: number;
@@ -734,13 +709,6 @@ export async function getPlayerReviewCounts(): Promise<{
       count(*)::int                                                      as "total"
     from public.players
   `);
-  const r = (rows as unknown as Array<{
-    reject: number;
-    flag: number;
-    approved: number;
-    unreviewed: number;
-    total: number;
-  }>)[0];
   return {
     reject: Number(r?.reject ?? 0),
     flag: Number(r?.flag ?? 0),
