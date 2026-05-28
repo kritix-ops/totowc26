@@ -353,6 +353,9 @@ export const settings = pgTable("settings", {
   // Admin-controlled deep link to the pool's Paybox group. Null = fall
   // back to the marketing site so the button is never dead.
   payboxUrl: text("paybox_url"),
+  // Admin-controlled invite link to the pool's WhatsApp group. Surfaced
+  // on the profile page; null hides the card entirely.
+  whatsappGroupUrl: text("whatsapp_group_url"),
   betLockMinutes: smallint("bet_lock_minutes").notNull().default(5),
   // Tournament anchor for the custom_tournament bet type and the live
   // countdown on tournament-wide bets. Nullable: when null, the

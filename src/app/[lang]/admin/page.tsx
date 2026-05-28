@@ -38,6 +38,7 @@ import { SyncPanel } from "./SyncPanel";
 import { PaymentsPanel } from "./PaymentsPanel";
 import { ViewAsPanel } from "./ViewAsPanel";
 import { PayboxSettingsPanel } from "./PayboxSettingsPanel";
+import { WhatsAppSettingsPanel } from "./WhatsAppSettingsPanel";
 
 export default async function AdminPage({
   params,
@@ -62,7 +63,10 @@ export default async function AdminPage({
     getPaymentTotals(),
     getViewAs(),
     db
-      .select({ payboxUrl: settings.payboxUrl })
+      .select({
+        payboxUrl: settings.payboxUrl,
+        whatsappGroupUrl: settings.whatsappGroupUrl,
+      })
       .from(settings)
       .where(eq(settings.id, 1))
       .limit(1)
@@ -193,6 +197,11 @@ export default async function AdminPage({
         locale={locale}
         current={settingsRow?.payboxUrl ?? null}
         fallback={PAYBOX_FALLBACK_URL}
+      />
+
+      <WhatsAppSettingsPanel
+        locale={locale}
+        current={settingsRow?.whatsappGroupUrl ?? null}
       />
 
       <SyncPanel

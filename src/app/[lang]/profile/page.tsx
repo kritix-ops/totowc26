@@ -33,7 +33,7 @@ import {
   type MyDuelRow,
 } from "@/db/queries";
 import { db } from "@/db";
-import { profiles } from "@/db/schema";
+import { profiles, settings } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { Card, LabelCaps, SectionHeading, Chip } from "@/components/ui";
 import { Flag } from "@/components/Flag";
@@ -59,24 +59,37 @@ export default async function ProfilePage({
   const user = await getRequestUser();
   if (!user) redirect(localePath(locale, "login"));
 
-  const [[profile], stats, matchPicks, liveBetPicks, tournamentBetPicks, duelPicks, unreadCount] =
-    await Promise.all([
-      db
-        .select({
-          displayName: profiles.displayName,
-          role: profiles.role,
-          pushOptIn: profiles.pushOptIn,
-        })
-        .from(profiles)
-        .where(eq(profiles.id, user.id))
-        .limit(1),
-      getProfileStats(user.id),
-      getMyHistory(user.id, 5),
-      getMyCustomPicks(user.id, ["match", "day"], 5),
-      getMyCustomPicks(user.id, ["tournament", "stage", "group"], 5),
-      getMyDuels(user.id, 5),
-      countUnreadNotifications(user.id),
-    ]);
+  const [
+    [profile],
+    stats,
+    matchPicks,
+    liveBetPicks,
+    tournamentBetPicks,
+    duelPicks,
+    unreadCount,
+    [settingsRow],
+  ] = await Promise.all([
+    db
+      .select({
+        displayName: profiles.displayName,
+        role: profiles.role,
+        pushOptIn: profiles.pushOptIn,
+      })
+      .from(profiles)
+      .where(eq(profiles.id, user.id))
+      .limit(1),
+    getProfileStats(user.id),
+    getMyHistory(user.id, 5),
+    getMyCustomPicks(user.id, ["match", "day"], 5),
+    getMyCustomPicks(user.id, ["tournament", "stage", "group"], 5),
+    getMyDuels(user.id, 5),
+    countUnreadNotifications(user.id),
+    db
+      .select({ whatsappGroupUrl: settings.whatsappGroupUrl })
+      .from(settings)
+      .where(eq(settings.id, 1))
+      .limit(1),
+  ]);
 
   const isHebrew = locale === "he";
   const displayName = profile?.displayName ?? (user.email ?? "");
@@ -178,7 +191,11 @@ export default async function ProfilePage({
         </Link>
       </section>
 
-      <WhatsAppGroupCard locale={locale} dict={dict} />
+      <WhatsAppGroupCard
+        locale={locale}
+        dict={dict}
+        url={settingsRow?.whatsappGroupUrl ?? null}
+      />
 
       <section className="flex flex-col gap-4">
         <SectionHeading>{dict.profile.settings}</SectionHeading>
@@ -540,19 +557,25 @@ function SettingRow({
 // the WhatsApp brand green only on the icon badge - the rest of the
 // card stays in-theme so it doesn't shout for attention. Opens in a
 // new tab with rel="noopener noreferrer" to avoid window.opener leaks.
-const WHATSAPP_GROUP_URL = "https://chat.whatsapp.com/Ixy10PR5oIQ4iEZ6wsusVU";
-
+//
+// The URL is admin-editable from /admin and stored on settings.whatsapp_group_url.
+// `null` (admin cleared the field) hides the card entirely - prevents a
+// dead-link card if the group is rotated and the admin hasn't filled in
+// the new invite yet.
 function WhatsAppGroupCard({
   locale,
   dict,
+  url,
 }: {
   locale: Locale;
   dict: Awaited<ReturnType<typeof getDictionary>>;
+  url: string | null;
 }) {
   const isHebrew = locale === "he";
+  if (!url) return null;
   return (
     <a
-      href={WHATSAPP_GROUP_URL}
+      href={url}
       target="_blank"
       rel="noopener noreferrer"
       className="block press-down"
