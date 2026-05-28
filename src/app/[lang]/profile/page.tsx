@@ -178,6 +178,8 @@ export default async function ProfilePage({
         </Link>
       </section>
 
+      <WhatsAppGroupCard locale={locale} dict={dict} />
+
       <section className="flex flex-col gap-4">
         <SectionHeading>{dict.profile.settings}</SectionHeading>
         <Card className="p-0 overflow-hidden">
@@ -529,6 +531,76 @@ function SettingRow({
         <Chev className="h-4 w-4" />
       </span>
     </div>
+  );
+}
+
+// Single invite link to the pool's WhatsApp group. Sits between the
+// Notifications section (in-app feed) and Settings (account stuff),
+// which is where "stay connected" affordances belong. The card uses
+// the WhatsApp brand green only on the icon badge - the rest of the
+// card stays in-theme so it doesn't shout for attention. Opens in a
+// new tab with rel="noopener noreferrer" to avoid window.opener leaks.
+const WHATSAPP_GROUP_URL = "https://chat.whatsapp.com/Ixy10PR5oIQ4iEZ6wsusVU";
+
+function WhatsAppGroupCard({
+  locale,
+  dict,
+}: {
+  locale: Locale;
+  dict: Awaited<ReturnType<typeof getDictionary>>;
+}) {
+  const isHebrew = locale === "he";
+  return (
+    <a
+      href={WHATSAPP_GROUP_URL}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="block press-down"
+      aria-label={dict.profile.whatsappTitle}
+    >
+      <Card className="p-4 md:p-5 flex items-center gap-4 hover:bg-surface-container transition-colors min-h-[72px]">
+        <span
+          className="w-11 h-11 md:w-12 md:h-12 rounded-full flex items-center justify-center shrink-0"
+          style={{ backgroundColor: "#25D366" }}
+          aria-hidden
+        >
+          <WhatsAppGlyph className="w-6 h-6 md:w-7 md:h-7 text-white" />
+        </span>
+        <div className="flex flex-col gap-0.5 min-w-0 flex-1">
+          <span className="font-[family-name:var(--font-display)] text-base md:text-lg font-bold text-on-surface leading-tight">
+            {dict.profile.whatsappTitle}
+          </span>
+          <span className="text-xs md:text-sm text-on-surface-variant leading-snug line-clamp-2">
+            {dict.profile.whatsappSubtitle}
+          </span>
+        </div>
+        <span className="inline-flex items-center gap-1 text-xs font-[family-name:var(--font-label)] font-bold tracking-[0.05em] text-primary shrink-0">
+          {dict.profile.whatsappCta}
+          {isHebrew ? (
+            <ChevronLeft className="h-4 w-4" strokeWidth={2.5} />
+          ) : (
+            <ChevronRight className="h-4 w-4" strokeWidth={2.5} />
+          )}
+        </span>
+      </Card>
+    </a>
+  );
+}
+
+// WhatsApp brand glyph rendered inline so we can stroke it currentColor
+// and keep the bundle free of an image dependency. Path taken from the
+// official Brand Resources kit (white-on-green variant) - simplified to
+// the chat-bubble silhouette so it reads at 24-28px on profile.
+function WhatsAppGlyph({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 32 32"
+      fill="currentColor"
+      className={className}
+      aria-hidden
+    >
+      <path d="M16.004 5.333c-5.892 0-10.667 4.776-10.667 10.667 0 1.882.494 3.72 1.432 5.342l-1.516 5.525a.667.667 0 0 0 .82.82l5.583-1.493a10.628 10.628 0 0 0 5.348 1.473h.004c5.89 0 10.667-4.776 10.667-10.667S21.895 5.333 16.004 5.333zm0 19.467a8.781 8.781 0 0 1-4.476-1.225.667.667 0 0 0-.51-.07l-4.024 1.077 1.092-3.982a.667.667 0 0 0-.082-.526 8.747 8.747 0 0 1-1.34-4.67c0-4.857 3.953-8.808 8.81-8.808 4.857 0 8.808 3.951 8.808 8.808 0 4.857-3.951 8.808-8.808 8.808l-.47-.412zm4.836-6.6c-.265-.133-1.566-.773-1.809-.861-.243-.088-.42-.133-.596.133-.177.265-.685.861-.84 1.038-.155.176-.31.199-.575.066-.265-.133-1.117-.412-2.128-1.313-.787-.701-1.318-1.566-1.473-1.831-.155-.265-.017-.408.116-.541.119-.118.265-.31.398-.464.133-.155.177-.265.265-.442.088-.177.044-.331-.022-.464-.066-.133-.596-1.435-.817-1.965-.215-.515-.434-.445-.596-.453-.155-.008-.331-.01-.508-.01a.974.974 0 0 0-.706.331c-.243.265-.928.906-.928 2.21 0 1.303.95 2.563 1.083 2.74.133.176 1.871 2.858 4.535 4.008.633.273 1.127.436 1.512.558.635.202 1.213.173 1.67.105.51-.076 1.566-.64 1.787-1.258.221-.618.221-1.148.155-1.258-.066-.11-.243-.176-.508-.31z" />
+    </svg>
   );
 }
 
