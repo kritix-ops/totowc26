@@ -2,6 +2,7 @@ import "server-only";
 
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/db";
+import { execFirstRow } from "@/db/helpers";
 import {
   profiles,
   pushSubscriptions,
@@ -209,9 +210,9 @@ export async function markAllNotificationsRead(userId: string): Promise<number> 
 }
 
 export async function countUnreadNotifications(userId: string): Promise<number> {
-  const rows = await db.execute<{ n: number }>(sql`
+  const row = await execFirstRow<{ n: number }>(sql`
     select count(*)::int as n from public.user_notifications
     where user_id = ${userId}::uuid and read_at is null
   `);
-  return (rows as unknown as Array<{ n: number }>)[0]?.n ?? 0;
+  return row?.n ?? 0;
 }

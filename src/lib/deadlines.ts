@@ -3,6 +3,7 @@ import "server-only";
 import { cache } from "react";
 import { eq, sql } from "drizzle-orm";
 import { db } from "@/db";
+import { execFirstRow } from "@/db/helpers";
 import {
   BET_TYPE_KEYS,
   STAGE_KEYS,
@@ -101,7 +102,7 @@ export const getDeadlineContext = cache(async (): Promise<DeadlineContext> => {
         .from(settings)
         .where(eq(settings.id, 1))
         .limit(1),
-      db.execute<{ kickoff_at: string | null }>(sql`
+      execFirstRow<{ kickoff_at: string | null }>(sql`
         select min(kickoff_at) as kickoff_at from public.matches
       `),
     ]);
@@ -123,9 +124,7 @@ export const getDeadlineContext = cache(async (): Promise<DeadlineContext> => {
     const tournamentStartAt = settingsRow[0]?.tournamentStartAt ?? null;
     const matchPicksGlobalLockAt =
       settingsRow[0]?.matchPicksGlobalLockAt ?? null;
-    const derivedRaw =
-      (derivedRow as unknown as Array<{ kickoff_at: string | null }>)[0]
-        ?.kickoff_at ?? null;
+    const derivedRaw = derivedRow?.kickoff_at ?? null;
     const derivedTournamentStartAt = derivedRaw ? new Date(derivedRaw) : null;
 
     console.info("[deadline context load]", {

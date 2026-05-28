@@ -1,6 +1,6 @@
 import "server-only";
 import { sql } from "drizzle-orm";
-import { db } from "@/db";
+import { execFirstRow, execRows } from "@/db/helpers";
 
 export type AdminUserRow = {
   id: string;
@@ -30,7 +30,7 @@ export type AdminUserStats = {
 export async function fetchAdminUsers(): Promise<AdminUserRow[]> {
   // totalPoints is the user's live bank balance, computed the same way as
   // the leaderboard (starting_bank + payouts − stakes + adjustments).
-  const rows = await db.execute<AdminUserRow>(sql`
+  return execRows<AdminUserRow>(sql`
     select
       p.id::text                     as "id",
       u.email                        as "email",
@@ -73,8 +73,6 @@ export async function fetchAdminUsers(): Promise<AdminUserRow[]> {
     ) bet_stats on true
     order by p.created_at desc
   `);
-
-  return rows as unknown as AdminUserRow[];
 }
 
 export type AdminAdjustmentRow = {
@@ -89,7 +87,7 @@ export type AdminAdjustmentRow = {
 export async function fetchUserAdjustments(
   userId: string,
 ): Promise<AdminAdjustmentRow[]> {
-  const rows = await db.execute<AdminAdjustmentRow>(sql`
+  return execRows<AdminAdjustmentRow>(sql`
     select
       pa.id::text                            as "id",
       pa.delta                               as "delta",
@@ -101,7 +99,6 @@ export async function fetchUserAdjustments(
     where pa.user_id = ${userId}
     order by pa.created_at desc
   `);
-  return rows as unknown as AdminAdjustmentRow[];
 }
 
 export type AdminUserBasic = {
@@ -114,7 +111,7 @@ export type AdminUserBasic = {
 export async function fetchUserBasic(
   userId: string,
 ): Promise<AdminUserBasic | null> {
-  const rows = await db.execute<AdminUserBasic>(sql`
+  return execFirstRow<AdminUserBasic>(sql`
     select
       p.id::text       as "id",
       p.display_name   as "displayName",
@@ -124,12 +121,10 @@ export async function fetchUserBasic(
     where p.id = ${userId}
     limit 1
   `);
-  const list = rows as unknown as AdminUserBasic[];
-  return list[0] ?? null;
 }
 
 export async function fetchAdminStats(entryFee: number): Promise<AdminUserStats> {
-  const result = await db.execute<{
+  const r = await execFirstRow<{
     total_users: number;
     approved_count: number;
     pending_count: number;
@@ -150,20 +145,14 @@ export async function fetchAdminStats(entryFee: number): Promise<AdminUserStats>
          where not exists (select 1 from latest l where l.user_id = p.id))::int as unpaid_count,
       (select count(*) from public.profiles where role = 'admin')::int as admin_count
   `);
-  const r = (result as unknown as Array<{
-    total_users: number;
-    approved_count: number;
-    pending_count: number;
-    unpaid_count: number;
-    admin_count: number;
-  }>)[0];
 
+  const approvedCount = Number(r?.approved_count ?? 0);
   return {
-    totalUsers: Number(r.total_users),
-    approvedCount: Number(r.approved_count),
-    pendingCount: Number(r.pending_count),
-    unpaidCount: Number(r.unpaid_count),
-    adminCount: Number(r.admin_count),
-    potIls: Number(r.approved_count) * entryFee,
+    totalUsers: Number(r?.total_users ?? 0),
+    approvedCount,
+    pendingCount: Number(r?.pending_count ?? 0),
+    unpaidCount: Number(r?.unpaid_count ?? 0),
+    adminCount: Number(r?.admin_count ?? 0),
+    potIls: approvedCount * entryFee,
   };
 }
