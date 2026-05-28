@@ -224,9 +224,10 @@ export function PushOptInToggle({ locale, initialOptIn }: Props) {
             <span
               className={clsx(
                 "absolute top-0.5 w-4 h-4 rounded-full bg-surface-container-lowest transition-all",
-                isOn
-                  ? isHebrew ? "left-0.5" : "right-0.5"
-                  : isHebrew ? "right-0.5" : "left-0.5",
+                // `start-` / `end-` flip with the document direction, so
+                // the knob lives at the end of the track when on and at
+                // the start when off in both LTR and RTL.
+                isOn ? "end-0.5" : "start-0.5",
               )}
             />
           </span>

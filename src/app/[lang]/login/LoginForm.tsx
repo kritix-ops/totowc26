@@ -67,7 +67,7 @@ export function LoginForm({
     >
       <label className="flex flex-col gap-2">
         <LabelCaps>{dict.forms.login.emailLabel}</LabelCaps>
-        <FieldWrap isHebrew={isHebrew} icon={<Mail className="h-5 w-5 text-outline" strokeWidth={1.5} />}>
+        <FieldWrap icon={<Mail className="h-5 w-5 text-outline" strokeWidth={1.5} />}>
           <input
             type="email"
             name="email"
@@ -86,7 +86,7 @@ export function LoginForm({
 
       <label className="flex flex-col gap-2">
         <LabelCaps>{dict.forms.login.passwordLabel}</LabelCaps>
-        <FieldWrap isHebrew={isHebrew} icon={<Lock className="h-5 w-5 text-outline" strokeWidth={1.5} />}>
+        <FieldWrap icon={<Lock className="h-5 w-5 text-outline" strokeWidth={1.5} />}>
           <input
             type={showPw ? "text" : "password"}
             name="password"
@@ -103,10 +103,7 @@ export function LoginForm({
             type="button"
             onClick={() => setShowPw((v) => !v)}
             aria-label={showPw ? dict.forms.login.hidePassword : dict.forms.login.showPassword}
-            className={clsx(
-              "absolute top-1/2 -translate-y-1/2 min-w-[44px] min-h-[44px] flex items-center justify-center text-outline hover:text-on-surface",
-              isHebrew ? "left-0" : "right-0",
-            )}
+            className="absolute top-1/2 -translate-y-1/2 end-0 min-w-[44px] min-h-[44px] flex items-center justify-center text-outline hover:text-on-surface"
           >
             {showPw ? <EyeOff className="h-5 w-5" strokeWidth={1.5} /> : <Eye className="h-5 w-5" strokeWidth={1.5} />}
           </button>
@@ -189,21 +186,16 @@ function GoogleIcon() {
 }
 
 function FieldWrap({
-  isHebrew,
   icon,
   children,
 }: {
-  isHebrew: boolean;
   icon: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
     <div className="relative border-b border-outline focus-within:border-primary transition-colors">
       <span
-        className={clsx(
-          "absolute top-1/2 -translate-y-1/2 pointer-events-none",
-          isHebrew ? "right-1" : "left-1",
-        )}
+        className="absolute top-1/2 -translate-y-1/2 start-1 pointer-events-none"
       >
         {icon}
       </span>

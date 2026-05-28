@@ -22,7 +22,8 @@ import "server-only";
 // when they need a Date instance.
 //
 // `import "server-only"` is what physically prevents this from leaking
-// into a client component; the bundler errors loudly if it does.
-//
-// eslint-disable-next-line react-hooks/purity
+// into a client component; the bundler errors loudly if it does. The
+// `react-hooks/purity` rule only flags Date.now() inside a *component*
+// render body, so an arrow function on its own slips through without
+// any disable directive — exactly what we want.
 export const serverNow = (): number => Date.now();

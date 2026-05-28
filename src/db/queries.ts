@@ -1,7 +1,6 @@
 import "server-only";
 import { sql } from "drizzle-orm";
 import { unstable_cache } from "next/cache";
-import { db } from "./index";
 import { execFirstRow, execRows } from "./helpers";
 import type { MultiChoiceOption } from "@/lib/bets/types";
 import { duelCaseSql, duelDeltaSql } from "@/lib/bank";

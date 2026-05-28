@@ -60,7 +60,7 @@ export function SignupForm({
 
       <label className="flex flex-col gap-2">
         <LabelCaps>{dict.forms.signup.displayNameLabel}</LabelCaps>
-        <FieldWrap isHebrew={isHebrew} icon={<User className="h-5 w-5 text-outline" strokeWidth={1.5} />}>
+        <FieldWrap icon={<User className="h-5 w-5 text-outline" strokeWidth={1.5} />}>
           <input
             type="text"
             name="displayName"
@@ -79,7 +79,7 @@ export function SignupForm({
 
       <label className="flex flex-col gap-2">
         <LabelCaps>{dict.forms.signup.phoneLabel}</LabelCaps>
-        <FieldWrap isHebrew={isHebrew} icon={<Phone className="h-5 w-5 text-outline" strokeWidth={1.5} />}>
+        <FieldWrap icon={<Phone className="h-5 w-5 text-outline" strokeWidth={1.5} />}>
           <input
             type="tel"
             name="phone"
@@ -99,7 +99,7 @@ export function SignupForm({
 
       <label className="flex flex-col gap-2">
         <LabelCaps>{dict.forms.signup.emailLabel}</LabelCaps>
-        <FieldWrap isHebrew={isHebrew} icon={<Mail className="h-5 w-5 text-outline" strokeWidth={1.5} />}>
+        <FieldWrap icon={<Mail className="h-5 w-5 text-outline" strokeWidth={1.5} />}>
           <input
             type="email"
             name="email"
@@ -152,22 +152,15 @@ export function SignupForm({
 }
 
 function FieldWrap({
-  isHebrew,
   icon,
   children,
 }: {
-  isHebrew: boolean;
   icon: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
     <div className="relative border-b border-outline focus-within:border-primary transition-colors">
-      <span
-        className={clsx(
-          "absolute top-1/2 -translate-y-1/2 pointer-events-none",
-          isHebrew ? "right-1" : "left-1",
-        )}
-      >
+      <span className="absolute top-1/2 -translate-y-1/2 start-1 pointer-events-none">
         {icon}
       </span>
       {children}

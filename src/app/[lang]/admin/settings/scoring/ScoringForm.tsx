@@ -450,7 +450,9 @@ function ToggleField({
           <span
             className={clsx(
               "absolute top-0.5 w-5 h-5 rounded-full bg-surface-container-lowest transition-all",
-              value ? (isHebrew ? "left-0.5" : "right-0.5") : isHebrew ? "right-0.5" : "left-0.5",
+              // Logical properties so the knob flips with document
+              // direction (end = right in LTR, left in RTL).
+              value ? "end-0.5" : "start-0.5",
             )}
           />
         </span>

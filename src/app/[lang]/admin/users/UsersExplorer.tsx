@@ -260,10 +260,7 @@ function Toolbar({
       <div className="flex flex-col md:flex-row gap-3">
         <div className="relative flex-1 min-w-0">
           <Search
-            className={clsx(
-              "absolute top-1/2 -translate-y-1/2 h-4 w-4 text-outline pointer-events-none",
-              isHebrew ? "right-3" : "left-3",
-            )}
+            className="absolute top-1/2 -translate-y-1/2 start-3 h-4 w-4 text-outline pointer-events-none"
             strokeWidth={1.75}
           />
           <input
@@ -271,20 +268,14 @@ function Toolbar({
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder={isHebrew ? "חפש לפי שם, טלפון או מייל" : "Search name, phone or email"}
-            className={clsx(
-              "w-full h-11 rounded-full bg-surface-container-lowest border border-outline-variant focus:border-primary focus:outline-none text-base text-on-surface placeholder:text-outline-variant",
-              isHebrew ? "pr-9 pl-3" : "pl-9 pr-3",
-            )}
+            className="w-full h-11 rounded-full bg-surface-container-lowest border border-outline-variant focus:border-primary focus:outline-none text-base text-on-surface placeholder:text-outline-variant ps-9 pe-3"
           />
           {query && (
             <button
               type="button"
               onClick={() => setQuery("")}
               aria-label="clear"
-              className={clsx(
-                "absolute top-1/2 -translate-y-1/2 p-1 rounded-full hover:bg-surface-container",
-                isHebrew ? "left-2" : "right-2",
-              )}
+              className="absolute top-1/2 -translate-y-1/2 end-2 p-1 rounded-full hover:bg-surface-container"
             >
               <X className="h-4 w-4 text-on-surface-variant" />
             </button>
