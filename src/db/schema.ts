@@ -808,6 +808,11 @@ export const syncRuns = pgTable(
     skipped: integer("skipped").default(0),
     scoredBets: integer("scored_bets").default(0),
     scoredMatches: integer("scored_matches").default(0),
+    // Persisted from sync.ts so the admin SyncPanel shows whether the
+    // reminder pipeline / auto-lock sweep did anything on each run.
+    // See _plans/2026-05-28-lock-reminders.md and migration 0025.
+    remindersSent: integer("reminders_sent").default(0),
+    lockedExpiredCustomBets: integer("locked_expired_custom_bets").default(0),
     unknownTeams: jsonb("unknown_teams").$type<string[] | null>(),
     errorMessage: text("error_message"),
     errorStack: text("error_stack"),

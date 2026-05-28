@@ -176,6 +176,13 @@
       "when": 1781699600000,
       "tag": "0024_push_subscriptions",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1781786000000,
+      "tag": "0025_sync_runs_counters",
+      "breakpoints": true
     }
   ]
 }

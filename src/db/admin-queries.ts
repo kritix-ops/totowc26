@@ -18,6 +18,11 @@ export type SyncRunRow = {
   skipped: number | null;
   scoredBets: number | null;
   scoredMatches: number | null;
+  // Persisted from sync.ts since migration 0025. Null for runs that
+  // happened before the migration. Drives the reminder + auto-lock
+  // counters in SyncPanel.
+  remindersSent: number | null;
+  lockedExpiredCustomBets: number | null;
   unknownTeams: string[] | null;
   errorMessage: string | null;
   errorStack: string | null;
@@ -41,12 +46,14 @@ export async function getRecentSyncRuns(limit = 20): Promise<SyncRunRow[]> {
       r.inserted                  as "inserted",
       r.updated                   as "updated",
       r.skipped                   as "skipped",
-      r.scored_bets               as "scoredBets",
-      r.scored_matches            as "scoredMatches",
-      r.unknown_teams             as "unknownTeams",
-      r.error_message             as "errorMessage",
-      r.error_stack               as "errorStack",
-      r.provider                  as "provider"
+      r.scored_bets                  as "scoredBets",
+      r.scored_matches               as "scoredMatches",
+      r.reminders_sent               as "remindersSent",
+      r.locked_expired_custom_bets   as "lockedExpiredCustomBets",
+      r.unknown_teams                as "unknownTeams",
+      r.error_message                as "errorMessage",
+      r.error_stack                  as "errorStack",
+      r.provider                     as "provider"
     from public.sync_runs r
     left join public.profiles p on p.id = r.triggered_by
     order by r.started_at desc

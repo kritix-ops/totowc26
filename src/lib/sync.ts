@@ -114,6 +114,8 @@ export async function syncFixtures(
         skipped: report.skipped,
         scoredBets: report.scoredBets,
         scoredMatches: report.scoredMatches,
+        remindersSent: report.remindersSent,
+        lockedExpiredCustomBets: report.lockedExpiredCustomBets,
         unknownTeams: report.unknownTeams.length ? report.unknownTeams : null,
         provider: providerUsed,
       })

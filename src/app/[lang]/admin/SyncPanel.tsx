@@ -124,6 +124,14 @@ export function SyncPanel({
               value={result.report.scoredAutoCustomBets}
             />
             <Stat
+              label={isHebrew ? "תזכורות שנשלחו" : "Reminders sent"}
+              value={result.report.remindersSent}
+            />
+            <Stat
+              label={isHebrew ? "הימורים שננעלו" : "Auto-locked"}
+              value={result.report.lockedExpiredCustomBets}
+            />
+            <Stat
               label={isHebrew ? "דולגו" : "Skipped"}
               value={result.report.skipped}
             />
@@ -656,6 +664,14 @@ function summaryLine(r: SyncRunRow, isHebrew: boolean): string {
     `${r.inserted ?? 0} ${isHebrew ? "חדשים" : "new"}`,
     `${r.scoredBets ?? 0} ${isHebrew ? "ניקודים" : "scored"}`,
   ];
+  if ((r.remindersSent ?? 0) > 0) {
+    parts.push(`${r.remindersSent} ${isHebrew ? "תזכורות" : "reminders"}`);
+  }
+  if ((r.lockedExpiredCustomBets ?? 0) > 0) {
+    parts.push(
+      `${r.lockedExpiredCustomBets} ${isHebrew ? "ננעלו" : "auto-locked"}`,
+    );
+  }
   if ((r.unknownTeams?.length ?? 0) > 0) {
     parts.push(
       `${r.unknownTeams!.length} ${isHebrew ? "קבוצות לא ידועות" : "unknown teams"}`,
@@ -730,6 +746,14 @@ function RunDetail({ run, isHebrew }: { run: SyncRunRow; isHebrew: boolean }) {
           <Field
             label={isHebrew ? "משחקים" : "Matches"}
             value={String(run.scoredMatches ?? 0)}
+          />
+          <Field
+            label={isHebrew ? "תזכורות שנשלחו" : "Reminders sent"}
+            value={String(run.remindersSent ?? 0)}
+          />
+          <Field
+            label={isHebrew ? "הימורים שננעלו" : "Auto-locked"}
+            value={String(run.lockedExpiredCustomBets ?? 0)}
           />
           <Field
             label={isHebrew ? "ק׳ לא ידועות" : "Unknown teams"}
