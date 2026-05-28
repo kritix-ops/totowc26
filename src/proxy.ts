@@ -26,16 +26,13 @@ function isLocale(value: string | undefined): value is (typeof LOCALES)[number] 
 }
 
 function pickLocale(request: NextRequest): string {
+  // Hebrew is the product default - this is a Hebrew-first friends pool.
+  // Honour an explicit user choice from the cookie (set by the in-app
+  // language switcher), but ignore the browser's Accept-Language header.
+  // A first-time visitor whose browser is configured for English still
+  // lands on the Hebrew site and can switch from the profile menu.
   const saved = request.cookies.get(LOCALE_COOKIE)?.value;
   if (isLocale(saved)) return saved;
-
-  const header = request.headers.get("accept-language") ?? "";
-  const preferred = header
-    .split(",")
-    .map((part) => part.split(";")[0].trim().toLowerCase().slice(0, 2));
-  for (const lang of preferred) {
-    if (isLocale(lang)) return lang;
-  }
   return DEFAULT_LOCALE;
 }
 
