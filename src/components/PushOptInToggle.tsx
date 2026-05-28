@@ -52,7 +52,16 @@ export function PushOptInToggle({ locale, initialOptIn }: Props) {
           if (!cancelled) setStatus("denied");
           return;
         }
-        const reg = await navigator.serviceWorker.ready;
+        // Some setups (this app in dev) skip the global SW registration
+        // for HMR sanity. `serviceWorker.ready` would hang forever in
+        // that case. Race it against an 8s timeout; on timeout fall back
+        // to "off" so the user sees an actionable toggle instead of an
+        // ellipsis that never resolves.
+        const reg = await waitForActiveSW(8000);
+        if (!reg) {
+          if (!cancelled) setStatus("off");
+          return;
+        }
         const sub = await reg.pushManager.getSubscription();
         if (!cancelled) {
           setStatus(sub && initialOptIn ? "on" : "off");
@@ -82,7 +91,21 @@ export function PushOptInToggle({ locale, initialOptIn }: Props) {
         setStatus("vapid_missing");
         return;
       }
-      const reg = await navigator.serviceWorker.ready;
+      // Ensure a SW exists for this scope - the global registrar skips
+      // dev. Idempotent: register() returns the existing registration if
+      // there is one. Then race ready against 8s so a stuck install
+      // can't pin the toggle in "loading".
+      try {
+        await navigator.serviceWorker.register("/sw.js", { scope: "/" });
+      } catch (err) {
+        console.warn("[push sw register failed]", { err });
+      }
+      const reg = await waitForActiveSW(8000);
+      if (!reg) {
+        setError("subscribe_failed");
+        setStatus("off");
+        return;
+      }
       let sub = await reg.pushManager.getSubscription();
       if (!sub) {
         sub = await reg.pushManager.subscribe({
@@ -120,7 +143,15 @@ export function PushOptInToggle({ locale, initialOptIn }: Props) {
     setError(null);
     setStatus("loading");
     try {
-      const reg = await navigator.serviceWorker.ready;
+      const reg = await waitForActiveSW(5000);
+      if (!reg) {
+        // Nothing to unsubscribe locally; still flip the server flag.
+        startTransition(async () => {
+          await setPushOptIn(false);
+          setStatus("off");
+        });
+        return;
+      }
       const sub = await reg.pushManager.getSubscription();
       const endpoint = sub?.endpoint;
       if (sub) {
@@ -266,6 +297,22 @@ function translateError(code: string, isHebrew: boolean): string {
     unauthorized: ["יש להתחבר", "Sign in required"],
   };
   return (map[code] ?? map.db)[isHebrew ? 0 : 1];
+}
+
+// Wait for an active service worker, but bail after `timeoutMs` so a
+// dev environment that never registers a SW (the global registrar
+// skips dev for HMR sanity) doesn't pin the toggle in "loading"
+// forever. Returns the registration on success, null on timeout.
+async function waitForActiveSW(
+  timeoutMs: number,
+): Promise<ServiceWorkerRegistration | null> {
+  if (typeof navigator === "undefined" || !("serviceWorker" in navigator)) {
+    return null;
+  }
+  return Promise.race<ServiceWorkerRegistration | null>([
+    navigator.serviceWorker.ready,
+    new Promise((resolve) => window.setTimeout(() => resolve(null), timeoutMs)),
+  ]);
 }
 
 // VAPID public keys are base64url. PushManager.subscribe needs a
