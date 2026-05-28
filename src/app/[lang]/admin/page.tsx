@@ -15,6 +15,7 @@ import {
   Clock,
   Copy,
   EyeOff,
+  Bell,
 } from "lucide-react";
 import { eq } from "drizzle-orm";
 import { hasLocale, type Locale } from "../dictionaries";
@@ -152,6 +153,12 @@ export default async function AdminPage({
           path="admin/email-test"
           icon={<Mail className="h-5 w-5" strokeWidth={1.75} />}
           label={isHebrew ? "בדיקת אימייל" : "Email test"}
+        />
+        <SectionLink
+          locale={locale}
+          path="admin/push-test"
+          icon={<Bell className="h-5 w-5" strokeWidth={1.75} />}
+          label={isHebrew ? "בדיקת push" : "Push test"}
         />
         <SectionLink
           locale={locale}
