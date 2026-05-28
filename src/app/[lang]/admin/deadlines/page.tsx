@@ -5,6 +5,7 @@ import { ChevronLeft, ChevronRight, Clock } from "lucide-react";
 import { hasLocale, type Locale } from "../../dictionaries";
 import { requireAdmin } from "@/lib/admin";
 import { db } from "@/db";
+import { execFirstRow, execRows } from "@/db/helpers";
 import {
   BET_TYPE_KEYS,
   STAGE_KEYS,
@@ -74,14 +75,14 @@ export default async function AdminDeadlinesPage({
         .from(settings)
         .where(eq(settings.id, 1))
         .limit(1),
-      db.execute<MatchdayWithKickoff>(sql`
+      execRows<MatchdayWithKickoff>(sql`
         select
-          md.id::text as id,
-          to_char(md.date, 'YYYY-MM-DD') as date,
-          md.label,
-          md.lock_offset_override_minutes,
-          earliest.kickoff_at::text as "earliestKickoffAt",
-          earliest.stage::text as "earliestStage"
+          md.id::text                                as "id",
+          to_char(md.date, 'YYYY-MM-DD')             as "date",
+          md.label                                   as "label",
+          md.lock_offset_override_minutes            as "lockOffsetOverrideMinutes",
+          earliest.kickoff_at::text                  as "earliestKickoffAt",
+          earliest.stage::text                       as "earliestStage"
         from public.matchdays md
         left join lateral (
           select m.kickoff_at, m.stage
@@ -92,26 +93,26 @@ export default async function AdminDeadlinesPage({
         ) earliest on true
         order by md.date asc
       `),
-      db.execute<{ kickoff_at: string | null }>(sql`
+      execFirstRow<{ kickoff_at: string | null }>(sql`
         select min(kickoff_at) as kickoff_at from public.matches
       `),
       // Upcoming + currently-live fixtures only - past matches are
       // irrelevant for a deadline override and would bloat the list.
-      db.execute<{
+      execRows<{
         id: string;
-        kickoff_at: string;
-        lock_at_override: string | null;
-        home_team: string;
-        away_team: string;
+        kickoffAt: string;
+        lockAtOverride: string | null;
+        homeTeam: string;
+        awayTeam: string;
         stage: string;
       }>(sql`
         select
-          m.id::text as id,
-          m.kickoff_at,
-          m.lock_at_override,
-          m.home_team,
-          m.away_team,
-          m.stage::text as stage
+          m.id::text          as "id",
+          m.kickoff_at::text  as "kickoffAt",
+          m.lock_at_override  as "lockAtOverride",
+          m.home_team         as "homeTeam",
+          m.away_team         as "awayTeam",
+          m.stage::text       as "stage"
         from public.matches m
         where m.status <> 'final'
         order by m.kickoff_at asc
@@ -138,32 +139,14 @@ export default async function AdminDeadlinesPage({
   }
 
   const tournamentStartAt = settingsRow[0]?.tournamentStartAt ?? null;
-  const derivedRaw =
-    (derivedRow as unknown as Array<{ kickoff_at: string | null }>)[0]
-      ?.kickoff_at ?? null;
-  const matchdays = (matchdayRows as unknown as MatchdayWithKickoff[]).map((m) => ({
-    ...m,
-    // Re-cast the snake-cased column drizzle returns from raw SQL so
-    // the client form receives a clean shape.
-    lockOffsetOverrideMinutes:
-      (m as unknown as { lock_offset_override_minutes: number | null })
-        .lock_offset_override_minutes ?? null,
-  }));
-  const matchesList = (
-    matchRows as unknown as Array<{
-      id: string;
-      kickoff_at: string;
-      lock_at_override: string | null;
-      home_team: string;
-      away_team: string;
-      stage: string;
-    }>
-  ).map((m) => ({
+  const derivedRaw = derivedRow?.kickoff_at ?? null;
+  const matchdays = matchdayRows;
+  const matchesList = matchRows.map((m) => ({
     id: m.id,
-    kickoffAt: m.kickoff_at,
-    lockAtOverride: m.lock_at_override,
-    homeTeam: m.home_team,
-    awayTeam: m.away_team,
+    kickoffAt: m.kickoffAt,
+    lockAtOverride: m.lockAtOverride,
+    homeTeam: m.homeTeam,
+    awayTeam: m.awayTeam,
     stage: m.stage,
   }));
 

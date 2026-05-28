@@ -30,9 +30,14 @@ function headers(): Record<string, string> | null {
   };
 }
 
+// `parse` may return null when the response is shaped wrong or holds no
+// rows the caller cares about; the outer null branches (key unset,
+// upstream error) carry through unchanged. Letting the parser return
+// null directly is what kills the `null as unknown as T` casts that
+// each `rows[0] ?? null` callsite used to need.
 async function get<TParsed>(
   path: string,
-  parse: (json: unknown) => TParsed,
+  parse: (json: unknown) => TParsed | null,
   revalidate = 3600,
 ): Promise<TParsed | null> {
   const h = headers();
@@ -221,7 +226,7 @@ export async function fetchTeamStatistics(
     `/teams/statistics?league=${WC_LEAGUE}&season=${season}&team=${apiTeamId}`,
     (json) => {
       const r = (json as { response?: RawTeamStatistics }).response;
-      if (!r) return null as unknown as ApiTeamStatistics;
+      if (!r) return null;
       return parseTeamStatistics(r);
     },
     3600,
@@ -295,7 +300,7 @@ export async function fetchMatchDetails(
     (json) => {
       const rows = (json as { response?: RawFixtureDetailRow[] }).response ?? [];
       const r = rows[0];
-      if (!r) return null as unknown as ApiMatchDetails;
+      if (!r) return null;
       return parseFixtureDetailRow(r);
     },
     liveMode ? 30 : 43200,
@@ -331,7 +336,7 @@ export async function fetchPrediction(
     (json) => {
       const rows = (json as { response?: RawPredictionRow[] }).response ?? [];
       const r = rows[0];
-      if (!r) return null as unknown as ApiPrediction;
+      if (!r) return null;
       return parsePrediction(r);
     },
     3600,
@@ -356,7 +361,7 @@ export async function fetchHeadCoach(apiTeamId: number): Promise<ApiCoach | null
       const rows = (json as { response?: RawCoachRow[] }).response ?? [];
       const current = rows.find((r) => !r.career?.some((c) => c.end != null && c.team.id === apiTeamId))
         ?? rows[0];
-      if (!current) return null as unknown as ApiCoach;
+      if (!current) return null;
       return parseCoachRow(current);
     },
     86400,

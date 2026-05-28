@@ -14,7 +14,7 @@ import { getUserAccess } from "@/lib/access";
 import { getBankBalance } from "@/lib/bank";
 import { localePath } from "@/lib/paths";
 import { serverNow } from "@/lib/server-now";
-import { db } from "@/db";
+import { execRows } from "@/db/helpers";
 import { getGroupPlayBets, type GroupPlayBetRow } from "@/db/queries";
 import type { AnswerConfig, PickAnswer } from "@/lib/bets/types";
 
@@ -31,7 +31,7 @@ type GroupTeam = {
 };
 
 async function listGroupTeams(): Promise<GroupTeam[]> {
-  const rows = await db.execute<GroupTeam>(sql`
+  return execRows<GroupTeam>(sql`
     select
       g.id              as "groupId",
       g.display_order   as "displayOrder",
@@ -43,7 +43,6 @@ async function listGroupTeams(): Promise<GroupTeam[]> {
     join public.teams  t on t.group_id = g.id
     order by g.display_order asc, t.code asc
   `);
-  return rows as unknown as GroupTeam[];
 }
 
 // Explicit prop typing — the auto-generated AppRoutes constraint does

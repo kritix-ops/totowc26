@@ -5,7 +5,7 @@ import { getDictionary, hasLocale, type Locale } from "../../dictionaries";
 import { getRequestUser } from "@/lib/request-user";
 import { getUserAccess } from "@/lib/access";
 import { getFixtureWithBets, getMyBet } from "@/db/queries";
-import { db } from "@/db";
+import { execFirstRow } from "@/db/helpers";
 import type { StageKey } from "@/db/schema";
 import { Card, LabelCaps } from "@/components/ui";
 import { PayGateBanner } from "@/components/PayGateBanner";
@@ -32,11 +32,11 @@ export default async function MatchBetPage({
 
   const match = await getFixtureWithBets(matchId);
   if (!match) notFound();
-  const [myBet, access, context, anchorRow] = await Promise.all([
+  const [myBet, access, context, a] = await Promise.all([
     getMyBet(matchId, user.id),
     getUserAccess(user.id),
     getDeadlineContext(),
-    db.execute<{
+    execFirstRow<{
       lock_at_override: string | null;
       matchday_offset: number | null;
     }>(sql`
@@ -54,10 +54,6 @@ export default async function MatchBetPage({
   const isHebrew = locale === "he";
   const homeName = isHebrew ? match.homeNameHe : match.homeNameEn;
   const awayName = isHebrew ? match.awayNameHe : match.awayNameEn;
-  const a = (anchorRow as unknown as Array<{
-    lock_at_override: string | null;
-    matchday_offset: number | null;
-  }>)[0];
   const resolvedLock = resolveMatchScoreLock(
     {
       matchId: match.id,

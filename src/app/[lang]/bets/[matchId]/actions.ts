@@ -3,6 +3,7 @@
 import { revalidatePath, updateTag } from "next/cache";
 import { sql } from "drizzle-orm";
 import { db } from "@/db";
+import { execFirstRow } from "@/db/helpers";
 import { matchBets, type StageKey } from "@/db/schema";
 import { getUser } from "@/lib/supabase/auth";
 import { getUserAccess } from "@/lib/access";
@@ -58,7 +59,7 @@ export async function saveBet(
   // matchday-level offset override applies to the right day. If no
   // matchday row exists yet (admin hasn't materialised it), md fields
   // come back null and the resolver falls through to the type default.
-  const row = await db.execute<{
+  const r = await execFirstRow<{
     status: string;
     kickoff_at: string;
     stage: string;
@@ -82,17 +83,7 @@ export async function saveBet(
     where m.id = ${matchId}::uuid and s.id = 1
     limit 1
   `);
-  const list = row as unknown as Array<{
-    status: string;
-    kickoff_at: string;
-    stage: string;
-    lock_at_override: string | null;
-    matchday_offset: number | null;
-    risk_enabled: boolean;
-    risk_penalty: number;
-  }>;
-  if (list.length === 0) return { ok: false, error: "not_found" };
-  const r = list[0];
+  if (!r) return { ok: false, error: "not_found" };
   if (r.status !== "scheduled") return { ok: false, error: "locked" };
 
   const context = await getDeadlineContext();

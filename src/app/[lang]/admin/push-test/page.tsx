@@ -4,7 +4,7 @@ import { sql } from "drizzle-orm";
 import { Bell, ChevronLeft, ChevronRight } from "lucide-react";
 import { hasLocale, type Locale } from "../../dictionaries";
 import { requireAdmin } from "@/lib/admin";
-import { db } from "@/db";
+import { execRows } from "@/db/helpers";
 import { Card } from "@/components/ui";
 import { localePath } from "@/lib/paths";
 import { PushTestForm } from "./PushTestForm";
@@ -35,7 +35,7 @@ export default async function AdminPushTestPage({
   const isHebrew = locale === "he";
   const ChevronBack = isHebrew ? ChevronRight : ChevronLeft;
 
-  const rows = await db.execute<Candidate>(sql`
+  const candidates = await execRows<Candidate>(sql`
     select
       p.id::text                            as "id",
       p.display_name                        as "displayName",
@@ -46,7 +46,6 @@ export default async function AdminPushTestPage({
     group by p.id, p.display_name, p.push_opt_in
     order by p.display_name asc
   `);
-  const candidates = rows as unknown as Candidate[];
   const optedInCount = candidates.filter((c) => c.pushOptIn).length;
   const vapidConfigured = !!process.env.VAPID_PUBLIC_KEY;
 

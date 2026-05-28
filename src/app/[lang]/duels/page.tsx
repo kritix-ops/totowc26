@@ -8,7 +8,7 @@ import { Card, Chip, LabelCaps, PillButton } from "@/components/ui";
 import { PayGateBanner } from "@/components/PayGateBanner";
 import { getRequestUser } from "@/lib/request-user";
 import { getUserAccess } from "@/lib/access";
-import { db } from "@/db";
+import { execRows } from "@/db/helpers";
 import { localePath } from "@/lib/paths";
 import { formatDateTime } from "@/lib/format";
 
@@ -257,7 +257,7 @@ async function loadDuels(tab: Tab, userId: string): Promise<DuelRow[]> {
     tab === "open"
       ? sql`d.status = 'open' and d.join_deadline_at > now()`
       : sql`(d.opener_id = ${userId} or d.joiner_id = ${userId})`;
-  const rows = await db.execute<DuelRow>(sql`
+  return execRows<DuelRow>(sql`
     select
       d.id::text                                              as "id",
       d.status::text                                          as "status",
@@ -291,5 +291,4 @@ async function loadDuels(tab: Tab, userId: string): Promise<DuelRow[]> {
       d.join_deadline_at asc
     limit 100
   `);
-  return rows as unknown as DuelRow[];
 }

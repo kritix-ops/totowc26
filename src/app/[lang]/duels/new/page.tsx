@@ -8,6 +8,7 @@ import { getRequestUser } from "@/lib/request-user";
 import { getUserAccess } from "@/lib/access";
 import { getBankBalance } from "@/lib/bank";
 import { db } from "@/db";
+import { execRows } from "@/db/helpers";
 import { settings } from "@/db/schema";
 import { formatDateTime } from "@/lib/format";
 import { localePath } from "@/lib/paths";
@@ -92,7 +93,7 @@ export default async function NewDuelPage({ params }: PageParams) {
 }
 
 async function loadUpcomingFixtures(locale: Locale): Promise<FixtureOption[]> {
-  const rows = await db.execute<{
+  const list = await execRows<{
     id: string;
     homeCode: string;
     awayCode: string;
@@ -109,12 +110,6 @@ async function loadUpcomingFixtures(locale: Locale): Promise<FixtureOption[]> {
     order by m.kickoff_at asc
     limit 50
   `);
-  const list = rows as unknown as Array<{
-    id: string;
-    homeCode: string;
-    awayCode: string;
-    kickoff_at: string;
-  }>;
   return list.map((r) => ({
     id: r.id,
     label: `${r.homeCode} vs ${r.awayCode} · ${formatDateTime(r.kickoff_at, locale, {
@@ -129,7 +124,7 @@ async function loadUpcomingFixtures(locale: Locale): Promise<FixtureOption[]> {
 }
 
 async function loadUpcomingMatchdays(locale: Locale): Promise<MatchdayOption[]> {
-  const rows = await db.execute<{ date: string; fixture_count: number }>(sql`
+  const list = await execRows<{ date: string; fixture_count: number }>(sql`
     select
       to_char((m.kickoff_at at time zone 'Asia/Jerusalem')::date, 'YYYY-MM-DD') as "date",
       count(*)::int                                                              as "fixture_count"
@@ -140,7 +135,6 @@ async function loadUpcomingMatchdays(locale: Locale): Promise<MatchdayOption[]> 
     order by 1 asc
     limit 30
   `);
-  const list = rows as unknown as Array<{ date: string; fixture_count: number }>;
   return list.map((r) => ({
     date: r.date,
     label: formatDateTime(`${r.date}T12:00:00Z`, locale, {

@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { and, eq, sql } from "drizzle-orm";
 import { db } from "@/db";
+import { execFirstRow } from "@/db/helpers";
 import {
   betGradingAudit,
   customBets,
@@ -500,7 +501,7 @@ function validateGradingConfig(
 // we let PG do the conversion in-query rather than doing it in JS (avoids
 // DST surprises).
 async function upsertMatchdayFromKickoff(kickoffAt: Date): Promise<string> {
-  const rows = await db.execute<{ id: string; date: string }>(sql`
+  const row = await execFirstRow<{ id: string; date: string }>(sql`
     with d as (
       select (${kickoffAt.toISOString()}::timestamptz at time zone 'Asia/Jerusalem')::date as day
     ),
@@ -517,8 +518,10 @@ async function upsertMatchdayFromKickoff(kickoffAt: Date): Promise<string> {
     where md.date = d.day
     limit 1
   `);
-  const list = rows as unknown as Array<{ id: string; date: string }>;
-  return list[0].id;
+  if (!row) {
+    throw new Error("upsertMatchdayFromKickoff: no row returned from CTE");
+  }
+  return row.id;
 }
 
 // ---------- grading ----------
@@ -827,7 +830,7 @@ async function upsertMatchdayByDate(yyyymmdd: string): Promise<string> {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(yyyymmdd)) {
     throw new Error(`invalid date string: ${yyyymmdd}`);
   }
-  const rows = await db.execute<{ id: string }>(sql`
+  const row = await execFirstRow<{ id: string }>(sql`
     with inserted as (
       insert into public.matchdays (date)
       values (${yyyymmdd}::date)
@@ -840,6 +843,8 @@ async function upsertMatchdayByDate(yyyymmdd: string): Promise<string> {
     where md.date = ${yyyymmdd}::date
     limit 1
   `);
-  const list = rows as unknown as Array<{ id: string }>;
-  return list[0].id;
+  if (!row) {
+    throw new Error(`upsertMatchdayByDate: no row returned for ${yyyymmdd}`);
+  }
+  return row.id;
 }

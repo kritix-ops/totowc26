@@ -3,6 +3,7 @@
 import { revalidatePath, updateTag } from "next/cache";
 import { and, eq, sql } from "drizzle-orm";
 import { db } from "@/db";
+import { execFirstRow } from "@/db/helpers";
 import { duels, matches as matchesTable, matchdays, settings } from "@/db/schema";
 import { getUser } from "@/lib/supabase/auth";
 import { isAdmin } from "@/lib/admin";
@@ -115,14 +116,13 @@ export async function openDuel(input: OpenDuelInput): Promise<OpenDuelResult> {
   // the last 24h (including those that auto-cancelled with no joiner)
   // so a script that hammers openDuel can't flood the feed even at
   // stake=1. Bound mirrors settings.duel_daily_limit.
-  const recentRows = await db.execute<{ count: number }>(sql`
+  const recentRow = await execFirstRow<{ count: number }>(sql`
     select count(*)::int as "count"
     from public.duels d
     where d.opener_id = ${user.id}
       and d.created_at > now() - interval '24 hours'
   `);
-  const recentCount =
-    (recentRows as unknown as Array<{ count: number }>)[0]?.count ?? 0;
+  const recentCount = recentRow?.count ?? 0;
   if (recentCount >= s.duelDailyLimit) {
     return { ok: false, error: "rate_limited" };
   }
@@ -359,7 +359,7 @@ async function notifyDuelJoined(
   joinerId: string,
 ): Promise<void> {
   try {
-    const rows = await db.execute<{
+    const r = await execFirstRow<{
       opener_email: string | null;
       opener_name: string;
       joiner_name: string;
@@ -381,14 +381,6 @@ async function notifyDuelJoined(
       where d.id = ${duelId}::uuid
       limit 1
     `);
-    const r = (rows as unknown as Array<{
-      opener_email: string | null;
-      opener_name: string;
-      joiner_name: string;
-      question_he: string;
-      question_en: string;
-      stake: number;
-    }>)[0];
     if (!r || !r.opener_email) {
       console.warn("[duel email skipped]", {
         duelId,
@@ -599,12 +591,11 @@ async function upsertMatchdayByDate(date: string): Promise<string> {
 
 async function firstKickoffOnDate(date: string): Promise<Date | null> {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
-  const rows = await db.execute<{ kickoff_at: string }>(sql`
+  const r = await execFirstRow<{ kickoff_at: string | null }>(sql`
     select min(m.kickoff_at)::text as "kickoff_at"
     from public.matches m
     where (m.kickoff_at at time zone 'Asia/Jerusalem')::date = ${date}::date
       and m.status = 'scheduled'
   `);
-  const r = (rows as unknown as Array<{ kickoff_at: string | null }>)[0];
   return r?.kickoff_at ? new Date(r.kickoff_at) : null;
 }

@@ -7,7 +7,7 @@ import { Card } from "@/components/ui";
 import { PayGateBanner } from "@/components/PayGateBanner";
 import { getRequestUser } from "@/lib/request-user";
 import { getUserAccess } from "@/lib/access";
-import { db } from "@/db";
+import { execRows } from "@/db/helpers";
 import { getBetLockMinutes } from "@/db/queries";
 import { formatDateTime } from "@/lib/format";
 import { localePath } from "@/lib/paths";
@@ -133,9 +133,7 @@ export default async function QuickBetsPage({
 }
 
 async function loadEditableMatches(userId: string): Promise<QuickPickRowData[]> {
-  const rows = await db.execute<QuickPickRowData & {
-    match_date: string;
-  }>(sql`
+  return execRows<QuickPickRowData>(sql`
     select
       m.id::text                                                        as "id",
       m.home_team                                                       as "homeCode",
@@ -159,6 +157,5 @@ async function loadEditableMatches(userId: string): Promise<QuickPickRowData[]> 
     order by m.kickoff_at asc
     limit 200
   `);
-  return rows as unknown as QuickPickRowData[];
 }
 

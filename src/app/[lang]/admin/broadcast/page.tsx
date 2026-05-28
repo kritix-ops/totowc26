@@ -4,7 +4,7 @@ import { sql } from "drizzle-orm";
 import { Megaphone, ChevronLeft, ChevronRight } from "lucide-react";
 import { hasLocale, type Locale } from "../../dictionaries";
 import { requireAdmin } from "@/lib/admin";
-import { db } from "@/db";
+import { execRows } from "@/db/helpers";
 import { Card } from "@/components/ui";
 import { localePath } from "@/lib/paths";
 import { BroadcastForm } from "./BroadcastForm";
@@ -32,7 +32,7 @@ export default async function AdminBroadcastPage({
   const isHebrew = locale === "he";
   const ChevronBack = isHebrew ? ChevronRight : ChevronLeft;
 
-  const rows = await db.execute<Recipient>(sql`
+  const recipients = await execRows<Recipient>(sql`
     select
       p.id::text                            as "id",
       p.display_name                        as "displayName",
@@ -47,7 +47,6 @@ export default async function AdminBroadcastPage({
     left join auth.users au on au.id = p.id
     order by p.display_name asc
   `);
-  const recipients = rows as unknown as Recipient[];
   const optedInCount = recipients.filter((r) => r.pushOptIn).length;
   const totalPlayers = recipients.length;
   const vapidConfigured = !!process.env.VAPID_PUBLIC_KEY;

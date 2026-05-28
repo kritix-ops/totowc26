@@ -8,7 +8,7 @@ import { PayGateBanner } from "@/components/PayGateBanner";
 import { getRequestUser } from "@/lib/request-user";
 import { getUserAccess } from "@/lib/access";
 import { isAdmin } from "@/lib/admin";
-import { db } from "@/db";
+import { execFirstRow } from "@/db/helpers";
 import { localePath } from "@/lib/paths";
 import { formatDateTime } from "@/lib/format";
 import { serverNow } from "@/lib/server-now";
@@ -265,7 +265,7 @@ async function loadDuel(id: string): Promise<DuelDetail | null> {
   // parameter-binds the value, but a non-UUID input would throw at the
   // cast - returning null instead is cleaner for the notFound() path.
   if (!/^[0-9a-f-]{36}$/i.test(id)) return null;
-  const rows = await db.execute<DuelDetail>(sql`
+  return execFirstRow<DuelDetail>(sql`
     select
       d.id::text                                                as "id",
       d.status::text                                            as "status",
@@ -295,6 +295,4 @@ async function loadDuel(id: string): Promise<DuelDetail | null> {
     where d.id = ${id}::uuid
     limit 1
   `);
-  const list = rows as unknown as DuelDetail[];
-  return list[0] ?? null;
 }

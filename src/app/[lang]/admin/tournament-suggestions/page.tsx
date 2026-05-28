@@ -7,6 +7,7 @@ import { hasLocale, type Locale } from "../../dictionaries";
 import { Card } from "@/components/ui";
 import { requireAdmin } from "@/lib/admin";
 import { db } from "@/db";
+import { execFirstRow, execRows } from "@/db/helpers";
 import { settings } from "@/db/schema";
 import { localePath } from "@/lib/paths";
 import { serverNow } from "@/lib/server-now";
@@ -353,20 +354,18 @@ function buildTemplates({
 // ---------- data ----------
 
 async function loadWcTeams(): Promise<Team[]> {
-  const rows = await db.execute<Team>(sql`
+  return execRows<Team>(sql`
     select t.code as "code", t.name_he as "nameHe", t.name_en as "nameEn", t.flag as "flag"
     from public.teams t
     where t.group_id is not null
     order by t.name_en asc
   `);
-  return rows as unknown as Team[];
 }
 
 async function loadLastWcKickoff(): Promise<{ kickoff_at: string } | null> {
-  const rows = await db.execute<{ kickoff_at: string }>(sql`
+  const r = await execFirstRow<{ kickoff_at: string | null }>(sql`
     select max(m.kickoff_at)::text as "kickoff_at"
     from public.matches m
   `);
-  const r = (rows as unknown as Array<{ kickoff_at: string | null }>)[0];
   return r?.kickoff_at ? { kickoff_at: r.kickoff_at } : null;
 }

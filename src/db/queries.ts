@@ -924,7 +924,7 @@ export async function loadPlayersForPicker(
     teamNameHe: string;
     teamFlag: string;
   };
-  const rows = (await db.execute<Row>(sql`
+  const rows = await execRows<Row>(sql`
     select
       p.api_football_id   as "apiFootballId",
       p.team_code         as "teamCode",
@@ -937,7 +937,7 @@ export async function loadPlayersForPicker(
       t.flag              as "teamFlag"
     from public.players p
     join public.teams   t on t.code = p.team_code
-  `)) as unknown as Row[];
+  `);
 
   const options: MultiChoiceOption[] = rows.map((r) => {
     const positionKey = positionTermKey(r.position);
@@ -1584,7 +1584,7 @@ export async function getPlayDayDetail(
 ): Promise<PlayDayDetail> {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
 
-  const fixtures = await db.execute<PlayFixture>(sql`
+  const fxList = await execRows<PlayFixture>(sql`
     select
       m.id::text       as "id",
       m.kickoff_at     as "kickoffAt",
@@ -1605,7 +1605,7 @@ export async function getPlayDayDetail(
     order by m.kickoff_at asc
   `);
 
-  const bets = await db.execute<PlayBetRow>(sql`
+  const betList = await execRows<PlayBetRow>(sql`
     select
       cb.id::text                                 as "id",
       cb.scope::text                              as "scope",
@@ -1640,18 +1640,15 @@ export async function getPlayDayDetail(
       cb.lock_at asc
   `);
 
-  const fxList = fixtures as unknown as PlayFixture[];
-  const betList = bets as unknown as PlayBetRow[];
-
   if (fxList.length === 0 && betList.length === 0) return null;
 
-  const [md] = await db.execute<{ id: string | null }>(sql`
+  const md = await execFirstRow<{ id: string | null }>(sql`
     select md.id::text as id
     from public.matchdays md
     where md.date = ${date}::date
     limit 1
   `);
-  const matchdayId = (md as unknown as { id: string | null } | undefined)?.id ?? null;
+  const matchdayId = md?.id ?? null;
 
   return {
     date,
@@ -2008,7 +2005,7 @@ export type BankStats = {
 };
 
 export async function getBankStats(userId: string): Promise<BankStats> {
-  const rows = await db.execute<{
+  const r = await execFirstRow<{
     match_points: number;
     live_points: number;
     duel_delta: number;
@@ -2069,17 +2066,6 @@ export async function getBankStats(userId: string): Promise<BankStats> {
           and d.status in ('matched', 'settled')
       ), 0)                                                       as duels_participated
   `);
-  const r = (rows as unknown as Array<{
-    match_points: number;
-    live_points: number;
-    duel_delta: number;
-    match_hits: number;
-    exact_hits: number;
-    duels_opened: number;
-    duels_joined: number;
-    duels_won: number;
-    duels_participated: number;
-  }>)[0];
   return {
     matchPoints: Number(r?.match_points ?? 0),
     livePoints: Number(r?.live_points ?? 0),
