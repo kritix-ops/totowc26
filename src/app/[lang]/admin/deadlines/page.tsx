@@ -7,9 +7,12 @@ import { requireAdmin } from "@/lib/admin";
 import { db } from "@/db";
 import {
   BET_TYPE_KEYS,
+  STAGE_KEYS,
   betLockDefaults,
   settings,
+  stageLockDefaults,
   type BetTypeKey,
+  type StageKey,
 } from "@/db/schema";
 import { Card } from "@/components/ui";
 import { localePath } from "@/lib/paths";
@@ -18,14 +21,17 @@ import { DeadlinesForm } from "./DeadlinesForm";
 
 // Per-day earliest kickoff lives on matches.kickoff_at (UTC) but the
 // matchday is keyed by Asia/Jerusalem date - so we group by the Israel
-// date to find the right anchor per day. Used purely for display ("היום
-// הזה מתחיל ב-19:00") so a missing row is fine; we render "-".
+// date to find the right anchor per day. Used both for display ("היום
+// הזה מתחיל ב-19:00") and to pick the stage that this matchday's
+// inherit-placeholder shows. earliestStage is null when the matchday
+// has no matches yet.
 type MatchdayWithKickoff = {
   id: string;
   date: string;
   label: string | null;
   lockOffsetOverrideMinutes: number | null;
   earliestKickoffAt: string | null;
+  earliestStage: string | null;
 };
 
 export default async function AdminDeadlinesPage({
@@ -40,14 +46,26 @@ export default async function AdminDeadlinesPage({
   const isHebrew = locale === "he";
   const ChevronBack = isHebrew ? ChevronRight : ChevronLeft;
 
-  const [defaultsRows, settingsRow, matchdayRows, derivedRow, matchRows] =
-    await Promise.all([
+  const [
+    defaultsRows,
+    stageRows,
+    settingsRow,
+    matchdayRows,
+    derivedRow,
+    matchRows,
+  ] = await Promise.all([
       db
         .select({
           betType: betLockDefaults.betType,
           offsetMinutes: betLockDefaults.offsetMinutes,
         })
         .from(betLockDefaults),
+      db
+        .select({
+          stage: stageLockDefaults.stage,
+          offsetMinutes: stageLockDefaults.offsetMinutes,
+        })
+        .from(stageLockDefaults),
       db
         .select({
           tournamentStartAt: settings.tournamentStartAt,
@@ -62,12 +80,16 @@ export default async function AdminDeadlinesPage({
           to_char(md.date, 'YYYY-MM-DD') as date,
           md.label,
           md.lock_offset_override_minutes,
-          (
-            select min(m.kickoff_at)
-            from public.matches m
-            where (m.kickoff_at at time zone 'Asia/Jerusalem')::date = md.date
-          )::text as "earliestKickoffAt"
+          earliest.kickoff_at::text as "earliestKickoffAt",
+          earliest.stage::text as "earliestStage"
         from public.matchdays md
+        left join lateral (
+          select m.kickoff_at, m.stage
+          from public.matches m
+          where (m.kickoff_at at time zone 'Asia/Jerusalem')::date = md.date
+          order by m.kickoff_at asc
+          limit 1
+        ) earliest on true
         order by md.date asc
       `),
       db.execute<{ kickoff_at: string | null }>(sql`
@@ -102,6 +124,16 @@ export default async function AdminDeadlinesPage({
   for (const r of defaultsRows) {
     if ((BET_TYPE_KEYS as readonly string[]).includes(r.betType)) {
       defaultsMap[r.betType as BetTypeKey] = r.offsetMinutes;
+    }
+  }
+
+  // Sparse stage defaults: only stages with a saved row are present.
+  // The form coerces missing keys to "empty" so the admin sees an
+  // empty input that means "inherit the type default".
+  const stageDefaultsMap: Partial<Record<StageKey, number>> = {};
+  for (const r of stageRows) {
+    if ((STAGE_KEYS as readonly string[]).includes(r.stage)) {
+      stageDefaultsMap[r.stage as StageKey] = r.offsetMinutes;
     }
   }
 
@@ -143,7 +175,7 @@ export default async function AdminDeadlinesPage({
           className="inline-flex items-center gap-1 text-sm text-on-surface-variant hover:text-primary self-start"
         >
           <ChevronBack className="h-4 w-4" />
-          {isHebrew ? "חזרה לניהול" : "Back to admin"}
+          {isHebrew ? "חזרה לדף הניהול" : "Back to admin"}
         </Link>
         <h1 className="font-[family-name:var(--font-display)] text-[24px] leading-8 md:text-[36px] md:leading-[40px] font-bold text-primary inline-flex items-center gap-3">
           <Clock className="h-6 w-6 md:h-8 md:w-8" strokeWidth={1.75} />
@@ -151,7 +183,7 @@ export default async function AdminDeadlinesPage({
         </h1>
         <p className="text-base text-on-surface-variant">
           {isHebrew
-            ? "שולט מתי כל סוג הימור נסגר. שלוש שכבות: ברירת מחדל לפי סוג, דריסה לפי יום הימורים, ודריסה לכל הימור או משחק ספציפי (בעמוד עריכת ההימור)."
+            ? "קובע מתי כל סוג הימור נסגר. שלוש שכבות: ברירת מחדל לפי סוג, דריסה לפי יום הימורים, ודריסה לכל הימור או משחק ספציפי (בעמוד עריכת ההימור)."
             : "Decide when each bet type closes. Three layers: per-type default, per-matchday override, and per-bet/per-match override (set on the bet edit page)."}
         </p>
       </header>
@@ -170,6 +202,7 @@ export default async function AdminDeadlinesPage({
       <DeadlinesForm
         locale={locale}
         initialDefaults={defaultsMap}
+        initialStageDefaults={stageDefaultsMap}
         initialTournamentStartAt={
           tournamentStartAt ? tournamentStartAt.toISOString() : null
         }

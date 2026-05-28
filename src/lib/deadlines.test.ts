@@ -46,6 +46,7 @@ describe("resolveMatchScoreLock", () => {
       {
         matchId: "m1",
         kickoffAt: KICKOFF,
+        stage: "group",
         lockAtOverride: null,
         matchdayLockOffsetMinutes: 30,
       },
@@ -62,6 +63,7 @@ describe("resolveMatchScoreLock", () => {
       {
         matchId: "m1",
         kickoffAt: KICKOFF,
+        stage: "group",
         lockAtOverride: null,
         matchdayLockOffsetMinutes: null,
       },
@@ -79,6 +81,7 @@ describe("resolveMatchScoreLock", () => {
       {
         matchId: "m1",
         kickoffAt: KICKOFF,
+        stage: "group",
         lockAtOverride: null,
         matchdayLockOffsetMinutes: 0,
       },
@@ -94,6 +97,7 @@ describe("resolveMatchScoreLock", () => {
       {
         matchId: "m1",
         kickoffAt: KICKOFF,
+        stage: "group",
         lockAtOverride: null,
         matchdayLockOffsetMinutes: 30,
       },
@@ -111,6 +115,7 @@ describe("resolveMatchScoreLock", () => {
       {
         matchId: "m1",
         kickoffAt: KICKOFF,
+        stage: "group",
         lockAtOverride: override,
         matchdayLockOffsetMinutes: null,
       },
@@ -118,6 +123,72 @@ describe("resolveMatchScoreLock", () => {
     );
     expect(r.source).toBe("per_bet_override");
     expect(r.effectiveLockAt.toISOString()).toBe(override.toISOString());
+  });
+
+  it("uses the per-stage default when matchday override is null", () => {
+    const r = resolveMatchScoreLock(
+      {
+        matchId: "m1",
+        kickoffAt: KICKOFF,
+        stage: "r16",
+        lockAtOverride: null,
+        matchdayLockOffsetMinutes: null,
+      },
+      { ...baseContext, stageDefaults: { r16: 90 } },
+    );
+    expect(r.source).toBe("stage_default");
+    expect(r.appliedOffsetMinutes).toBe(90);
+    expect(r.effectiveLockAt.getTime()).toBe(KICKOFF.getTime() - 90 * 60_000);
+  });
+
+  it("matchday override wins over the per-stage default", () => {
+    const r = resolveMatchScoreLock(
+      {
+        matchId: "m1",
+        kickoffAt: KICKOFF,
+        stage: "r16",
+        lockAtOverride: null,
+        matchdayLockOffsetMinutes: 45,
+      },
+      { ...baseContext, stageDefaults: { r16: 90 } },
+    );
+    expect(r.source).toBe("matchday_override");
+    expect(r.appliedOffsetMinutes).toBe(45);
+  });
+
+  it("global cap wins over the per-stage default", () => {
+    const cap = new Date("2026-06-10T20:59:00Z");
+    const r = resolveMatchScoreLock(
+      {
+        matchId: "m1",
+        kickoffAt: KICKOFF,
+        stage: "r16",
+        lockAtOverride: null,
+        matchdayLockOffsetMinutes: null,
+      },
+      {
+        ...baseContext,
+        matchPicksGlobalLockAt: cap,
+        stageDefaults: { r16: 90 },
+      },
+    );
+    expect(r.source).toBe("global_match_picks_cap");
+    expect(r.effectiveLockAt.toISOString()).toBe(cap.toISOString());
+  });
+
+  it("per-stage default for an unrelated stage doesn't apply", () => {
+    const r = resolveMatchScoreLock(
+      {
+        matchId: "m1",
+        kickoffAt: KICKOFF,
+        stage: "group",
+        lockAtOverride: null,
+        matchdayLockOffsetMinutes: null,
+      },
+      { ...baseContext, stageDefaults: { r16: 90 } },
+    );
+    expect(r.source).toBe("type_default");
+    expect(r.appliedOffsetMinutes).toBe(FALLBACK_OFFSET_MINUTES.match_score);
   });
 });
 
@@ -194,5 +265,54 @@ describe("previewCustomBetLock", () => {
     );
     expect(r.source).toBe("type_default");
     expect(r.offsetMinutesApplied).toBe(FALLBACK_OFFSET_MINUTES.custom_stage);
+  });
+
+  it("per-stage default applies to match-scope preview when matchday override is null", () => {
+    const anchor = new Date("2026-07-05T18:00:00Z");
+    const r = previewCustomBetLock(
+      { scope: "match", anchor, stage: "qf" },
+      { ...baseContext, stageDefaults: { qf: 75 } },
+    );
+    expect(r.source).toBe("stage_default");
+    expect(r.offsetMinutesApplied).toBe(75);
+    expect(r.effectiveLockAt?.getTime()).toBe(anchor.getTime() - 75 * 60_000);
+  });
+
+  it("per-stage default applies to day-scope preview when matchday override is null", () => {
+    const anchor = new Date("2026-07-05T18:00:00Z");
+    const r = previewCustomBetLock(
+      { scope: "day", anchor, stage: "qf" },
+      { ...baseContext, stageDefaults: { qf: 75 } },
+    );
+    expect(r.source).toBe("stage_default");
+    expect(r.offsetMinutesApplied).toBe(75);
+  });
+
+  it("per-stage default is ignored for stage/group/tournament scopes", () => {
+    const anchor = new Date("2026-07-05T18:00:00Z");
+    // Stage-scope bet uses the custom_stage type default, not the
+    // per-stage default — even when one happens to be set for the same
+    // stage. The per-stage layer is for match/day-anchored bets only.
+    const r = previewCustomBetLock(
+      { scope: "stage", anchor, stage: "qf" },
+      { ...baseContext, stageDefaults: { qf: 75 } },
+    );
+    expect(r.source).toBe("type_default");
+    expect(r.offsetMinutesApplied).toBe(FALLBACK_OFFSET_MINUTES.custom_stage);
+  });
+
+  it("matchday override beats the per-stage default in preview", () => {
+    const anchor = new Date("2026-07-05T18:00:00Z");
+    const r = previewCustomBetLock(
+      {
+        scope: "match",
+        anchor,
+        stage: "qf",
+        matchdayLockOffsetMinutes: 30,
+      },
+      { ...baseContext, stageDefaults: { qf: 75 } },
+    );
+    expect(r.source).toBe("matchday_override");
+    expect(r.offsetMinutesApplied).toBe(30);
   });
 });

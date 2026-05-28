@@ -6,6 +6,7 @@ import { getRequestUser } from "@/lib/request-user";
 import { getUserAccess } from "@/lib/access";
 import { getFixtureWithBets, getMyBet } from "@/db/queries";
 import { db } from "@/db";
+import type { StageKey } from "@/db/schema";
 import { Card, LabelCaps } from "@/components/ui";
 import { PayGateBanner } from "@/components/PayGateBanner";
 import { LocksInCountdown } from "@/components/LocksInCountdown";
@@ -60,6 +61,10 @@ export default async function MatchBetPage({
     {
       matchId: match.id,
       kickoffAt: new Date(match.kickoffAt),
+      // FixtureRow.stage is typed `string` (loose loader shape) but the
+      // DB-side enum constrains the actual values to StageKey, so the
+      // cast is safe.
+      stage: match.stage as StageKey,
       lockAtOverride: a?.lock_at_override ? new Date(a.lock_at_override) : null,
       matchdayLockOffsetMinutes: a?.matchday_offset ?? null,
     },

@@ -5,11 +5,14 @@ import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import {
   BET_TYPE_KEYS,
+  STAGE_KEYS,
   betLockDefaults,
   matches,
   matchdays,
   settings,
+  stageLockDefaults,
   type BetTypeKey,
+  type StageKey,
 } from "@/db/schema";
 import { isAdmin } from "@/lib/admin";
 import { getUser } from "@/lib/supabase/auth";
@@ -141,8 +144,98 @@ export async function saveTypeDefaults(
   }
 }
 
+// Section 2b - per-stage defaults. Each row is one stage. offsetMinutes:
+//   - integer 0..14d → upsert that stage's row.
+//   - null            → DELETE the stage's row (falls through to type default).
+// The form posts the full set in one go so partial saves don't desync
+// the UI from the DB. See _plans/2026-05-28-stage-default-layer.md.
+export async function saveStageDefaults(
+  rows: Array<{ stage: string; offsetMinutes: number | null }>,
+): Promise<SaveResult> {
+  const adminId = await requireAdminId();
+  if (!adminId) return { ok: false, error: "forbidden" };
+
+  // Validate every row up front so a bad value never produces a partial
+  // write. Same bounds as matchday/type override (0..14d).
+  const validated: Array<{ stage: StageKey; offsetMinutes: number | null }> = [];
+  for (const r of rows) {
+    if (!(STAGE_KEYS as readonly string[]).includes(r.stage)) {
+      return { ok: false, error: "invalid" };
+    }
+    if (r.offsetMinutes !== null) {
+      if (
+        !Number.isFinite(r.offsetMinutes) ||
+        !Number.isInteger(r.offsetMinutes) ||
+        r.offsetMinutes < 0 ||
+        r.offsetMinutes > 60 * 24 * 14
+      ) {
+        return { ok: false, error: "invalid" };
+      }
+    }
+    validated.push({
+      stage: r.stage as StageKey,
+      offsetMinutes: r.offsetMinutes,
+    });
+  }
+
+  try {
+    const existing = await db
+      .select({
+        stage: stageLockDefaults.stage,
+        offsetMinutes: stageLockDefaults.offsetMinutes,
+      })
+      .from(stageLockDefaults);
+    const existingMap = new Map<StageKey, number>(
+      existing.map((e) => [e.stage as StageKey, e.offsetMinutes]),
+    );
+    const diff: Array<{
+      stage: StageKey;
+      from: number | null;
+      to: number | null;
+    }> = [];
+
+    for (const r of validated) {
+      const old = existingMap.get(r.stage) ?? null;
+      if (old === r.offsetMinutes) continue;
+      diff.push({ stage: r.stage, from: old, to: r.offsetMinutes });
+      if (r.offsetMinutes === null) {
+        await db
+          .delete(stageLockDefaults)
+          .where(eq(stageLockDefaults.stage, r.stage));
+      } else {
+        await db
+          .insert(stageLockDefaults)
+          .values({
+            stage: r.stage,
+            offsetMinutes: r.offsetMinutes,
+            updatedBy: adminId,
+            updatedAt: new Date(),
+          })
+          .onConflictDoUpdate({
+            target: stageLockDefaults.stage,
+            set: {
+              offsetMinutes: r.offsetMinutes,
+              updatedBy: adminId,
+              updatedAt: new Date(),
+            },
+          });
+      }
+    }
+
+    console.info("[admin deadlines stage-defaults]", {
+      adminId,
+      diff,
+    });
+    revalidatePath("/", "layout");
+    return { ok: true };
+  } catch (err) {
+    console.error("[admin deadlines save stage-defaults] failed:", err);
+    return { ok: false, error: "db" };
+  }
+}
+
 // Section 3 - per-matchday override. null clears the override and falls
-// back to the type default for that day's bets.
+// back to the stage default (if any) and then the type default.
 export async function saveMatchdayOverride(
   matchdayId: string,
   offsetMinutes: number | null,

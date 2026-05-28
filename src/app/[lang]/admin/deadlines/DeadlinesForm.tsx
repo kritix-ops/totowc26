@@ -5,11 +5,17 @@ import { useRouter } from "next/navigation";
 import { AlertCircle, Check } from "lucide-react";
 import { Card, PillButton, SectionHeading } from "@/components/ui";
 import { formatDateTime } from "@/lib/format";
-import { BET_TYPE_KEYS, type BetTypeKey } from "@/db/schema";
+import {
+  BET_TYPE_KEYS,
+  STAGE_KEYS,
+  type BetTypeKey,
+  type StageKey,
+} from "@/db/schema";
 import {
   saveMatchLockOverride,
   saveMatchdayOverride,
   saveReminderOffset,
+  saveStageDefaults,
   saveTournamentStart,
   saveTypeDefaults,
 } from "./actions";
@@ -96,6 +102,22 @@ type MatchdayRow = {
   label: string | null;
   lockOffsetOverrideMinutes: number | null;
   earliestKickoffAt: string | null;
+  // Stage of the earliest match on this matchday. Drives the
+  // "inherited from stage default" placeholder; null when the matchday
+  // has no matches scheduled yet.
+  earliestStage: string | null;
+};
+
+// Hebrew + English labels per stage. STAGE_KEYS is the schema-level
+// source of truth so a new stage forces a compile-time entry here.
+const STAGE_LABELS: Record<StageKey, { he: string; en: string }> = {
+  group: { he: "שלב הבתים", en: "Group stage" },
+  r32: { he: "1/16 גמר (סבב 32)", en: "Round of 32" },
+  r16: { he: "1/8 גמר (סבב 16)", en: "Round of 16" },
+  qf: { he: "רבע גמר", en: "Quarter-finals" },
+  sf: { he: "חצי גמר", en: "Semi-finals" },
+  third_place: { he: "משחק על המקום השלישי", en: "Third-place play-off" },
+  final: { he: "גמר", en: "Final" },
 };
 
 type MatchRow = {
@@ -110,50 +132,13 @@ type MatchRow = {
 type Props = {
   locale: Locale;
   initialDefaults: Record<BetTypeKey, number>;
+  initialStageDefaults: Partial<Record<StageKey, number>>;
   initialTournamentStartAt: string | null;
   derivedTournamentStartAt: string | null;
   initialReminderOffsetMinutes: number;
   matchdays: MatchdayRow[];
   matches: MatchRow[];
 };
-
-export function DeadlinesForm({
-  locale,
-  initialDefaults,
-  initialTournamentStartAt,
-  derivedTournamentStartAt,
-  initialReminderOffsetMinutes,
-  matchdays,
-  matches,
-}: Props) {
-  const isHebrew = locale === "he";
-  return (
-    <div className="flex flex-col gap-6">
-      <TournamentStartCard
-        locale={locale}
-        isHebrew={isHebrew}
-        initial={initialTournamentStartAt}
-        derived={derivedTournamentStartAt}
-      />
-      <ReminderOffsetCard
-        isHebrew={isHebrew}
-        initial={initialReminderOffsetMinutes}
-      />
-      <TypeDefaultsCard isHebrew={isHebrew} initial={initialDefaults} />
-      <MatchdayOverridesCard
-        locale={locale}
-        isHebrew={isHebrew}
-        matchdays={matchdays}
-        typeDefaults={initialDefaults}
-      />
-      <MatchOverridesCard
-        locale={locale}
-        isHebrew={isHebrew}
-        matches={matches}
-      />
-    </div>
-  );
-}
 
 // Convert a UTC ISO string to the "YYYY-MM-DDTHH:mm" string that the
 // <input type="datetime-local"> widget consumes, in Asia/Jerusalem time
@@ -162,7 +147,6 @@ export function DeadlinesForm({
 function isoToLocalInputValue(iso: string | null): string {
   if (!iso) return "";
   const d = new Date(iso);
-  // Intl gives us parts in the target tz. We rebuild "YYYY-MM-DDTHH:mm".
   const fmt = new Intl.DateTimeFormat("en-GB", {
     timeZone: "Asia/Jerusalem",
     year: "numeric",
@@ -187,19 +171,12 @@ function localInputValueToIso(value: string): string | null {
   const m = value.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
   if (!m) return null;
   const [, y, mo, da, h, mi] = m;
-  // Build a UTC date with the wall-clock components, then ask Intl
-  // what UTC instant that wall-clock corresponds to in IL by
-  // round-tripping through formatToParts.
   const utcGuess = Date.UTC(+y, +mo - 1, +da, +h, +mi);
-  // The offset of Asia/Jerusalem at this instant (in minutes east of UTC).
   const tzMinutes = ilOffsetMinutesAt(utcGuess);
   return new Date(utcGuess - tzMinutes * 60_000).toISOString();
 }
 
 function ilOffsetMinutesAt(utcMs: number): number {
-  // Format the UTC instant as IL wall-clock, parse it back as if it
-  // were UTC, and the delta is the IL offset. ±60 for DST safety
-  // automatic because the formatter knows the TZDB rules.
   const d = new Date(utcMs);
   const fmt = new Intl.DateTimeFormat("en-GB", {
     timeZone: "Asia/Jerusalem",
@@ -221,6 +198,51 @@ function ilOffsetMinutesAt(utcMs: number): number {
     +parts.minute,
   );
   return Math.round((wallUtcMs - utcMs) / 60_000);
+}
+
+export function DeadlinesForm({
+  locale,
+  initialDefaults,
+  initialStageDefaults,
+  initialTournamentStartAt,
+  derivedTournamentStartAt,
+  initialReminderOffsetMinutes,
+  matchdays,
+  matches,
+}: Props) {
+  const isHebrew = locale === "he";
+  return (
+    <div className="flex flex-col gap-6">
+      <TournamentStartCard
+        locale={locale}
+        isHebrew={isHebrew}
+        initial={initialTournamentStartAt}
+        derived={derivedTournamentStartAt}
+      />
+      <ReminderOffsetCard
+        isHebrew={isHebrew}
+        initial={initialReminderOffsetMinutes}
+      />
+      <TypeDefaultsCard isHebrew={isHebrew} initial={initialDefaults} />
+      <StageDefaultsCard
+        isHebrew={isHebrew}
+        initial={initialStageDefaults}
+        dayDefault={initialDefaults.custom_day}
+      />
+      <MatchdayOverridesCard
+        locale={locale}
+        isHebrew={isHebrew}
+        matchdays={matchdays}
+        typeDefaults={initialDefaults}
+        stageDefaults={initialStageDefaults}
+      />
+      <MatchOverridesCard
+        locale={locale}
+        isHebrew={isHebrew}
+        matches={matches}
+      />
+    </div>
+  );
 }
 
 function TournamentStartCard({
@@ -373,7 +395,7 @@ function ReminderOffsetCard({
       </SectionHeading>
       <p className="text-sm text-on-surface-variant">
         {isHebrew
-          ? "תזכורת אחת תישלח לכל שחקן שעוד יכול להמר, X דקות לפני שההימור נסגר. 0 = ללא תזכורות. הימורי תוצאה (1/X/2) ודואלים לא נכללים — רק הימורים מותאמים."
+          ? "תזכורת אחת תישלח לכל משתתף שעוד יכול להמר, X דקות לפני שההימור נסגר. 0 = ללא תזכורות. הימורי תוצאה (1/X/2) ודו-קרבים לא נכללים - רק הימורים מותאמים."
           : "One reminder per (bet, eligible player) pair, sent X minutes before the bet locks. 0 disables the feature. Score (1/X/2) bets and duels are excluded — custom bets only."}
       </p>
       <div className="flex items-center gap-2 flex-wrap">
@@ -571,16 +593,157 @@ function TypeDefaultsCard({
   );
 }
 
+// Editable string per stage. Empty string = "no per-stage override"
+// (DELETEs the row on save); a numeric string upserts. Keeping the
+// shape as strings lets the same input value cover both "no value yet"
+// and "0 minutes" without an extra null branch.
+type StageDraft = Record<StageKey, string>;
+
+function buildStageDraft(initial: Partial<Record<StageKey, number>>): StageDraft {
+  const draft = {} as StageDraft;
+  for (const key of STAGE_KEYS) {
+    draft[key] = initial[key] != null ? String(initial[key]) : "";
+  }
+  return draft;
+}
+
+function StageDefaultsCard({
+  isHebrew,
+  initial,
+  dayDefault,
+}: {
+  isHebrew: boolean;
+  initial: Partial<Record<StageKey, number>>;
+  // Shown as placeholder so the admin sees what an empty stage row will
+  // inherit (= the custom_day type default, which is the same value
+  // matchdays already inherit).
+  dayDefault: number;
+}) {
+  const router = useRouter();
+  const [values, setValues] = useState<StageDraft>(() => buildStageDraft(initial));
+  const [pending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+
+  function update(key: StageKey, raw: string) {
+    // Only digits or empty — keeps the input from getting into invalid
+    // states the server would reject anyway.
+    if (raw !== "" && !/^\d+$/.test(raw)) return;
+    setValues((p) => ({ ...p, [key]: raw }));
+    setError(null);
+    setSaved(false);
+  }
+
+  function onSave() {
+    setError(null);
+    setSaved(false);
+    startTransition(async () => {
+      const rows = STAGE_KEYS.map((stage) => {
+        const trimmed = values[stage].trim();
+        return {
+          stage,
+          offsetMinutes: trimmed === "" ? null : Number(trimmed),
+        };
+      });
+      const res = await saveStageDefaults(rows);
+      if (!res.ok) setError(res.error);
+      else {
+        setSaved(true);
+        router.refresh();
+      }
+    });
+  }
+
+  return (
+    <Card className="p-5 md:p-6 flex flex-col gap-4">
+      <SectionHeading underline="thin" as="h2">
+        {isHebrew ? "ברירות מחדל לפי שלב בטורניר" : "Defaults per tournament stage"}
+      </SectionHeading>
+      <p className="text-sm text-on-surface-variant">
+        {isHebrew
+          ? "ערך כאן דורס את ברירת המחדל לסוג עבור כל המשחקים, ימי ההימורים וההימורים מותאמים שמתרחשים בשלב הזה. ריק = נופל חזרה לברירת המחדל לסוג. שימושי כשרוצים, למשל, שכל ימי שלב הנוקאאוט ייסגרו 90 דקות לפני הבעיטה, בלי לערוך כל יום בנפרד."
+          : "A value here overrides the per-type default for every match, matchday and custom bet that takes place during this stage. Empty = falls back to the per-type default. Useful when you want, for example, every knockout-stage day to lock 90 min before kickoff without editing each day individually."}
+      </p>
+      <ul className="flex flex-col divide-y divide-outline-variant border border-outline-variant rounded-lg">
+        {STAGE_KEYS.map((stage) => {
+          const labels = STAGE_LABELS[stage];
+          return (
+            <li
+              key={stage}
+              className="px-3 py-3 md:px-4 md:py-4 flex flex-wrap items-center gap-3"
+            >
+              <div className="flex-1 min-w-[160px]">
+                <label
+                  htmlFor={`sld-${stage}`}
+                  className="font-bold text-sm text-on-surface"
+                >
+                  {isHebrew ? labels.he : labels.en}
+                </label>
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  id={`sld-${stage}`}
+                  type="number"
+                  inputMode="numeric"
+                  min={0}
+                  max={20160}
+                  step={1}
+                  value={values[stage]}
+                  onChange={(e) => update(stage, e.target.value)}
+                  placeholder={String(dayDefault)}
+                  className="h-12 w-24 px-3 bg-surface-container-lowest border border-outline rounded-lg text-on-surface text-base font-bold tabular-nums focus:outline-none focus:border-primary"
+                  dir="ltr"
+                  aria-label={
+                    isHebrew
+                      ? `דקות לפני המשחק הראשון בשלב ${labels.he}`
+                      : `Minutes before earliest kickoff of ${labels.en}`
+                  }
+                />
+                <span className="text-xs text-on-surface-variant">
+                  {isHebrew ? "דק' לפני" : "min before"}
+                </span>
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="min-h-[24px]">
+          {error && (
+            <p className="inline-flex items-center gap-1.5 text-sm text-error">
+              <AlertCircle className="h-4 w-4" strokeWidth={2} />
+              {translateError(error, isHebrew)}
+            </p>
+          )}
+          {saved && !error && (
+            <p className="inline-flex items-center gap-1.5 text-sm text-secondary">
+              <Check className="h-4 w-4" strokeWidth={2.5} />
+              {isHebrew ? "נשמר" : "Saved"}
+            </p>
+          )}
+        </div>
+        <PillButton type="button" disabled={pending} onClick={onSave}>
+          {pending
+            ? isHebrew ? "שומר..." : "Saving..."
+            : isHebrew ? "שמור ברירות שלב" : "Save stage defaults"}
+        </PillButton>
+      </div>
+    </Card>
+  );
+}
+
 function MatchdayOverridesCard({
   locale,
   isHebrew,
   matchdays,
   typeDefaults,
+  stageDefaults,
 }: {
   locale: Locale;
   isHebrew: boolean;
   matchdays: MatchdayRow[];
   typeDefaults: Record<BetTypeKey, number>;
+  stageDefaults: Partial<Record<StageKey, number>>;
 }) {
   const sorted = useMemo(
     () => [...matchdays].sort((a, b) => a.date.localeCompare(b.date)),
@@ -593,26 +756,42 @@ function MatchdayOverridesCard({
       </SectionHeading>
       <p className="text-sm text-on-surface-variant">
         {isHebrew
-          ? "ערך כאן דורס את ברירת המחדל של 'ניחוש תוצאה' ו-'הימור מותאם — משחק/יום' עבור היום הזה בלבד. ריק = נופל חזרה לברירת המחדל לסוג."
-          : "A value here overrides the per-type default for score, custom-match and custom-day bets on this date only. Empty = falls back to the type default."}
+          ? "ערך כאן דורס את ברירת המחדל של 'ניחוש תוצאה' ו'משחק / יום' עבור היום הזה בלבד. ריק = נופל חזרה לברירת המחדל לשלב (אם יש כזו) ואחר כך לברירת המחדל לסוג."
+          : "A value here overrides the per-type default for score, custom-match and custom-day bets on this date only. Empty = falls back to the per-stage default (if any) and then the per-type default."}
       </p>
       {sorted.length === 0 ? (
         <p className="text-sm text-on-surface-variant italic">
           {isHebrew
-            ? "אין עדיין ימי הימורים — נוצרים אוטומטית כשפותחים הימור על תאריך."
+            ? "אין עדיין ימי הימורים - נוצרים אוטומטית כשפותחים הימור על תאריך."
             : "No matchdays yet — they're created automatically the first time a bet opens for a date."}
         </p>
       ) : (
         <ul className="flex flex-col divide-y divide-outline-variant border border-outline-variant rounded-lg">
-          {sorted.map((m) => (
-            <MatchdayRowEditor
-              key={m.id}
-              locale={locale}
-              isHebrew={isHebrew}
-              row={m}
-              dayDefault={typeDefaults.custom_day}
-            />
-          ))}
+          {sorted.map((m) => {
+            // Resolution mirror of pickOffsetForMatchOrDay in
+            // src/lib/deadlines.ts: stage default wins over type default
+            // when this matchday's earliest match is in a stage that has
+            // a saved per-stage row. Drives the placeholder + caption so
+            // the admin sees which number an empty row will inherit.
+            const stageKey =
+              m.earliestStage != null &&
+              (STAGE_KEYS as readonly string[]).includes(m.earliestStage)
+                ? (m.earliestStage as StageKey)
+                : null;
+            const stageOffset =
+              stageKey != null ? stageDefaults[stageKey] ?? null : null;
+            const inherited = stageOffset ?? typeDefaults.custom_day;
+            return (
+              <MatchdayRowEditor
+                key={m.id}
+                locale={locale}
+                isHebrew={isHebrew}
+                row={m}
+                inheritedOffset={inherited}
+                inheritedFromStage={stageOffset != null ? stageKey : null}
+              />
+            );
+          })}
         </ul>
       )}
     </Card>
@@ -623,12 +802,20 @@ function MatchdayRowEditor({
   locale,
   isHebrew,
   row,
-  dayDefault,
+  inheritedOffset,
+  inheritedFromStage,
 }: {
   locale: Locale;
   isHebrew: boolean;
   row: MatchdayRow;
-  dayDefault: number;
+  // What the empty-value placeholder shows. Either the per-stage
+  // default for this matchday's stage, or the type default when no
+  // stage default is set.
+  inheritedOffset: number;
+  // Non-null when the placeholder is coming from a per-stage row;
+  // drives the "ברירת מחדל לשלב X: 90" caption so the admin sees
+  // where the inherited value came from.
+  inheritedFromStage: StageKey | null;
 }) {
   const router = useRouter();
   const [value, setValue] = useState<string>(
@@ -668,7 +855,11 @@ function MatchdayRowEditor({
         hour: "2-digit",
         minute: "2-digit",
       })
-    : "—";
+    : "-";
+  const stageLabel =
+    inheritedFromStage != null
+      ? STAGE_LABELS[inheritedFromStage][isHebrew ? "he" : "en"]
+      : null;
 
   return (
     <li className="px-3 py-3 md:px-4 md:py-4 flex flex-wrap items-center gap-3">
@@ -679,6 +870,13 @@ function MatchdayRowEditor({
             ? `המשחק הראשון של היום: ${earliestLabel}`
             : `Earliest kickoff: ${earliestLabel}`}
         </p>
+        {stageLabel && (
+          <p className="text-[11px] text-tertiary font-bold mt-0.5">
+            {isHebrew
+              ? `יורש מברירת השלב (${stageLabel}): ${inheritedOffset} דק'`
+              : `Inherits from stage default (${stageLabel}): ${inheritedOffset} min`}
+          </p>
+        )}
       </div>
       <div className="flex items-center gap-2">
         <input
@@ -693,7 +891,7 @@ function MatchdayRowEditor({
             setError(null);
             setSaved(false);
           }}
-          placeholder={String(dayDefault)}
+          placeholder={String(inheritedOffset)}
           className="h-12 w-24 px-3 bg-surface-container-lowest border border-outline rounded-lg text-on-surface text-base font-bold tabular-nums focus:outline-none focus:border-primary"
           dir="ltr"
           aria-label={isHebrew ? "דקות לפני" : "minutes before"}
@@ -845,7 +1043,7 @@ function MatchRowEditor({
     <li className="px-3 py-3 md:px-4 md:py-4 flex flex-wrap items-center gap-3">
       <div className="flex-1 min-w-[180px]">
         <p className="font-bold text-sm text-on-surface tabular-nums">
-          {row.homeTeam} — {row.awayTeam}
+          {row.homeTeam} - {row.awayTeam}
         </p>
         <p className="text-[11px] text-on-surface-variant">
           {kickoffLabel} · {row.stage}

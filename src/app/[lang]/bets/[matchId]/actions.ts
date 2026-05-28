@@ -3,7 +3,7 @@
 import { revalidatePath, updateTag } from "next/cache";
 import { sql } from "drizzle-orm";
 import { db } from "@/db";
-import { matchBets } from "@/db/schema";
+import { matchBets, type StageKey } from "@/db/schema";
 import { getUser } from "@/lib/supabase/auth";
 import { getUserAccess } from "@/lib/access";
 import { bankCacheTag } from "@/lib/bank";
@@ -61,6 +61,7 @@ export async function saveBet(
   const row = await db.execute<{
     status: string;
     kickoff_at: string;
+    stage: string;
     lock_at_override: string | null;
     matchday_offset: number | null;
     risk_enabled: boolean;
@@ -69,6 +70,7 @@ export async function saveBet(
     select
       m.status::text as "status",
       m.kickoff_at as "kickoff_at",
+      m.stage::text as "stage",
       m.lock_at_override as "lock_at_override",
       md.lock_offset_override_minutes as "matchday_offset",
       s.match_risk_enabled as "risk_enabled",
@@ -83,6 +85,7 @@ export async function saveBet(
   const list = row as unknown as Array<{
     status: string;
     kickoff_at: string;
+    stage: string;
     lock_at_override: string | null;
     matchday_offset: number | null;
     risk_enabled: boolean;
@@ -97,6 +100,7 @@ export async function saveBet(
     {
       matchId,
       kickoffAt: new Date(r.kickoff_at),
+      stage: r.stage as StageKey,
       lockAtOverride: r.lock_at_override ? new Date(r.lock_at_override) : null,
       matchdayLockOffsetMinutes: r.matchday_offset,
     },
