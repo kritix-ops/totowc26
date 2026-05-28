@@ -1,6 +1,14 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // The /api/cron/backup route reads the migration SQL files at runtime
+  // and ships them inside the daily backup commit as `schema.snapshot.sql`.
+  // Next.js's static tracer can't follow the dynamic readdir + readFile
+  // calls, so we explicitly include the folder here. Narrow pattern to
+  // avoid bloating other routes' traces.
+  outputFileTracingIncludes: {
+    "/api/cron/backup": ["src/db/migrations/**/*.sql"],
+  },
   experimental: {
     // Tree-shake icon and SDK imports per-file instead of pulling the
     // whole module into the client bundle. Cuts ~20-30KB on the first
