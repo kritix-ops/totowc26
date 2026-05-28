@@ -164,12 +164,16 @@ export const players = pgTable(
       .references(() => teams.code, { onDelete: "cascade" }),
     nameEn: text("name_en").notNull(),
     nameHe: text("name_he"),
-    nameHeSource:         text("name_he_source"),          // 'wikidata' / 'walla' / 'one' / 'sport5' / 'sport1' / 'ynet' / 'llm_claude' / 'llm_reviewer' / 'manual'
-    nameHeConfidence:     smallint("name_he_confidence"),
-    nameHeReviewVerdict:  text("name_he_review_verdict"),  // 'approved' / 'flag' / 'reject' / null
-    nameHeReviewReason:   text("name_he_review_reason"),
-    nameHeReviewedAt:     timestamp("name_he_reviewed_at", { withTimezone: true }),
-    nameHeAdminLocked:    boolean("name_he_admin_locked").notNull().default(false),
+    // Provenance for the Hebrew translation. `source` is one of:
+    // 'wikidata' / 'walla' / 'one' / 'sport5' / 'sport1' / 'ynet' /
+    // 'llm_claude' / 'llm_reviewer' / 'manual'. `reviewVerdict` is one
+    // of: 'approved' / 'flag' / 'reject' / null.
+    nameHeSource: text("name_he_source"),
+    nameHeConfidence: smallint("name_he_confidence"),
+    nameHeReviewVerdict: text("name_he_review_verdict"),
+    nameHeReviewReason: text("name_he_review_reason"),
+    nameHeReviewedAt: timestamp("name_he_reviewed_at", { withTimezone: true }),
+    nameHeAdminLocked: boolean("name_he_admin_locked").notNull().default(false),
     position: varchar("position", { length: 20 }),
     jerseyNumber: smallint("jersey_number"),
     photoUrl: text("photo_url"),
@@ -392,7 +396,7 @@ export const settings = pgTable("settings", {
   // row per active player at 00:00 Asia/Jerusalem with the configured
   // delta. Off by default - admin opts in.
   dailyRenewalEnabled: boolean("daily_renewal_enabled").notNull().default(false),
-  dailyRenewalAmount:  smallint("daily_renewal_amount").notNull().default(3),
+  dailyRenewalAmount: smallint("daily_renewal_amount").notNull().default(3),
   // Duel limits. The actual feature (server actions + UI) lands in PR 3;
   // the knobs live here from PR 1 so the admin settings surface ships at
   // the same time as the schema.
@@ -420,14 +424,14 @@ export const settings = pgTable("settings", {
   // Custom-bets defaults: stake / payout per answer type. Admin can override
   // per bet at creation time; the override snapshots onto custom_bets so a
   // later settings tweak does not retroactively re-price an existing bet.
-  stakeYesNo:        smallint("stake_yes_no").notNull().default(1),
-  payoutYesNo:       smallint("payout_yes_no").notNull().default(3),
-  stakeNumber:       smallint("stake_number").notNull().default(2),
-  payoutNumber:      smallint("payout_number").notNull().default(6),
-  stakeMultiChoice:  smallint("stake_multi_choice").notNull().default(2),
+  stakeYesNo: smallint("stake_yes_no").notNull().default(1),
+  payoutYesNo: smallint("payout_yes_no").notNull().default(3),
+  stakeNumber: smallint("stake_number").notNull().default(2),
+  payoutNumber: smallint("payout_number").notNull().default(6),
+  stakeMultiChoice: smallint("stake_multi_choice").notNull().default(2),
   payoutMultiChoice: smallint("payout_multi_choice").notNull().default(5),
-  stakeFreeText:     smallint("stake_free_text").notNull().default(3),
-  payoutFreeText:    smallint("payout_free_text").notNull().default(10),
+  stakeFreeText: smallint("stake_free_text").notNull().default(3),
+  payoutFreeText: smallint("payout_free_text").notNull().default(10),
   // Prize split for the top 4 finishers (% of the pot). Default 50/30/15/5.
   // Sum must be <= 100 (CHECK constraint added in migration). Each prize
   // is computed dynamically as floor(pot * pct / 100).
@@ -786,12 +790,12 @@ export const duels = pgTable(
       .defaultNow(),
   },
   (t) => ({
-    openerIdx:        index("duels_opener_idx").on(t.openerId),
-    joinerIdx:        index("duels_joiner_idx").on(t.joinerId),
-    statusIdx:        index("duels_status_idx").on(t.status),
-    deadlineIdx:      index("duels_deadline_idx").on(t.joinDeadlineAt),
-    matchIdx:         index("duels_match_idx").on(t.matchId),
-    matchdayIdx:      index("duels_matchday_idx").on(t.matchdayId),
+    openerIdx: index("duels_opener_idx").on(t.openerId),
+    joinerIdx: index("duels_joiner_idx").on(t.joinerId),
+    statusIdx: index("duels_status_idx").on(t.status),
+    deadlineIdx: index("duels_deadline_idx").on(t.joinDeadlineAt),
+    matchIdx: index("duels_match_idx").on(t.matchId),
+    matchdayIdx: index("duels_matchday_idx").on(t.matchdayId),
     gradingSourceIdx: index("duels_grading_source_idx").on(t.gradingSource),
   }),
 );
@@ -1046,7 +1050,12 @@ export const contentOverrideHistory = pgTable(
   }),
 );
 
-// Drizzle relations are added separately if needed
+// Per-table `<Name>` (select shape) + `New<Name>` (insert shape) pair
+// for every table in the schema. Drizzle infers them from the table
+// definition above, so a column rename here lands in every caller
+// without an extra step. Both shapes are exported per table even when
+// only one is used today, so a future caller doesn't have to come back
+// here just to add the missing one.
 export type Profile = typeof profiles.$inferSelect;
 export type NewProfile = typeof profiles.$inferInsert;
 export type Match = typeof matches.$inferSelect;
@@ -1054,8 +1063,11 @@ export type NewMatch = typeof matches.$inferInsert;
 export type MatchBet = typeof matchBets.$inferSelect;
 export type NewMatchBet = typeof matchBets.$inferInsert;
 export type Payment = typeof payments.$inferSelect;
+export type NewPayment = typeof payments.$inferInsert;
 export type Team = typeof teams.$inferSelect;
+export type NewTeam = typeof teams.$inferInsert;
 export type Settings = typeof settings.$inferSelect;
+export type NewSettings = typeof settings.$inferInsert;
 export type PointAdjustment = typeof pointAdjustments.$inferSelect;
 export type NewPointAdjustment = typeof pointAdjustments.$inferInsert;
 export type Matchday = typeof matchdays.$inferSelect;
@@ -1072,6 +1084,10 @@ export type BetLockDefault = typeof betLockDefaults.$inferSelect;
 export type NewBetLockDefault = typeof betLockDefaults.$inferInsert;
 export type BetReminderSent = typeof betReminderSent.$inferSelect;
 export type NewBetReminderSent = typeof betReminderSent.$inferInsert;
+// Suffixed `Row` rather than the bare table-name pattern used above
+// because the DOM declares a global `PushSubscription` interface for
+// the Push API client side, and re-exporting our row shape under the
+// same name would shadow it (and confuse consumers that import both).
 export type PushSubscriptionRow = typeof pushSubscriptions.$inferSelect;
 export type NewPushSubscription = typeof pushSubscriptions.$inferInsert;
 export type UserNotification = typeof userNotifications.$inferSelect;
