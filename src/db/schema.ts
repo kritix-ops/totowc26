@@ -878,6 +878,52 @@ export const betReminderSent = pgTable(
   }),
 );
 
+// user_notifications: in-app feed for each player. Populated by:
+//   - /admin/broadcast (admin-authored announcements)
+//   - sync.ts grading passes (bet_graded / match_final auto-events)
+//
+// One row per (user, event). Admin broadcasts to multiple users
+// duplicate-insert one row per recipient so the per-user read state
+// stays clean without a join table. See migration 0026.
+export const NOTIFICATION_KINDS = [
+  "announcement",
+  "bet_graded",
+  "match_final",
+  "custom",
+] as const;
+export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];
+
+export const userNotifications = pgTable(
+  "user_notifications",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => profiles.id, { onDelete: "cascade" }),
+    kind: text("kind").notNull().$type<NotificationKind>(),
+    title: text("title").notNull(),
+    body: text("body").notNull(),
+    url: text("url"),
+    readAt: timestamp("read_at", { withTimezone: true }),
+    pushed: boolean("pushed").notNull().default(false),
+    createdBy: uuid("created_by").references(() => profiles.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    userCreatedIdx: index("user_notifications_user_created_idx").on(
+      t.userId,
+      t.createdAt,
+    ),
+    unreadIdx: index("user_notifications_unread_idx")
+      .on(t.userId)
+      .where(sql`read_at is null`),
+  }),
+);
+
 // push_subscriptions: one row per (user, browser/device). The triplet
 // (endpoint, p256dh, auth) comes verbatim from PushSubscription.toJSON()
 // the browser hands back after pushManager.subscribe(). endpoint is
@@ -935,5 +981,7 @@ export type BetReminderSent = typeof betReminderSent.$inferSelect;
 export type NewBetReminderSent = typeof betReminderSent.$inferInsert;
 export type PushSubscriptionRow = typeof pushSubscriptions.$inferSelect;
 export type NewPushSubscription = typeof pushSubscriptions.$inferInsert;
+export type UserNotification = typeof userNotifications.$inferSelect;
+export type NewUserNotification = typeof userNotifications.$inferInsert;
 
 export const _useSql = sql; // re-export to silence unused if any

@@ -16,6 +16,7 @@ import {
   Copy,
   EyeOff,
   Bell,
+  Megaphone,
 } from "lucide-react";
 import { eq } from "drizzle-orm";
 import { hasLocale, type Locale } from "../dictionaries";
@@ -159,6 +160,12 @@ export default async function AdminPage({
           path="admin/push-test"
           icon={<Bell className="h-5 w-5" strokeWidth={1.75} />}
           label={isHebrew ? "בדיקת push" : "Push test"}
+        />
+        <SectionLink
+          locale={locale}
+          path="admin/broadcast"
+          icon={<Megaphone className="h-5 w-5" strokeWidth={1.75} />}
+          label={isHebrew ? "שליחת הודעה" : "Broadcast"}
         />
         <SectionLink
           locale={locale}

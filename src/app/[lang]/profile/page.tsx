@@ -17,6 +17,7 @@ import {
   Clock,
   Lock,
   CircleDot,
+  Bell,
 } from "lucide-react";
 import { clsx } from "clsx";
 import { getDictionary, hasLocale, type Locale } from "../dictionaries";
@@ -37,6 +38,7 @@ import { eq } from "drizzle-orm";
 import { Card, LabelCaps, SectionHeading, Chip } from "@/components/ui";
 import { Flag } from "@/components/Flag";
 import { PushOptInToggle } from "@/components/PushOptInToggle";
+import { countUnreadNotifications } from "@/lib/notifications";
 import { localePath } from "@/lib/paths";
 import { formatDateTime } from "@/lib/format";
 import type {
@@ -57,7 +59,7 @@ export default async function ProfilePage({
   const user = await getRequestUser();
   if (!user) redirect(localePath(locale, "login"));
 
-  const [[profile], stats, matchPicks, liveBetPicks, tournamentBetPicks, duelPicks] =
+  const [[profile], stats, matchPicks, liveBetPicks, tournamentBetPicks, duelPicks, unreadCount] =
     await Promise.all([
       db
         .select({
@@ -73,6 +75,7 @@ export default async function ProfilePage({
       getMyCustomPicks(user.id, ["match", "day"], 5),
       getMyCustomPicks(user.id, ["tournament", "stage", "group"], 5),
       getMyDuels(user.id, 5),
+      countUnreadNotifications(user.id),
     ]);
 
   const isHebrew = locale === "he";
@@ -127,6 +130,53 @@ export default async function ProfilePage({
         tournamentBetPicks={tournamentBetPicks}
         duelPicks={duelPicks}
       />
+
+      <section className="flex flex-col gap-4">
+        <SectionHeading>
+          {isHebrew ? "התראות" : "Notifications"}
+        </SectionHeading>
+        <Link
+          href={localePath(locale, "notifications")}
+          className="press-down"
+        >
+          <Card className="p-4 md:p-5 flex items-center gap-3 min-h-[64px] hover:bg-surface-container transition-colors">
+            <div className="w-10 h-10 rounded-full bg-primary-fixed text-on-primary-fixed-variant flex items-center justify-center shrink-0 relative">
+              <Bell className="h-5 w-5" strokeWidth={1.75} />
+              {unreadCount > 0 && (
+                <span
+                  className="absolute -top-1 -end-1 min-w-[18px] h-[18px] px-1 rounded-full bg-error text-on-error text-[10px] font-bold inline-flex items-center justify-center tabular-nums"
+                  aria-label={
+                    isHebrew
+                      ? `${unreadCount} התראות חדשות`
+                      : `${unreadCount} unread`
+                  }
+                >
+                  {unreadCount > 99 ? "99+" : unreadCount}
+                </span>
+              )}
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="font-bold text-sm text-on-surface">
+                {isHebrew ? "כל ההתראות" : "All notifications"}
+              </p>
+              <p className="text-xs text-on-surface-variant">
+                {unreadCount > 0
+                  ? isHebrew
+                    ? `${unreadCount} חדשות`
+                    : `${unreadCount} unread`
+                  : isHebrew
+                    ? "אין התראות חדשות"
+                    : "No unread"}
+              </p>
+            </div>
+            {isHebrew ? (
+              <ChevronLeft className="h-4 w-4 text-on-surface-variant shrink-0" />
+            ) : (
+              <ChevronRight className="h-4 w-4 text-on-surface-variant shrink-0" />
+            )}
+          </Card>
+        </Link>
+      </section>
 
       <section className="flex flex-col gap-4">
         <SectionHeading>{dict.profile.settings}</SectionHeading>

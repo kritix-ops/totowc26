@@ -28,6 +28,7 @@ import {
 import type { AutoApiFootballStat } from "./bets/types";
 import { sendEmail } from "./email/client";
 import { BetLockReminderEmail } from "./email/templates/BetLockReminderEmail";
+import { notifyUsers } from "./notifications";
 import { isPushConfigured, sendPush } from "./push";
 import TEAM_NAMES from "../../data/team-names.json";
 
@@ -593,9 +594,22 @@ export async function scoreFinalMatches(): Promise<{
     id: string;
     home_score: number;
     away_score: number;
+    home_name_he: string;
+    away_name_he: string;
+    home_name_en: string;
+    away_name_en: string;
   }>(drizzleSql`
-    select m.id::text as id, m.home_score, m.away_score
+    select
+      m.id::text     as id,
+      m.home_score,
+      m.away_score,
+      ht.name_he     as home_name_he,
+      at.name_he     as away_name_he,
+      ht.name_en     as home_name_en,
+      at.name_en     as away_name_en
     from public.matches m
+    join public.teams ht on ht.code = m.home_team
+    join public.teams at on at.code = m.away_team
     where m.status = 'final'
       and m.home_score is not null
       and m.away_score is not null
@@ -608,6 +622,10 @@ export async function scoreFinalMatches(): Promise<{
     id: string;
     home_score: number;
     away_score: number;
+    home_name_he: string;
+    away_name_he: string;
+    home_name_en: string;
+    away_name_en: string;
   }>;
 
   let scoredBets = 0;
@@ -654,6 +672,39 @@ export async function scoreFinalMatches(): Promise<{
         pointsEarned: points,
         riskMode: s.matchRiskEnabled,
       });
+
+      // Feed-only notification per scored bet. Push omitted - players
+      // see their bet on the leaderboard / dashboard right after a
+      // match ends, and we don't want a push storm when several
+      // matches finalize in the same cron pass.
+      try {
+        const title = `${m.home_name_he} ${m.home_score}–${m.away_score} ${m.away_name_he}`;
+        const yourPick = `${b.homeScore}–${b.awayScore}`;
+        const body = exact
+          ? `ניחשת בדיוק (${yourPick}) — קיבלת ${points} נקודות.`
+          : correctOutcome
+            ? `ניחשת את הכיוון (${yourPick}) — קיבלת ${points} נקודות.`
+            : points < 0
+              ? `הניחוש שלך (${yourPick}) לא היה נכון — הופחתו ${-points} נקודות.`
+              : `הניחוש שלך (${yourPick}) לא היה נכון.`;
+        await notifyUsers(
+          { kind: "user", userId: b.userId },
+          {
+            kind: "match_final",
+            title,
+            body,
+            url: `/he/match/${m.id}`,
+            push: false,
+          },
+        );
+      } catch (err) {
+        // Notification failure must NOT block grading. Log and move on.
+        console.warn("[match score notify failed]", {
+          userId: b.userId,
+          matchId: m.id,
+          err: err instanceof Error ? err.message : String(err),
+        });
+      }
     }
   }
 
@@ -704,6 +755,7 @@ type CandidateBet = {
   matchId: string | null;
   stage: string | null;
   groupId: string | null;
+  questionHe: string;
   questionEn: string;
   answerType: "yes_no" | "number" | "multi_choice" | "free_text";
   payoutSnapshot: number;
@@ -727,6 +779,7 @@ export async function scoreAutoCustomBets(): Promise<number> {
       cb.match_id::text                 as "matchId",
       cb.stage::text                    as "stage",
       cb.group_id                       as "groupId",
+      cb.question_he                    as "questionHe",
       cb.question_en                    as "questionEn",
       cb.answer_type::text              as "answerType",
       cb.payout_snapshot                as "payoutSnapshot",
@@ -757,45 +810,56 @@ export async function scoreAutoCustomBets(): Promise<number> {
 
     // 3) Grade everyone's pick + flip status. We do this inside a txn
     // per bet so a failed pick update rolls back the bet's status flip.
+    type GradedPick = { userId: string; correct: boolean; points: number };
     try {
-      const { picksGraded, winners } = await db.transaction(async (tx) => {
-        const picks = await tx
-          .select({
-            id: userCustomBetPicks.id,
-            answer: userCustomBetPicks.answer,
-          })
-          .from(userCustomBetPicks)
-          .where(eq(userCustomBetPicks.customBetId, bet.id));
+      const { picksGraded, winners, gradedPicks } = await db.transaction(
+        async (tx) => {
+          const picks = await tx
+            .select({
+              id: userCustomBetPicks.id,
+              userId: userCustomBetPicks.userId,
+              answer: userCustomBetPicks.answer,
+            })
+            .from(userCustomBetPicks)
+            .where(eq(userCustomBetPicks.customBetId, bet.id));
 
-        let wins = 0;
-        for (const pk of picks) {
-          const correct = isAutoPickCorrect(bet.answerType, pk.answer as unknown, resolved);
-          if (correct) wins += 1;
+          let wins = 0;
+          const graded: GradedPick[] = [];
+          for (const pk of picks) {
+            const correct = isAutoPickCorrect(
+              bet.answerType,
+              pk.answer as unknown,
+              resolved,
+            );
+            if (correct) wins += 1;
+            const points = correct ? bet.payoutSnapshot : 0;
+            await tx
+              .update(userCustomBetPicks)
+              .set({
+                pointsEarned: points,
+                wasCorrect: correct,
+                locked: true,
+                updatedAt: new Date(),
+              })
+              .where(eq(userCustomBetPicks.id, pk.id));
+            graded.push({ userId: pk.userId, correct, points });
+          }
+
           await tx
-            .update(userCustomBetPicks)
+            .update(customBets)
             .set({
-              pointsEarned: correct ? bet.payoutSnapshot : 0,
-              wasCorrect: correct,
-              locked: true,
+              status: "graded",
+              resolvedValue: resolved,
+              gradedAt: new Date(),
+              // graded_by stays null - this was a system-driven grade. The
+              // FK is `on delete set null` so the column accepts NULL.
               updatedAt: new Date(),
             })
-            .where(eq(userCustomBetPicks.id, pk.id));
-        }
+            .where(eq(customBets.id, bet.id));
 
-        await tx
-          .update(customBets)
-          .set({
-            status: "graded",
-            resolvedValue: resolved,
-            gradedAt: new Date(),
-            // graded_by stays null - this was a system-driven grade. The
-            // FK is `on delete set null` so the column accepts NULL.
-            updatedAt: new Date(),
-          })
-          .where(eq(customBets.id, bet.id));
-
-        return { picksGraded: picks.length, winners: wins };
-      });
+          return { picksGraded: picks.length, winners: wins, gradedPicks: graded };
+        },
+      );
 
       console.info("[grading auto]", {
         betId: bet.id,
@@ -806,6 +870,33 @@ export async function scoreAutoCustomBets(): Promise<number> {
         winners,
       });
       scored += 1;
+
+      // Feed-only notification per pick. Same rationale as the
+      // match-bet grading hook above - push omitted to avoid bursts
+      // when several bets resolve in the same sync pass.
+      for (const g of gradedPicks) {
+        try {
+          const body = g.correct
+            ? `הניחוש שלך נכון — קיבלת ${g.points} נקודות.`
+            : `הניחוש שלך לא היה נכון.`;
+          await notifyUsers(
+            { kind: "user", userId: g.userId },
+            {
+              kind: "bet_graded",
+              title: bet.questionHe,
+              body,
+              url: notificationUrlForScope(bet),
+              push: false,
+            },
+          );
+        } catch (err) {
+          console.warn("[grading auto notify failed]", {
+            betId: bet.id,
+            userId: g.userId,
+            err: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
     } catch (err) {
       // One bad row should not poison the whole sync run. Log and move on.
       console.error("[grading auto] failed:", { betId: bet.id, err });
@@ -813,6 +904,25 @@ export async function scoreAutoCustomBets(): Promise<number> {
   }
 
   return scored;
+}
+
+// URL the in-app notification card links to, by bet scope. Mirrors the
+// surface a player would see for that bet today.
+function notificationUrlForScope(bet: CandidateBet): string {
+  switch (bet.scope) {
+    case "match":
+    case "day":
+      return bet.matchdayDate
+        ? `/he/bets/live/${bet.matchdayDate}`
+        : "/he/bets";
+    case "stage":
+    case "tournament":
+      return "/he/bets/tournament";
+    case "group":
+      return "/he/bets/groups";
+    default:
+      return "/he/bets";
+  }
 }
 
 // Resolve the bet's value from the matches table.
