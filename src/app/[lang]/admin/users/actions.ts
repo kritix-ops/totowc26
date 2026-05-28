@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { eq, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { profiles, payments, pointAdjustments } from "@/db/schema";
+import { isAdmin } from "@/lib/admin";
 import { getUser } from "@/lib/supabase/auth";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 import { lockUserForBetting, getBankBalanceWith } from "@/lib/bank";
@@ -15,12 +16,7 @@ type Result = Ok | Err;
 async function assertAdmin(): Promise<{ adminId: string } | Err> {
   const user = await getUser();
   if (!user) return { ok: false, error: "unauthorized" };
-  const [me] = await db
-    .select({ role: profiles.role })
-    .from(profiles)
-    .where(eq(profiles.id, user.id))
-    .limit(1);
-  if (!me || me.role !== "admin") return { ok: false, error: "forbidden" };
+  if (!(await isAdmin(user.id))) return { ok: false, error: "forbidden" };
   return { adminId: user.id };
 }
 

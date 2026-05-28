@@ -3,7 +3,8 @@
 import { revalidatePath, updateTag } from "next/cache";
 import { eq, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { profiles, teams } from "@/db/schema";
+import { teams } from "@/db/schema";
+import { isAdmin } from "@/lib/admin";
 import { getUser } from "@/lib/supabase/auth";
 import { syncFixtures, type SyncReport } from "@/lib/sync";
 import { CACHE_TAG_FIXTURES } from "@/db/queries";
@@ -18,13 +19,7 @@ export type RunSyncResult =
 
 export async function runSyncNow(): Promise<RunSyncResult> {
   const user = await getUser();
-  if (!user) return { ok: false, error: "forbidden" };
-  const [p] = await db
-    .select({ role: profiles.role })
-    .from(profiles)
-    .where(eq(profiles.id, user.id))
-    .limit(1);
-  if (!p || p.role !== "admin") return { ok: false, error: "forbidden" };
+  if (!user || !(await isAdmin(user.id))) return { ok: false, error: "forbidden" };
 
   const start = Date.now();
   try {
@@ -69,13 +64,7 @@ export async function setTeamApiFootballId(
   apiFootballTeamId: number,
 ): Promise<SetTeamApiFootballIdResult> {
   const user = await getUser();
-  if (!user) return { ok: false, error: "forbidden" };
-  const [p] = await db
-    .select({ role: profiles.role })
-    .from(profiles)
-    .where(eq(profiles.id, user.id))
-    .limit(1);
-  if (!p || p.role !== "admin") return { ok: false, error: "forbidden" };
+  if (!user || !(await isAdmin(user.id))) return { ok: false, error: "forbidden" };
 
   // Defensive validation. Code is always a 3-letter uppercase ISO-ish
   // string in our DB; api_football_team_id is a positive integer.
@@ -131,13 +120,7 @@ export type RefreshQuotaResult =
 
 export async function refreshApiFootballQuota(): Promise<RefreshQuotaResult> {
   const user = await getUser();
-  if (!user) return { ok: false, error: "forbidden" };
-  const [p] = await db
-    .select({ role: profiles.role })
-    .from(profiles)
-    .where(eq(profiles.id, user.id))
-    .limit(1);
-  if (!p || p.role !== "admin") return { ok: false, error: "forbidden" };
+  if (!user || !(await isAdmin(user.id))) return { ok: false, error: "forbidden" };
 
   const quota = await fetchApiFootballStatus();
   // Bust the route cache so the next render of /admin re-reads

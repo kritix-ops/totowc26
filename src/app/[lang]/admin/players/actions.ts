@@ -3,7 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { eq } from "drizzle-orm";
 import { db } from "@/db";
-import { players, profiles } from "@/db/schema";
+import { players } from "@/db/schema";
+import { isAdmin } from "@/lib/admin";
 import { getUser } from "@/lib/supabase/auth";
 
 // Server actions backing the /admin/players review queue.
@@ -33,13 +34,7 @@ export type ReviewActionResult =
 
 async function isAdminUser(): Promise<string | null> {
   const user = await getUser();
-  if (!user) return null;
-  const [p] = await db
-    .select({ role: profiles.role })
-    .from(profiles)
-    .where(eq(profiles.id, user.id))
-    .limit(1);
-  if (!p || p.role !== "admin") return null;
+  if (!user || !(await isAdmin(user.id))) return null;
   return user.id;
 }
 

@@ -3,7 +3,8 @@
 import { revalidatePath, updateTag } from "next/cache";
 import { eq } from "drizzle-orm";
 import { db } from "@/db";
-import { payments, profiles } from "@/db/schema";
+import { payments } from "@/db/schema";
+import { isAdmin } from "@/lib/admin";
 import { getUser } from "@/lib/supabase/auth";
 import { accessCacheTag } from "@/lib/access";
 import { CACHE_TAG_POOL } from "@/db/queries";
@@ -14,13 +15,7 @@ export type PaymentDecisionResult =
 
 async function requireAdminUser() {
   const user = await getUser();
-  if (!user) return null;
-  const [p] = await db
-    .select({ role: profiles.role })
-    .from(profiles)
-    .where(eq(profiles.id, user.id))
-    .limit(1);
-  if (!p || p.role !== "admin") return null;
+  if (!user || !(await isAdmin(user.id))) return null;
   return user;
 }
 

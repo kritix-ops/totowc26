@@ -1,8 +1,6 @@
 "use server";
 
-import { eq } from "drizzle-orm";
-import { db } from "@/db";
-import { profiles } from "@/db/schema";
+import { isAdmin } from "@/lib/admin";
 import { getUser } from "@/lib/supabase/auth";
 import { sendEmail } from "@/lib/email/client";
 import { getEmailCopy, interpolate } from "@/lib/email/copy";
@@ -57,13 +55,7 @@ export async function sendTestEmail(
 
   const user = await getUser();
   if (!user) return { ok: false, error: "unauthorized", env };
-
-  const [me] = await db
-    .select({ role: profiles.role })
-    .from(profiles)
-    .where(eq(profiles.id, user.id))
-    .limit(1);
-  if (!me || me.role !== "admin") {
+  if (!(await isAdmin(user.id))) {
     return { ok: false, error: "forbidden", env };
   }
 

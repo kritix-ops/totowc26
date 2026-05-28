@@ -3,7 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { eq } from "drizzle-orm";
 import { db } from "@/db";
-import { profiles, settings } from "@/db/schema";
+import { settings } from "@/db/schema";
+import { isAdmin } from "@/lib/admin";
 import { getUser } from "@/lib/supabase/auth";
 
 // Surface for the admin /admin/settings/scoring page. Carries:
@@ -107,13 +108,7 @@ export type SaveScoringResult =
 
 async function isAdminUser(): Promise<string | null> {
   const user = await getUser();
-  if (!user) return null;
-  const [p] = await db
-    .select({ role: profiles.role })
-    .from(profiles)
-    .where(eq(profiles.id, user.id))
-    .limit(1);
-  if (!p || p.role !== "admin") return null;
+  if (!user || !(await isAdmin(user.id))) return null;
   return user.id;
 }
 
