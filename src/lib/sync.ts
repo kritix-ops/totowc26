@@ -349,7 +349,7 @@ async function _ingestFromApiFootball(
          ${wentToPen},
          ${nextStatus === "final" ? f.kickoffAt : null},
          ${f.fixtureId})
-      on conflict (api_football_fixture_id) do update set
+      on conflict (api_football_fixture_id) where api_football_fixture_id is not null do update set
         home_team = excluded.home_team,
         away_team = excluded.away_team,
         kickoff_at = excluded.kickoff_at,

@@ -83,7 +83,13 @@ if (!apiKey) {
 const sql = postgres(url, { max: 1, prepare: false });
 
 function normaliseName(s) {
+  // NFD + combining-mark strip so accents collapse to plain
+  // ASCII (Türkiye → turkiye, Curaçao → curacao). Without this,
+  // diacritics get replaced with a space by the [^a-z0-9 ]+
+  // pass below and the alias table never matches.
   return String(s ?? "")
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
     .toLowerCase()
     .replace(/[^a-z0-9 ]+/g, " ")
     .replace(/\s+/g, " ")
@@ -139,16 +145,15 @@ try {
   `;
   console.log(`Local teams in DB: ${localTeams.length}.`);
 
-  const apiByCode = new Map(apiTeams.filter((t) => t.code).map((t) => [t.code, t]));
+  // Name-only match against API teams. We deliberately do NOT
+  // match on API-Football's `code` field: two distinct teams share
+  // code="AUS" (Australia / Austria) and two share code="IRA"
+  // (Iran / Iraq), and many other codes disagree with ours (BOS,
+  // JAP, ZEA, SOU, CAP, …). See map-teams script for the same fix.
   const matched = []; // { localCode, localName, apiId, apiName }
   const unmatched = [];
 
   for (const lt of localTeams) {
-    const byCode = apiByCode.get(lt.code);
-    if (byCode) {
-      matched.push({ localCode: lt.code, localName: lt.name_en, apiId: byCode.apiId, apiName: byCode.name });
-      continue;
-    }
     const byName = apiTeams.find((t) => teamNamesEqual(t.name, lt.name_en));
     if (byName) {
       matched.push({ localCode: lt.code, localName: lt.name_en, apiId: byName.apiId, apiName: byName.name });

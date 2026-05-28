@@ -9,13 +9,21 @@
 // rows to be skipped on every cron fire.
 //
 // Strategy per local team:
-//   1. Match the API team whose `code` (3-letter) equals teams.code.
-//   2. Otherwise, normalised English-name match against the API
-//      team list, with the same alias table used by the squads
-//      sync (keep the two lists in sync if you add an alias here).
-//   3. Otherwise, leave the row unchanged and print an UNRESOLVED
+//   1. Normalised English-name match against the API team list,
+//      with the alias table below (kept in sync with the squads
+//      sync script — update both if you add an alias).
+//   2. Otherwise, leave the row unchanged and print an UNRESOLVED
 //      line so the operator can patch the alias table or write
 //      the id directly via SQL.
+//
+// We deliberately do NOT match on API-Football's 3-letter `code`
+// field. Their codes are unreliable for this tournament: two
+// distinct teams share `code="AUS"` (Australia=20 and Austria=775)
+// and two share `code="IRA"` (Iran=22 and Iraq=1567). A naive
+// code-keyed Map silently keeps the last entry and produces the
+// wrong mapping. Their codes also disagree with ours on many
+// teams (BOS/BIH, JAP/JPN, ZEA/NZL, SOU/RSA, CAP/CPV, …), so the
+// shortcut bought nothing even when it didn't actively mislead.
 //
 // Idempotent: re-running is safe. Rows already mapped to the same
 // id are not rewritten; rows mapped to a different id are flagged
@@ -71,7 +79,13 @@ if (!apiKey) {
 const sql = postgres(url, { max: 1, prepare: false });
 
 function normaliseName(s) {
+  // NFD + combining-mark strip so accents collapse to plain
+  // ASCII (Türkiye → turkiye, Curaçao → curacao). Without this,
+  // diacritics get replaced with a space by the [^a-z0-9 ]+
+  // pass below and the alias table never matches.
   return String(s ?? "")
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
     .toLowerCase()
     .replace(/[^a-z0-9 ]+/g, " ")
     .replace(/\s+/g, " ")
@@ -133,23 +147,13 @@ try {
   console.log(`Local teams in DB: ${localTeams.length}.`);
 
   // ── Step 3: resolve each local team to an API id ───────────────────
-  const apiByCode = new Map(apiTeams.filter((t) => t.code).map((t) => [t.code, t]));
-
   let resolvedFresh = 0;
   let resolvedNoOp = 0;
   let conflicted = 0;
   const unresolved = [];
 
   for (const lt of localTeams) {
-    let api = apiByCode.get(lt.code);
-    let how = "code";
-    if (!api) {
-      const byName = apiTeams.find((t) => teamNamesEqual(t.name, lt.name_en));
-      if (byName) {
-        api = byName;
-        how = "name";
-      }
-    }
+    const api = apiTeams.find((t) => teamNamesEqual(t.name, lt.name_en));
 
     if (!api) {
       unresolved.push(lt);
@@ -168,7 +172,7 @@ try {
       conflicted += 1;
       console.warn(
         `  [conflict] ${lt.code.padEnd(4)} ${lt.name_en.padEnd(28)} ` +
-        `existing=${existing} new=${api.apiId} (matched via ${how}: "${api.name}")`,
+        `existing=${existing} new=${api.apiId} (matched name: "${api.name}")`,
       );
       // Conflicts are flagged but NOT auto-overwritten. Operator
       // decides — patch alias map, fix DB by hand, or extend this
@@ -178,7 +182,7 @@ try {
 
     // Fresh mapping. Apply.
     console.log(
-      `  [resolved] ${lt.code.padEnd(4)} ${lt.name_en.padEnd(28)} → ${api.apiId} (via ${how}: "${api.name}")`,
+      `  [resolved] ${lt.code.padEnd(4)} ${lt.name_en.padEnd(28)} → ${api.apiId} (matched name: "${api.name}")`,
     );
     if (!dryRun) {
       await sql`
