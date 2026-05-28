@@ -1,11 +1,15 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Plus, ChevronLeft, ChevronRight } from "lucide-react";
+import { Plus, ChevronLeft, ChevronRight, Copy } from "lucide-react";
 import { hasLocale, type Locale } from "../../dictionaries";
 import { Card, Chip, LabelCaps, PillButton, SectionHeading } from "@/components/ui";
 import { localePath } from "@/lib/paths";
 import { formatDateTime } from "@/lib/format";
-import { listCustomBets, type AdminCustomBetRow } from "@/db/admin-queries";
+import {
+  countDuplicateCustomBets,
+  listCustomBets,
+  type AdminCustomBetRow,
+} from "@/db/admin-queries";
 import { BetsTableActions } from "./BetsTableActions";
 
 export default async function AdminBetsPage({
@@ -21,11 +25,14 @@ export default async function AdminBetsPage({
   const statusFilter = parseStatusFilter(sp.status);
   const scopeFilter = parseScopeFilter(sp.scope);
 
-  const bets = await listCustomBets({
-    status: statusFilter,
-    scope: scopeFilter,
-    limit: 200,
-  });
+  const [bets, duplicateCount] = await Promise.all([
+    listCustomBets({
+      status: statusFilter,
+      scope: scopeFilter,
+      limit: 200,
+    }),
+    countDuplicateCustomBets(),
+  ]);
 
   return (
     <section className="px-4 md:px-16 py-6 md:py-12 flex flex-col gap-6 md:gap-8 max-w-5xl mx-auto w-full pb-24">
@@ -76,6 +83,36 @@ export default async function AdminBetsPage({
           </div>
         </div>
       </header>
+
+      {duplicateCount > 0 && (
+        <Link
+          href={localePath(locale, "admin/bets/duplicates")}
+          className="press-down block"
+        >
+          <Card className="p-4 md:p-5 flex items-center justify-between gap-3 bg-tertiary-fixed text-on-tertiary-fixed-variant border-tertiary-fixed-dim hover:brightness-105">
+            <div className="flex items-center gap-3 min-w-0">
+              <span className="inline-flex items-center justify-center w-10 h-10 rounded-full bg-tertiary-fixed-dim/40 shrink-0">
+                <Copy className="h-5 w-5" strokeWidth={2} />
+              </span>
+              <div className="flex flex-col gap-0.5 min-w-0">
+                <span className="font-bold text-base">
+                  {isHebrew
+                    ? `נמצאו ${duplicateCount} הימורים כפולים פעילים`
+                    : `${duplicateCount} active bets are duplicates`}
+                </span>
+                <span className="text-xs">
+                  {isHebrew
+                    ? "לחץ לסקירה ובחירת איזה רשומה להשאיר."
+                    : "Tap to review and pick which copy to keep."}
+                </span>
+              </div>
+            </div>
+            <span className="text-sm font-bold underline shrink-0">
+              {isHebrew ? "פתח" : "Open"}
+            </span>
+          </Card>
+        </Link>
+      )}
 
       <FilterBar
         locale={locale}

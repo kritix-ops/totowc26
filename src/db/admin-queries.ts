@@ -235,6 +235,118 @@ export async function listCustomBets(opts: {
   return rows as unknown as AdminCustomBetRow[];
 }
 
+// Surface bets that share an identical (scope, anchor, question_he)
+// triplet with at least one other active bet. Powers /admin/bets/duplicates,
+// where the admin reviews and cancels the extra copies that publishing a
+// tournament-suggestions template twice creates. We restrict to non-terminal
+// statuses (draft / open / locked) because graded / cancelled / reversed
+// rows already settled and do not pollute the player-facing surfaces.
+//
+// `dedupKey` is the grouping key the page renders side-by-side. `groupSize`
+// is the number of rows that share it (always >= 2 here).
+export type AdminDuplicateBetRow = AdminCustomBetRow & {
+  dedupKey: string;
+  groupSize: number;
+};
+
+export async function listDuplicateCustomBets(): Promise<AdminDuplicateBetRow[]> {
+  const rows = await db.execute<AdminDuplicateBetRow>(sql`
+    with active as (
+      select
+        cb.id,
+        cb.scope,
+        cb.status,
+        cb.question_he,
+        cb.question_en,
+        cb.answer_type,
+        cb.grading_source,
+        cb.stake_snapshot,
+        cb.payout_snapshot,
+        cb.lock_at,
+        cb.created_at,
+        cb.match_id,
+        cb.matchday_id,
+        cb.stage,
+        cb.group_id,
+        (
+          cb.scope::text
+          || '|' || coalesce(cb.match_id::text,    '')
+          || '|' || coalesce(cb.matchday_id::text, '')
+          || '|' || coalesce(cb.stage::text,       '')
+          || '|' || coalesce(cb.group_id,          '')
+          || '|' || cb.question_he
+        ) as dedup_key
+      from public.custom_bets cb
+      where cb.status in ('draft', 'open', 'locked')
+    ),
+    grp as (
+      select dedup_key, count(*)::int as n
+      from active
+      group by dedup_key
+      having count(*) > 1
+    )
+    select
+      a.id::text                                 as "id",
+      a.scope::text                              as "scope",
+      a.status::text                             as "status",
+      a.question_he                              as "questionHe",
+      a.question_en                              as "questionEn",
+      a.answer_type::text                        as "answerType",
+      a.grading_source::text                     as "gradingSource",
+      a.stake_snapshot                           as "stakeSnapshot",
+      a.payout_snapshot                          as "payoutSnapshot",
+      a.lock_at                                  as "lockAt",
+      md.date::text                              as "matchdayDate",
+      case when a.match_id is not null
+        then m.home_team || ' vs ' || m.away_team
+        else null end                            as "matchLabel",
+      a.stage::text                              as "stage",
+      a.group_id                                 as "groupId",
+      coalesce((
+        select count(*)::int from public.user_custom_bet_picks pk
+        where pk.custom_bet_id = a.id
+      ), 0)                                      as "pickCount",
+      a.created_at                               as "createdAt",
+      a.dedup_key                                as "dedupKey",
+      grp.n                                      as "groupSize"
+    from active a
+    join grp on grp.dedup_key = a.dedup_key
+    left join public.matchdays md on md.id = a.matchday_id
+    left join public.matches   m  on m.id  = a.match_id
+    order by a.dedup_key asc, a.created_at asc
+  `);
+  return rows as unknown as AdminDuplicateBetRow[];
+}
+
+// Cheap counter for the /admin/bets banner. Counts the rows above without
+// pulling them — same predicate, just COUNT(*).
+export async function countDuplicateCustomBets(): Promise<number> {
+  const rows = await db.execute<{ n: number }>(sql`
+    with active as (
+      select
+        (
+          cb.scope::text
+          || '|' || coalesce(cb.match_id::text,    '')
+          || '|' || coalesce(cb.matchday_id::text, '')
+          || '|' || coalesce(cb.stage::text,       '')
+          || '|' || coalesce(cb.group_id,          '')
+          || '|' || cb.question_he
+        ) as dedup_key
+      from public.custom_bets cb
+      where cb.status in ('draft', 'open', 'locked')
+    ),
+    grp as (
+      select dedup_key, count(*)::int as n
+      from active
+      group by dedup_key
+      having count(*) > 1
+    )
+    select coalesce(sum(n), 0)::int as "n" from grp
+  `);
+  const r = (rows as unknown as Array<{ n: number }>)[0];
+  return Number(r?.n ?? 0);
+}
+
 // One-bet detail for the edit / grade view. Returns the bet row joined
 // with every pick + the player's display name so the grade page can
 // render the picks table without a second roundtrip. answerConfig +

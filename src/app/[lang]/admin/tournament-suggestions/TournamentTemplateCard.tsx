@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   AlertCircle,
@@ -15,6 +16,7 @@ import {
 } from "lucide-react";
 import { clsx } from "clsx";
 import { Card, PillButton, SectionHeading } from "@/components/ui";
+import { localePath } from "@/lib/paths";
 import type { Locale } from "@/app/[lang]/dictionaries";
 import type { AnswerConfig } from "@/lib/bets/types";
 import { publishTournamentTemplate } from "./actions";
@@ -40,6 +42,10 @@ export function TournamentTemplateCard({
   const [open, setOpen] = useState(false);
   const [published, setPublished] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // When the server reports an existing active copy, we stash the id so
+  // the warning panel can link the admin to it. Confirming "publish anyway"
+  // re-submits with force=true.
+  const [duplicateExistingId, setDuplicateExistingId] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
   const [questionHe, setQuestionHe] = useState(template.questionHe);
@@ -52,8 +58,9 @@ export function TournamentTemplateCard({
   const lockLocalDefault = isoToLocalInput(template.defaultLockAtIso);
   const [lockAtLocal, setLockAtLocal] = useState(lockLocalDefault);
 
-  const submit = () => {
+  const submit = (force = false) => {
     setError(null);
+    if (!force) setDuplicateExistingId(null);
     const lockAtIso = localInputToIso(lockAtLocal);
     if (!lockAtIso) {
       setError("lock_in_past");
@@ -71,11 +78,17 @@ export function TournamentTemplateCard({
         stake,
         payout,
         lockAt: lockAtIso,
+        force,
       });
       if (!res.ok) {
+        if (res.error === "duplicate_exists") {
+          setDuplicateExistingId(res.existingId);
+          return;
+        }
         setError(res.error);
         return;
       }
+      setDuplicateExistingId(null);
       setPublished(true);
       router.refresh();
     });
@@ -123,7 +136,7 @@ export function TournamentTemplateCard({
           </button>
           <PillButton
             type="button"
-            onClick={submit}
+            onClick={() => submit(false)}
             disabled={pending}
             className={clsx(
               "min-h-[40px] px-5",
@@ -245,6 +258,46 @@ export function TournamentTemplateCard({
                 : "Usually 5 minutes before the first match that affects the outcome."}
             </span>
           </label>
+        </div>
+      )}
+
+      {duplicateExistingId && (
+        <div className="rounded-lg border border-tertiary-fixed-dim bg-tertiary-fixed text-on-tertiary-fixed-variant p-3 flex flex-col gap-2">
+          <p className="inline-flex items-center gap-1.5 text-sm font-bold">
+            <AlertCircle className="h-4 w-4" strokeWidth={2.5} />
+            {isHebrew
+              ? "כבר קיים הימור פעיל עם השאלה הזו."
+              : "An active bet already exists with this question."}
+          </p>
+          <p className="text-xs">
+            {isHebrew
+              ? "המשתתפים יראו את הרשומה הקיימת. אם בכל זאת תפרסם עכשיו, יווצרו שתי רשומות זהות שיופיעו פעמיים במסך ההימורים."
+              : "Players already see the existing copy. Publishing again creates a second identical record that will appear twice in the player view."}
+          </p>
+          <div className="flex items-center gap-2 flex-wrap">
+            <Link
+              href={localePath(locale, `admin/bets/${duplicateExistingId}`)}
+              className="inline-flex items-center justify-center gap-1.5 min-h-[36px] px-3 rounded-full border border-outline bg-surface-container-lowest text-on-surface text-xs font-bold hover:bg-surface-container"
+            >
+              {isHebrew ? "פתח את הקיים" : "Open existing"}
+            </Link>
+            <PillButton
+              type="button"
+              variant="ghost"
+              disabled={pending}
+              onClick={() => submit(true)}
+              className="min-h-[36px] py-1.5 px-3 text-xs"
+            >
+              {isHebrew ? "פרסם בכל זאת" : "Publish anyway"}
+            </PillButton>
+            <button
+              type="button"
+              onClick={() => setDuplicateExistingId(null)}
+              className="press-down min-h-[36px] px-3 inline-flex items-center justify-center rounded-full bg-surface-container-lowest text-on-surface text-xs font-bold border border-outline"
+            >
+              {isHebrew ? "ביטול" : "Dismiss"}
+            </button>
+          </div>
         </div>
       )}
 
