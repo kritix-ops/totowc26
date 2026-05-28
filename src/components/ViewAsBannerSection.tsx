@@ -16,7 +16,6 @@ export async function ViewAsBannerSection({
 }) {
   const access = await getUserAccess(userId);
   const viewingAs = access?.viewingAs ?? null;
-  console.info("[view-as banner section]", { viewingAs });
   if (!viewingAs) return null;
   return (
     <div className="fixed top-0 left-0 right-0 z-[60]">

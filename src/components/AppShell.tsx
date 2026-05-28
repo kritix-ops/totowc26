@@ -82,21 +82,11 @@ export async function AppShell({
     ? "pt-[calc(40px+3.5rem)] md:pt-[calc(40px+4rem)]"
     : "pt-14 md:pt-16";
 
-  console.info("[app shell render]", {
-    signedIn,
-    userId: reqUser?.id ?? null,
-    showViewAsBanner,
-    showUnpaidBanner,
-    streamingSections: signedIn
-      ? [
-          "ViewAsBanner",
-          "UnpaidBanner",
-          "DesktopNavExtras",
-          "HeaderUserSection",
-          "MobileBottomNav",
-        ]
-      : ["GuestHeaderActions"],
-  });
+  // The shell renders on every navigation; this log used to fire each
+  // time and flooded the console. The branching it described (which
+  // sections stream, signed-in vs guest) is statically derivable from
+  // `signedIn` — bring it back behind `?debug=app-shell` if the
+  // navigation gets weird.
 
   return (
     <>

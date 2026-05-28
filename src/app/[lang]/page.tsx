@@ -77,12 +77,6 @@ export default async function HomePage({
   const userId = reqUser?.id ?? null;
   const signedIn = !!userId || previewPlayer;
 
-  console.info("[home render]", {
-    signedIn,
-    previewPlayer,
-    userId,
-  });
-
   if (!signedIn) {
     // Guest landing only needs the tournament start for the countdown.
     // Prize-pool details deliberately do not appear here — they are a
@@ -366,11 +360,6 @@ async function HeroStatsCardAsync({
   ]);
   const isHebrew = locale === "he";
   const countdown = tournamentStart ? computeCountdown(tournamentStart) : null;
-  console.info("[home stats async]", {
-    potIls: pool.potIls,
-    participants: pool.participants,
-    countdownStarted: countdown?.started ?? null,
-  });
   return (
     <div className="relative z-10 -mt-10 sm:-mt-14 md:-mt-20 px-4 md:px-8 lg:px-16 flex justify-center">
       <div className="w-full max-w-6xl bg-surface-container-low border border-outline rounded-lg shadow-[0_8px_24px_rgba(28,20,15,0.12)] p-5 md:p-7 flex flex-col gap-5 md:gap-6">

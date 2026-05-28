@@ -25,7 +25,6 @@ export async function GuestHeaderActions({
     .limit(1)
     .then((r) => r[0] ?? null);
   const signupOpen = row?.open ?? true;
-  console.info("[guest header actions]", { signupOpen });
 
   return (
     <>

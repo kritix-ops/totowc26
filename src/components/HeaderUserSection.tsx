@@ -48,13 +48,6 @@ export async function HeaderUserSection({
   const displayName = profileRow?.displayName ?? userEmail ?? "";
   const admin = !!access?.isAdmin;
 
-  console.info("[header user section render]", {
-    isAdmin: admin,
-    myRank: rankSummary?.myRank ?? null,
-    totalPlayers: rankSummary?.total ?? null,
-    bankBalance: bank?.balance ?? null,
-  });
-
   return (
     <>
       {bank && (
