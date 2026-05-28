@@ -39,6 +39,31 @@ const nextConfig: NextConfig = {
   async headers() {
     return [
       {
+        // Baseline security headers applied to every response. CSP is
+        // deliberately not set here: a tight policy needs a full
+        // inventory of Supabase/Resend/inline-script origins and lands
+        // in its own pass. See _plans/2026-05-28-security-hardening.md.
+        source: "/(.*)",
+        headers: [
+          {
+            key: "Strict-Transport-Security",
+            value: "max-age=63072000; includeSubDomains; preload",
+          },
+          { key: "X-Frame-Options", value: "DENY" },
+          { key: "X-Content-Type-Options", value: "nosniff" },
+          {
+            key: "Referrer-Policy",
+            value: "strict-origin-when-cross-origin",
+          },
+          {
+            key: "Permissions-Policy",
+            value:
+              "camera=(), microphone=(), geolocation=(), browsing-topics=()",
+          },
+          { key: "X-DNS-Prefetch-Control", value: "on" },
+        ],
+      },
+      {
         // The service worker file must never be cached by the browser —
         // otherwise an upgraded SW won't pick up until the old cache
         // entry expires.

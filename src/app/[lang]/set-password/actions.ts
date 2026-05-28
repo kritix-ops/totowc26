@@ -12,7 +12,10 @@ export async function setPasswordAction(
 ): Promise<SetPasswordResult> {
   const pw = String(formData.get("password") ?? "");
   const confirm = String(formData.get("confirm") ?? "");
-  if (pw.length < 6) return { ok: false, error: "weak" };
+  if (pw.length < 12) return { ok: false, error: "weak" };
+  if (!/[A-Za-z]/.test(pw) || !/\d/.test(pw)) {
+    return { ok: false, error: "weak" };
+  }
   if (pw !== confirm) return { ok: false, error: "mismatch" };
 
   const supabase = await getSupabaseServer();

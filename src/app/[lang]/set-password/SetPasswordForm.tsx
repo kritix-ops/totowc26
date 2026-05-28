@@ -42,10 +42,14 @@ export function SetPasswordForm({ locale }: { locale: Locale }) {
             type={showPw ? "text" : "password"}
             name="password"
             required
-            minLength={6}
+            minLength={12}
             autoComplete="new-password"
             dir="ltr"
-            placeholder={isHebrew ? "לפחות 6 תווים" : "At least 6 characters"}
+            placeholder={
+              isHebrew
+                ? "לפחות 12 תווים, אותיות וספרות"
+                : "At least 12 characters, letters and numbers"
+            }
             className={clsx(
               "w-full h-12 bg-transparent border-0 focus:outline-none text-[16px] text-on-surface placeholder:text-outline-variant",
               isHebrew ? "text-right pr-9 pl-10" : "text-left pl-9 pr-10",
@@ -72,7 +76,7 @@ export function SetPasswordForm({ locale }: { locale: Locale }) {
             type={showPw ? "text" : "password"}
             name="confirm"
             required
-            minLength={6}
+            minLength={12}
             autoComplete="new-password"
             dir="ltr"
             placeholder={isHebrew ? "הקלד שוב" : "Type it again"}
@@ -131,7 +135,10 @@ function translate(
   isHebrew: boolean,
 ): string {
   const map: Record<string, [string, string]> = {
-    weak: ["הסיסמה חייבת לפחות 6 תווים", "Password must be 6+ characters"],
+    weak: [
+      "הסיסמה חייבת לכלול לפחות 12 תווים, אותיות וספרות",
+      "Password must be 12+ characters with letters and numbers",
+    ],
     mismatch: ["הסיסמאות לא תואמות", "Passwords do not match"],
     unauth: [
       "פג תוקף ההזמנה. בקש מהמנהל לשלוח קישור חדש",
