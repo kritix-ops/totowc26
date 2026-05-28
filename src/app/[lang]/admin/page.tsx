@@ -13,6 +13,7 @@ import {
   Languages,
   Smartphone,
   Clock,
+  Copy,
   EyeOff,
 } from "lucide-react";
 import { eq } from "drizzle-orm";
@@ -24,6 +25,7 @@ import { PAYBOX_FALLBACK_URL } from "@/lib/paybox";
 import { db } from "@/db";
 import { settings } from "@/db/schema";
 import {
+  countDuplicateCustomBets,
   getRecentSyncRuns,
   getPaymentsByStatus,
   getPaymentTotals,
@@ -43,7 +45,16 @@ export default async function AdminPage({
   const locale = lang as Locale;
   const isHebrew = locale === "he";
 
-  const [syncHistory, payments, totals, viewAs, settingsRow, teamMapping, apiFootballQuota] = await Promise.all([
+  const [
+    syncHistory,
+    payments,
+    totals,
+    viewAs,
+    settingsRow,
+    teamMapping,
+    apiFootballQuota,
+    duplicateBetCount,
+  ] = await Promise.all([
     getRecentSyncRuns(20),
     getPaymentsByStatus("all", 50),
     getPaymentTotals(),
@@ -56,6 +67,7 @@ export default async function AdminPage({
       .then((r) => r[0] ?? null),
     getTeamMappingStatus(),
     fetchApiFootballStatus(),
+    countDuplicateCustomBets(),
   ]);
 
   return (
@@ -107,6 +119,16 @@ export default async function AdminPage({
           icon={<Trophy className="h-5 w-5" strokeWidth={1.75} />}
           label={isHebrew ? "הימורי טורניר" : "Tournament bets"}
         />
+        {duplicateBetCount > 0 && (
+          <SectionLink
+            locale={locale}
+            path="admin/bets/duplicates"
+            icon={<Copy className="h-5 w-5" strokeWidth={1.75} />}
+            label={isHebrew ? "כפילויות הימורים" : "Duplicate bets"}
+            badge={duplicateBetCount}
+            tone="warning"
+          />
+        )}
         <SectionLink
           locale={locale}
           path="admin/players"
@@ -183,24 +205,42 @@ function SectionLink({
   path,
   icon,
   label,
+  badge,
+  tone = "default",
 }: {
   locale: Locale;
   path: string;
   icon: React.ReactNode;
   label: string;
+  // Numeric badge rendered between label and chevron. Used by the
+  // attention-seeking variants (e.g. duplicates) — undefined hides it.
+  badge?: number;
+  // "warning" swaps the icon background to the tertiary palette so the
+  // tile stands out from the default grid. Anything else falls back to
+  // the standard primary-fixed look.
+  tone?: "default" | "warning";
 }) {
+  const iconBg =
+    tone === "warning"
+      ? "bg-tertiary-fixed text-on-tertiary-fixed-variant"
+      : "bg-primary-fixed text-on-primary-fixed-variant";
   return (
     <Link
       href={localePath(locale, path)}
       className="press-down"
     >
       <Card className="p-4 flex items-center gap-3 min-h-[64px] hover:bg-surface-container transition-colors h-full">
-        <div className="w-10 h-10 rounded-full bg-primary-fixed flex items-center justify-center text-on-primary-fixed-variant shrink-0">
+        <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${iconBg}`}>
           {icon}
         </div>
         <span className="flex-1 min-w-0 font-bold text-sm text-on-surface truncate">
           {label}
         </span>
+        {badge !== undefined && (
+          <span className="inline-flex items-center justify-center min-w-[24px] h-6 px-2 rounded-full bg-tertiary-fixed-dim text-on-tertiary-fixed-variant text-xs font-bold tabular-nums shrink-0">
+            <bdi>{badge}</bdi>
+          </span>
+        )}
         <ChevronRight
           className="h-4 w-4 text-on-surface-variant shrink-0 rtl:rotate-180"
           strokeWidth={2}
