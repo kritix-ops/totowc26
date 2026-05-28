@@ -1,0 +1,14 @@
+"use server";
+
+import { revalidatePath } from "next/cache";
+import { setWhatsAppCardDismissedCookie } from "@/lib/whatsapp-dismiss";
+
+// Persists the user's dismissal of the WhatsApp invite card. Called from
+// the client close-button handlers on the dashboard and profile cards.
+// Stores the *current* URL so the dismissal automatically resets when
+// the admin rotates the group invite (see whatsapp-dismiss.ts).
+export async function dismissWhatsAppCard(currentUrl: string): Promise<void> {
+  if (!currentUrl) return;
+  await setWhatsAppCardDismissedCookie(currentUrl);
+  revalidatePath("/", "layout");
+}

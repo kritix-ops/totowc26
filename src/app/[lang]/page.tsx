@@ -19,10 +19,11 @@ import { CategoryPrizeStrip } from "@/components/CategoryPrizeStrip";
 import { getRequestUser } from "@/lib/request-user";
 import { getUserAccess } from "@/lib/access";
 import { DashboardPickCard } from "@/components/DashboardPickCard";
-import { WhatsAppGlyph } from "@/components/WhatsAppGlyph";
+import { WhatsAppInviteCard } from "@/components/WhatsAppInviteCard";
 import { db } from "@/db";
 import { settings } from "@/db/schema";
 import { eq } from "drizzle-orm";
+import { isWhatsAppCardDismissed } from "@/lib/whatsapp-dismiss";
 import {
   HeroStatsCardSkeleton,
   LastBetSectionSkeleton,
@@ -1034,8 +1035,9 @@ function SpecialsCard({
 // Streamed dashboard companion to SpecialsCard: opens the pool's
 // WhatsApp invite. Sits in the same bottom-left cell as Specials so
 // the "ways to engage outside the bets surface" cluster reads as one
-// unit. Returns null when the admin clears the URL so the cell
-// collapses to just SpecialsCard rather than leaving a hole.
+// unit. Returns null when the admin clears the URL OR the user has
+// dismissed it - both leave just SpecialsCard in the cell rather than
+// a hole.
 async function CommunityCardAsync({
   locale,
   dict,
@@ -1050,51 +1052,23 @@ async function CommunityCardAsync({
     .limit(1);
   const url = row?.whatsappGroupUrl ?? null;
   if (!url) return null;
-  return <CommunityCard locale={locale} dict={dict} url={url} />;
-}
-
-function CommunityCard({
-  locale,
-  dict,
-  url,
-}: {
-  locale: Locale;
-  dict: Awaited<ReturnType<typeof getDictionary>>;
-  url: string;
-}) {
+  const dismissed = await isWhatsAppCardDismissed(url);
   const isHebrew = locale === "he";
   return (
-    <a
-      href={url}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="press-down group block"
-      aria-label={dict.profile.whatsappTitle}
-    >
-      <Card className="p-5 flex items-center gap-4 min-h-[72px] hover:bg-surface-container transition-colors">
-        <span
-          className="w-11 h-11 rounded-full flex items-center justify-center shrink-0"
-          style={{ backgroundColor: "#25D366" }}
-          aria-hidden
-        >
-          <WhatsAppGlyph className="w-6 h-6 text-white" />
-        </span>
-        <div className="flex flex-col min-w-0 flex-1">
-          <span className="font-bold text-base text-on-surface">
-            {dict.profile.whatsappTitle}
-          </span>
-          <span className="text-sm text-on-surface-variant truncate">
-            {isHebrew
-              ? "התראות, דיבורים על משחקים, וצחוקים בין החברים"
-              : "Live banter and updates with the rest of the pool"}
-          </span>
-        </div>
-        <ArrowUpRight
-          className="h-5 w-5 text-primary shrink-0 group-hover:translate-x-0.5 transition-transform"
-          strokeWidth={2}
-        />
-      </Card>
-    </a>
+    <WhatsAppInviteCard
+      locale={locale}
+      url={url}
+      variant="compact"
+      title={dict.profile.whatsappTitle}
+      subtitle={
+        isHebrew
+          ? "התראות, דיבורים על משחקים, וצחוקים בין החברים"
+          : "Live banter and updates with the rest of the pool"
+      }
+      ctaLabel={dict.profile.whatsappCta}
+      closeLabel={dict.profile.whatsappDismiss}
+      initialDismissed={dismissed}
+    />
   );
 }
 

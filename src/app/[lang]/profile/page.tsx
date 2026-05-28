@@ -38,7 +38,8 @@ import { eq } from "drizzle-orm";
 import { Card, LabelCaps, SectionHeading, Chip } from "@/components/ui";
 import { Flag } from "@/components/Flag";
 import { PushOptInToggle } from "@/components/PushOptInToggle";
-import { WhatsAppGlyph } from "@/components/WhatsAppGlyph";
+import { WhatsAppInviteCard } from "@/components/WhatsAppInviteCard";
+import { isWhatsAppCardDismissed } from "@/lib/whatsapp-dismiss";
 import { countUnreadNotifications } from "@/lib/notifications";
 import { localePath } from "@/lib/paths";
 import { formatDateTime } from "@/lib/format";
@@ -92,6 +93,8 @@ export default async function ProfilePage({
       .limit(1),
   ]);
 
+  const whatsappUrl = settingsRow?.whatsappGroupUrl ?? null;
+  const whatsappDismissed = await isWhatsAppCardDismissed(whatsappUrl);
   const isHebrew = locale === "he";
   const displayName = profile?.displayName ?? (user.email ?? "");
   const initials = displayName.charAt(0).toUpperCase();
@@ -192,11 +195,18 @@ export default async function ProfilePage({
         </Link>
       </section>
 
-      <WhatsAppGroupCard
-        locale={locale}
-        dict={dict}
-        url={settingsRow?.whatsappGroupUrl ?? null}
-      />
+      {whatsappUrl && (
+        <WhatsAppInviteCard
+          locale={locale}
+          url={whatsappUrl}
+          variant="spotlight"
+          title={dict.profile.whatsappTitle}
+          subtitle={dict.profile.whatsappSubtitle}
+          ctaLabel={dict.profile.whatsappCta}
+          closeLabel={dict.profile.whatsappDismiss}
+          initialDismissed={whatsappDismissed}
+        />
+      )}
 
       <section className="flex flex-col gap-4">
         <SectionHeading>{dict.profile.settings}</SectionHeading>
@@ -552,64 +562,6 @@ function SettingRow({
   );
 }
 
-// Single invite link to the pool's WhatsApp group. Sits between the
-// Notifications section (in-app feed) and Settings (account stuff),
-// which is where "stay connected" affordances belong. The card uses
-// the WhatsApp brand green only on the icon badge - the rest of the
-// card stays in-theme so it doesn't shout for attention. Opens in a
-// new tab with rel="noopener noreferrer" to avoid window.opener leaks.
-//
-// The URL is admin-editable from /admin and stored on settings.whatsapp_group_url.
-// `null` (admin cleared the field) hides the card entirely - prevents a
-// dead-link card if the group is rotated and the admin hasn't filled in
-// the new invite yet.
-function WhatsAppGroupCard({
-  locale,
-  dict,
-  url,
-}: {
-  locale: Locale;
-  dict: Awaited<ReturnType<typeof getDictionary>>;
-  url: string | null;
-}) {
-  const isHebrew = locale === "he";
-  if (!url) return null;
-  return (
-    <a
-      href={url}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="block press-down"
-      aria-label={dict.profile.whatsappTitle}
-    >
-      <Card className="p-4 md:p-5 flex items-center gap-4 hover:bg-surface-container transition-colors min-h-[72px]">
-        <span
-          className="w-11 h-11 md:w-12 md:h-12 rounded-full flex items-center justify-center shrink-0"
-          style={{ backgroundColor: "#25D366" }}
-          aria-hidden
-        >
-          <WhatsAppGlyph className="w-6 h-6 md:w-7 md:h-7 text-white" />
-        </span>
-        <div className="flex flex-col gap-0.5 min-w-0 flex-1">
-          <span className="font-[family-name:var(--font-display)] text-base md:text-lg font-bold text-on-surface leading-tight">
-            {dict.profile.whatsappTitle}
-          </span>
-          <span className="text-xs md:text-sm text-on-surface-variant leading-snug line-clamp-2">
-            {dict.profile.whatsappSubtitle}
-          </span>
-        </div>
-        <span className="inline-flex items-center gap-1 text-xs font-[family-name:var(--font-label)] font-bold tracking-[0.05em] text-primary shrink-0">
-          {dict.profile.whatsappCta}
-          {isHebrew ? (
-            <ChevronLeft className="h-4 w-4" strokeWidth={2.5} />
-          ) : (
-            <ChevronRight className="h-4 w-4" strokeWidth={2.5} />
-          )}
-        </span>
-      </Card>
-    </a>
-  );
-}
 
 
 // ─────────────────────────────────────────────────────────────────────────────
