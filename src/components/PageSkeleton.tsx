@@ -211,3 +211,19 @@ export function LeaderboardSectionSkeleton() {
     </section>
   );
 }
+
+export function LatestNewsSectionSkeleton() {
+  return (
+    <section className="flex flex-col gap-4 md:gap-6">
+      <div className="flex justify-between items-end">
+        <ShimmerBlock className="h-6 w-32" />
+        <ShimmerBlock className="h-4 w-16" />
+      </div>
+      <div className="flex flex-col gap-2">
+        {Array.from({ length: 3 }).map((_, i) => (
+          <ShimmerBlock key={i} className="h-[88px]" />
+        ))}
+      </div>
+    </section>
+  );
+}

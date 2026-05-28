@@ -5,6 +5,8 @@ import {
   ArrowUpRight,
   CalendarClock,
   CircleDollarSign,
+  ExternalLink,
+  Newspaper,
   Sparkles,
   Trophy,
   Users,
@@ -28,6 +30,7 @@ import { isWhatsAppCardDismissed } from "@/lib/whatsapp-dismiss";
 import {
   HeroStatsCardSkeleton,
   LastBetSectionSkeleton,
+  LatestNewsSectionSkeleton,
   LeaderboardSectionSkeleton,
   PrizeStripSkeleton,
   StatusRowSkeleton,
@@ -48,6 +51,8 @@ import {
   type FixtureWithMyBet,
   type LeaderboardEntry,
 } from "@/db/queries";
+import { loadNewsArchivePage, type NewsArchiveItem } from "@/lib/news-read";
+import type { NewsSource } from "@/lib/news";
 import {
   Card,
   Chip,
@@ -323,6 +328,15 @@ function PlayerHome({
           </div>
         </div>
 
+        {/* Latest news preview — 3 most recent headlines from the
+            tournament archive with a link into the full News tab. Sits
+            above the prize strip so the bottom of the dashboard fades
+            into reference material (prize breakdown, install hint)
+            rather than ending on a hard CTA. */}
+        <Suspense fallback={<LatestNewsSectionSkeleton />}>
+          <LatestNewsSectionAsync locale={locale} dict={dict} />
+        </Suspense>
+
         {/* Prize breakdown lives at the bottom of the dashboard now —
             the pot/participants summary in the hero already tells users
             the headline numbers, so the detailed per-category split is
@@ -489,6 +503,20 @@ async function LeaderboardSectionAsync({
 }) {
   const board = await getLeaderboard(userId);
   return <LeaderboardSection locale={locale} dict={dict} board={board} />;
+}
+
+async function LatestNewsSectionAsync({
+  locale,
+  dict,
+}: {
+  locale: Locale;
+  dict: Awaited<ReturnType<typeof getDictionary>>;
+}) {
+  const lang: "he" | "en" = locale === "he" ? "he" : "en";
+  const page = await loadNewsArchivePage({ lang, limit: 3 });
+  return (
+    <LatestNewsSection locale={locale} dict={dict} items={page.items} />
+  );
 }
 
 // Legacy non-streaming variant kept only for the `?preview=player`
@@ -988,6 +1016,134 @@ function LastBetCard({
       </div>
     </Card>
   );
+}
+
+function LatestNewsSection({
+  locale,
+  dict,
+  items,
+}: {
+  locale: Locale;
+  dict: Awaited<ReturnType<typeof getDictionary>>;
+  items: NewsArchiveItem[];
+}) {
+  const isHebrew = locale === "he";
+  return (
+    <section
+      aria-labelledby="latest-news-heading"
+      className="flex flex-col gap-4 md:gap-6"
+    >
+      <div className="flex justify-between items-end">
+        <SectionHeading as="h3">
+          <span id="latest-news-heading">
+            {dict.dashboard.latestNewsTitle}
+          </span>
+        </SectionHeading>
+        <Link
+          href={`${localePath(locale, "tournament")}?tab=news`}
+          className="font-[family-name:var(--font-label)] text-[12px] font-bold tracking-[0.05em] text-primary hover:underline inline-flex items-center gap-1 min-h-[40px]"
+        >
+          {dict.dashboard.viewAll}
+          <ArrowUpRight className="h-3.5 w-3.5" strokeWidth={2} />
+        </Link>
+      </div>
+      {items.length === 0 ? (
+        <Card className="p-6 text-center text-on-surface-variant">
+          {dict.dashboard.latestNewsEmpty}
+        </Card>
+      ) : (
+        <Card className="p-0 overflow-hidden">
+          <ul className="flex flex-col">
+            {items.map((item, i) => (
+              <li
+                key={item.id}
+                className={i > 0 ? "border-t border-outline-variant" : ""}
+              >
+                <LatestNewsCard
+                  item={item}
+                  locale={locale}
+                  isHebrew={isHebrew}
+                />
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
+    </section>
+  );
+}
+
+function LatestNewsCard({
+  item,
+  locale,
+  isHebrew,
+}: {
+  item: NewsArchiveItem;
+  locale: Locale;
+  isHebrew: boolean;
+}) {
+  const dateLabel = formatDateTime(item.publishedAt, locale, {
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  return (
+    <a
+      href={item.link}
+      target="_blank"
+      rel="noopener noreferrer"
+      aria-label={item.title}
+      className="press-down flex gap-3 p-3 md:p-4 min-h-[88px] hover:bg-surface-container transition-colors"
+    >
+      {item.imageUrl ? (
+        <div className="relative shrink-0 w-[64px] h-[64px] md:w-[80px] md:h-[80px] rounded-md overflow-hidden bg-surface-variant">
+          <Image
+            src={item.imageUrl}
+            alt=""
+            fill
+            sizes="(min-width: 768px) 80px, 64px"
+            className="object-cover"
+            unoptimized
+          />
+        </div>
+      ) : (
+        <div className="shrink-0 w-[64px] h-[64px] md:w-[80px] md:h-[80px] rounded-md bg-surface-variant flex items-center justify-center text-on-surface-variant">
+          <Newspaper className="h-5 w-5" strokeWidth={1.75} />
+        </div>
+      )}
+      <div className="flex flex-col gap-1 min-w-0 flex-1 justify-center">
+        <h4 className="font-bold text-on-surface text-[14px] md:text-[15px] leading-snug line-clamp-2">
+          {item.title}
+        </h4>
+        <div className="flex items-center gap-2 flex-wrap text-on-surface-variant text-xs">
+          <span>{newsSourceLabel(item.source, isHebrew)}</span>
+          <span aria-hidden>·</span>
+          <time
+            className="bidi-ltr"
+            dateTime={new Date(item.publishedAt).toISOString()}
+          >
+            {dateLabel}
+          </time>
+        </div>
+      </div>
+      <ExternalLink
+        className="h-4 w-4 text-on-surface-variant shrink-0 self-center"
+        strokeWidth={2}
+      />
+    </a>
+  );
+}
+
+function newsSourceLabel(source: NewsSource, isHebrew: boolean): string {
+  switch (source) {
+    case "walla":
+      return isHebrew ? "וואלה ספורט" : "Walla Sport";
+    case "ynet":
+      return isHebrew ? "Ynet ספורט" : "Ynet Sport";
+    case "bbc":
+      return "BBC Sport";
+  }
 }
 
 function SpecialsCard({

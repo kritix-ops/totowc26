@@ -199,7 +199,9 @@
     "earned": "Earned",
     "pointsTrend": "Points through the tournament",
     "viewAll": "View all",
-    "matchday": "Matchday"
+    "matchday": "Matchday",
+    "latestNewsTitle": "Latest news",
+    "latestNewsEmpty": "Headlines will appear here once the tournament kicks off."
   },
   "matchBet": {
     "title": "Exact score",
@@ -236,6 +238,14 @@
     "newsSourceYnet": "Ynet Sport",
     "newsSourceBbc": "BBC Sport",
     "newsOpenArticleAria": "Open article",
+    "newsOpenArticleLabel": "Open article",
+    "newsFilterByDateLabel": "Filter by date",
+    "newsClearDateAria": "Clear date",
+    "newsLoadingMore": "Loading more…",
+    "newsEndOfArchive": "End of archive",
+    "newsNoItemsForDate": "No headlines for this date. Try another date.",
+    "newsErrorTitle": "Couldn't load",
+    "newsErrorRetry": "Try again",
     "newsEmptyTitle": "No headlines right now",
     "newsEmptyBody": "We'll pull fresh headlines in a few minutes. Refresh or check back later.",
     "newsComingSoonTitle": "World Cup news, coming soon",

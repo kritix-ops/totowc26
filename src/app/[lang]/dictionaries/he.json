@@ -199,7 +199,9 @@
     "earned": "צברת",
     "pointsTrend": "נקודות במהלך הטורניר",
     "viewAll": "הצג הכל",
-    "matchday": "מחזור"
+    "matchday": "מחזור",
+    "latestNewsTitle": "חדשות אחרונות",
+    "latestNewsEmpty": "כותרות יופיעו כאן ברגע שהמונדיאל יתחיל."
   },
   "matchBet": {
     "title": "תוצאה מדויקת",
@@ -236,6 +238,14 @@
     "newsSourceYnet": "Ynet ספורט",
     "newsSourceBbc": "BBC Sport",
     "newsOpenArticleAria": "פתח כתבה",
+    "newsOpenArticleLabel": "פתח כתבה",
+    "newsFilterByDateLabel": "סינון לפי תאריך",
+    "newsClearDateAria": "נקה תאריך",
+    "newsLoadingMore": "טוען עוד…",
+    "newsEndOfArchive": "הגעת לסוף הארכיון",
+    "newsNoItemsForDate": "אין כותרות לתאריך הזה. נסה תאריך אחר.",
+    "newsErrorTitle": "לא הצלחנו לטעון",
+    "newsErrorRetry": "נסה שוב",
     "newsEmptyTitle": "אין כרגע כותרות חדשות",
     "newsEmptyBody": "ננסה למשוך כותרות חדשות בעוד כמה דקות. אפשר לרענן או לחזור מאוחר יותר.",
     "newsComingSoonTitle": "חדשות מהמונדיאל - בקרוב",

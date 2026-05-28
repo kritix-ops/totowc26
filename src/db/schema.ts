@@ -1050,6 +1050,55 @@ export const contentOverrideHistory = pgTable(
   }),
 );
 
+// news_items: archive of headlines pulled from Walla / Ynet / BBC by
+// the /api/cron/news handler. `link` is the natural dedup key (RSS
+// guids are usually URLs anyway); the cron upserts with ON CONFLICT DO
+// NOTHING so first-seen wins. The (lang, published_at DESC) index
+// supports both the initial "latest 20" load and the keyset-paginated
+// "load older" scroll without a sort node. See
+// _plans/2026-05-29-news-archive-and-lazy-load.md.
+export const newsItems = pgTable(
+  "news_items",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    source: text("source").notNull(),
+    lang: text("lang").notNull(),
+    link: text("link").notNull(),
+    title: text("title").notNull(),
+    summary: text("summary").notNull().default(""),
+    imageUrl: text("image_url"),
+    publishedAt: timestamp("published_at", { withTimezone: true }).notNull(),
+    fetchedAt: timestamp("fetched_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    linkUniq: uniqueIndex("news_items_link_uniq").on(t.link),
+    langPublishedIdx: index("news_items_lang_published_idx").on(
+      t.lang,
+      t.publishedAt,
+    ),
+  }),
+);
+
+// news_sync_cursors: per-source HTTP cache state. Walla and BBC honour
+// conditional GETs (Last-Modified / ETag); storing the last-seen values
+// lets the cron return early on 304 and skip parse. Ynet HTML scrape
+// has no reliable validators — its row exists but stays empty.
+export const newsSyncCursors = pgTable("news_sync_cursors", {
+  source: text("source").primaryKey(),
+  lastModified: text("last_modified"),
+  etag: text("etag"),
+  lastFetchedAt: timestamp("last_fetched_at", { withTimezone: true }),
+  lastStatus: smallint("last_status"),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
 // Per-table `<Name>` (select shape) + `New<Name>` (insert shape) pair
 // for every table in the schema. Drizzle infers them from the table
 // definition above, so a column rename here lands in every caller
@@ -1097,3 +1146,10 @@ export type NewContentOverride = typeof contentOverrides.$inferInsert;
 export type ContentOverrideHistory = typeof contentOverrideHistory.$inferSelect;
 export type NewContentOverrideHistory =
   typeof contentOverrideHistory.$inferInsert;
+// Suffixed `Row` to avoid clashing with the in-memory `NewsItem` shape
+// exported from `@/lib/news` (the parsed-RSS object used during sync).
+// Same pattern as `PushSubscriptionRow` vs the DOM `PushSubscription`.
+export type NewsItemRow = typeof newsItems.$inferSelect;
+export type NewNewsItemRow = typeof newsItems.$inferInsert;
+export type NewsSyncCursorRow = typeof newsSyncCursors.$inferSelect;
+export type NewNewsSyncCursorRow = typeof newsSyncCursors.$inferInsert;
