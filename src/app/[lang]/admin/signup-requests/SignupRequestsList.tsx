@@ -82,7 +82,7 @@ export function SignupRequestsList({
   );
 }
 
-function RequestCard({
+export function RequestCard({
   request,
   locale,
   isHebrew,

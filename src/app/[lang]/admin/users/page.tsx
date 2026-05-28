@@ -7,7 +7,9 @@ import { db } from "@/db";
 import { settings } from "@/db/schema";
 import { localePath } from "@/lib/paths";
 import { LabelCaps } from "@/components/ui";
+import { fetchSignupRequests } from "../signup-requests/queries";
 import { fetchAdminUsers, fetchAdminStats } from "./queries";
+import { PendingSignupBanner } from "./PendingSignupBanner";
 import { UsersExplorer } from "./UsersExplorer";
 
 export default async function AdminUsersPage({
@@ -17,9 +19,10 @@ export default async function AdminUsersPage({
   if (!hasLocale(lang)) notFound();
   const locale = lang as Locale;
 
-  const [[s], users] = await Promise.all([
+  const [[s], users, pendingSignups] = await Promise.all([
     db.select({ entryFee: settings.entryFeeIls }).from(settings).where(eq(settings.id, 1)),
     fetchAdminUsers(),
+    fetchSignupRequests("pending"),
   ]);
   const stats = await fetchAdminStats(s?.entryFee ?? 100);
   const isHebrew = locale === "he";
@@ -45,10 +48,12 @@ export default async function AdminUsersPage({
         </p>
       </header>
 
+      <PendingSignupBanner requests={pendingSignups} locale={locale} />
+
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <KPICard label={isHebrew ? "סה\"כ משתתפים" : "Total users"} value={stats.totalUsers} accent="text-surface-tint" />
         <KPICard label={isHebrew ? "שילמו" : "Approved"} value={stats.approvedCount} accent="text-secondary" sub={`${stats.potIls.toLocaleString()} ${isHebrew ? "ש\"ח בקופה" : "ILS in pot"}`} />
-        <KPICard label={isHebrew ? "ממתינים" : "Pending"} value={stats.pendingCount} accent="text-tertiary" />
+        <KPICard label={isHebrew ? "ממתינים תשלום" : "Awaiting payment"} value={stats.pendingCount} accent="text-tertiary" />
         <KPICard label={isHebrew ? "לא שילמו" : "Unpaid"} value={stats.unpaidCount} accent="text-error" sub={`${stats.adminCount} ${isHebrew ? "אדמינים" : "admins"}`} />
       </div>
 

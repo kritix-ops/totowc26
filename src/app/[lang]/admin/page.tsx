@@ -18,6 +18,7 @@ import {
   Bell,
   Megaphone,
   Type,
+  UserPlus,
 } from "lucide-react";
 import { eq } from "drizzle-orm";
 import { hasLocale, type Locale } from "../dictionaries";
@@ -35,6 +36,7 @@ import {
   getTeamMappingStatus,
 } from "@/db/admin-queries";
 import { fetchApiFootballStatus } from "@/lib/api-football";
+import { countPendingSignups } from "./signup-requests/queries";
 import { SyncPanel } from "./SyncPanel";
 import { PaymentsPanel } from "./PaymentsPanel";
 import { ViewAsPanel } from "./ViewAsPanel";
@@ -58,6 +60,7 @@ export default async function AdminPage({
     teamMapping,
     apiFootballQuota,
     duplicateBetCount,
+    pendingSignupCount,
   ] = await Promise.all([
     getRecentSyncRuns(20),
     getPaymentsByStatus("all", 50),
@@ -75,6 +78,7 @@ export default async function AdminPage({
     getTeamMappingStatus(),
     fetchApiFootballStatus(),
     countDuplicateCustomBets(),
+    countPendingSignups(),
   ]);
 
   return (
@@ -102,6 +106,14 @@ export default async function AdminPage({
         aria-label={isHebrew ? "ניהול" : "Admin sections"}
         className="grid grid-cols-2 sm:grid-cols-4 gap-3"
       >
+        <SectionLink
+          locale={locale}
+          path="admin/signup-requests"
+          icon={<UserPlus className="h-5 w-5" strokeWidth={1.75} />}
+          label={isHebrew ? "בקשות הרשמה" : "Signup requests"}
+          badge={pendingSignupCount > 0 ? pendingSignupCount : undefined}
+          tone={pendingSignupCount > 0 ? "warning" : "default"}
+        />
         <SectionLink
           locale={locale}
           path="admin/users"
