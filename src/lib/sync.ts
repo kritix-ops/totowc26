@@ -2,6 +2,7 @@ import "server-only";
 
 import { eq, isNull, and, sql as drizzleSql } from "drizzle-orm";
 import { db } from "@/db";
+import { execFirstRow, execRows } from "@/db/helpers";
 import {
   matches,
   matchBets,
@@ -279,13 +280,13 @@ async function _ingestFromApiFootball(
 
   // Build an api_football_team_id → teams.code map in one shot so the
   // per-fixture loop is a pure dictionary lookup.
-  const teamRows = await db.execute<{ code: string; api_id: number }>(drizzleSql`
+  const teamRows = await execRows<{ code: string; api_id: number }>(drizzleSql`
     select code, api_football_team_id as api_id
     from public.teams
     where api_football_team_id is not null
   `);
   const codeByApiId = new Map<number, string>();
-  for (const r of teamRows as unknown as Array<{ code: string; api_id: number }>) {
+  for (const r of teamRows) {
     codeByApiId.set(Number(r.api_id), r.code);
   }
 
@@ -341,7 +342,7 @@ async function _ingestFromApiFootball(
       nextStatus = status;
     }
 
-    const result = await db.execute<{ inserted: boolean }>(drizzleSql`
+    const rows = await execRows<{ inserted: boolean }>(drizzleSql`
       insert into public.matches
         (home_team, away_team, kickoff_at, stage, group_id, venue, status,
          home_score, away_score, ht_home_score, ht_away_score,
@@ -373,7 +374,6 @@ async function _ingestFromApiFootball(
         finalized_at = case when excluded.status = 'final' and matches.finalized_at is null then now() else matches.finalized_at end
       returning (xmax = 0) as inserted
     `);
-    const rows = result as unknown as Array<{ inserted: boolean }>;
     if (rows[0]?.inserted) {
       report.inserted += 1;
       console.info("[sync upsert]", { fixtureId: f.fixtureId, action: "inserted" });
@@ -425,7 +425,7 @@ async function _ingestFromFootballData(
     const htAway = f.score.halfTime?.away ?? null;
     const wentToPen = (f.status as string) === "PEN";
 
-    const result = await db.execute<{ inserted: boolean }>(drizzleSql`
+    const rows = await execRows<{ inserted: boolean }>(drizzleSql`
       insert into public.matches
         (home_team, away_team, kickoff_at, stage, group_id, venue, status,
          home_score, away_score, ht_home_score, ht_away_score,
@@ -450,7 +450,6 @@ async function _ingestFromFootballData(
         finalized_at = case when excluded.status = 'final' and matches.finalized_at is null then now() else matches.finalized_at end
       returning (xmax = 0) as inserted
     `);
-    const rows = result as unknown as Array<{ inserted: boolean }>;
     if (rows[0]?.inserted) {
       report.inserted += 1;
       console.info("[sync upsert]", { fixtureId: f.id, action: "inserted" });
@@ -473,18 +472,13 @@ async function _ingestFromFootballData(
 // between lock_at and the next sync run is closed there.
 export async function lockExpiredCustomBets(): Promise<number> {
   const start = Date.now();
-  const result = await db.execute<{ id: string; scope: string; lock_at: string }>(drizzleSql`
+  const rows = await execRows<{ id: string; scope: string; lock_at: string }>(drizzleSql`
     update public.custom_bets
     set status = 'locked'
     where status = 'open'
       and lock_at <= now()
     returning id::text as id, scope::text as scope, lock_at
   `);
-  const rows = result as unknown as Array<{
-    id: string;
-    scope: string;
-    lock_at: string;
-  }>;
   for (const r of rows) {
     console.info("[deadline auto-lock]", {
       betId: r.id,
@@ -504,18 +498,13 @@ export async function lockExpiredCustomBets(): Promise<number> {
 // excludes cancelled duels from the per-user delta, so this single
 // status flip refunds the opener's stake.
 export async function cancelExpiredOpenDuels(): Promise<number> {
-  const result = await db.execute<{ id: string; opener_id: string; stake: number }>(drizzleSql`
+  const rows = await execRows<{ id: string; opener_id: string; stake: number }>(drizzleSql`
     update public.duels
     set status = 'cancelled'
     where status = 'open'
       and join_deadline_at <= now()
     returning id::text as id, opener_id::text as opener_id, stake
   `);
-  const rows = result as unknown as Array<{
-    id: string;
-    opener_id: string;
-    stake: number;
-  }>;
   for (const r of rows) {
     console.info("[duel cancel]", {
       duelId: r.id,
@@ -592,7 +581,7 @@ export async function scoreFinalMatches(): Promise<{
     .where(eq(settings.id, 1));
   if (!s) return { scoredMatches: 0, scoredBets: 0 };
 
-  const matchRows = await db.execute<{
+  const matchesList = await execRows<{
     id: string;
     home_score: number;
     away_score: number;
@@ -620,15 +609,6 @@ export async function scoreFinalMatches(): Promise<{
         where mb.match_id = m.id and mb.points_earned is null
       )
   `);
-  const matchesList = matchRows as unknown as Array<{
-    id: string;
-    home_score: number;
-    away_score: number;
-    home_name_he: string;
-    away_name_he: string;
-    home_name_en: string;
-    away_name_en: string;
-  }>;
 
   let scoredBets = 0;
   for (const m of matchesList) {
@@ -772,7 +752,7 @@ type CandidateBet = {
 
 export async function scoreAutoCustomBets(): Promise<number> {
   // 1) Candidate set. Both auto sources share the same shape.
-  const candidateRows = await db.execute<CandidateBet>(drizzleSql`
+  const candidates = await execRows<CandidateBet>(drizzleSql`
     select
       cb.id::text                       as "id",
       cb.scope::text                    as "scope",
@@ -792,7 +772,6 @@ export async function scoreAutoCustomBets(): Promise<number> {
     where cb.status in ('open', 'locked')
       and cb.grading_source in ('auto_football_data', 'auto_api_football')
   `);
-  const candidates = candidateRows as unknown as CandidateBet[];
 
   let scored = 0;
   for (const bet of candidates) {
@@ -1008,7 +987,7 @@ async function resolveDayScope(
   if (bet.answerType !== "number") return "skip";
 
   // Readiness: every match that day must be final.
-  const dayRows = await db.execute<{
+  const r = await execFirstRow<{
     total_matches: number;
     final_matches: number;
     sum_total_goals: number;
@@ -1026,12 +1005,6 @@ async function resolveDayScope(
     from public.matches m
     where (m.kickoff_at at time zone 'Asia/Jerusalem')::date = ${bet.matchdayDate}::date
   `);
-  const r = (dayRows as unknown as Array<{
-    total_matches: number;
-    final_matches: number;
-    sum_total_goals: number;
-    sum_ht_total: number;
-  }>)[0];
   if (!r || r.total_matches === 0) return "skip";
   if (r.final_matches < r.total_matches) return "not_ready";
 
@@ -1078,7 +1051,7 @@ async function resolveDayScopeApiFootball(
   if (aggregate === "per_match") return "skip"; // ambiguous at day scope
 
   // Pull every match on the matchday with its fixture id + final status.
-  const rows = await db.execute<{
+  const list = await execRows<{
     api_football_fixture_id: number | null;
     status: string;
     kickoff_at: string;
@@ -1088,11 +1061,6 @@ async function resolveDayScopeApiFootball(
     where (m.kickoff_at at time zone 'Asia/Jerusalem')::date = ${bet.matchdayDate}::date
     order by m.kickoff_at asc
   `);
-  const list = rows as unknown as Array<{
-    api_football_fixture_id: number | null;
-    status: string;
-    kickoff_at: string;
-  }>;
   if (list.length === 0) return "skip";
 
   // Every match must be final + mapped. Any missing piece → not_ready.
@@ -1219,7 +1187,7 @@ type DuelGradingConfig = {
 };
 
 export async function scoreAutoSettleDuels(): Promise<number> {
-  const rows = await db.execute<{
+  const list = await execRows<{
     id: string;
     match_id: string;
     grading_config: DuelGradingConfig | null;
@@ -1238,13 +1206,6 @@ export async function scoreAutoSettleDuels(): Promise<number> {
       and d.scope = 'match'
       and d.grading_source = 'auto_api_football'
   `);
-  const list = rows as unknown as Array<{
-    id: string;
-    match_id: string;
-    grading_config: DuelGradingConfig | null;
-    api_football_fixture_id: number | null;
-    match_status: string;
-  }>;
 
   let settled = 0;
   for (const r of list) {
@@ -1354,7 +1315,7 @@ export async function sendDueReminders(): Promise<number> {
   // YYYY-MM-DD for the URL builder. Avoid to_char on timestamptz: its
   // OF format can emit a 2-digit offset ("+02") that breaks
   // Intl.DateTimeFormat on the receiving end.
-  const result = await db.execute<ReminderCandidate>(drizzleSql`
+  const rows = await execRows<ReminderCandidate>(drizzleSql`
     select
       cb.id::text                                                 as "bet_id",
       cb.question_he                                              as "question_he",
@@ -1388,7 +1349,6 @@ export async function sendDueReminders(): Promise<number> {
         where pm.user_id = p.id and pm.status = 'approved'
       )
   `);
-  const rows = result as unknown as ReminderCandidate[];
 
   // Loaded once outside the loop so an admin override that lands
   // mid-batch doesn't produce two different copy versions in the same
@@ -1525,7 +1485,7 @@ type PushCandidate = {
 async function sendPushReminders(
   offsetMinutes: number,
 ): Promise<{ sent: number; failed: number; expired: number }> {
-  const result = await db.execute<PushCandidate>(drizzleSql`
+  const rows = await execRows<PushCandidate>(drizzleSql`
     select
       cb.id::text                                                 as "bet_id",
       cb.question_he                                              as "question_he",
@@ -1556,7 +1516,6 @@ async function sendPushReminders(
         where pm.user_id = p.id and pm.status = 'approved'
       )
   `);
-  const rows = result as unknown as PushCandidate[];
 
   let sent = 0;
   let failed = 0;
