@@ -15,8 +15,10 @@ import {
 
 const baseContext: DeadlineContext = {
   defaults: { ...FALLBACK_OFFSET_MINUTES },
+  stageDefaults: {},
   tournamentStartAt: null,
   derivedTournamentStartAt: null,
+  matchPicksGlobalLockAt: null,
 };
 
 const KICKOFF = new Date("2026-06-15T18:00:00Z");
@@ -28,6 +30,7 @@ describe("resolveMatchScoreLock", () => {
       {
         matchId: "m1",
         kickoffAt: KICKOFF,
+        stage: "group",
         lockAtOverride: override,
         matchdayLockOffsetMinutes: 999,
       },
@@ -83,6 +86,38 @@ describe("resolveMatchScoreLock", () => {
     );
     expect(r.source).toBe("matchday_override");
     expect(r.effectiveLockAt.getTime()).toBe(KICKOFF.getTime());
+  });
+
+  it("global match-picks cap wins over matchday + type default", () => {
+    const cap = new Date("2026-06-10T20:59:00Z");
+    const r = resolveMatchScoreLock(
+      {
+        matchId: "m1",
+        kickoffAt: KICKOFF,
+        lockAtOverride: null,
+        matchdayLockOffsetMinutes: 30,
+      },
+      { ...baseContext, matchPicksGlobalLockAt: cap },
+    );
+    expect(r.source).toBe("global_match_picks_cap");
+    expect(r.effectiveLockAt.toISOString()).toBe(cap.toISOString());
+    expect(r.appliedOffsetMinutes).toBeNull();
+  });
+
+  it("per-bet override still beats the global cap", () => {
+    const override = new Date("2026-06-12T10:00:00Z");
+    const cap = new Date("2026-06-10T20:59:00Z");
+    const r = resolveMatchScoreLock(
+      {
+        matchId: "m1",
+        kickoffAt: KICKOFF,
+        lockAtOverride: override,
+        matchdayLockOffsetMinutes: null,
+      },
+      { ...baseContext, matchPicksGlobalLockAt: cap },
+    );
+    expect(r.source).toBe("per_bet_override");
+    expect(r.effectiveLockAt.toISOString()).toBe(override.toISOString());
   });
 });
 

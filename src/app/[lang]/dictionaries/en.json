@@ -399,6 +399,8 @@
     "whatBody": "A friends pool around the 2026 World Cup. Everyone predicts, points add up across the tournament, and the pot splits at the end.",
     "howTitle": "How to bet",
     "howBody": "Open \"Bets\", pick a match day, then a match. Tap 1, X or 2 to drop in a default score, then tweak it with +/- for an exact prediction. There are also tournament-wide bets (champion, top scorer) and group-rankings bets.",
+    "deadlinesTitle": "Deadlines",
+    "deadlinesBody": "Match picks (1/X/2 and exact score): open for every match in the tournament until Wednesday, June 10, 2026 at 23:59 Israel time. After that you cannot add a new pick or change an existing one, even if the match itself is still a week away. Everything else - tournament bets, group rankings, live bets, and duels - locks one hour before kickoff of the relevant match or matchday.",
     "scoringTitle": "Match scoring",
     "scoringPointsUnit": "pts",
     "scoringExact": "Exact score",
@@ -408,7 +410,7 @@
     "scoringRiskOnNote": "Risk mode is on: wrong picks subtract the penalty above from your bank. Admin can switch it off at any time; historical scoring is not retroactively changed.",
     "scoringExtras": "Tournament bets, live bets and duels carry their own payouts, shown on each bet card.",
     "liveTitle": "Live bets",
-    "liveBody": "The admin opens a fresh set of bets every matchday, priced from real bookmaker odds and normalised to our point scale. Every bet shows its stake and payout up front: get it right and you keep your stake plus the payout, get it wrong and the stake stays in the pool. Bets lock 5 minutes before kickoff.",
+    "liveBody": "The admin opens a fresh set of bets every matchday, priced from real bookmaker odds and normalised to our point scale. Every bet shows its stake and payout up front: get it right and you keep your stake plus the payout, get it wrong and the stake stays in the pool. Each bet locks one hour before kickoff of the relevant match or matchday.",
     "duelsTitle": "1v1 duels",
     "duelsBody": "Any player can open a duel: a yes/no question, a stake up to the admin-configured cap, and the side you take. Another player can join and take the opposite side - both stakes lock in the bank until the match or day resolves, and the winner takes both. If nobody joins by the deadline, the duel auto-cancels and each side keeps their stake.",
     "leaderboardTitle": "Leaderboards - four categories",
@@ -422,7 +424,7 @@
     "bankTitle": "Points bank",
     "bankBody": "Every player starts with {startingBank} points. Live bets and duels stake part of the bank - get it right and you keep your stake plus a payout; get it wrong and the stake stays in the pool. Match picks are mostly upside (see above). Your balance is the pill in the top header.",
     "prizesTitle": "Pot and prizes",
-    "prizesEntry": "Entry fee: 100 ILS via Paybox.",
+    "prizesEntry": "Entry fee: 120 ILS per player, via Paybox.",
     "prizesBody": "A fixed API cost is pulled off the pot first (API-Football subscription that powers the schedule, live scores, and stats). What remains after the deduction is what splits by the percentages below. The pot grows every time the admin approves another payment.",
     "ctaBack": "Back to home"
   }

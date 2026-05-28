@@ -363,6 +363,14 @@ export const settings = pgTable("settings", {
   // value stays meaningful right after the migration runs, before the
   // admin visits /admin/deadlines to set it explicitly.
   tournamentStartAt: timestamp("tournament_start_at", { withTimezone: true }),
+  // Single absolute cutoff for every 1/X/2 match pick across the whole
+  // tournament. When set, resolveMatchScoreLock returns this value for
+  // any match that doesn't have its own per-bet override - per-day and
+  // type-default offsets are skipped. Null = fall back to the cascade.
+  // Seeded by migration 0029 to 2026-06-10 23:59 Asia/Jerusalem.
+  matchPicksGlobalLockAt: timestamp("match_picks_global_lock_at", {
+    withTimezone: true,
+  }),
   // Lock-reminder offset. The sync pass sends one email per (bet, user)
   // pair this many minutes before the bet locks, but only to users who
   // haven't placed a pick yet. 0 = feature disabled. Capped at 7 days.
@@ -845,6 +853,36 @@ export type BetTypeKey = (typeof BET_TYPE_KEYS)[number];
 
 export const betLockDefaults = pgTable("bet_lock_defaults", {
   betType: text("bet_type").primaryKey().$type<BetTypeKey>(),
+  offsetMinutes: integer("offset_minutes").notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  updatedBy: uuid("updated_by").references(() => profiles.id, {
+    onDelete: "set null",
+  }),
+});
+
+// stage_lock_defaults: one optional offset per tournament stage. Sits
+// between the per-matchday override and the per-type default in the
+// deadline cascade (see src/lib/deadlines.ts) so an admin can set "all
+// R16 matchdays lock 90 min before kickoff" once instead of editing each
+// matchday. Affects the same bet types as the matchday override
+// (match_score, custom_match, custom_day). Empty table = zero behavior
+// change vs. before migration 0030. Seeded with no rows.
+// See _plans/2026-05-28-stage-default-layer.md.
+export const STAGE_KEYS = [
+  "group",
+  "r32",
+  "r16",
+  "qf",
+  "sf",
+  "third_place",
+  "final",
+] as const;
+export type StageKey = (typeof STAGE_KEYS)[number];
+
+export const stageLockDefaults = pgTable("stage_lock_defaults", {
+  stage: stageEnum("stage").primaryKey(),
   offsetMinutes: integer("offset_minutes").notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .notNull()

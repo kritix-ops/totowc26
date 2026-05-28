@@ -4,7 +4,9 @@ import { eq } from "drizzle-orm";
 import {
   ArrowRight,
   ArrowLeft,
+  Bell,
   BookOpen,
+  CalendarClock,
   Coins,
   Eye,
   Home,
@@ -107,6 +109,13 @@ export default async function RulesPage({
         title={dict.rules.howTitle}
       >
         <p>{dict.rules.howBody}</p>
+      </RuleSection>
+
+      <RuleSection
+        icon={<CalendarClock className="h-5 w-5" strokeWidth={1.75} />}
+        title={dict.rules.deadlinesTitle}
+      >
+        <p>{dict.rules.deadlinesBody}</p>
       </RuleSection>
 
       <RuleSection
@@ -326,7 +335,7 @@ const PAGE_GUIDE: Array<{
     icon: <ListChecks className="h-5 w-5" strokeWidth={1.75} />,
     he: {
       name: "הימורים",
-      desc: "העמוד המרכזי להימורים, מחולק ל-4 טאבים: ניחושי משחקים (תוצאות לכל משחק), הימורי טורניר (זוכת המונדיאל, מלך השערים), דירוגי בתים (סדר הסיום בכל בית), והימורי לייב (בונוסים יומיים כמו 'יבקעו יותר מ-3 שערים').",
+      desc: "העמוד המרכזי להימורים, מחולק ל-4 טאבים: ניחושי משחקים (תוצאות לכל משחק), הימורי טורניר (אלוף המונדיאל, מלך השערים), דירוגי בתים (סדר הסיום בכל בית), והימורי לייב (בונוסים יומיים כמו 'יבקעו יותר מ-3 שערים').",
     },
     en: {
       name: "Bets",
@@ -350,7 +359,7 @@ const PAGE_GUIDE: Array<{
     icon: <Swords className="h-5 w-5" strokeWidth={1.75} />,
     he: {
       name: "דו-קרב",
-      desc: "אתגרים 1 על 1 בין חברים. פותחים שאלה של כן או לא, מסכנים נקודות, ומי שצדק לוקח את הסטייק של השני.",
+      desc: "אתגרים 1 על 1 בין חברים. פותחים שאלה של כן או לא, מסכנים נקודות, ומי שצדק לוקח את ההשקעה של השני.",
     },
     en: {
       name: "Duels",
@@ -398,11 +407,11 @@ const PAGE_GUIDE: Array<{
     icon: <Trophy className="h-5 w-5" strokeWidth={1.75} />,
     he: {
       name: "אזור מונדיאל",
-      desc: "כל המידע על הטורניר במקום אחד. טבלאות בתים, נבחרות וחדשות מהמונדיאל.",
+      desc: "כל המידע על הטורניר במקום אחד, בחמישה טאבים: סיכום (תוצאות אחרונות ומובילים), טבלאות בתים, כל הנבחרות, מובילי הטורניר (שערים ובישולים) וחדשות.",
     },
     en: {
       name: "Tournament zone",
-      desc: "All World Cup info in one place. Group standings, teams and headlines.",
+      desc: "All World Cup info in one place across five tabs: Summary (recent results and leaders), group tables, every team, tournament top scorers and assists, and news.",
     },
   },
   {
@@ -422,11 +431,23 @@ const PAGE_GUIDE: Array<{
     icon: <UserIcon className="h-5 w-5" strokeWidth={1.75} />,
     he: {
       name: "הפרופיל שלי",
-      desc: "פרטים אישיים, החלפת שפה והגדרות חשבון.",
+      desc: "פרטים אישיים, החלפת שפה והגדרות חשבון. מפה גם נכנסים לעמוד ההתראות.",
     },
     en: {
       name: "Profile",
-      desc: "Personal details, language toggle and account settings.",
+      desc: "Personal details, language toggle and account settings. The Notifications page is reachable from here.",
+    },
+  },
+  {
+    path: "notifications",
+    icon: <Bell className="h-5 w-5" strokeWidth={1.75} />,
+    he: {
+      name: "התראות",
+      desc: "כל ההודעות מהמנהל ועדכוני המערכת שקיבלת (תוצאות, אישור תשלום, פתיחת הימורים חדשים ועוד). הכל מסומן כנקרא ברגע שאתה נכנס לעמוד.",
+    },
+    en: {
+      name: "Notifications",
+      desc: "Every announcement from the admin and system update you've received (results, payment approvals, new bets opening, etc). Everything marks as read the moment you open the page.",
     },
   },
   {

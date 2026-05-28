@@ -179,9 +179,14 @@ export async function openDuel(input: OpenDuelInput): Promise<OpenDuelResult> {
     resolveAt = new Date(Date.now() + 60 * 24 * 60 * 60 * 1000);
   }
 
+  // Join deadline can never sit later than 60 minutes before the
+  // duel resolves (kickoff / earliest-of-day / far-future for
+  // tournament-scope). Mirrors the pool-wide "one hour before the
+  // relevant match or matchday" cutoff that applies to every bet
+  // surface except the global match-picks cap.
   const defaultDeadline = new Date(
     Math.min(
-      resolveAt.getTime() - 5 * 60_000,
+      resolveAt.getTime() - 60 * 60_000,
       Date.now() + s.duelDefaultJoinWindowHours * 60 * 60 * 1000,
     ),
   );
@@ -192,6 +197,13 @@ export async function openDuel(input: OpenDuelInput): Promise<OpenDuelResult> {
     Number.isNaN(joinDeadlineAt.getTime()) ||
     joinDeadlineAt.getTime() <= Date.now()
   ) {
+    return { ok: false, error: "deadline_past" };
+  }
+  // Enforce the "at least one hour before the resolve anchor" rule on
+  // user-provided deadlines too. The default branch above already
+  // respects it; this guard catches manual overrides from a custom join
+  // deadline picker (or a tampered request).
+  if (joinDeadlineAt.getTime() > resolveAt.getTime() - 60 * 60_000) {
     return { ok: false, error: "deadline_past" };
   }
 

@@ -90,9 +90,11 @@ export async function publishSuggestion(
     return { ok: false, error: "match_locked" };
   }
 
-  // Lock 5 minutes before kickoff. Mirrors the existing /bets/[matchId]
-  // gate in src/app/[lang]/bets/[matchId]/actions.ts.
-  const lockAt = new Date(m.kickoffAt.getTime() - 5 * 60_000);
+  // Lock 60 minutes before kickoff. Matches the pool-wide rule that
+  // every non-match-pick bet closes an hour before the relevant match
+  // or matchday starts (match picks themselves use the global cutoff
+  // in settings.match_picks_global_lock_at, resolved by deadlines.ts).
+  const lockAt = new Date(m.kickoffAt.getTime() - 60 * 60_000);
   if (lockAt.getTime() <= Date.now()) {
     return { ok: false, error: "match_locked" };
   }

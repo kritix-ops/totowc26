@@ -197,6 +197,27 @@
       "when": 1781958800000,
       "tag": "0027_settings_whatsapp_group_url",
       "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1782045200000,
+      "tag": "0028_content_overrides",
+      "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1782050000000,
+      "tag": "0029_match_picks_global_lock",
+      "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1782055000000,
+      "tag": "0030_stage_lock_defaults",
+      "breakpoints": true
     }
   ]
 }
