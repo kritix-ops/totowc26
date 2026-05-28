@@ -1322,10 +1322,10 @@ export type CategoryPrizeBreakdown = {
   totalAwardedIls: number;
 };
 
-// Cached cross-request. Same data shape as getPrizeBreakdown but
-// split by category (king/matches/live/duels/reserve) for the rules
-// page. Tagged with both pool and settings — payments and the prize
-// percentages both invalidate it.
+// Cached cross-request. Splits the prize pot by category (king 1/2/3 +
+// matches/live/duels winner + reserve) for the rules page. Tagged with
+// both pool and settings — payments and the prize percentages both
+// invalidate it.
 async function loadCategoryPrizeBreakdownFromDb(): Promise<CategoryPrizeBreakdown> {
   const r = await execFirstRow<{
     pot: number;

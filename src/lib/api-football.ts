@@ -22,6 +22,65 @@ import type { AutoApiFootballStat } from "@/lib/bets/types";
 
 const BASE = "https://v3.football.api-sports.io";
 
+// Shared fetch wrapper. Every caller in this module follows the same
+// three rules: short-circuit to null when the API key is unset, send
+// the rapidapi headers, and degrade gracefully on 4xx/5xx/network
+// errors instead of throwing. Extracted here so adding (or tightening)
+// the rate-limit logic is a one-place edit.
+//
+// `path` is everything after BASE (must start with "/"). `cache`
+// controls Next.js' fetch cache: `{ revalidateSeconds: N }` for a TTL,
+// or `"no-store"` for cron paths that must always see live data.
+// `logContext` is the per-call namespace for the stubbed / error logs
+// so they remain greppable.
+async function apiFootballFetch(
+  path: string,
+  options: {
+    cache: "no-store" | { revalidateSeconds: number };
+    logContext: string;
+    logExtra?: Record<string, unknown>;
+  },
+): Promise<unknown | null> {
+  const key = process.env.API_FOOTBALL_KEY;
+  if (!key) {
+    console.warn(`[api-football ${options.logContext} stubbed]`, {
+      reason: "API_FOOTBALL_KEY not set",
+      ...options.logExtra,
+    });
+    return null;
+  }
+
+  const init: RequestInit & { next?: { revalidate: number } } = {
+    headers: {
+      "x-rapidapi-key": key,
+      "x-rapidapi-host": "v3.football.api-sports.io",
+    },
+  };
+  if (options.cache === "no-store") {
+    init.cache = "no-store";
+  } else {
+    init.next = { revalidate: options.cache.revalidateSeconds };
+  }
+
+  try {
+    const res = await fetch(`${BASE}${path}`, init);
+    if (!res.ok) {
+      console.warn(`[api-football ${options.logContext} error]`, {
+        status: res.status,
+        ...options.logExtra,
+      });
+      return null;
+    }
+    return await res.json();
+  } catch (err) {
+    console.error(`[api-football ${options.logContext} fetch failed]`, {
+      err,
+      ...options.logExtra,
+    });
+    return null;
+  }
+}
+
 // FIFA World Cup (national teams) competition ID on API-Football.
 // Verified by hitting /leagues?search=world%20cup: id 1 returns the
 // national-team tournament, id 15 is the FIFA *Club* World Cup. Their
@@ -69,39 +128,16 @@ export type TeamStats = {
 export async function fetchFixtureStats(
   apiFootballFixtureId: number,
 ): Promise<TeamStats | null> {
-  const key = process.env.API_FOOTBALL_KEY;
-  if (!key) {
-    console.warn("[api-football stubbed]", {
-      reason: "API_FOOTBALL_KEY not set",
-      apiFootballFixtureId,
-    });
-    return null;
-  }
-
-  try {
-    const res = await fetch(
-      `${BASE}/fixtures/statistics?fixture=${apiFootballFixtureId}`,
-      {
-        headers: {
-          "x-rapidapi-key": key,
-          "x-rapidapi-host": "v3.football.api-sports.io",
-        },
-        next: { revalidate: 60 },
-      },
-    );
-    if (!res.ok) {
-      console.warn("[api-football error]", {
-        apiFootballFixtureId,
-        status: res.status,
-      });
-      return null;
-    }
-    const json = (await res.json()) as ApiFootballStatsResponse;
-    return parseStatsResponse(json);
-  } catch (err) {
-    console.error("[api-football fetch failed]", { apiFootballFixtureId, err });
-    return null;
-  }
+  const json = await apiFootballFetch(
+    `/fixtures/statistics?fixture=${apiFootballFixtureId}`,
+    {
+      cache: { revalidateSeconds: 60 },
+      logContext: "fixture-stats",
+      logExtra: { apiFootballFixtureId },
+    },
+  );
+  if (!json) return null;
+  return parseStatsResponse(json as ApiFootballStatsResponse);
 }
 
 // ─── /status (quota card in admin) ────────────────────────────────
@@ -126,41 +162,24 @@ export type ApiFootballQuota = {
 };
 
 export async function fetchApiFootballStatus(): Promise<ApiFootballQuota | null> {
-  const key = process.env.API_FOOTBALL_KEY;
-  if (!key) {
-    console.info("[api-football quota stubbed]", { reason: "API_FOOTBALL_KEY not set" });
-    return null;
-  }
-  try {
-    const res = await fetch(`${BASE}/status`, {
-      headers: {
-        "x-rapidapi-key": key,
-        "x-rapidapi-host": "v3.football.api-sports.io",
-      },
-      next: { revalidate: 30 },
-    });
-    if (!res.ok) {
-      console.warn("[api-football quota error]", { status: res.status });
-      return null;
-    }
-    const json = (await res.json()) as ApiFootballStatusResponse;
-    const r = json.response;
-    if (!r) return null;
-    const used = Number(r.requests?.current ?? 0);
-    const limitDay = Number(r.requests?.limit_day ?? 0);
-    const quota: ApiFootballQuota = {
-      plan: r.subscription?.plan ?? "unknown",
-      used,
-      limitDay,
-      remaining: Math.max(0, limitDay - used),
-      subscriptionActive: Boolean(r.subscription?.active ?? false),
-    };
-    console.info("[api-football quota]", quota);
-    return quota;
-  } catch (err) {
-    console.error("[api-football quota fetch failed]", { err });
-    return null;
-  }
+  const json = await apiFootballFetch("/status", {
+    cache: { revalidateSeconds: 30 },
+    logContext: "quota",
+  });
+  if (!json) return null;
+  const r = (json as ApiFootballStatusResponse).response;
+  if (!r) return null;
+  const used = Number(r.requests?.current ?? 0);
+  const limitDay = Number(r.requests?.limit_day ?? 0);
+  const quota: ApiFootballQuota = {
+    plan: r.subscription?.plan ?? "unknown",
+    used,
+    limitDay,
+    remaining: Math.max(0, limitDay - used),
+    subscriptionActive: Boolean(r.subscription?.active ?? false),
+  };
+  console.info("[api-football quota]", quota);
+  return quota;
 }
 
 type ApiFootballStatusResponse = {
@@ -169,15 +188,6 @@ type ApiFootballStatusResponse = {
     subscription?: { plan?: string; end?: string; active?: boolean };
     requests?: { current?: number; limit_day?: number };
   };
-};
-
-// Lightweight fixture shape - enough to map API-Football fixtures to our
-// matches table by (homeTla, awayTla, kickoffAt) at activation time.
-export type ApiFootballFixture = {
-  fixtureId: number;
-  kickoffAt: string;        // ISO 8601 UTC
-  homeTla: string | null;   // 3-letter code, uppercase
-  awayTla: string | null;
 };
 
 // ---------- response shape + parser ----------
@@ -193,28 +203,6 @@ type ApiFootballStatsResponse = {
     statistics: ApiFootballStatItem[];
   }>;
 };
-
-type ApiFootballFixturesResponse = {
-  response?: Array<{
-    fixture: { id: number; date: string };
-    teams: {
-      home: { id: number; name: string; code?: string | null };
-      away: { id: number; name: string; code?: string | null };
-    };
-  }>;
-};
-
-function parseFixturesResponse(
-  json: ApiFootballFixturesResponse,
-): ApiFootballFixture[] {
-  const list = json.response ?? [];
-  return list.map((row) => ({
-    fixtureId: row.fixture.id,
-    kickoffAt: row.fixture.date,
-    homeTla: row.teams.home.code?.toUpperCase() ?? null,
-    awayTla: row.teams.away.code?.toUpperCase() ?? null,
-  }));
-}
 
 // Map from API-Football's stat label to our internal AutoApiFootballStat
 // keys. Done as a lookup table so a vendor-side rename is one edit.
