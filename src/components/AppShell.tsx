@@ -13,6 +13,8 @@ import { GuestHeaderActions } from "./GuestHeaderActions";
 import { DesktopNavExtras } from "./DesktopNavExtras";
 import { MobileBottomNavSection } from "./MobileBottomNavSection";
 import { ViewAsBannerSection } from "./ViewAsBannerSection";
+import { UnpaidBannerSection } from "./UnpaidBannerSection";
+import { getUserAccess } from "@/lib/access";
 import {
   DesktopNavExtrasSkeleton,
   GuestActionsSkeleton,
@@ -58,14 +60,23 @@ export async function AppShell({
   // share a single read. Stays at "[]" for guests; cheap select either way.
   const hiddenPages = new Set(await readHiddenPages());
 
-  // Reserve 40px at the top of the viewport for the "viewing-as"
-  // admin banner only when the cookie indicates an impersonation is
-  // active. This is read synchronously (cheap cookie lookup) so the
-  // header is positioned correctly on first paint — the banner itself
-  // still streams in behind Suspense, but the slot is already there
-  // so its arrival does not shift the header down.
+  // Reserve 40px at the top of the viewport for either the
+  // "viewing-as" admin banner OR the persistent unpaid-player banner.
+  // View-as is decided from the cookie (cheap sync read); paid status
+  // comes from getUserAccess, which is cross-request cached so the
+  // synchronous wait here is almost always a cache hit. The slot is
+  // pre-reserved so the streaming banner content does not shift the
+  // header down when it arrives.
+  //
+  // Priority: view-as wins. If an admin is impersonating, the view-as
+  // banner already says "viewing as an unpaid player", so stacking the
+  // unpaid banner under it would just be noise.
   const viewAsCookie = signedIn ? await getViewAs() : null;
-  const reserveBanner = !!viewAsCookie;
+  const access = signedIn ? await getUserAccess(reqUser!.id) : null;
+  const showViewAsBanner = !!viewAsCookie;
+  const showUnpaidBanner =
+    signedIn && !showViewAsBanner && !!access && !access.canEdit;
+  const reserveBanner = showViewAsBanner || showUnpaidBanner;
   const headerTopClass = reserveBanner ? "top-[40px]" : "top-0";
   const mainTopPaddingClass = reserveBanner
     ? "pt-[calc(40px+3.5rem)] md:pt-[calc(40px+4rem)]"
@@ -74,17 +85,29 @@ export async function AppShell({
   console.info("[app shell render]", {
     signedIn,
     userId: reqUser?.id ?? null,
-    reserveBanner,
+    showViewAsBanner,
+    showUnpaidBanner,
     streamingSections: signedIn
-      ? ["ViewAsBanner", "DesktopNavExtras", "HeaderUserSection", "MobileBottomNav"]
+      ? [
+          "ViewAsBanner",
+          "UnpaidBanner",
+          "DesktopNavExtras",
+          "HeaderUserSection",
+          "MobileBottomNav",
+        ]
       : ["GuestHeaderActions"],
   });
 
   return (
     <>
-      {signedIn && (
+      {showViewAsBanner && (
         <Suspense fallback={null}>
-          <ViewAsBannerSection locale={locale} userId={reqUser.id} />
+          <ViewAsBannerSection locale={locale} userId={reqUser!.id} />
+        </Suspense>
+      )}
+      {showUnpaidBanner && (
+        <Suspense fallback={null}>
+          <UnpaidBannerSection locale={locale} userId={reqUser!.id} />
         </Suspense>
       )}
       {/*
