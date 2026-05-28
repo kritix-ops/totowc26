@@ -348,7 +348,7 @@ export const signupRequests = pgTable(
 // user with the configured float.
 export const settings = pgTable("settings", {
   id: smallint("id").primaryKey().default(1),
-  entryFeeIls: integer("entry_fee_ils").notNull().default(100),
+  entryFeeIls: integer("entry_fee_ils").notNull().default(120),
   recipientPhone: text("recipient_phone").notNull(),
   // Admin-controlled deep link to the pool's Paybox group. Null = fall
   // back to the marketing site so the button is never dead.

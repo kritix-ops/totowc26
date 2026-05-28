@@ -1,5 +1,6 @@
 "use server";
 
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { getSupabaseServer } from "@/lib/supabase/server";
 
@@ -14,6 +15,9 @@ export type AuthErrorCode =
   | "email_taken"
   | "rate_limit"
   | "email_not_confirmed"
+  | "oauth_failed"
+  | "not_approved"
+  | "invite_expired"
   | "unknown";
 
 function mapError(message: string | undefined): AuthErrorCode {
@@ -58,4 +62,30 @@ export async function signOutAction(locale: "he" | "en") {
   const supabase = await getSupabaseServer();
   await supabase.auth.signOut();
   redirect(`/${locale}/login`);
+}
+
+// Kick off the Google OAuth flow. Supabase returns the URL the browser
+// should navigate to (Google's consent screen, ultimately bouncing back
+// to /auth/callback?code=...). The gate against unapproved players runs
+// in the callback - signInWithOAuth itself has no concept of "is this
+// person allowed in the pool".
+export async function signInWithGoogle(
+  locale: "he" | "en",
+): Promise<AuthResult> {
+  const h = await headers();
+  const origin =
+    h.get("origin") ??
+    (h.get("host") ? `https://${h.get("host")}` : "http://localhost:3000");
+  const supabase = await getSupabaseServer();
+  const { data, error } = await supabase.auth.signInWithOAuth({
+    provider: "google",
+    options: {
+      redirectTo: `${origin}/auth/callback?next=/${locale}/onboarding`,
+    },
+  });
+  if (error || !data?.url) {
+    console.error("[login] signInWithOAuth google failed:", error?.message);
+    return { ok: false, error: "oauth_failed" };
+  }
+  return { ok: true, redirectTo: data.url };
 }

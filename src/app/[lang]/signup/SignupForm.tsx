@@ -12,9 +12,15 @@ import { submitSignupRequest, type SignupErrorCode } from "./actions";
 export function SignupForm({
   locale,
   dict,
+  initialName = "",
+  initialEmail = "",
+  fromGoogle = false,
 }: {
   locale: Locale;
   dict: Dictionary;
+  initialName?: string;
+  initialEmail?: string;
+  fromGoogle?: boolean;
 }) {
   const isHebrew = locale === "he";
   const router = useRouter();
@@ -38,6 +44,20 @@ export function SignupForm({
       action={submit}
       className="bg-[#FBF6EB] p-5 md:p-6 rounded-lg border border-outline shadow-[0_8px_24px_rgba(28,20,15,0.08)] flex flex-col gap-5"
     >
+      {fromGoogle && (
+        <div
+          className="rounded-md border border-tertiary bg-tertiary-fixed/40 px-4 py-3 text-sm text-on-tertiary-fixed-variant flex items-start gap-2"
+          role="status"
+        >
+          <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" strokeWidth={2} />
+          <span>
+            {isHebrew
+              ? "המייל הזה לא רשום בקבוצה. השלם את הטלפון ושלח בקשה — המנהל יאשר ידנית."
+              : "This email isn't in the pool yet. Add your phone and submit — admin will approve manually."}
+          </span>
+        </div>
+      )}
+
       <label className="flex flex-col gap-2">
         <LabelCaps>{dict.forms.signup.displayNameLabel}</LabelCaps>
         <FieldWrap isHebrew={isHebrew} icon={<User className="h-5 w-5 text-outline" strokeWidth={1.5} />}>
@@ -47,6 +67,7 @@ export function SignupForm({
             required
             autoComplete="name"
             minLength={2}
+            defaultValue={initialName}
             placeholder={dict.forms.signup.displayNamePlaceholder}
             className={clsx(
               "w-full h-12 bg-transparent border-0 focus:outline-none text-[16px] text-on-surface placeholder:text-outline-variant",
@@ -86,6 +107,7 @@ export function SignupForm({
             autoComplete="email"
             dir="ltr"
             inputMode="email"
+            defaultValue={initialEmail}
             placeholder="you@example.com"
             className={clsx(
               "w-full h-12 bg-transparent border-0 focus:outline-none text-[16px] text-on-surface placeholder:text-outline-variant",

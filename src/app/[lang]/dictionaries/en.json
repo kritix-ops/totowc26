@@ -81,7 +81,7 @@
     "phone": "Phone",
     "phonePlaceholder": "050 1234567",
     "entryFeeLabel": "Entry fee",
-    "entryFee": "100",
+    "entryFee": "120",
     "payVia": "Pay via",
     "bit": "Bit",
     "paybox": "Paybox",
@@ -92,7 +92,7 @@
     "statusPending": "Waiting for admin approval",
     "statusApproved": "Paid, good luck",
     "payboxOpen": "Open Paybox",
-    "payboxHelp": "Open Paybox, send 100 ILS, then come back and tap 'I have paid'."
+    "payboxHelp": "Open Paybox, send 120 ILS, then come back and tap 'I have paid'."
   },
   "payGate": {
     "title": "Your payment is not approved yet",
@@ -101,7 +101,7 @@
   },
   "pay": {
     "title": "Entry fee",
-    "subtitle": "100 ILS via the pool's Paybox group. After you send it, mark 'I have paid' so the admin can approve.",
+    "subtitle": "120 ILS via the pool's Paybox group. After you send it, mark 'I have paid' so the admin can approve.",
     "amountLabel": "Amount",
     "groupLabel": "Paybox group",
     "openGroup": "Open the Paybox group",
@@ -436,6 +436,9 @@
       "email_taken": "This email is already registered",
       "rate_limit": "Too many attempts. Try again in a minute",
       "email_not_confirmed": "Email confirmation required",
+      "oauth_failed": "Google sign-in failed. Try again or sign in with email and password",
+      "not_approved": "Your email isn't in the pool yet. Submit a join request and wait for admin approval",
+      "invite_expired": "The link is expired or invalid. Ask the organizer to send a fresh one",
       "unknown": "Something went wrong"
     },
     "setPassword": {
@@ -509,8 +512,8 @@
       "footerHint": "Friends only pool. If you do not have an account yet, request to join and the organizer will approve."
     },
     "signup": {
-      "displayNameLabel": "Display name",
-      "displayNamePlaceholder": "Name shown on the leaderboard",
+      "displayNameLabel": "Full name",
+      "displayNamePlaceholder": "First and last name (shown on the leaderboard)",
       "phoneLabel": "Phone",
       "emailLabel": "Email",
       "pendingLabel": "Sending...",

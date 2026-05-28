@@ -14,6 +14,7 @@ export const metadata = {
 
 export default async function SignupPage({
   params,
+  searchParams,
 }: PageProps<"/[lang]/signup">) {
   const { lang } = await params;
   if (!hasLocale(lang)) notFound();
@@ -24,6 +25,14 @@ export default async function SignupPage({
   // Already signed in? Send them where they belong.
   const user = await getRequestUser();
   if (user) redirect(localePath(locale, "onboarding"));
+
+  // /auth/callback forwards anyone who signed in with Google but isn't
+  // in the pool yet (no profile row) here, pre-filling email + name
+  // from Google so they only need to add a phone.
+  const sp = await searchParams;
+  const initialEmail = stringParam(sp.email);
+  const initialName = stringParam(sp.name);
+  const fromGoogle = stringParam(sp.source) === "google";
 
   // Public-signup toggle. When off, render a closed-signups page instead
   // of the form so the URL stays browsable but inert.
@@ -45,7 +54,13 @@ export default async function SignupPage({
         </div>
 
         {open ? (
-          <SignupForm locale={locale} dict={dict} />
+          <SignupForm
+            locale={locale}
+            dict={dict}
+            initialName={initialName}
+            initialEmail={initialEmail}
+            fromGoogle={fromGoogle}
+          />
         ) : (
           <ClosedNotice isHebrew={isHebrew} />
         )}
@@ -62,6 +77,11 @@ export default async function SignupPage({
       </div>
     </section>
   );
+}
+
+function stringParam(value: string | string[] | undefined): string {
+  if (Array.isArray(value)) return value[0] ?? "";
+  return value ?? "";
 }
 
 function ClosedNotice({ isHebrew }: { isHebrew: boolean }) {

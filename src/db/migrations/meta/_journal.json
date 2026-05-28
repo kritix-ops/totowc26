@@ -218,6 +218,13 @@
       "when": 1782055000000,
       "tag": "0030_stage_lock_defaults",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1782060000000,
+      "tag": "0031_entry_fee_120",
+      "breakpoints": true
     }
   ]
 }

@@ -9,4 +9,4 @@
 // fetched server-side via `getPayboxUrl`.
 export const PAYBOX_FALLBACK_URL = "https://www.payboxapp.com/";
 
-export const ENTRY_FEE_ILS = 100;
+export const ENTRY_FEE_ILS = 120;

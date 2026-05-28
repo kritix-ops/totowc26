@@ -50,7 +50,11 @@ export async function approveSignupRequest(
 
   const admin = getSupabaseAdmin();
 
-  // 2) Create the auth user.
+  // 2) Create the auth user. If one already exists (e.g. the registrant
+  //    tried Google sign-in before approval and the callback cleanup
+  //    did not run) we adopt it instead of failing: set the metadata
+  //    fields the on_auth_user_created trigger uses, then continue.
+  let userId: string;
   const created = await admin.auth.admin.createUser({
     email: row.email,
     email_confirm: true,
@@ -58,14 +62,35 @@ export async function approveSignupRequest(
   });
   if (created.error) {
     const msg = created.error.message.toLowerCase();
-    if (msg.includes("already") || msg.includes("exists")) {
-      return { ok: false, error: "email_taken" };
+    if (!(msg.includes("already") || msg.includes("exists"))) {
+      console.error("[signup approve] createUser failed:", created.error);
+      return { ok: false, error: created.error.message };
     }
-    console.error("[signup approve] createUser failed:", created.error);
-    return { ok: false, error: created.error.message };
+
+    const existing = await findAuthUserByEmail(row.email);
+    if (!existing) {
+      console.error("[signup approve] createUser said exists but lookup failed", {
+        email: row.email,
+      });
+      return { ok: false, error: "create_failed" };
+    }
+    userId = existing.id;
+    const { error: updErr } = await admin.auth.admin.updateUserById(userId, {
+      email_confirm: true,
+      user_metadata: { display_name: row.displayName, phone: row.phone },
+    });
+    if (updErr) {
+      console.error("[signup approve] updateUserById on existing failed:", updErr);
+    }
+    console.info("[signup approve] adopted existing auth user", {
+      requestId,
+      userId,
+    });
+  } else {
+    const newId = created.data.user?.id;
+    if (!newId) return { ok: false, error: "create_failed" };
+    userId = newId;
   }
-  const userId = created.data.user?.id;
-  if (!userId) return { ok: false, error: "create_failed" };
 
   // 3) Safety-net profile upsert.
   await db
@@ -136,6 +161,26 @@ export async function approveSignupRequest(
 
   revalidatePath("/", "layout");
   return { ok: true };
+}
+
+// Look up an auth.users row by email. The admin API has no direct
+// filter so we page through listUsers - cheap because a friends pool
+// never has more than a couple hundred accounts.
+async function findAuthUserByEmail(
+  email: string,
+): Promise<{ id: string } | null> {
+  const admin = getSupabaseAdmin();
+  const target = email.toLowerCase();
+  const { data, error } = await admin.auth.admin.listUsers({
+    page: 1,
+    perPage: 200,
+  });
+  if (error) {
+    console.error("[signup approve] listUsers failed:", error);
+    return null;
+  }
+  const hit = data.users.find((u) => u.email?.toLowerCase() === target);
+  return hit ? { id: hit.id } : null;
 }
 
 export async function rejectSignupRequest(

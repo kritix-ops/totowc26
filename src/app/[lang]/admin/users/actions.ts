@@ -8,6 +8,7 @@ import { isAdmin } from "@/lib/admin";
 import { buildInviteCallbackUrl, getUser } from "@/lib/supabase/auth";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 import { lockUserForBetting, getBankBalanceWith } from "@/lib/bank";
+import { ENTRY_FEE_ILS } from "@/lib/paybox";
 
 type Ok = { ok: true };
 type Err = { ok: false; error: string };
@@ -102,7 +103,7 @@ export async function manualMarkPaid(
   await db.insert(payments).values({
     userId,
     method,
-    amountIls: 100,
+    amountIls: ENTRY_FEE_ILS,
     status: "approved",
     decidedAt: new Date(),
     decidedBy: adminId,

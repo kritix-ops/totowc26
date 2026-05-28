@@ -81,7 +81,7 @@
     "phone": "מספר טלפון",
     "phonePlaceholder": "050-1234567",
     "entryFeeLabel": "דמי השתתפות",
-    "entryFee": "100",
+    "entryFee": "120",
     "payVia": "שלם דרך",
     "bit": "ביט",
     "paybox": "פייבוקס",
@@ -92,7 +92,7 @@
     "statusPending": "ממתין לאישור מנהל",
     "statusApproved": "שולם. בהצלחה במונדיאל!",
     "payboxOpen": "פתח Paybox",
-    "payboxHelp": "פתח את Paybox, השלם תשלום של 100 ש\"ח, וחזור לסמן 'שילמתי'."
+    "payboxHelp": "פתח את Paybox, השלם תשלום של 120 ש\"ח, וחזור לסמן 'שילמתי'."
   },
   "payGate": {
     "title": "התשלום שלך עדיין לא אושר",
@@ -101,7 +101,7 @@
   },
   "pay": {
     "title": "תשלום השתתפות",
-    "subtitle": "100 ש\"ח דרך קבוצת ה-Paybox של הטוטו. אחרי שתשלם, סמן 'שילמתי' והמנהל יאשר.",
+    "subtitle": "120 ש\"ח דרך קבוצת ה-Paybox של הטוטו. אחרי שתשלם, סמן 'שילמתי' והמנהל יאשר.",
     "amountLabel": "סכום",
     "groupLabel": "קבוצת Paybox",
     "openGroup": "פתח את קבוצת Paybox",
@@ -436,6 +436,9 @@
       "email_taken": "המייל כבר רשום",
       "rate_limit": "יותר מדי ניסיונות. נסה בעוד דקה",
       "email_not_confirmed": "יש לאשר את המייל",
+      "oauth_failed": "ההתחברות עם גוגל נכשלה. נסה שוב או היכנס עם מייל וסיסמה",
+      "not_approved": "המייל שלך לא רשום בקבוצה. הגש בקשת הצטרפות והמתן לאישור המנהל",
+      "invite_expired": "הקישור פג או לא תקין. בקש מהמנהל לשלוח קישור חדש",
       "unknown": "שגיאה לא צפויה"
     },
     "setPassword": {
@@ -509,8 +512,8 @@
       "footerHint": "טוטו חברים. אם אין לך עדיין חשבון, אפשר להגיש בקשה ומנהל הקבוצה יאשר."
     },
     "signup": {
-      "displayNameLabel": "שם להצגה",
-      "displayNamePlaceholder": "השם שיופיע בטבלה",
+      "displayNameLabel": "שם מלא",
+      "displayNamePlaceholder": "שם פרטי ושם משפחה (יופיע בטבלה)",
       "phoneLabel": "טלפון",
       "emailLabel": "מייל",
       "pendingLabel": "שולח...",

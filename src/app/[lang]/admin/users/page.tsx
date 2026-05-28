@@ -9,6 +9,7 @@ import { localePath } from "@/lib/paths";
 import { LabelCaps } from "@/components/ui";
 import { fetchSignupRequests } from "../signup-requests/queries";
 import { fetchAdminUsers, fetchAdminStats } from "./queries";
+import { ENTRY_FEE_ILS } from "@/lib/paybox";
 import { PendingSignupBanner } from "./PendingSignupBanner";
 import { UsersExplorer } from "./UsersExplorer";
 
@@ -24,7 +25,7 @@ export default async function AdminUsersPage({
     fetchAdminUsers(),
     fetchSignupRequests("pending"),
   ]);
-  const stats = await fetchAdminStats(s?.entryFee ?? 100);
+  const stats = await fetchAdminStats(s?.entryFee ?? ENTRY_FEE_ILS);
   const isHebrew = locale === "he";
   const ChevronBack = isHebrew ? ChevronRight : ChevronLeft;
 
@@ -57,7 +58,7 @@ export default async function AdminUsersPage({
         <KPICard label={isHebrew ? "לא שילמו" : "Unpaid"} value={stats.unpaidCount} accent="text-error" sub={`${stats.adminCount} ${isHebrew ? "אדמינים" : "admins"}`} />
       </div>
 
-      <UsersExplorer users={users} locale={locale} entryFee={s?.entryFee ?? 100} />
+      <UsersExplorer users={users} locale={locale} entryFee={s?.entryFee ?? ENTRY_FEE_ILS} />
     </section>
   );
 }

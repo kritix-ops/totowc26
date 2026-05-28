@@ -5,6 +5,7 @@ import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import { profiles, payments } from "@/db/schema";
 import { getUser } from "@/lib/supabase/auth";
+import { ENTRY_FEE_ILS } from "@/lib/paybox";
 
 export type SaveProfileResult =
   | { ok: true }
@@ -63,7 +64,7 @@ export async function recordPayment(): Promise<RecordPaymentResult> {
         .values({
           userId: user.id,
           method: "paybox",
-          amountIls: 100,
+          amountIls: ENTRY_FEE_ILS,
         })
         .returning({ id: payments.id });
       console.info("[onboarding paybox]", {
