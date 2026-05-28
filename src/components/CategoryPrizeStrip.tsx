@@ -88,7 +88,7 @@ export function CategoryPrizeStrip({
           value={`${prize.potIls.toLocaleString()} ${currency}`}
         />
         <PotStat
-          label={isHebrew ? "עלות הקמה" : "Setup cost"}
+          label={isHebrew ? "עלות API" : "API cost"}
           value={`-${prize.overheadIls.toLocaleString()} ${currency}`}
           icon={<Wrench className="h-3.5 w-3.5" strokeWidth={2} />}
           tone="muted"

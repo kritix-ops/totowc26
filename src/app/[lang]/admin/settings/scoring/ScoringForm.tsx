@@ -51,15 +51,15 @@ const GROUPS: Group[] = [
     ],
   },
   {
-    title: { he: "עלות הקמה (קופה)", en: "Setup overhead (pot)" },
+    title: { he: "עלות API (קופה)", en: "API cost (pot)" },
     hint: {
-      he: "סכום קבוע בש״ח שמנוכה מהקופה לפני שהאחוזים מתחלקים. מכסה דמי Paybox, אחסון ועיצוב. אפס = ללא ניכוי. ברירת מחדל: 100.",
-      en: "Fixed ILS amount pulled off the pot before the category percentages run. Covers paybox fees, hosting and design. Zero = no deduction. Default: 100.",
+      he: "סכום קבוע בש״ח שמנוכה מהקופה לפני שהאחוזים מתחלקים. מכסה את עלות מנוי API-Football למשך התקופה. אפס = ללא ניכוי. ברירת מחדל: 100.",
+      en: "Fixed ILS amount pulled off the pot before the category percentages run. Covers the API-Football subscription for the tournament window. Zero = no deduction. Default: 100.",
     },
     fields: [
       {
         key: "adminOverheadIls",
-        label: { he: "עלות הקמה (ש״ח)", en: "Setup overhead (ILS)" },
+        label: { he: "עלות API (ש״ח)", en: "API cost (ILS)" },
       },
     ],
   },
@@ -505,8 +505,8 @@ function CategoryPrizeCard({
         </p>
         <p className="text-xs text-on-surface-variant">
           {isHebrew
-            ? `קופה ${potIls.toLocaleString()} ש״ח · עלות הקמה ${(Number(values.adminOverheadIls) || 0).toLocaleString()} ש״ח · לחלוקה ${distributableIls.toLocaleString()} ש״ח`
-            : `Pot ${potIls.toLocaleString()} ILS · Overhead ${(Number(values.adminOverheadIls) || 0).toLocaleString()} ILS · Distributable ${distributableIls.toLocaleString()} ILS`}
+            ? `קופה ${potIls.toLocaleString()} ש״ח · עלות API ${(Number(values.adminOverheadIls) || 0).toLocaleString()} ש״ח · לחלוקה ${distributableIls.toLocaleString()} ש״ח`
+            : `Pot ${potIls.toLocaleString()} ILS · API cost ${(Number(values.adminOverheadIls) || 0).toLocaleString()} ILS · Distributable ${distributableIls.toLocaleString()} ILS`}
         </p>
       </div>
 
