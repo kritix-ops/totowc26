@@ -50,7 +50,7 @@ export function SignupRequestsList({
           {FILTERS.map((f) => (
             <Link
               key={f.key}
-              href={`${localePath(locale, "admin/signup-requests")}?status=${f.key}`}
+              href={`${localePath(locale, "admin/users")}?tab=requests&status=${f.key}`}
               className={clsx(
                 "px-3 py-1.5 rounded-full text-sm border transition-colors min-h-[44px] inline-flex items-center",
                 filter === f.key

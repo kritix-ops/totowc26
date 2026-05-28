@@ -154,7 +154,7 @@ export async function submitSignupRequest(
   const origin =
     h.get("origin") ??
     (h.get("host") ? `https://${h.get("host")}` : "http://localhost:3000");
-  const adminUrl = `${origin}/he/admin/signup-requests`;
+  const adminUrl = `${origin}/he/admin/users?tab=requests`;
   const adminTo =
     process.env.ADMIN_NOTIFICATION_EMAIL ??
     process.env.EMAIL_REPLY_TO ??

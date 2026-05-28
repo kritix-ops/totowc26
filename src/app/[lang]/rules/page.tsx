@@ -209,31 +209,32 @@ export default async function RulesPage({
       >
         <p>{dict.rules.pagesGuideIntro}</p>
         <ul className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          {PAGE_GUIDE.map((p) => (
-            <li key={p.path}>
-              <Link
-                href={p.path === "" ? localePath(locale) : localePath(locale, p.path)}
-                className="press-down block h-full"
-              >
-                <Card className="p-3 md:p-4 h-full flex items-start gap-3 hover:bg-surface-container transition-colors">
-                  <span
-                    aria-hidden
-                    className="mt-0.5 inline-flex items-center justify-center w-9 h-9 rounded-full bg-tertiary-fixed text-on-tertiary-fixed-variant shrink-0"
-                  >
-                    {p.icon}
-                  </span>
-                  <div className="flex flex-col gap-1 min-w-0">
-                    <span className="font-bold text-on-surface">
-                      {isHebrew ? p.he.name : p.en.name}
+          {PAGE_GUIDE_META.map((p) => {
+            const copy = dict.rules.pageGuide[p.key];
+            return (
+              <li key={p.path}>
+                <Link
+                  href={p.path === "" ? localePath(locale) : localePath(locale, p.path)}
+                  className="press-down block h-full"
+                >
+                  <Card className="p-3 md:p-4 h-full flex items-start gap-3 hover:bg-surface-container transition-colors">
+                    <span
+                      aria-hidden
+                      className="mt-0.5 inline-flex items-center justify-center w-9 h-9 rounded-full bg-tertiary-fixed text-on-tertiary-fixed-variant shrink-0"
+                    >
+                      {p.icon}
                     </span>
-                    <span className="text-xs text-on-surface-variant leading-relaxed">
-                      {isHebrew ? p.he.desc : p.en.desc}
-                    </span>
-                  </div>
-                </Card>
-              </Link>
-            </li>
-          ))}
+                    <div className="flex flex-col gap-1 min-w-0">
+                      <span className="font-bold text-on-surface">{copy.name}</span>
+                      <span className="text-xs text-on-surface-variant leading-relaxed">
+                        {copy.desc}
+                      </span>
+                    </div>
+                  </Card>
+                </Link>
+              </li>
+            );
+          })}
         </ul>
       </RuleSection>
 
@@ -303,163 +304,42 @@ function ScoringRow({
   );
 }
 
-// Static index of every public-facing page in the app, with short
-// bilingual descriptions for the pages-guide section. Kept inline here
-// rather than in the dictionary because the icon mapping lives with
-// the names and 20+ separate dictionary keys for one section would
-// crowd the JSON without making the copy any easier to edit.
-//
-// Hebrew copy is intentionally plain everyday language: no jargon,
-// short sentences, no em dashes. Anyone in the pool should be able to
-// read each line and know exactly what the page does.
-const PAGE_GUIDE: Array<{
+// Page-guide index. Names and descriptions live in the dictionary
+// (`rules.pageGuide.<key>`) so they're editable from /admin/rules; only
+// the path → icon pairing stays inline because icons aren't user copy.
+// Order here is the display order.
+export const PAGE_GUIDE_KEYS = [
+  "home",
+  "bets",
+  "live",
+  "duels",
+  "leaderboard",
+  "transparency",
+  "meBank",
+  "tournament",
+  "pay",
+  "profile",
+  "notifications",
+  "rules",
+] as const;
+
+export type PageGuideKey = (typeof PAGE_GUIDE_KEYS)[number];
+
+const PAGE_GUIDE_META: Array<{
+  key: PageGuideKey;
   path: string;
   icon: React.ReactNode;
-  he: { name: string; desc: string };
-  en: { name: string; desc: string };
 }> = [
-  {
-    path: "",
-    icon: <Home className="h-5 w-5" strokeWidth={1.75} />,
-    he: {
-      name: "ראשי",
-      desc: "המסך הראשי. רואים פה את המקום שלך בטבלה, את המשחקים הבאים ואת הקופה.",
-    },
-    en: {
-      name: "Home",
-      desc: "The home screen. Shows your rank, your upcoming matches and the current pot.",
-    },
-  },
-  {
-    path: "bets",
-    icon: <ListChecks className="h-5 w-5" strokeWidth={1.75} />,
-    he: {
-      name: "הימורים",
-      desc: "העמוד המרכזי להימורים, מחולק ל-4 טאבים: ניחושי משחקים (תוצאות לכל משחק), הימורי טורניר (אלוף המונדיאל, מלך השערים), דירוגי בתים (סדר הסיום בכל בית), והימורי לייב (בונוסים יומיים כמו 'יבקעו יותר מ-3 שערים').",
-    },
-    en: {
-      name: "Bets",
-      desc: "The main bets page, split into 4 tabs: Match picks (score predictions per match), Tournament bets (champion, top scorer), Group rankings (final standings per group), and Live bets (daily bonuses like 'more than 3 goals').",
-    },
-  },
-  {
-    path: "live",
-    icon: <Radio className="h-5 w-5" strokeWidth={1.75} />,
-    he: {
-      name: "תוצאות חיות",
-      desc: "כל המשחקים שמתנהלים ברגע זה. מציג את הניחוש שלך ואת הנקודות הצפויות אם המשחק יסתיים עכשיו.",
-    },
-    en: {
-      name: "Live scores",
-      desc: "Every match currently in play. Shows your pick and the points you would earn if the match ended right now.",
-    },
-  },
-  {
-    path: "duels",
-    icon: <Swords className="h-5 w-5" strokeWidth={1.75} />,
-    he: {
-      name: "דו-קרב",
-      desc: "אתגרים 1 על 1 בין חברים. פותחים שאלה של כן או לא, מסכנים נקודות, ומי שצדק לוקח את ההשקעה של השני.",
-    },
-    en: {
-      name: "Duels",
-      desc: "1v1 challenges between friends. Open a yes/no question, stake points, winner takes both stakes.",
-    },
-  },
-  {
-    path: "leaderboard",
-    icon: <Medal className="h-5 w-5" strokeWidth={1.75} />,
-    he: {
-      name: "מובילים",
-      desc: "טבלאות המובילים בארבע קטגוריות: כללי, ניחושי משחקים, הימורי לייב ודו-קרב.",
-    },
-    en: {
-      name: "Leaders",
-      desc: "Leaderboards across four tabs: overall, matches, live bets and duels.",
-    },
-  },
-  {
-    path: "transparency",
-    icon: <Eye className="h-5 w-5" strokeWidth={1.75} />,
-    he: {
-      name: "שקיפות",
-      desc: "רואים מי הימר על מה. כל הימור מוצג כאן אחרי שננעל. אפשר לסנן לפי משתתף, סוג הימור או תאריך.",
-    },
-    en: {
-      name: "Transparency",
-      desc: "See who picked what. Every bet shows up here after it locks. Filter by player, category or date.",
-    },
-  },
-  {
-    path: "me/bank",
-    icon: <Wallet className="h-5 w-5" strokeWidth={1.75} />,
-    he: {
-      name: "הבנק שלי",
-      desc: "כל התנועות בבנק שלך, היתרה הנוכחית והפילוח של מאיפה הרווחת או הפסדת נקודות.",
-    },
-    en: {
-      name: "My bank",
-      desc: "Every transaction in your bank, the current balance and a breakdown by category.",
-    },
-  },
-  {
-    path: "tournament",
-    icon: <Trophy className="h-5 w-5" strokeWidth={1.75} />,
-    he: {
-      name: "אזור מונדיאל",
-      desc: "כל המידע על הטורניר במקום אחד, בחמישה טאבים: סיכום (תוצאות אחרונות ומובילים), טבלאות בתים, כל הנבחרות, מובילי הטורניר (שערים ובישולים) וחדשות.",
-    },
-    en: {
-      name: "Tournament zone",
-      desc: "All World Cup info in one place across five tabs: Summary (recent results and leaders), group tables, every team, tournament top scorers and assists, and news.",
-    },
-  },
-  {
-    path: "pay",
-    icon: <Coins className="h-5 w-5" strokeWidth={1.75} />,
-    he: {
-      name: "תשלום",
-      desc: "תשלום של דמי ההשתתפות ובדיקת סטטוס. עד שהמנהל יאשר את התשלום אי אפשר לשמור הימורים חדשים.",
-    },
-    en: {
-      name: "Pay",
-      desc: "Pay the entry fee and see the approval status. New picks are blocked until your payment is approved.",
-    },
-  },
-  {
-    path: "profile",
-    icon: <UserIcon className="h-5 w-5" strokeWidth={1.75} />,
-    he: {
-      name: "הפרופיל שלי",
-      desc: "פרטים אישיים, החלפת שפה והגדרות חשבון. מפה גם נכנסים לעמוד ההתראות.",
-    },
-    en: {
-      name: "Profile",
-      desc: "Personal details, language toggle and account settings. The Notifications page is reachable from here.",
-    },
-  },
-  {
-    path: "notifications",
-    icon: <Bell className="h-5 w-5" strokeWidth={1.75} />,
-    he: {
-      name: "התראות",
-      desc: "כל ההודעות מהמנהל ועדכוני המערכת שקיבלת (תוצאות, אישור תשלום, פתיחת הימורים חדשים ועוד). הכל מסומן כנקרא ברגע שאתה נכנס לעמוד.",
-    },
-    en: {
-      name: "Notifications",
-      desc: "Every announcement from the admin and system update you've received (results, payment approvals, new bets opening, etc). Everything marks as read the moment you open the page.",
-    },
-  },
-  {
-    path: "rules",
-    icon: <BookOpen className="h-5 w-5" strokeWidth={1.75} />,
-    he: {
-      name: "חוקי המשחק",
-      desc: "העמוד הזה. כל החוקים, כל הניקוד וכל ההסברים על איך הטוטו עובד.",
-    },
-    en: {
-      name: "How it works",
-      desc: "This page. All the rules, all the payouts and how the pool works.",
-    },
-  },
+  { key: "home", path: "", icon: <Home className="h-5 w-5" strokeWidth={1.75} /> },
+  { key: "bets", path: "bets", icon: <ListChecks className="h-5 w-5" strokeWidth={1.75} /> },
+  { key: "live", path: "live", icon: <Radio className="h-5 w-5" strokeWidth={1.75} /> },
+  { key: "duels", path: "duels", icon: <Swords className="h-5 w-5" strokeWidth={1.75} /> },
+  { key: "leaderboard", path: "leaderboard", icon: <Medal className="h-5 w-5" strokeWidth={1.75} /> },
+  { key: "transparency", path: "transparency", icon: <Eye className="h-5 w-5" strokeWidth={1.75} /> },
+  { key: "meBank", path: "me/bank", icon: <Wallet className="h-5 w-5" strokeWidth={1.75} /> },
+  { key: "tournament", path: "tournament", icon: <Trophy className="h-5 w-5" strokeWidth={1.75} /> },
+  { key: "pay", path: "pay", icon: <Coins className="h-5 w-5" strokeWidth={1.75} /> },
+  { key: "profile", path: "profile", icon: <UserIcon className="h-5 w-5" strokeWidth={1.75} /> },
+  { key: "notifications", path: "notifications", icon: <Bell className="h-5 w-5" strokeWidth={1.75} /> },
+  { key: "rules", path: "rules", icon: <BookOpen className="h-5 w-5" strokeWidth={1.75} /> },
 ];

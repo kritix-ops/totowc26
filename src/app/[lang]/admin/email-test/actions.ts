@@ -74,7 +74,7 @@ export async function sendTestEmail(
     displayName: "Yoav Test",
     phone: "0501234567",
     email: target,
-    adminUrl: "https://example.com/he/admin/signup-requests",
+    adminUrl: "https://example.com/he/admin/users?tab=requests",
     recoveryUrl: "https://example.com/he/set-password?token=test",
   };
 

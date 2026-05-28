@@ -429,6 +429,56 @@
     "liveViewBody": "The Live scores page shows every match currently in play alongside your pick and the points you'd earn if the match ended right now. Numbers refresh themselves every 30 seconds. The final amount locks in the moment the referee blows the whistle.",
     "pagesGuideTitle": "Every page in the app at a glance",
     "pagesGuideIntro": "Each screen does one thing. Here is a short note on what every page is for. Come back here whenever something is unclear.",
+    "pageGuide": {
+      "home": {
+        "name": "Home",
+        "desc": "The home screen. Shows your rank, your upcoming matches and the current pot."
+      },
+      "bets": {
+        "name": "Bets",
+        "desc": "The main bets page, split into 4 tabs: Match picks (score predictions per match), Tournament bets (champion, top scorer), Group rankings (final standings per group), and Live bets (daily bonuses like 'more than 3 goals')."
+      },
+      "live": {
+        "name": "Live scores",
+        "desc": "Every match currently in play. Shows your pick and the points you would earn if the match ended right now."
+      },
+      "duels": {
+        "name": "Duels",
+        "desc": "1v1 challenges between friends. Open a yes/no question, stake points, winner takes both stakes."
+      },
+      "leaderboard": {
+        "name": "Leaders",
+        "desc": "Leaderboards across four tabs: overall, matches, live bets and duels."
+      },
+      "transparency": {
+        "name": "Transparency",
+        "desc": "See who picked what. Every bet shows up here after it locks. Filter by player, category or date."
+      },
+      "meBank": {
+        "name": "My bank",
+        "desc": "Every transaction in your bank, the current balance and a breakdown by category."
+      },
+      "tournament": {
+        "name": "Tournament zone",
+        "desc": "All World Cup info in one place across five tabs: Summary (recent results and leaders), group tables, every team, tournament top scorers and assists, and news."
+      },
+      "pay": {
+        "name": "Pay",
+        "desc": "Pay the entry fee and see the approval status. New picks are blocked until your payment is approved."
+      },
+      "profile": {
+        "name": "Profile",
+        "desc": "Personal details, language toggle and account settings. The Notifications page is reachable from here."
+      },
+      "notifications": {
+        "name": "Notifications",
+        "desc": "Every announcement from the admin and system update you've received (results, payment approvals, new bets opening, etc). Everything marks as read the moment you open the page."
+      },
+      "rules": {
+        "name": "How it works",
+        "desc": "This page. All the rules, all the payouts and how the pool works."
+      }
+    },
     "transparencyTitle": "Full transparency",
     "transparencyBody": "Every pick becomes public the moment it locks - match picks after kickoff, live bets after their lock_at, duels from creation. Filter the feed by player, category, and date.",
     "bankTitle": "Points bank",
