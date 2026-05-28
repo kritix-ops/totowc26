@@ -11,6 +11,7 @@ import { isAdmin } from "@/lib/admin";
 import { db } from "@/db";
 import { localePath } from "@/lib/paths";
 import { formatDateTime } from "@/lib/format";
+import { serverNow } from "@/lib/server-now";
 import { DuelActions } from "./DuelActions";
 
 type PageParams = {
@@ -160,11 +161,7 @@ export default async function DuelDetailPage({ params }: PageParams) {
         iAmOpener={iAmOpener}
         isAdmin={admin}
         canEdit={access.canEdit}
-        // Server component, one render per request - reading the clock
-        // is intentional here. The rule flags it because Date.now is
-        // non-pure but the page is non-cached.
-        // eslint-disable-next-line react-hooks/purity
-        joinDeadlinePassed={new Date(duel.joinDeadlineAt).getTime() <= Date.now()}
+        joinDeadlinePassed={new Date(duel.joinDeadlineAt).getTime() <= serverNow()}
       />
     </section>
   );

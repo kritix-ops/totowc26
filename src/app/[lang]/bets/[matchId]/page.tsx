@@ -12,6 +12,7 @@ import { PayGateBanner } from "@/components/PayGateBanner";
 import { LocksInCountdown } from "@/components/LocksInCountdown";
 import { localePath } from "@/lib/paths";
 import { formatDateTime } from "@/lib/format";
+import { serverNow } from "@/lib/server-now";
 import {
   getDeadlineContext,
   resolveMatchScoreLock,
@@ -70,11 +71,7 @@ export default async function MatchBetPage({
     },
     context,
   );
-  // Server component runs once per request; reading the wall clock to
-  // gate the form is intentional. Same pattern as the Countdown helper
-  // below. The lint rule targets client components.
-  // eslint-disable-next-line react-hooks/purity
-  const now = Date.now();
+  const now = serverNow();
   const lockable =
     match.status === "scheduled" &&
     !myBet?.locked &&
@@ -148,11 +145,7 @@ export default async function MatchBetPage({
 
 function Countdown({ to }: { to: string }) {
   const t = new Date(to).getTime();
-  // Server component renders once per request; reading the wall clock is
-  // intentional. The lint rule targets client components, where it would
-  // cause hydration mismatches.
-  // eslint-disable-next-line react-hooks/purity
-  const now = Date.now();
+  const now = serverNow();
   const diff = Math.max(0, t - now);
   const h = Math.floor(diff / 3_600_000);
   const m = Math.floor((diff % 3_600_000) / 60_000);

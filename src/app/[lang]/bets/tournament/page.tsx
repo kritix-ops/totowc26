@@ -11,6 +11,7 @@ import { getUser } from "@/lib/supabase/auth";
 import { getUserAccess } from "@/lib/access";
 import { getBankBalance } from "@/lib/bank";
 import { localePath } from "@/lib/paths";
+import { serverNow } from "@/lib/server-now";
 import {
   getTournamentPlayBets,
   type TournamentPlayBetRow,
@@ -73,8 +74,7 @@ export default async function BetsTournamentPage({
   }
   const nonEmpty = buckets.filter((b) => b.rows.length > 0);
 
-  // eslint-disable-next-line react-hooks/purity
-  const nowMs = Date.now();
+  const nowMs = serverNow();
   const isEditable = (b: { status: string; lockAt: string }) =>
     access.canEdit && b.status === "open" && new Date(b.lockAt).getTime() > nowMs;
 

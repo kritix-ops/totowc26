@@ -9,6 +9,7 @@ import { requireAdmin } from "@/lib/admin";
 import { db } from "@/db";
 import { settings } from "@/db/schema";
 import { localePath } from "@/lib/paths";
+import { serverNow } from "@/lib/server-now";
 import type { DynamicOptionSource } from "@/lib/bets/types";
 import { TournamentTemplateCard } from "./TournamentTemplateCard";
 
@@ -64,11 +65,7 @@ export default async function TournamentSuggestionsPage({
   // resolve earlier the admin edits the field per row. If we have no
   // fixtures seeded yet we fall back to a 60-day window so the date
   // input has a sane non-past default.
-  // Server component, one render per request - reading the clock is
-  // intentional and the rule only flags it because Date.now is
-  // non-pure.
-  // eslint-disable-next-line react-hooks/purity
-  const fallbackLock = new Date(Date.now() + 60 * 24 * 60 * 60 * 1000).toISOString();
+  const fallbackLock = new Date(serverNow() + 60 * 24 * 60 * 60 * 1000).toISOString();
   const defaultLockIso = lastFixtureRow?.kickoff_at
     ? new Date(new Date(lastFixtureRow.kickoff_at).getTime() - 5 * 60_000).toISOString()
     : fallbackLock;

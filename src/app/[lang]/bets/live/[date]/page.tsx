@@ -15,6 +15,7 @@ import { getUserAccess } from "@/lib/access";
 import { getBankBalance } from "@/lib/bank";
 import { localePath } from "@/lib/paths";
 import { formatDateTime } from "@/lib/format";
+import { serverNow } from "@/lib/server-now";
 import { getPlayDayDetail } from "@/db/queries";
 import type {
   AnswerConfig,
@@ -45,12 +46,9 @@ export default async function BetsLiveDayPage({
 
   const bankBalance = await getBankBalance(user.id);
   // Compute "is this bet still editable?" once on the server so the
-  // CustomBetCard client component doesn't have to call Date.now() during
-  // its render (the rule flags it for client components). Server components
-  // run once per request, so reading the current time here is intentional -
-  // hence the targeted disable.
-  // eslint-disable-next-line react-hooks/purity
-  const nowMs = Date.now();
+  // CustomBetCard client component doesn't have to call Date.now()
+  // during its render.
+  const nowMs = serverNow();
   const isEditable = (b: { status: string; lockAt: string }) =>
     access.canEdit && b.status === "open" && new Date(b.lockAt).getTime() > nowMs;
 

@@ -13,6 +13,7 @@ import { getUser } from "@/lib/supabase/auth";
 import { getUserAccess } from "@/lib/access";
 import { getBankBalance } from "@/lib/bank";
 import { localePath } from "@/lib/paths";
+import { serverNow } from "@/lib/server-now";
 import { db } from "@/db";
 import { getGroupPlayBets, type GroupPlayBetRow } from "@/db/queries";
 import type { AnswerConfig, PickAnswer } from "@/lib/bets/types";
@@ -70,8 +71,7 @@ export default async function BetsGroupsPage({
     getBankBalance(user.id),
   ]);
 
-  // eslint-disable-next-line react-hooks/purity
-  const nowMs = Date.now();
+  const nowMs = serverNow();
   const isEditable = (b: { status: string; lockAt: string }) =>
     access.canEdit && b.status === "open" && new Date(b.lockAt).getTime() > nowMs;
 
