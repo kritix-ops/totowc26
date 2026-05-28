@@ -820,9 +820,9 @@ function UserDrawer({
             )}
 
             {user.paymentStatus !== "approved" && action(
-              isHebrew ? "סמן ידנית כשולם (ביט)" : "Mark paid manually (Bit)",
+              isHebrew ? "סמן ידנית כשולם (פייבוקס)" : "Mark paid manually (Paybox)",
               <Wallet className="h-4 w-4 text-secondary" />,
-              () => wrap(() => manualMarkPaid(user.id, "bit")),
+              () => wrap(() => manualMarkPaid(user.id, "paybox")),
             )}
 
             {action(
