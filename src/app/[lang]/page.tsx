@@ -12,6 +12,7 @@ import {
 import { clsx } from "clsx";
 import { notFound } from "next/navigation";
 import { getDictionary, hasLocale, type Locale } from "./dictionaries";
+import { formatDateTime } from "@/lib/format";
 import { localePath } from "@/lib/paths";
 import { BrandLogo } from "@/components/BrandLogo";
 import { InstallHint } from "@/components/InstallHint";
@@ -1217,13 +1218,12 @@ function formatRelative(iso: string, locale: Locale): string {
   if (days < 7) {
     return isHebrew ? `בעוד ${days} ימים` : `in ${days}d`;
   }
-  return new Intl.DateTimeFormat(isHebrew ? "he-IL" : "en-GB", {
+  return formatDateTime(iso, locale, {
     day: "numeric",
     month: "short",
     hour: "2-digit",
     minute: "2-digit",
-    timeZone: "Asia/Jerusalem",
-  }).format(new Date(iso));
+  });
 }
 
 function formatCountdownShort(

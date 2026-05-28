@@ -30,6 +30,7 @@ import type { AutoApiFootballStat } from "./bets/types";
 import { sendEmail } from "./email/client";
 import { getEmailCopy, interpolate } from "./email/copy";
 import { BetLockReminderEmail } from "./email/templates/BetLockReminderEmail";
+import { formatDateTime } from "./format";
 import { formatMinutesRemainingHe } from "./format-he";
 import { notifyUsers } from "./notifications";
 import { isPushConfigured, sendPush } from "./push";
@@ -1360,14 +1361,12 @@ export async function sendDueReminders(): Promise<number> {
   let failed = 0;
   for (const r of rows) {
     const betUrl = buildBetUrl(r.scope, r.matchday_date);
-    const lockDate = new Date(r.lock_at);
-    const lockAtLabel = new Intl.DateTimeFormat("he-IL", {
-      timeZone: "Asia/Jerusalem",
+    const lockAtLabel = formatDateTime(r.lock_at, "he", {
       day: "numeric",
       month: "long",
       hour: "2-digit",
       minute: "2-digit",
-    }).format(lockDate);
+    });
     const remaining = formatMinutesRemainingHe(
       Math.max(0, r.minutes_remaining),
     );

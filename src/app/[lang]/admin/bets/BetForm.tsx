@@ -10,7 +10,11 @@ import {
   translateAdminError,
   type LocalizedTuple,
 } from "@/lib/admin/errors";
-import { isoToLocalInputValue, localInputValueToIso } from "@/lib/format";
+import {
+  formatDateTime,
+  isoToLocalInputValue,
+  localInputValueToIso,
+} from "@/lib/format";
 import { localePath } from "@/lib/paths";
 import type { Locale } from "../../dictionaries";
 import type {
@@ -343,10 +347,12 @@ export function BetForm({
                 {isHebrew ? m.homeNameHe : m.homeNameEn} vs{" "}
                 {isHebrew ? m.awayNameHe : m.awayNameEn}
                 {" - "}
-                {new Date(m.kickoffAt).toLocaleString(
-                  isHebrew ? "he-IL" : "en-GB",
-                  { timeZone: "Asia/Jerusalem", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" },
-                )}
+                {formatDateTime(m.kickoffAt, locale, {
+                  day: "numeric",
+                  month: "short",
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })}
               </option>
             ))}
           </select>
@@ -368,10 +374,11 @@ export function BetForm({
             >
               {anchorDays.map((d) => (
                 <option key={d.date} value={d.date}>
-                  {new Date(d.date + "T12:00:00Z").toLocaleDateString(
-                    isHebrew ? "he-IL" : "en-GB",
-                    { timeZone: "Asia/Jerusalem", weekday: "long", day: "numeric", month: "long" },
-                  )}
+                  {formatDateTime(d.date + "T12:00:00Z", locale, {
+                    weekday: "long",
+                    day: "numeric",
+                    month: "long",
+                  })}
                   {" - "}
                   {d.matchCount} {isHebrew ? "משחקים" : "matches"}
                 </option>

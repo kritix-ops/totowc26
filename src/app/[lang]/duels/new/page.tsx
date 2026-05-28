@@ -9,6 +9,7 @@ import { getUserAccess } from "@/lib/access";
 import { getBankBalance } from "@/lib/bank";
 import { db } from "@/db";
 import { settings } from "@/db/schema";
+import { formatDateTime } from "@/lib/format";
 import { localePath } from "@/lib/paths";
 import { NewDuelForm } from "./NewDuelForm";
 
@@ -114,17 +115,15 @@ async function loadUpcomingFixtures(locale: Locale): Promise<FixtureOption[]> {
     awayCode: string;
     kickoff_at: string;
   }>;
-  const fmt = new Intl.DateTimeFormat(locale === "he" ? "he-IL" : "en-GB", {
-    weekday: "short",
-    day: "numeric",
-    month: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-    timeZone: "Asia/Jerusalem",
-  });
   return list.map((r) => ({
     id: r.id,
-    label: `${r.homeCode} vs ${r.awayCode} · ${fmt.format(new Date(r.kickoff_at))}`,
+    label: `${r.homeCode} vs ${r.awayCode} · ${formatDateTime(r.kickoff_at, locale, {
+      weekday: "short",
+      day: "numeric",
+      month: "short",
+      hour: "2-digit",
+      minute: "2-digit",
+    })}`,
     kickoffAt: r.kickoff_at,
   }));
 }
@@ -142,15 +141,13 @@ async function loadUpcomingMatchdays(locale: Locale): Promise<MatchdayOption[]> 
     limit 30
   `);
   const list = rows as unknown as Array<{ date: string; fixture_count: number }>;
-  const fmt = new Intl.DateTimeFormat(locale === "he" ? "he-IL" : "en-GB", {
-    weekday: "short",
-    day: "numeric",
-    month: "short",
-    timeZone: "Asia/Jerusalem",
-  });
   return list.map((r) => ({
     date: r.date,
-    label: fmt.format(new Date(`${r.date}T12:00:00Z`)),
+    label: formatDateTime(`${r.date}T12:00:00Z`, locale, {
+      weekday: "short",
+      day: "numeric",
+      month: "short",
+    }),
     fixtureCount: r.fixture_count,
   }));
 }

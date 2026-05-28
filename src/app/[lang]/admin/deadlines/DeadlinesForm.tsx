@@ -4,7 +4,11 @@ import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { AlertCircle, Check } from "lucide-react";
 import { Card, PillButton, SectionHeading } from "@/components/ui";
-import { formatDateTime } from "@/lib/format";
+import {
+  formatDateTime,
+  isoToLocalInputValue,
+  localInputValueToIso,
+} from "@/lib/format";
 import {
   BET_TYPE_KEYS,
   STAGE_KEYS,
@@ -139,66 +143,6 @@ type Props = {
   matchdays: MatchdayRow[];
   matches: MatchRow[];
 };
-
-// Convert a UTC ISO string to the "YYYY-MM-DDTHH:mm" string that the
-// <input type="datetime-local"> widget consumes, in Asia/Jerusalem time
-// so the admin sees the IL clock. The widget then echoes a local string
-// back which we convert back to UTC via Date constructor at save time.
-function isoToLocalInputValue(iso: string | null): string {
-  if (!iso) return "";
-  const d = new Date(iso);
-  const fmt = new Intl.DateTimeFormat("en-GB", {
-    timeZone: "Asia/Jerusalem",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  });
-  const parts = Object.fromEntries(
-    fmt.formatToParts(d).map((p) => [p.type, p.value]),
-  );
-  return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}`;
-}
-
-// Re-interpret a "YYYY-MM-DDTHH:mm" string from the widget as
-// Asia/Jerusalem wall time and return its UTC ISO. We construct a UTC
-// date with the same wall components and then offset by IL's offset at
-// that moment so DST transitions stay correct.
-function localInputValueToIso(value: string): string | null {
-  if (!value) return null;
-  const m = value.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
-  if (!m) return null;
-  const [, y, mo, da, h, mi] = m;
-  const utcGuess = Date.UTC(+y, +mo - 1, +da, +h, +mi);
-  const tzMinutes = ilOffsetMinutesAt(utcGuess);
-  return new Date(utcGuess - tzMinutes * 60_000).toISOString();
-}
-
-function ilOffsetMinutesAt(utcMs: number): number {
-  const d = new Date(utcMs);
-  const fmt = new Intl.DateTimeFormat("en-GB", {
-    timeZone: "Asia/Jerusalem",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  });
-  const parts = Object.fromEntries(
-    fmt.formatToParts(d).map((p) => [p.type, p.value]),
-  );
-  const wallUtcMs = Date.UTC(
-    +parts.year,
-    +parts.month - 1,
-    +parts.day,
-    +parts.hour,
-    +parts.minute,
-  );
-  return Math.round((wallUtcMs - utcMs) / 60_000);
-}
 
 export function DeadlinesForm({
   locale,

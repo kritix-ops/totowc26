@@ -9,6 +9,7 @@ import { getRequestUser } from "@/lib/request-user";
 import { getUserAccess } from "@/lib/access";
 import { db } from "@/db";
 import { getBetLockMinutes } from "@/db/queries";
+import { formatDateTime } from "@/lib/format";
 import { localePath } from "@/lib/paths";
 import { BetsTabs } from "@/components/BetsTabs";
 import { QuickPickRow, type QuickPickRowData } from "./QuickPickRow";
@@ -49,19 +50,17 @@ export default async function QuickBetsPage({
 
   // Group by Asia/Jerusalem matchday. Days are already in order from
   // the query.
-  const dayFmt = new Intl.DateTimeFormat(locale === "he" ? "he-IL" : "en-GB", {
-    weekday: "long",
-    day: "numeric",
-    month: "long",
-    timeZone: "Asia/Jerusalem",
-  });
   const grouped = new Map<string, GroupedDay>();
   for (const m of matches) {
     const key = m.matchDate;
     if (!grouped.has(key)) {
       grouped.set(key, {
         date: key,
-        label: dayFmt.format(new Date(`${key}T12:00:00Z`)),
+        label: formatDateTime(`${key}T12:00:00Z`, locale, {
+          weekday: "long",
+          day: "numeric",
+          month: "long",
+        }),
         matches: [],
       });
     }
