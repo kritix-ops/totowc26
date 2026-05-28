@@ -50,11 +50,17 @@ async function apiFootballFetch(
     return null;
   }
 
+  // Hard 5s ceiling. Without this, a hung api-sports.io connection blocks
+  // every caller indefinitely — the admin dashboard awaits this inside a
+  // Promise.all and sits on loading.tsx until the OS-level socket timeout
+  // (minutes). Five seconds is well past the typical 200-400ms response
+  // and short enough that an outage degrades the page instead of freezing.
   const init: RequestInit & { next?: { revalidate: number } } = {
     headers: {
       "x-rapidapi-key": key,
       "x-rapidapi-host": "v3.football.api-sports.io",
     },
+    signal: AbortSignal.timeout(5000),
   };
   if (options.cache === "no-store") {
     init.cache = "no-store";
@@ -73,10 +79,15 @@ async function apiFootballFetch(
     }
     return await res.json();
   } catch (err) {
-    console.error(`[api-football ${options.logContext} fetch failed]`, {
-      err,
-      ...options.logExtra,
-    });
+    const isTimeout =
+      err instanceof DOMException && err.name === "TimeoutError";
+    console.error(
+      `[api-football ${options.logContext} ${isTimeout ? "timeout" : "fetch failed"}]`,
+      {
+        err,
+        ...options.logExtra,
+      },
+    );
     return null;
   }
 }
