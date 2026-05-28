@@ -446,11 +446,41 @@ export async function getMyBet(
 }
 
 // Profile screen: aggregate stats for one user.
+//
+// `totalPoints` is the user's current bank balance, which is also the
+// number that ranks them on the leaderboard. `availablePoints` mirrors
+// it because every stake is debited from the bank the moment it's
+// placed - there is no separate "locked" pool. Showing both gives the
+// user the two mental framings they expect (score vs. spending power)
+// without diverging from the source of truth.
+//
+// The category breakdown (`pointsFromMatches` / `pointsFromLiveBets` /
+// `pointsFromTournamentBets` / `pointsFromDuels` / `pointsFromAdjustments`)
+// sums to `totalPoints - startingBank`, so the user can audit where
+// each gained or lost point came from.
 export type ProfileStats = {
   totalPoints: number;
+  availablePoints: number;
+  startingBank: number;
+
+  // Category breakdown (net contribution to the bank, excluding starting).
+  pointsFromMatches: number;
+  pointsFromLiveBets: number;
+  pointsFromTournamentBets: number;
+  pointsFromDuels: number;
+  pointsFromAdjustments: number;
+
+  // Match-pick hit rate. Numerator = correct outcomes on placed bets;
+  // denominator = total finalized matches in the tournament so the
+  // user sees their score against the *available* universe of matches,
+  // not just the subset they bet on.
+  correctOutcomeCount: number;
+  exactCount: number;
+  totalFinalMatches: number;
+
+  // Legacy fields kept so other consumers don't break.
   betsPlaced: number;
   betsFinal: number;
-  exactCount: number;
   outcomeCount: number;
   exactAccuracy: number; // percent 0..100
   outcomeAccuracy: number;
@@ -459,52 +489,120 @@ export type ProfileStats = {
 };
 
 export async function getProfileStats(userId: string): Promise<ProfileStats> {
-  // total_points is the user's current bank balance - same number that ranks
-  // them on the leaderboard. Other metrics (bets_placed, exact_count, ...)
-  // stay tied to match_bets since they describe match-pick behaviour only.
   const rows = await db.execute<{
-    total_points: number;
+    starting_bank: number;
+    points_from_matches: number;
+    points_from_live_bets: number;
+    points_from_tournament_bets: number;
+    points_from_duels: number;
+    points_from_adjustments: number;
     bets_placed: number;
     bets_final: number;
     exact_count: number;
     outcome_count: number;
+    total_final_matches: number;
     member_since: string | null;
   }>(sql`
     select
-      (
-        (select starting_bank from public.settings where id = 1)::int
-        + coalesce((
-            select sum(coalesce(mb.points_earned, 0))::int
-            from public.match_bets mb where mb.user_id = ${userId}
-          ), 0)
-        + coalesce((
-            select sum(coalesce(pk.points_earned, 0) - pk.stake_paid)::int
-            from public.user_custom_bet_picks pk where pk.user_id = ${userId}
-          ), 0)
-        + coalesce((
-            select sum(pa.delta)::int
-            from public.point_adjustments pa where pa.user_id = ${userId}
-          ), 0)
-      )::int                                            as total_points,
-      count(mb.id)::int                                 as bets_placed,
-      count(case when mb.points_earned is not null then 1 end)::int as bets_final,
-      count(case when mb.was_exact then 1 end)::int     as exact_count,
-      count(case when mb.was_correct_outcome then 1 end)::int as outcome_count,
+      (select starting_bank from public.settings where id = 1)::int as starting_bank,
+
+      coalesce((
+        select sum(coalesce(mb.points_earned, 0))::int
+        from public.match_bets mb where mb.user_id = ${userId}
+      ), 0) as points_from_matches,
+
+      coalesce((
+        select sum(coalesce(pk.points_earned, 0) - pk.stake_paid)::int
+        from public.user_custom_bet_picks pk
+        join public.custom_bets cb on cb.id = pk.custom_bet_id
+        where pk.user_id = ${userId}
+          and cb.scope in ('match', 'day')
+      ), 0) as points_from_live_bets,
+
+      coalesce((
+        select sum(coalesce(pk.points_earned, 0) - pk.stake_paid)::int
+        from public.user_custom_bet_picks pk
+        join public.custom_bets cb on cb.id = pk.custom_bet_id
+        where pk.user_id = ${userId}
+          and cb.scope in ('tournament', 'stage', 'group')
+      ), 0) as points_from_tournament_bets,
+
+      coalesce((
+        select sum(
+          case
+            when d.status = 'open' and d.opener_id = ${userId} then -d.stake
+            when d.status = 'matched' and (d.opener_id = ${userId} or d.joiner_id = ${userId}) then -d.stake
+            when d.status = 'settled' and d.opener_id = ${userId}
+              then case when d.resolved_value = d.opener_answer then d.stake else -d.stake end
+            when d.status = 'settled' and d.joiner_id = ${userId}
+              then case when d.resolved_value = d.opener_answer then -d.stake else d.stake end
+            else 0
+          end
+        )::int
+        from public.duels d
+        where (d.opener_id = ${userId} or d.joiner_id = ${userId})
+          and d.status <> 'cancelled'
+      ), 0) as points_from_duels,
+
+      coalesce((
+        select sum(pa.delta)::int
+        from public.point_adjustments pa where pa.user_id = ${userId}
+      ), 0) as points_from_adjustments,
+
+      coalesce((
+        select count(*)::int from public.match_bets mb where mb.user_id = ${userId}
+      ), 0) as bets_placed,
+      coalesce((
+        select count(*)::int from public.match_bets mb
+        where mb.user_id = ${userId} and mb.points_earned is not null
+      ), 0) as bets_final,
+      coalesce((
+        select count(*)::int from public.match_bets mb
+        where mb.user_id = ${userId} and mb.was_exact
+      ), 0) as exact_count,
+      coalesce((
+        select count(*)::int from public.match_bets mb
+        where mb.user_id = ${userId} and mb.was_correct_outcome
+      ), 0) as outcome_count,
+
+      coalesce((
+        select count(*)::int from public.matches where status = 'final'
+      ), 0) as total_final_matches,
+
       (select created_at from public.profiles where id = ${userId})::text as member_since
-    from public.match_bets mb
-    where mb.user_id = ${userId}
   `);
   const r = (rows as unknown as Array<{
-    total_points: number;
+    starting_bank: number;
+    points_from_matches: number;
+    points_from_live_bets: number;
+    points_from_tournament_bets: number;
+    points_from_duels: number;
+    points_from_adjustments: number;
     bets_placed: number;
     bets_final: number;
     exact_count: number;
     outcome_count: number;
+    total_final_matches: number;
     member_since: string | null;
   }>)[0];
 
-  const exactAcc = r.bets_final > 0 ? Math.round((r.exact_count / r.bets_final) * 100) : 0;
-  const outcomeAcc = r.bets_final > 0 ? Math.round((r.outcome_count / r.bets_final) * 100) : 0;
+  const startingBank = Number(r.starting_bank);
+  const pointsFromMatches = Number(r.points_from_matches);
+  const pointsFromLiveBets = Number(r.points_from_live_bets);
+  const pointsFromTournamentBets = Number(r.points_from_tournament_bets);
+  const pointsFromDuels = Number(r.points_from_duels);
+  const pointsFromAdjustments = Number(r.points_from_adjustments);
+  const totalPoints =
+    startingBank
+    + pointsFromMatches
+    + pointsFromLiveBets
+    + pointsFromTournamentBets
+    + pointsFromDuels
+    + pointsFromAdjustments;
+
+  const betsFinal = Number(r.bets_final);
+  const exactAcc = betsFinal > 0 ? Math.round((Number(r.exact_count) / betsFinal) * 100) : 0;
+  const outcomeAcc = betsFinal > 0 ? Math.round((Number(r.outcome_count) / betsFinal) * 100) : 0;
 
   // Streak: count trailing correct-outcome bets among the most recent finals.
   const streakRows = await db.execute<{ was_correct_outcome: boolean | null }>(sql`
@@ -522,10 +620,19 @@ export async function getProfileStats(userId: string): Promise<ProfileStats> {
   }
 
   return {
-    totalPoints: Number(r.total_points),
-    betsPlaced: Number(r.bets_placed),
-    betsFinal: Number(r.bets_final),
+    totalPoints,
+    availablePoints: totalPoints,
+    startingBank,
+    pointsFromMatches,
+    pointsFromLiveBets,
+    pointsFromTournamentBets,
+    pointsFromDuels,
+    pointsFromAdjustments,
+    correctOutcomeCount: Number(r.outcome_count),
     exactCount: Number(r.exact_count),
+    totalFinalMatches: Number(r.total_final_matches),
+    betsPlaced: Number(r.bets_placed),
+    betsFinal,
     outcomeCount: Number(r.outcome_count),
     exactAccuracy: exactAcc,
     outcomeAccuracy: outcomeAcc,
@@ -587,6 +694,161 @@ export async function getMyHistory(
     limit ${limit}
   `);
   return rows as unknown as HistoryRow[];
+}
+
+// Profile screen: the user's own custom-bet picks (live + tournament).
+// Returned ordered most-recent-first. `scopes` lets the caller decide
+// which UI bucket to fetch - the profile page asks for the live bucket
+// ('match','day') and the tournament bucket ('tournament','stage','group')
+// in two parallel calls so each section can render independently.
+export type MyCustomPickRow = {
+  pickId: string;
+  customBetId: string;
+  scope: "match" | "day" | "group" | "stage" | "tournament";
+  stage: "group" | "r32" | "r16" | "qf" | "sf" | "third_place" | "final" | null;
+  groupId: string | null;
+  questionHe: string;
+  questionEn: string;
+  answerType: "yes_no" | "number" | "multi_choice" | "free_text";
+  answerConfig: unknown;
+  myAnswer: unknown;
+  status: "draft" | "open" | "locked" | "graded" | "cancelled";
+  stakePaid: number;
+  pointsEarned: number | null;
+  wasCorrect: boolean | null;
+  lockAt: string;
+  pickedAt: string;
+  resolvedValue: unknown;
+  // For match-anchored bets we surface the fixture so the card can
+  // render flags + matchup. Null for day/group/stage/tournament scopes.
+  matchId: string | null;
+  homeCode: string | null;
+  homeNameHe: string | null;
+  homeNameEn: string | null;
+  awayCode: string | null;
+  awayNameHe: string | null;
+  awayNameEn: string | null;
+};
+
+export async function getMyCustomPicks(
+  userId: string,
+  scopes: Array<"match" | "day" | "group" | "stage" | "tournament">,
+  limit = 10,
+): Promise<MyCustomPickRow[]> {
+  if (scopes.length === 0) return [];
+  // drizzle's `inArray` would work but the `scope` column is an enum,
+  // which inArray serialises as text rather than the enum type. Building
+  // the IN list inline keeps the cast simple.
+  const scopeList = sql.join(
+    scopes.map((s) => sql`${s}`),
+    sql`, `,
+  );
+  const rows = await db.execute<MyCustomPickRow>(sql`
+    select
+      pk.id::text                                 as "pickId",
+      cb.id::text                                 as "customBetId",
+      cb.scope::text                              as "scope",
+      cb.stage::text                              as "stage",
+      cb.group_id                                 as "groupId",
+      cb.question_he                              as "questionHe",
+      cb.question_en                              as "questionEn",
+      cb.answer_type::text                        as "answerType",
+      cb.answer_config                            as "answerConfig",
+      pk.answer                                   as "myAnswer",
+      cb.status::text                             as "status",
+      pk.stake_paid                               as "stakePaid",
+      pk.points_earned                            as "pointsEarned",
+      pk.was_correct                              as "wasCorrect",
+      cb.lock_at::text                            as "lockAt",
+      pk.created_at::text                         as "pickedAt",
+      cb.resolved_value                           as "resolvedValue",
+      m.id::text                                  as "matchId",
+      m.home_team                                 as "homeCode",
+      ht.name_he                                  as "homeNameHe",
+      ht.name_en                                  as "homeNameEn",
+      m.away_team                                 as "awayCode",
+      at.name_he                                  as "awayNameHe",
+      at.name_en                                  as "awayNameEn"
+    from public.user_custom_bet_picks pk
+    join public.custom_bets cb on cb.id = pk.custom_bet_id
+    left join public.matches m on m.id = cb.match_id
+    left join public.teams ht on ht.code = m.home_team
+    left join public.teams at on at.code = m.away_team
+    where pk.user_id = ${userId}
+      and cb.scope::text in (${scopeList})
+    order by pk.updated_at desc
+    limit ${limit}
+  `);
+  return rows as unknown as MyCustomPickRow[];
+}
+
+// Profile screen: the user's duels (either side). Returns most-recent-first
+// with opponent display name resolved and the user's net delta computed
+// inline so the card can render +/- without re-deriving the rule table.
+export type MyDuelRow = {
+  duelId: string;
+  questionHe: string;
+  questionEn: string;
+  myAnswer: boolean;
+  isOpener: boolean;
+  opponentDisplayName: string | null;
+  opponentId: string | null;
+  stake: number;
+  status: "open" | "matched" | "settled" | "cancelled";
+  resolvedValue: boolean | null;
+  myPointsDelta: number;
+  createdAt: string;
+  joinDeadlineAt: string;
+  resolveAt: string;
+  scope: "match" | "day" | "tournament";
+};
+
+export async function getMyDuels(
+  userId: string,
+  limit = 10,
+): Promise<MyDuelRow[]> {
+  const rows = await db.execute<MyDuelRow>(sql`
+    select
+      d.id::text                                          as "duelId",
+      d.question_he                                       as "questionHe",
+      d.question_en                                       as "questionEn",
+      case when d.opener_id = ${userId}
+           then d.opener_answer
+           else not d.opener_answer
+      end                                                 as "myAnswer",
+      (d.opener_id = ${userId})                           as "isOpener",
+      case when d.opener_id = ${userId}
+           then pj.display_name
+           else po.display_name
+      end                                                 as "opponentDisplayName",
+      case when d.opener_id = ${userId}
+           then d.joiner_id::text
+           else d.opener_id::text
+      end                                                 as "opponentId",
+      d.stake::int                                        as "stake",
+      d.status::text                                      as "status",
+      d.resolved_value                                    as "resolvedValue",
+      case
+        when d.status = 'open' and d.opener_id = ${userId} then -d.stake
+        when d.status = 'matched' and (d.opener_id = ${userId} or d.joiner_id = ${userId}) then -d.stake
+        when d.status = 'settled' and d.opener_id = ${userId}
+          then case when d.resolved_value = d.opener_answer then d.stake else -d.stake end
+        when d.status = 'settled' and d.joiner_id = ${userId}
+          then case when d.resolved_value = d.opener_answer then -d.stake else d.stake end
+        else 0
+      end::int                                            as "myPointsDelta",
+      d.created_at::text                                  as "createdAt",
+      d.join_deadline_at::text                            as "joinDeadlineAt",
+      d.resolve_at::text                                  as "resolveAt",
+      d.scope::text                                       as "scope"
+    from public.duels d
+    left join public.profiles po on po.id = d.opener_id
+    left join public.profiles pj on pj.id = d.joiner_id
+    where d.opener_id = ${userId} or d.joiner_id = ${userId}
+    order by d.created_at desc
+    limit ${limit}
+  `);
+  return rows as unknown as MyDuelRow[];
 }
 
 export type TeamRow = {
