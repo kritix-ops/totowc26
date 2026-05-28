@@ -1,0 +1,66 @@
+name: News cron
+
+# Pings /api/cron/news on the deployed app every 30 minutes so the
+# Walla / Ynet / BBC sync can run at the cadence we agreed (see
+# _plans/2026-05-29-news-archive-and-lazy-load.md).
+#
+# Why GitHub Actions and not vercel.json: Hobby plan rejects cron
+# expressions more frequent than once-per-day with a deploy-time error.
+# Per-minute schedules require Pro ($20/mo). GitHub Actions runs the
+# same request for free.
+#
+# Required repo secrets (Settings → Secrets and variables → Actions):
+# - APP_URL: the deployed origin, no trailing slash, e.g.
+#   https://toto-mundial-2026.vercel.app
+# - CRON_SECRET: same value as the CRON_SECRET env var on Vercel.
+#
+# Manual run: Actions tab → "News cron" → "Run workflow".
+
+on:
+  schedule:
+    # GitHub may delay scheduled runs by up to ~15 min under load; for
+    # news that's invisible. Twice an hour is plenty.
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+
+jobs:
+  ping-news-cron:
+    name: Ping /api/cron/news
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Validate secrets
+        env:
+          APP_URL: ${{ secrets.APP_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        # Fail fast with a useful message rather than letting curl 401
+        # without explaining why.
+        run: |
+          if [ -z "$APP_URL" ]; then
+            echo "::error::Repo secret APP_URL is missing. Add it under Settings → Secrets and variables → Actions."
+            exit 1
+          fi
+          if [ -z "$CRON_SECRET" ]; then
+            echo "::error::Repo secret CRON_SECRET is missing. It must match the CRON_SECRET env var on Vercel."
+            exit 1
+          fi
+
+      - name: POST /api/cron/news
+        env:
+          APP_URL: ${{ secrets.APP_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        # POST (the route accepts GET and POST identically). -f turns
+        # any non-2xx into a non-zero exit so the job goes red on the
+        # Actions tab. --max-time bounds the wait. -sS keeps quiet on
+        # success but still prints errors. We deliberately do NOT pipe
+        # the response body to stdout — keeps the secret-bearing
+        # response out of public action logs.
+        run: |
+          set -euo pipefail
+          curl -fsS -X POST \
+            --max-time 90 \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            -H "Accept: application/json" \
+            -o /dev/null \
+            -w "status=%{http_code} duration=%{time_total}s\n" \
+            "$APP_URL/api/cron/news"

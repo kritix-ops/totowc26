@@ -90,14 +90,34 @@ the first-seen version. This is simpler and good enough.)
 Each source returns `{ fetched, inserted, skipped, errorMessage? }`.
 
 `/api/cron/news` (GET/POST, `Authorization: Bearer ${CRON_SECRET}`):
-- Adds **jitter**: `await sleep(randomInt(0, 180_000))` at the top of
-  the handler. Vercel cron fires at exactly `:00/:30`; jitter ensures
-  the upstream sees a varied request pattern. The Vercel function
-  budget tolerates this — the handler is short and bounded by 60s
-  Hobby plan limits.
+- Adds **jitter**: `await sleep(randomInt(0, 20_000))` at the top of
+  the handler. The schedule fires at exactly `:00/:30`; jitter ensures
+  the upstream sees a varied request pattern. Bounded to 20s so the
+  remainder of the 60s Hobby function budget covers the sync itself.
 - Returns `{ ok, per_source: { walla, ynet, bbc } }` with status 200
   even on partial failure (so cron retries don't pile up). Status 500
   only if everything blew up.
+
+### 2.5 Scheduler: GitHub Actions, not Vercel cron
+
+Vercel Hobby rejects any cron expression more frequent than once-per-day
+with a deploy-time error ("Hobby accounts are limited to daily cron
+jobs"). Upgrading to Pro ($20/mo) just for this would be wrong for a
+friends-pool app — see `project_stakes`.
+
+Instead, `.github/workflows/news-cron.yml` runs every 30 min on
+GitHub-hosted runners and POSTs `${APP_URL}/api/cron/news` with the
+same Bearer auth. Free within the GitHub Free quota (~72 of 2000
+minutes/month used). The `vercel.json` `crons` array stays at the
+existing two daily entries (`sync`, `backup`).
+
+Required repo secrets (Settings → Secrets and variables → Actions):
+- `APP_URL` — deployed origin, no trailing slash.
+- `CRON_SECRET` — must match the Vercel env var of the same name.
+
+Trade-off: GitHub may delay scheduled workflows by up to ~15 min under
+load. For news this is invisible. For a deadline-sensitive cron (e.g.
+match scoring) we would not use this path.
 
 **Conditional GETs:** Walla and BBC RSS support `If-Modified-Since` and
 `ETag`. We store the last-seen `Last-Modified` / `ETag` per source in
@@ -271,4 +291,6 @@ Neither is justified for a friends pool. Skip.
 - `src/app/[lang]/tournament/NewsTab.tsx` (thin server wrapper)
 - `src/app/[lang]/tournament/NewsList.tsx` (new — client component)
 - `src/app/[lang]/dictionaries/he.json`, `en.json` (new strings)
-- `vercel.json` (add `/api/cron/news` schedule `*/30 * * * *`)
+- `.github/workflows/news-cron.yml` (new — runs every 30 min,
+  GitHub-hosted, calls `/api/cron/news` with Bearer auth).
+- `vercel.json` (unchanged — Hobby plan rejects sub-daily crons).
