@@ -6,6 +6,10 @@ import { clsx } from "clsx";
 import type { Locale } from "../../dictionaries";
 import { Card, LabelCaps, SectionHeading } from "@/components/ui";
 import {
+  translateAdminError,
+  type LocalizedTuple,
+} from "@/lib/admin/errors";
+import {
   sendTestEmail,
   type EmailTemplate,
   type EnvSummary,
@@ -212,19 +216,25 @@ function EnvStatus({ env, isHebrew }: { env: EnvSummary; isHebrew: boolean }) {
   );
 }
 
+// Test-form error codes are exhaustive (TypeScript-typed enum from the
+// action). No COMMON_ADMIN spread because every code is form-specific.
+const ERROR_MAP: Record<
+  Exclude<SendTestEmailResult, { ok: true }>["error"],
+  LocalizedTuple
+> = {
+  unauthorized: ["יש להתחבר", "Sign in required"],
+  forbidden: ["אין הרשאה", "Not allowed"],
+  invalid_email: ["כתובת אימייל לא תקינה", "Invalid email address"],
+  not_configured: [
+    "Resend לא מוגדר - חסר RESEND_API_KEY או EMAIL_FROM",
+    "Resend is not configured - RESEND_API_KEY or EMAIL_FROM missing",
+  ],
+  send_failed: ["השליחה נכשלה - בדוק את ההודעה למטה", "Send failed - see detail below"],
+};
+
 function translateError(
   code: Exclude<SendTestEmailResult, { ok: true }>["error"],
   isHebrew: boolean,
 ): string {
-  const map: Record<typeof code, [string, string]> = {
-    unauthorized: ["יש להתחבר", "Sign in required"],
-    forbidden: ["אין הרשאה", "Not allowed"],
-    invalid_email: ["כתובת אימייל לא תקינה", "Invalid email address"],
-    not_configured: [
-      "Resend לא מוגדר - חסר RESEND_API_KEY או EMAIL_FROM",
-      "Resend is not configured - RESEND_API_KEY or EMAIL_FROM missing",
-    ],
-    send_failed: ["השליחה נכשלה - בדוק את ההודעה למטה", "Send failed - see detail below"],
-  };
-  return map[code][isHebrew ? 0 : 1];
+  return translateAdminError(code, ERROR_MAP, isHebrew);
 }

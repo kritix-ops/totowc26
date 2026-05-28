@@ -4,6 +4,10 @@ import { useEffect, useState, useTransition } from "react";
 import { AlertCircle, Bell, BellOff, Check } from "lucide-react";
 import { clsx } from "clsx";
 import type { Locale } from "@/app/[lang]/dictionaries";
+import {
+  translateError as translateErrorCode,
+  type LocalizedTuple,
+} from "@/lib/error-i18n";
 import { setPushOptIn } from "@/app/[lang]/profile/push-actions";
 
 // Profile-page toggle for push notifications. Manages the browser-side
@@ -283,20 +287,24 @@ function statusHint(status: Status, isHebrew: boolean): string {
   }
 }
 
+// Push-flow errors are unique enough (browser permission + Web Push
+// subscribe + server save are three separate failure surfaces) that
+// they don't share the COMMON_PLAYER map; they get their own catalog.
+const ERROR_MAP = {
+  subscribe_failed: [
+    "ההרשמה ל-push נכשלה. נסה שוב מאוחר יותר.",
+    "Failed to subscribe to push. Try again later.",
+  ],
+  unsubscribe_failed: [
+    "כיבוי ה-push נכשל. ההגדרה נשמרה.",
+    "Failed to unsubscribe. Preference still saved.",
+  ],
+  db: ["שגיאת שמירה", "Save failed"],
+  unauthorized: ["יש להתחבר", "Sign in required"],
+} as const satisfies Record<string, LocalizedTuple>;
+
 function translateError(code: string, isHebrew: boolean): string {
-  const map: Record<string, [string, string]> = {
-    subscribe_failed: [
-      "ההרשמה ל-push נכשלה. נסה שוב מאוחר יותר.",
-      "Failed to subscribe to push. Try again later.",
-    ],
-    unsubscribe_failed: [
-      "כיבוי ה-push נכשל. ההגדרה נשמרה.",
-      "Failed to unsubscribe. Preference still saved.",
-    ],
-    db: ["שגיאת שמירה", "Save failed"],
-    unauthorized: ["יש להתחבר", "Sign in required"],
-  };
-  return (map[code] ?? map.db)[isHebrew ? 0 : 1];
+  return translateErrorCode(code in ERROR_MAP ? code : "db", ERROR_MAP, isHebrew);
 }
 
 // Wait for an active service worker, but bail after `timeoutMs` so a

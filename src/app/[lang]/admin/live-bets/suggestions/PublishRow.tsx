@@ -5,6 +5,11 @@ import { useRouter } from "next/navigation";
 import { Check, AlertCircle, Pencil } from "lucide-react";
 import { clsx } from "clsx";
 import type { Locale } from "../../../dictionaries";
+import {
+  COMMON_ADMIN_ERRORS,
+  translateAdminError,
+  type LocalizedTuple,
+} from "@/lib/admin/errors";
 import { publishSuggestion } from "./actions";
 
 // One row inside a market group. Shows the selection, computed
@@ -195,14 +200,13 @@ export function PublishRow(props: Props) {
   );
 }
 
+const ERROR_MAP = {
+  ...COMMON_ADMIN_ERRORS,
+  match_not_found: ["המשחק לא נמצא", "Match not found"],
+  match_locked:    ["המשחק כבר נעול", "Match is locked"],
+  invalid_input:   ["נתונים לא תקינים", "Invalid values"],
+} as const satisfies Record<string, LocalizedTuple>;
+
 function translateError(code: string, isHebrew: boolean): string {
-  const map: Record<string, [string, string]> = {
-    unauth:           ["יש להתחבר", "Sign in required"],
-    forbidden:        ["אין הרשאות אדמין", "Admin role required"],
-    match_not_found:  ["המשחק לא נמצא", "Match not found"],
-    match_locked:     ["המשחק כבר נעול", "Match is locked"],
-    invalid_input:    ["נתונים לא תקינים", "Invalid values"],
-    db:               ["שגיאת שמירה", "Save failed"],
-  };
-  return (map[code] ?? map.db)[isHebrew ? 0 : 1];
+  return translateAdminError(code in ERROR_MAP ? code : "db", ERROR_MAP, isHebrew);
 }

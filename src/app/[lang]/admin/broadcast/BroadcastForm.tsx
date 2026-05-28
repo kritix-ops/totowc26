@@ -4,6 +4,11 @@ import { useMemo, useState, useTransition } from "react";
 import { AlertCircle, Check, Megaphone } from "lucide-react";
 import { clsx } from "clsx";
 import { Card, PillButton, SectionHeading } from "@/components/ui";
+import {
+  COMMON_ADMIN_ERRORS,
+  translateAdminError,
+  type LocalizedTuple,
+} from "@/lib/admin/errors";
 import type { Locale } from "../../dictionaries";
 import {
   sendBroadcast,
@@ -347,15 +352,15 @@ function ModeOption({
   );
 }
 
+const ERROR_MAP = {
+  ...COMMON_ADMIN_ERRORS,
+  invalid: [
+    "חסר טקסט בכותרת או בגוף, או שהנמען לא קיים.",
+    "Missing title/body, or recipient not found.",
+  ],
+  unauthorized: ["יש להתחבר", "Sign in required"],
+} as const satisfies Record<string, LocalizedTuple>;
+
 function translateError(code: string, isHebrew: boolean): string {
-  const map: Record<string, [string, string]> = {
-    invalid: [
-      "חסר טקסט בכותרת או בגוף, או שהנמען לא קיים.",
-      "Missing title/body, or recipient not found.",
-    ],
-    unauthorized: ["יש להתחבר", "Sign in required"],
-    forbidden: ["אין הרשאות אדמין", "Admin role required"],
-    db: ["שגיאת שמירה", "Save failed"],
-  };
-  return (map[code] ?? map.db)[isHebrew ? 0 : 1];
+  return translateAdminError(code in ERROR_MAP ? code : "db", ERROR_MAP, isHebrew);
 }

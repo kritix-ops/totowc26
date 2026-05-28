@@ -4,6 +4,11 @@ import { useMemo, useState, useTransition } from "react";
 import { AlertCircle, Bell, Check } from "lucide-react";
 import { clsx } from "clsx";
 import { Card, PillButton, SectionHeading } from "@/components/ui";
+import {
+  COMMON_ADMIN_ERRORS,
+  translateAdminError,
+  type LocalizedTuple,
+} from "@/lib/admin/errors";
 import type { Locale } from "../../dictionaries";
 import {
   sendTestPush,
@@ -273,20 +278,24 @@ function ModeOption({
   );
 }
 
+// Overrides the COMMON wording with send-failure copy ("Send failed"
+// instead of "Save failed") + the push-test-specific codes. Also keeps
+// the historical "unauthorized" alias the server action returns.
+const ERROR_MAP = {
+  ...COMMON_ADMIN_ERRORS,
+  invalid:      ["בחירה לא תקינה", "Invalid selection"],
+  db:           ["שגיאת שליחה", "Send failed"],
+  unauthorized: ["יש להתחבר", "Sign in required"],
+  no_subscriptions: [
+    "אין מנויים תואמים - בחר משתתף אחר או בקש מהמשתתפים להפעיל push.",
+    "No matching subscriptions — pick another player or ask players to enable push.",
+  ],
+  vapid_missing: [
+    "VAPID לא מוגדר. הרץ pnpm push:vapid והוסף את שלושת המפתחות.",
+    "VAPID env not configured. Run pnpm push:vapid and add all three keys.",
+  ],
+} as const satisfies Record<string, LocalizedTuple>;
+
 function translateError(code: string, isHebrew: boolean): string {
-  const map: Record<string, [string, string]> = {
-    no_subscriptions: [
-      "אין מנויים תואמים - בחר משתתף אחר או בקש מהמשתתפים להפעיל push.",
-      "No matching subscriptions — pick another player or ask players to enable push.",
-    ],
-    vapid_missing: [
-      "VAPID לא מוגדר. הרץ pnpm push:vapid והוסף את שלושת המפתחות.",
-      "VAPID env not configured. Run pnpm push:vapid and add all three keys.",
-    ],
-    invalid: ["בחירה לא תקינה", "Invalid selection"],
-    unauthorized: ["יש להתחבר", "Sign in required"],
-    forbidden: ["אין הרשאות אדמין", "Admin role required"],
-    db: ["שגיאת שליחה", "Send failed"],
-  };
-  return (map[code] ?? map.db)[isHebrew ? 0 : 1];
+  return translateAdminError(code in ERROR_MAP ? code : "db", ERROR_MAP, isHebrew);
 }

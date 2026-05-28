@@ -16,6 +16,11 @@ import {
 } from "lucide-react";
 import { clsx } from "clsx";
 import { Card, PillButton, SectionHeading } from "@/components/ui";
+import {
+  COMMON_ADMIN_ERRORS,
+  translateAdminError,
+  type LocalizedTuple,
+} from "@/lib/admin/errors";
 import { localePath } from "@/lib/paths";
 import type { Locale } from "@/app/[lang]/dictionaries";
 import type { AnswerConfig } from "@/lib/bets/types";
@@ -375,13 +380,12 @@ function localInputToIso(local: string): string | null {
   return d.toISOString();
 }
 
+const ERROR_MAP = {
+  ...COMMON_ADMIN_ERRORS,
+  invalid_input: ["ערכים לא תקינים", "Invalid values"],
+  lock_in_past:  ["תאריך הנעילה בעבר", "Lock time is in the past"],
+} as const satisfies Record<string, LocalizedTuple>;
+
 function translateError(code: string, isHebrew: boolean): string {
-  const map: Record<string, [string, string]> = {
-    unauth:        ["יש להתחבר", "Sign in required"],
-    forbidden:     ["אין הרשאות אדמין", "Admin role required"],
-    invalid_input: ["ערכים לא תקינים", "Invalid values"],
-    lock_in_past:  ["תאריך הנעילה בעבר", "Lock time is in the past"],
-    db:            ["שגיאת שמירה", "Save failed"],
-  };
-  return (map[code] ?? map.db)[isHebrew ? 0 : 1];
+  return translateAdminError(code in ERROR_MAP ? code : "db", ERROR_MAP, isHebrew);
 }

@@ -5,6 +5,11 @@ import { useRouter } from "next/navigation";
 import { AlertCircle, Check, Minus, Plus, RotateCcw, Trophy } from "lucide-react";
 import { clsx } from "clsx";
 import { Card, LabelCaps, PillButton } from "@/components/ui";
+import {
+  COMMON_ADMIN_ERRORS,
+  translateAdminError,
+  type LocalizedTuple,
+} from "@/lib/admin/errors";
 import type { Locale } from "../../../dictionaries";
 import type {
   AnswerConfig,
@@ -384,15 +389,15 @@ function Pill({
   );
 }
 
+const ERROR_MAP = {
+  ...COMMON_ADMIN_ERRORS,
+  forbidden:              ["אין הרשאה", "Not allowed"],
+  bet_not_found:          ["ההימור לא נמצא", "Bet not found"],
+  invalid_status:         ["סטטוס לא תקין לפעולה", "Invalid status for this action"],
+  invalid_resolved_value: ["תוצאה לא תקינה", "Invalid resolved value"],
+  invalid_reason:         ["סיבה חייבת לפחות 3 תווים", "Reason must be 3+ characters"],
+} as const satisfies Record<string, LocalizedTuple>;
+
 function translateError(err: string, isHebrew: boolean): string {
-  const map: Record<string, [string, string]> = {
-    unauth:                  ["יש להתחבר", "Sign in required"],
-    forbidden:               ["אין הרשאה", "Not allowed"],
-    bet_not_found:           ["ההימור לא נמצא", "Bet not found"],
-    invalid_status:          ["סטטוס לא תקין לפעולה", "Invalid status for this action"],
-    invalid_resolved_value:  ["תוצאה לא תקינה", "Invalid resolved value"],
-    invalid_reason:          ["סיבה חייבת לפחות 3 תווים", "Reason must be 3+ characters"],
-    db:                      ["שגיאת שמירה", "Save failed"],
-  };
-  return (map[err] ?? [err, err])[isHebrew ? 0 : 1];
+  return translateAdminError(err, ERROR_MAP, isHebrew);
 }

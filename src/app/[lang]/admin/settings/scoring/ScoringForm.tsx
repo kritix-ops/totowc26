@@ -5,6 +5,11 @@ import { useRouter } from "next/navigation";
 import { AlertCircle, Check } from "lucide-react";
 import { clsx } from "clsx";
 import { Card, PillButton, SectionHeading } from "@/components/ui";
+import {
+  COMMON_ADMIN_ERRORS,
+  translateAdminError,
+  type LocalizedTuple,
+} from "@/lib/admin/errors";
 import type { Locale } from "../../../dictionaries";
 import { saveScoringSettings, type ScoringPayload } from "./actions";
 
@@ -459,17 +464,18 @@ function ToggleField({
   );
 }
 
+// `invalid` overrides the COMMON wording with the long range-spec hint
+// the scoring form needs; the rest reuse the shared admin error map.
+const ERROR_MAP = {
+  ...COMMON_ADMIN_ERRORS,
+  invalid: [
+    "ערכים לא תקינים. כל ערך מספרי שלם בין 0-32000, תשלומים ≥ 1, מקסימום השקעה בדו-קרב 1-20. סכום אחוזי הקטגוריות חייב להיות בדיוק 100. אחוזי הליגה הישנים ≤ 100.",
+    "Invalid values. Integers 0-32000, payouts ≥ 1, duel stake 1-20. Category prize percentages must sum to exactly 100. Legacy split must sum to ≤ 100.",
+  ],
+} as const satisfies Record<string, LocalizedTuple>;
+
 function translateError(code: string, isHebrew: boolean): string {
-  const map: Record<string, [string, string]> = {
-    invalid: [
-      "ערכים לא תקינים. כל ערך מספרי שלם בין 0-32000, תשלומים ≥ 1, מקסימום השקעה בדו-קרב 1-20. סכום אחוזי הקטגוריות חייב להיות בדיוק 100. אחוזי הליגה הישנים ≤ 100.",
-      "Invalid values. Integers 0-32000, payouts ≥ 1, duel stake 1-20. Category prize percentages must sum to exactly 100. Legacy split must sum to ≤ 100.",
-    ],
-    unauth:    ["יש להתחבר", "Sign in required"],
-    forbidden: ["אין הרשאות אדמין", "Admin role required"],
-    db:        ["שגיאת שמירה", "Save failed"],
-  };
-  return (map[code] ?? map.db)[isHebrew ? 0 : 1];
+  return translateAdminError(code in ERROR_MAP ? code : "db", ERROR_MAP, isHebrew);
 }
 
 function CategoryPrizeCard({

@@ -8,6 +8,10 @@ import { Card, Chip, LabelCaps } from "@/components/ui";
 import { SearchableChoicePicker } from "@/components/SearchableChoicePicker";
 import { LocksInCountdown } from "@/components/LocksInCountdown";
 import { formatDateTime } from "@/lib/format";
+import {
+  translateError as translateErrorCode,
+  type LocalizedTuple,
+} from "@/lib/error-i18n";
 import type { Locale } from "@/app/[lang]/dictionaries";
 import type {
   AnswerConfig,
@@ -525,7 +529,9 @@ function translateError(
   isHebrew: boolean,
   res: { needed?: number },
 ): string {
-  const map: Record<string, [string, string]> = {
+  // The insufficient_bank line embeds the dynamic "needed" amount, so
+  // it's computed per-call rather than hoisted to a module-level map.
+  const map: Record<string, LocalizedTuple> = {
     unauth:            ["יש להתחבר", "Sign in required"],
     not_paid:          ["תשלום עדיין לא אושר", "Payment not approved yet"],
     bet_not_found:     ["ההימור לא נמצא", "Bet not found"],
@@ -537,6 +543,7 @@ function translateError(
         ? [`חסר: ${res.needed} נק'`, `Need ${res.needed} more pts`]
         : ["אין מספיק נקודות בבנק", "Not enough points in bank"],
     db:                ["שגיאת שמירה", "Save failed"],
+    unknown:           ["שגיאה", "Error"],
   };
-  return (map[err] ?? ["שגיאה", "Error"])[isHebrew ? 0 : 1];
+  return translateErrorCode(err in map ? err : "unknown", map, isHebrew);
 }

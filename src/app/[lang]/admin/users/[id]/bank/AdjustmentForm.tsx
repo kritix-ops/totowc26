@@ -5,6 +5,11 @@ import { useRouter } from "next/navigation";
 import { AlertCircle, Check, Plus, Minus } from "lucide-react";
 import { clsx } from "clsx";
 import { PillButton } from "@/components/ui";
+import {
+  COMMON_ADMIN_ERRORS,
+  translateAdminError,
+  type LocalizedTuple,
+} from "@/lib/admin/errors";
 import { adjustUserPoints } from "../../actions";
 import type { Locale } from "../../../../dictionaries";
 
@@ -175,15 +180,15 @@ export function AdjustmentForm({
   );
 }
 
+const ERROR_MAP = {
+  ...COMMON_ADMIN_ERRORS,
+  invalid: [
+    "ערכים לא תקינים. סכום בין -500 ל-500 ולא 0, סיבה לפחות 3 תווים.",
+    "Invalid input. Delta between -500 and 500 (not 0); reason at least 3 chars.",
+  ],
+  unauthorized: ["יש להתחבר", "Sign in required"],
+} as const satisfies Record<string, LocalizedTuple>;
+
 function translateError(code: string, isHebrew: boolean): string {
-  const map: Record<string, [string, string]> = {
-    invalid: [
-      "ערכים לא תקינים. סכום בין -500 ל-500 ולא 0, סיבה לפחות 3 תווים.",
-      "Invalid input. Delta between -500 and 500 (not 0); reason at least 3 chars.",
-    ],
-    unauthorized: ["יש להתחבר", "Sign in required"],
-    forbidden: ["אין הרשאות אדמין", "Admin role required"],
-    db: ["שגיאת שמירה", "Save failed"],
-  };
-  return (map[code] ?? map.db)[isHebrew ? 0 : 1];
+  return translateAdminError(code in ERROR_MAP ? code : "db", ERROR_MAP, isHebrew);
 }

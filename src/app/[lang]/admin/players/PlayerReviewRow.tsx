@@ -9,6 +9,11 @@ import type { Locale } from "@/app/[lang]/dictionaries";
 import type { AdminPlayerReviewRow } from "@/db/admin-queries";
 import { Card } from "@/components/ui";
 import {
+  COMMON_ADMIN_ERRORS,
+  translateAdminError,
+  type LocalizedTuple,
+} from "@/lib/admin/errors";
+import {
   approveTranslation,
   rejectTranslation,
   setManualHebrewName,
@@ -401,13 +406,12 @@ function sourceToLabel(source: string | null, isHebrew: boolean): string | null 
   return map[source] ?? source;
 }
 
+const ERROR_MAP = {
+  ...COMMON_ADMIN_ERRORS,
+  invalid:   ["ערך לא תקין", "Invalid input"],
+  not_found: ["שורה לא נמצאה", "Row not found"],
+} as const satisfies Record<string, LocalizedTuple>;
+
 function translateError(code: string, isHebrew: boolean): string {
-  const map: Record<string, [string, string]> = {
-    invalid:   ["ערך לא תקין", "Invalid input"],
-    not_found: ["שורה לא נמצאה", "Row not found"],
-    unauth:    ["יש להתחבר", "Sign in required"],
-    forbidden: ["אין הרשאות אדמין", "Admin role required"],
-    db:        ["שגיאת שמירה", "Save failed"],
-  };
-  return (map[code] ?? map.db)[isHebrew ? 0 : 1];
+  return translateAdminError(code in ERROR_MAP ? code : "db", ERROR_MAP, isHebrew);
 }

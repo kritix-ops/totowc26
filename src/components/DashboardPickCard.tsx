@@ -7,6 +7,11 @@ import { clsx } from "clsx";
 import { Card, Chip, LabelCaps } from "@/components/ui";
 import { Flag } from "@/components/Flag";
 import type { Locale } from "@/app/[lang]/dictionaries";
+import {
+  COMMON_PLAYER_ERRORS,
+  translateError as translateErrorCode,
+  type LocalizedTuple,
+} from "@/lib/error-i18n";
 import { saveBet, type SaveBetResult } from "@/app/[lang]/bets/[matchId]/actions";
 
 // Vertical pick card for the dashboard "Your upcoming matches" section.
@@ -221,17 +226,16 @@ function Stepper({
   );
 }
 
+// Overrides the COMMON_PLAYER wording with match-specific copy ("Match
+// is locked" / "Match not found") and falls back to the generic
+// "Save failed" line rather than echoing the raw code, matching the
+// previous behaviour of this card.
+const ERROR_MAP = {
+  ...COMMON_PLAYER_ERRORS,
+  locked: ["המשחק נעול", "Match is locked"],
+  not_found: ["המשחק לא נמצא", "Match not found"],
+} as const satisfies Record<string, LocalizedTuple>;
+
 function translateError(code: string, isHebrew: boolean): string {
-  const map: Record<string, [string, string]> = {
-    unauth: ["יש להתחבר", "Sign in required"],
-    not_paid: [
-      "התשלום שלך לא אושר עדיין",
-      "Your entry payment is not approved yet",
-    ],
-    locked: ["המשחק נעול", "Match is locked"],
-    invalid: ["ערכים לא תקינים", "Invalid values"],
-    not_found: ["המשחק לא נמצא", "Match not found"],
-    db: ["שגיאת שמירה", "Save failed"],
-  };
-  return (map[code] ?? map.db)[isHebrew ? 0 : 1];
+  return translateErrorCode(code in ERROR_MAP ? code : "db", ERROR_MAP, isHebrew);
 }
