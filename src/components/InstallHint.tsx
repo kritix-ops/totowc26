@@ -28,6 +28,13 @@ export function InstallHint({ locale }: { locale: "he" | "en" }) {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
+    // Syncing client-only browser state into React state — display-mode
+    // matchMedia, the iOS Safari standalone flag, the user agent string,
+    // and the localStorage dismiss bit only exist on the client, so they
+    // can't be read during SSR. The set-state-in-effect lint rule fires
+    // for this pattern but the React docs explicitly endorse it for the
+    // "subscribe for updates from some external system" case.
+    /* eslint-disable react-hooks/set-state-in-effect */
     setIsStandalone(
       window.matchMedia("(display-mode: standalone)").matches ||
         // iOS Safari uses this older flag instead of display-mode.
@@ -37,6 +44,7 @@ export function InstallHint({ locale }: { locale: "he" | "en" }) {
     const ua = window.navigator.userAgent || "";
     setIsIOS(/iPad|iPhone|iPod/.test(ua));
     setDismissed(window.localStorage.getItem(DISMISS_KEY) === "1");
+    /* eslint-enable react-hooks/set-state-in-effect */
 
     const onBeforeInstall = (e: Event) => {
       e.preventDefault();

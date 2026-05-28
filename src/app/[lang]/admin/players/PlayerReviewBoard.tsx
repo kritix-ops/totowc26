@@ -79,9 +79,10 @@ export function PlayerReviewBoard({
   // Whenever the filter set changes, reset back to the first page
   // so the admin sees the top of the new result list rather than
   // arbitrarily-deep page 4 they happened to have loaded before.
-  useEffect(() => {
-    setVisibleCount(PAGE_SIZE);
-  }, [filters]);
+  // Intentional set-state-in-effect: scroll/pagination position is
+  // derived from a filter prop change.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { setVisibleCount(PAGE_SIZE); }, [filters]);
 
   // Dynamic counts for every filter dimension, computed against the
   // OTHER active filters. Lets the verdict chip strip show "190

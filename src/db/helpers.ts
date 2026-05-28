@@ -1,6 +1,11 @@
 import "server-only";
 import { sql, type SQLWrapper } from "drizzle-orm";
-import { db } from "./index";
+// Imports the db client via the `@/db` alias so vitest's exact-match
+// alias for `@/db` (see vitest.config.ts) picks up the test stub instead
+// of trying to open a real Postgres connection. A relative `./index`
+// import would bypass the stub and crash any test that touches helpers
+// even transitively (e.g. lib/deadlines.test.ts).
+import { db } from "@/db";
 
 // Thin helpers around `db.execute` that hide the `as unknown as T[]`
 // dance every raw-SQL call in this project used to write inline.

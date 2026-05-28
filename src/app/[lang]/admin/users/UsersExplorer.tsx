@@ -620,6 +620,14 @@ function UserDrawer({
   const [linkCopied, setLinkCopied] = useState(false);
   const [pending, startTransition] = useTransition();
 
+  // Reset drawer-local form state when the parent swaps to a different
+  // user (or when the canonical name/phone update underneath us). A
+  // proper `key={user.id}` on the drawer host would unmount/remount and
+  // make this effect redundant — that's the cleaner long-term shape but
+  // requires lifting the drawer to a sibling component. Until then this
+  // effect is the targeted, well-bounded prop-sync the React docs
+  // permit.
+  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     setName(user.displayName);
     setPhone(user.phone);
@@ -627,6 +635,7 @@ function UserDrawer({
     setConfirm(null);
     setRegeneratedLink(null);
   }, [user.id, user.displayName, user.phone]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   const wrap = (fn: () => Promise<{ ok: boolean; error?: string }>) =>
     startTransition(async () => {

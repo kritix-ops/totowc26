@@ -147,16 +147,17 @@ export function SearchableChoicePicker({
   }, [visible]);
 
   // Reset the active index whenever the filtered list changes so
-  // arrow-keys land somewhere sensible (the first match).
-  useEffect(() => {
-    setActiveIndex(0);
-  }, [query]);
+  // arrow-keys land somewhere sensible (the first match). Intentional
+  // set-state-in-effect: the cursor position is local UI state derived
+  // from an input prop change, not from the state we're writing.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { setActiveIndex(0); }, [query]);
 
   // Reset the lazy-chunk counter every time the picker re-opens so
-  // closing and reopening always starts at "first 10 visible".
-  useEffect(() => {
-    if (open) setLoadedChunks(1);
-  }, [open]);
+  // closing and reopening always starts at "first 10 visible". Same
+  // pattern: writing local UI state in response to an input change.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { if (open) setLoadedChunks(1); }, [open]);
 
   // Click-outside on desktop. The mobile sheet uses an explicit
   // backdrop, so this is desktop-only behaviour.

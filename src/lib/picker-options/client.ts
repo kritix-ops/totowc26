@@ -73,6 +73,12 @@ export function usePickerOptions(
   });
   const [error, setError] = useState<string | null>(null);
 
+  // External-system sync: source/locale changes drive a fetch (or a
+  // module-cache hit), and the result feeds the picker. The lint rule
+  // flags every setState here but this IS the "subscribe for updates"
+  // pattern from the React docs — the dependency is the prop pair, not
+  // the state we're writing.
+  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     if (!source) {
       setOptions([]);
@@ -113,6 +119,7 @@ export function usePickerOptions(
       cancelled = true;
     };
   }, [source, locale]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   return { options, loading, error };
 }
