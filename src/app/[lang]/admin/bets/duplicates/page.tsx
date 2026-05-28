@@ -2,14 +2,13 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ChevronLeft, ChevronRight, Copy } from "lucide-react";
 import { hasLocale, type Locale } from "../../../dictionaries";
-import { Card, Chip, LabelCaps, SectionHeading } from "@/components/ui";
+import { Card, Chip, SectionHeading } from "@/components/ui";
 import { localePath } from "@/lib/paths";
-import { formatDateTime } from "@/lib/format";
 import {
   listDuplicateCustomBets,
   type AdminDuplicateBetRow,
 } from "@/db/admin-queries";
-import { DuplicateRowActions } from "./DuplicateRowActions";
+import { DuplicateRow } from "./DuplicateRow";
 
 // Surfaces every (scope, anchor, question_he) triplet that has 2+ active
 // rows in custom_bets. Each group renders as a panel where the admin picks
@@ -124,113 +123,6 @@ function DuplicateGroup({
       </div>
     </Card>
   );
-}
-
-function DuplicateRow({
-  locale,
-  row,
-  index,
-}: {
-  locale: Locale;
-  row: AdminDuplicateBetRow;
-  index: number;
-}) {
-  const isHebrew = locale === "he";
-  const lockLabel = formatDateTime(row.lockAt, locale, {
-    day: "numeric",
-    month: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-  const createdLabel = formatDateTime(row.createdAt, locale, {
-    day: "numeric",
-    month: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-
-  return (
-    <div className="border border-outline-variant rounded-lg p-3 md:p-4 flex flex-col gap-3 bg-surface-container-lowest">
-      <div className="flex items-start justify-between gap-3 flex-wrap">
-        <div className="flex flex-col gap-1 min-w-0 flex-1">
-          <div className="flex items-center gap-2 flex-wrap">
-            <LabelCaps>
-              {isHebrew ? `עותק #${index}` : `Copy #${index}`}
-            </LabelCaps>
-            <Chip tone={statusTone(row.status)}>
-              {statusLabel(row.status, isHebrew)}
-            </Chip>
-            {row.pickCount > 0 && (
-              <Chip tone="warning">
-                {isHebrew
-                  ? `${row.pickCount} ניחושים`
-                  : `${row.pickCount} picks`}
-              </Chip>
-            )}
-          </div>
-          <span className="text-[11px] text-on-surface-variant font-mono break-all">
-            {row.id}
-          </span>
-        </div>
-      </div>
-
-      <dl className="grid grid-cols-2 gap-x-3 gap-y-2 text-sm">
-        <div className="flex flex-col">
-          <dt className="text-xs text-on-surface-variant">
-            {isHebrew ? "נסגר" : "Locks"}
-          </dt>
-          <dd className="font-bold tabular-nums">{lockLabel}</dd>
-        </div>
-        <div className="flex flex-col">
-          <dt className="text-xs text-on-surface-variant">
-            {isHebrew ? "נוצר" : "Created"}
-          </dt>
-          <dd className="font-bold tabular-nums">{createdLabel}</dd>
-        </div>
-        <div className="flex flex-col">
-          <dt className="text-xs text-on-surface-variant">
-            {isHebrew ? "עלות" : "Stake"}
-          </dt>
-          <dd className="font-bold tabular-nums">{row.stakeSnapshot}</dd>
-        </div>
-        <div className="flex flex-col">
-          <dt className="text-xs text-on-surface-variant">
-            {isHebrew ? "תשלום" : "Payout"}
-          </dt>
-          <dd className="font-bold tabular-nums">{row.payoutSnapshot}</dd>
-        </div>
-      </dl>
-
-      <DuplicateRowActions
-        locale={locale}
-        id={row.id}
-        hasPicks={row.pickCount > 0}
-      />
-    </div>
-  );
-}
-
-function statusTone(s: AdminDuplicateBetRow["status"]): "default" | "primary" | "secondary" | "warning" {
-  switch (s) {
-    case "draft":     return "default";
-    case "open":      return "primary";
-    case "locked":    return "warning";
-    case "graded":    return "secondary";
-    case "reversed":  return "warning";
-    case "cancelled": return "default";
-  }
-}
-
-function statusLabel(s: AdminDuplicateBetRow["status"], isHebrew: boolean): string {
-  const map: Record<AdminDuplicateBetRow["status"], [string, string]> = {
-    draft:     ["טיוטה", "Draft"],
-    open:      ["פתוח", "Open"],
-    locked:    ["נסגר", "Locked"],
-    graded:    ["נמדד", "Graded"],
-    reversed:  ["הוחזר", "Reversed"],
-    cancelled: ["בוטל", "Cancelled"],
-  };
-  return map[s][isHebrew ? 0 : 1];
 }
 
 function scopeLabel(row: AdminDuplicateBetRow, isHebrew: boolean): string {

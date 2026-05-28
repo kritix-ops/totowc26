@@ -396,7 +396,14 @@ export async function cancelCustomBet(
       .where(eq(customBets.id, id));
 
     console.info("[bet cancel]", { id, prevStatus: row.status, by: user.id });
+    // Every surface that filters on status in ('open','locked') needs to drop
+    // the cancelled row. Without these, router.refresh() returns cached RSC
+    // output and the row "comes back" for one frame before the next manual
+    // navigation.
     revalidatePath("/[lang]/admin/bets", "page");
+    revalidatePath("/[lang]/admin/bets/duplicates", "page");
+    revalidatePath("/[lang]/admin", "page");
+    revalidatePath("/[lang]/bets/tournament", "page");
     return { ok: true };
   } catch (err) {
     console.error("[bet cancel] failed:", err);
