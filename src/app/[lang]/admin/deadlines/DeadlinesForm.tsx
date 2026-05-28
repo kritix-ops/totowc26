@@ -17,57 +17,78 @@ import type { Locale } from "../../dictionaries";
 
 // Hebrew + English labels and helper text per bet type. The catalog is
 // derived from BET_TYPE_KEYS (the schema-level source of truth) so a
-// new bet type forces a compile-time entry here.
-const TYPE_LABELS: Record<BetTypeKey, { he: string; en: string; hintHe: string; hintEn: string; anchorHe: string; anchorEn: string }> = {
+// new bet type forces a compile-time entry here. `exampleHe/exampleEn`
+// is a concrete user-facing bet question; the admin form uses it as the
+// primary explainer because the abstract scope name alone is ambiguous.
+const TYPE_LABELS: Record<BetTypeKey, {
+  he: string;
+  en: string;
+  exampleHe: string;
+  exampleEn: string;
+  anchorHe: string;
+  anchorEn: string;
+}> = {
   match_score: {
     he: "ניחוש תוצאה (1/X/2)",
     en: "Score prediction (1/X/2)",
-    hintHe: "כמה דקות לפני בעיטת הפתיחה של המשחק נסגר ניחוש התוצאה.",
-    hintEn: "How many minutes before kickoff the 1/X/2 prediction closes.",
+    exampleHe: "למשל: ארגנטינה - איטליה, 1 / X / 2?",
+    exampleEn: "e.g. Argentina vs Italy, 1 / X / 2?",
     anchorHe: "בעיטת הפתיחה של המשחק",
     anchorEn: "match kickoff",
   },
   custom_match: {
-    he: "הימור מותאם — משחק בודד",
-    en: "Custom bet — single match",
-    hintHe: "הימור שמצמיד למשחק אחד (למשל 'מי יבקיע ראשון').",
-    hintEn: "A custom bet attached to one match (e.g. 'who scores first').",
+    he: "משחק",
+    en: "Match",
+    exampleHe: "למשל: מי יבקיע ראשון במשחק הזה?",
+    exampleEn: "e.g. Who scores first in this match?",
     anchorHe: "בעיטת הפתיחה של אותו משחק",
     anchorEn: "kickoff of that match",
   },
   custom_day: {
-    he: "הימור מותאם — יום הימורים",
-    en: "Custom bet — matchday",
-    hintHe: "הימור שמצרף את כל משחקי היום (למשל 'כמה גולים סך הכל היום').",
-    hintEn: "Custom bet that aggregates across all matches on a date.",
+    he: "יום הימורים",
+    en: "Matchday",
+    exampleHe: "למשל: כמה גולים סך הכל בכל משחקי היום?",
+    exampleEn: "e.g. How many goals across all of today's matches?",
     anchorHe: "המשחק הראשון של היום",
     anchorEn: "earliest kickoff of the day",
   },
+  custom_group: {
+    he: "בית (A..L)",
+    en: "Group (A..L)",
+    exampleHe: "למשל: מי תעלה ראשונה מבית A?",
+    exampleEn: "e.g. Who finishes 1st in Group A?",
+    anchorHe: "המשחק הראשון של אותו בית",
+    anchorEn: "earliest kickoff in that group",
+  },
   custom_stage: {
-    he: "הימור מותאם — שלב בטורניר",
-    en: "Custom bet — tournament stage",
-    hintHe: "הימור שמצורף לשלב שלם (שלב הבתים / שמינית / רבע וכו').",
-    hintEn: "Custom bet attached to a tournament stage (group/r16/qf/...).",
+    he: "שלב (שלב הבתים / 1/8 / 1/4 / 1/2 / גמר)",
+    en: "Stage (Groups / R16 / QF / SF / Final)",
+    exampleHe: "למשל: כמה כרטיסים אדומים יוצאו בשלב הבתים?",
+    exampleEn: "e.g. How many red cards in the group stage?",
     anchorHe: "המשחק הראשון של אותו שלב",
     anchorEn: "earliest kickoff in that stage",
   },
-  custom_group: {
-    he: "הימור מותאם — בית בטורניר",
-    en: "Custom bet — group",
-    hintHe: "הימור שמצורף לבית שלם בשלב הבתים.",
-    hintEn: "Custom bet attached to a single group letter (A..L).",
-    anchorHe: "המשחק הראשון של הבית",
-    anchorEn: "earliest kickoff in that group",
-  },
   custom_tournament: {
-    he: "הימור מותאם — כל הטורניר",
-    en: "Custom bet — whole tournament",
-    hintHe: "הימורים ארוכי טווח כמו 'מי יזכה בטורניר'.",
-    hintEn: "Long-range bets like 'who wins the tournament'.",
-    anchorHe: "תאריך תחילת הטורניר",
-    anchorEn: "tournament start date",
+    he: "כל הטורניר",
+    en: "Whole tournament",
+    exampleHe: "למשל: מי תזכה במונדיאל?",
+    exampleEn: "e.g. Who wins the tournament?",
+    anchorHe: "תחילת הטורניר",
+    anchorEn: "tournament start",
   },
 };
+
+// Display order inside the admin form: score bet alone at the top, then
+// the five custom variants narrowest -> widest scope. Distinct from
+// BET_TYPE_KEYS, which is the schema-level order and is still used for
+// the save payload (order doesn't matter on the wire).
+const CUSTOM_BET_DISPLAY_ORDER: BetTypeKey[] = [
+  "custom_match",
+  "custom_day",
+  "custom_group",
+  "custom_stage",
+  "custom_tournament",
+];
 
 type MatchdayRow = {
   id: string;
@@ -406,6 +427,52 @@ function ReminderOffsetCard({
   );
 }
 
+function TypeDefaultRow({
+  isHebrew,
+  betKey,
+  value,
+  onChange,
+}: {
+  isHebrew: boolean;
+  betKey: BetTypeKey;
+  value: number;
+  onChange: (raw: string) => void;
+}) {
+  const labels = TYPE_LABELS[betKey];
+  return (
+    <div className="flex flex-col gap-1.5">
+      <label
+        htmlFor={`bld-${betKey}`}
+        className="font-bold text-sm text-on-surface"
+      >
+        {isHebrew ? labels.he : labels.en}
+      </label>
+      <p className="text-xs text-on-surface-variant">
+        {isHebrew ? labels.exampleHe : labels.exampleEn}
+      </p>
+      <div className="flex items-center gap-2 flex-wrap">
+        <input
+          id={`bld-${betKey}`}
+          type="number"
+          inputMode="numeric"
+          min={0}
+          max={20160}
+          step={1}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className="h-12 w-28 px-3 bg-surface-container-lowest border border-outline rounded-lg text-on-surface text-base font-bold tabular-nums focus:outline-none focus:border-primary"
+          dir="ltr"
+        />
+        <span className="text-sm text-on-surface-variant">
+          {isHebrew
+            ? `דקות לפני ${labels.anchorHe}`
+            : `minutes before ${labels.anchorEn}`}
+        </span>
+      </div>
+    </div>
+  );
+}
+
 function TypeDefaultsCard({
   isHebrew,
   initial,
@@ -452,39 +519,34 @@ function TypeDefaultsCard({
           ? "כמה דקות לפני העוגן נסגר כל סוג הימור. שינוי כאן משפיע מיידית על ניחושי תוצאה; הימורים מותאמים שכבר נשמרו לא יושפעו עד עריכה ידנית."
           : "How many minutes before the anchor each bet type closes. Score bets shift live; existing custom bets keep their stored time until you edit them."}
       </p>
-      <div className="grid grid-cols-1 gap-4">
-        {BET_TYPE_KEYS.map((key) => (
-          <div key={key} className="flex flex-col gap-1.5">
-            <label
-              htmlFor={`bld-${key}`}
-              className="font-bold text-sm text-on-surface"
-            >
-              {isHebrew ? TYPE_LABELS[key].he : TYPE_LABELS[key].en}
-            </label>
-            <div className="flex items-center gap-2">
-              <input
-                id={`bld-${key}`}
-                type="number"
-                inputMode="numeric"
-                min={0}
-                max={20160}
-                step={1}
+      <div className="flex flex-col gap-5">
+        <TypeDefaultRow
+          isHebrew={isHebrew}
+          betKey="match_score"
+          value={values.match_score}
+          onChange={(raw) => update("match_score", raw)}
+        />
+        <div className="flex flex-col gap-3 pt-2 border-t border-outline-variant">
+          <h3 className="font-bold text-sm text-on-surface">
+            {isHebrew ? "הימורים מותאמים" : "Custom bets"}
+          </h3>
+          <p className="text-xs text-on-surface-variant -mt-1">
+            {isHebrew
+              ? "הימורים שאתה מנסח בעצמך (עמוד 'יצירת הימור'). כל סוג נסגר ביחס לעוגן שונה."
+              : "Bets you author yourself (see the 'Create bet' page). Each variant locks against a different anchor."}
+          </p>
+          <div className="flex flex-col gap-4">
+            {CUSTOM_BET_DISPLAY_ORDER.map((key) => (
+              <TypeDefaultRow
+                key={key}
+                isHebrew={isHebrew}
+                betKey={key}
                 value={values[key]}
-                onChange={(e) => update(key, e.target.value)}
-                className="h-12 w-28 px-3 bg-surface-container-lowest border border-outline rounded-lg text-on-surface text-base font-bold tabular-nums focus:outline-none focus:border-primary"
-                dir="ltr"
+                onChange={(raw) => update(key, raw)}
               />
-              <span className="text-sm text-on-surface-variant">
-                {isHebrew
-                  ? `דקות לפני ${TYPE_LABELS[key].anchorHe}`
-                  : `minutes before ${TYPE_LABELS[key].anchorEn}`}
-              </span>
-            </div>
-            <p className="text-[11px] text-on-surface-variant">
-              {isHebrew ? TYPE_LABELS[key].hintHe : TYPE_LABELS[key].hintEn}
-            </p>
+            ))}
           </div>
-        ))}
+        </div>
       </div>
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div className="min-h-[24px]">
