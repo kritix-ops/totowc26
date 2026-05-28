@@ -10,6 +10,7 @@
 "use client";
 
 import { useState } from "react";
+import Image from "next/image";
 import { clsx } from "clsx";
 
 // FIFA 3-letter code → flag slug (ISO 3166-1 alpha-2, plus the regional
@@ -103,12 +104,16 @@ export function Flag({
       style={{ width: widthPx, height: widthPx }}
       aria-label={code}
     >
-      <img
+      <Image
         src={src}
         width={widthPx}
         height={widthPx}
         alt=""
-        loading="lazy"
+        // SVG vectors don't benefit from raster optimisation, and the
+        // HatScripts set is already byte-tiny; skip the optimisation
+        // pipeline so the image router doesn't add cold-start latency
+        // here. lazy loading still applies via the default loading="lazy".
+        unoptimized
         onError={() => setErrored(true)}
         style={{
           width: widthPx,

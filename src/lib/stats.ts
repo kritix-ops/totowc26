@@ -1,7 +1,6 @@
 import "server-only";
 
 import { sql } from "drizzle-orm";
-import { db } from "@/db";
 import { execFirstRow, execRows } from "@/db/helpers";
 import { fetchTopScorers, type FDScorer } from "./football-data";
 import {

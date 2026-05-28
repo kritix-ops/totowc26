@@ -29,11 +29,16 @@ const nextConfig: NextConfig = {
     // Supabase Storage — see _plans/2026-05-27-hebrew-tournament-bets-
     // and-translations.md §8.3. If API-Sports ever blocks hot-linking
     // we revisit and add a sync-to-Storage step in the squads script.
+    //
+    // Country flags come from the HatScripts/circle-flags set on
+    // jsDelivr (SVG vectors, no per-size variants needed). Used by
+    // <Flag> for every team chip across the app.
     remotePatterns: [
       { protocol: "https", hostname: "ichef.bbci.co.uk" },
       { protocol: "https", hostname: "images.wcdn.co.il" },
       { protocol: "https", hostname: "**.yit.co.il" },
       { protocol: "https", hostname: "media.api-sports.io" },
+      { protocol: "https", hostname: "cdn.jsdelivr.net" },
     ],
   },
   async headers() {
