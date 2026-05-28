@@ -283,8 +283,15 @@ async function pushCommit(args: {
   const { token, owner, repo, branch, files, message } = args;
   await assertRepoIsPrivate(token, owner, repo);
 
-  // 1. Resolve the branch tip (parent commit).
-  let parentSha: string | null = null;
+  // 1. Resolve the branch tip (parent commit). GitHub's git data API
+  // (blobs/trees/commits) returns 409 "Git Repository is empty" against
+  // a brand-new repo with zero commits — it refuses to operate until
+  // the repo has at least one commit + a branch. The Contents API does
+  // work on empty repos, so we use it to bootstrap a single placeholder
+  // commit, then resolve the ref normally. The placeholder file gets
+  // overwritten away on the next tree we publish (no base_tree set, so
+  // each backup commit is a clean snapshot of just our files).
+  let parentSha: string;
   try {
     const ref = await githubFetch<{ object: { sha: string } }>(
       token,
@@ -293,12 +300,24 @@ async function pushCommit(args: {
     parentSha = ref.object.sha;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    // GitHub returns 409 "Git Repository is empty" for a brand-new repo
-    // with zero commits, and 404 once a branch is partially set up but
-    // the named ref is missing. Both mean "no parent, build the first
-    // commit and create the ref from scratch."
     if (!msg.includes("404") && !msg.includes("409")) throw err;
-    parentSha = null;
+    console.info("[cron backup github bootstrap]", { owner, repo, branch });
+    await githubFetch(token, `/repos/${owner}/${repo}/contents/.bootstrap`, {
+      method: "PUT",
+      body: JSON.stringify({
+        message: "Initialize backup repo",
+        content: Buffer.from(
+          "Placeholder created when the backup cron first ran. Subsequent commits replace the file tree wholesale, so this entry disappears the next time the cron fires.\n",
+          "utf8",
+        ).toString("base64"),
+        branch,
+      }),
+    });
+    const ref = await githubFetch<{ object: { sha: string } }>(
+      token,
+      `/repos/${owner}/${repo}/git/ref/heads/${branch}`,
+    );
+    parentSha = ref.object.sha;
   }
 
   // 2. Create one blob per file.
@@ -345,30 +364,22 @@ async function pushCommit(args: {
       body: JSON.stringify({
         message,
         tree: tree.sha,
-        parents: parentSha ? [parentSha] : [],
+        parents: [parentSha],
       }),
     },
   );
 
-  // 5. Move the branch ref. PATCH on an existing ref, POST when the
-  // repo was empty.
-  if (parentSha) {
-    await githubFetch(token, `/repos/${owner}/${repo}/git/refs/heads/${branch}`, {
-      method: "PATCH",
-      body: JSON.stringify({ sha: commit.sha, force: false }),
-    });
-  } else {
-    await githubFetch(token, `/repos/${owner}/${repo}/git/refs`, {
-      method: "POST",
-      body: JSON.stringify({ ref: `refs/heads/${branch}`, sha: commit.sha }),
-    });
-  }
+  // 5. Move the branch ref to the new commit.
+  await githubFetch(token, `/repos/${owner}/${repo}/git/refs/heads/${branch}`, {
+    method: "PATCH",
+    body: JSON.stringify({ sha: commit.sha, force: false }),
+  });
 
   console.info("[cron backup github commit]", {
     commitSha: commit.sha,
     parentSha,
   });
-  return { commitSha: commit.sha, parentSha: parentSha ?? "" };
+  return { commitSha: commit.sha, parentSha };
 }
 
 export type BackupOptions = {
