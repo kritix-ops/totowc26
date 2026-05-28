@@ -3,6 +3,7 @@ import "server-only";
 import { sql, type SQL } from "drizzle-orm";
 import { unstable_cache } from "next/cache";
 import { db } from "@/db";
+import { execFirstRow } from "@/db/helpers";
 
 // Cache tag used by every action that can change this user's bank
 // (match bet placement, custom-bet pick, duel open/join/cancel, admin
@@ -129,7 +130,7 @@ export async function getBankBalance(userId: string): Promise<number> {
 // and cached (for the bank pill in the layout that re-renders on
 // every navigation).
 async function loadBankBreakdownFromDb(userId: string): Promise<BankBreakdown> {
-  const rows = await db.execute<{
+  const r = await execFirstRow<{
     starting: number;
     payouts: number;
     stakes: number;
@@ -161,13 +162,6 @@ async function loadBankBreakdownFromDb(userId: string): Promise<BankBreakdown> {
         from public.point_adjustments pa where pa.user_id = ${userId}
       ), 0) as "adjustments"
   `);
-  const r = (rows as unknown as Array<{
-    starting: number;
-    payouts: number;
-    stakes: number;
-    duel_delta: number;
-    adjustments: number;
-  }>)[0];
 
   const starting = Number(r?.starting ?? 0);
   const payouts = Number(r?.payouts ?? 0);
@@ -224,7 +218,7 @@ export type StakeConfig = {
 };
 
 export async function getStakeConfig(): Promise<StakeConfig> {
-  const rows = await db.execute<StakeConfig>(sql`
+  const row = await execFirstRow<StakeConfig>(sql`
     select
       starting_bank     as "startingBank",
       scoring_exact     as "scoringExact",
@@ -232,6 +226,7 @@ export async function getStakeConfig(): Promise<StakeConfig> {
       stake_main        as "stakeMain"
     from public.settings where id = 1
   `);
-  const list = rows as unknown as StakeConfig[];
-  return list[0];
+  // The settings row is seeded by migration 0000 and never deleted, so
+  // a null here would mean the DB is in an unrecoverable state.
+  return row!;
 }

@@ -30,10 +30,8 @@ export function SplashOverlay({ locale }: { locale: "he" | "en" }) {
     let loadListenerAttached = false;
 
     function beginFade() {
-      console.info("[splash overlay] begin fade", { stage: "fading" });
       setStage("fading");
       removeTimer = window.setTimeout(() => {
-        console.info("[splash overlay] removed");
         setStage("removed");
       }, FADE_DURATION_MS);
     }
@@ -54,10 +52,7 @@ export function SplashOverlay({ locale }: { locale: "he" | "en" }) {
       loadListenerAttached = true;
       // Safety net: if `load` is delayed (slow image, broken script, etc.)
       // the user must not be trapped behind the overlay.
-      safetyTimer = window.setTimeout(() => {
-        console.info("[splash overlay] safety timeout fired", { ms: MAX_WAIT_MS });
-        beginFade();
-      }, MAX_WAIT_MS);
+      safetyTimer = window.setTimeout(beginFade, MAX_WAIT_MS);
     }
 
     return () => {

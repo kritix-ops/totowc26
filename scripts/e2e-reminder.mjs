@@ -61,6 +61,10 @@ async function main() {
 
   const sql = postgres(url, { prepare: false, max: 4 });
 
+  // Captured inside the try so cleanup can put the offset back.
+  // Defaults to 60 so a brand-new DB with NULL still restores cleanly.
+  let originalOffset = 60;
+
   try {
     // 1. Verify migrations are applied.
     log("preflight check", {});
@@ -105,7 +109,7 @@ async function main() {
     const beforeSettings = await sql`
       select reminder_offset_minutes from public.settings where id = 1
     `;
-    const originalOffset = beforeSettings[0]?.reminder_offset_minutes ?? 60;
+    originalOffset = beforeSettings[0]?.reminder_offset_minutes ?? 60;
     log("snapshot settings", { originalOffset });
 
     // 2b. Make sure we have a creator (admin profile) so the test
@@ -122,7 +126,6 @@ async function main() {
     // 2c. If nobody is paid, temporarily approve a payment for the
     // admin so the reminder sender has someone to email. The temp
     // payment carries E2E_TEST_LABEL in `note` so cleanup can find it.
-    let createdTempPayment = false;
     if (paidCount === 0) {
       await sql`
         insert into public.payments
@@ -132,7 +135,6 @@ async function main() {
            ${"E2E temp " + E2E_TEST_LABEL},
            ${adminId}::uuid, now())
       `;
-      createdTempPayment = true;
       log("temp payment inserted", { adminId });
     }
 
@@ -246,17 +248,18 @@ async function main() {
     console.log("");
   } finally {
     // 9. Cleanup: delete the test bet (CASCADE drops the
-    // bet_reminder_sent rows for it) and restore the offset.
+    // bet_reminder_sent rows for it) and restore the offset that
+    // was in place before the script bumped it to 60.
     try {
-      const beforeSettings = await sql`
-        select reminder_offset_minutes from public.settings where id = 1
+      await sql`
+        update public.settings
+        set reminder_offset_minutes = ${originalOffset}
+        where id = 1
       `;
-      // Only restore if the script set it; if the user changed it
-      // mid-run, leave their value alone.
-      const beforeOffset =
-        beforeSettings[0]?.reminder_offset_minutes ?? null;
-      log("cleanup", { currentOffset: beforeOffset });
-    } catch {}
+      log("cleanup restored offset", { originalOffset });
+    } catch (err) {
+      console.warn("[e2e cleanup offset failed]", err?.message ?? err);
+    }
 
     try {
       const deleted = await sql`

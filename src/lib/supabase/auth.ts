@@ -9,12 +9,6 @@ export const getUser = cache(async () => {
   return data.user;
 });
 
-export const getSession = cache(async () => {
-  const supabase = await getSupabaseServer();
-  const { data } = await supabase.auth.getSession();
-  return data.session;
-});
-
 // Build a callback URL that routes the user through our own /auth/callback
 // instead of Supabase's hosted verify endpoint. The callback hands the
 // hashed token to verifyOtp server-side and writes the session into our

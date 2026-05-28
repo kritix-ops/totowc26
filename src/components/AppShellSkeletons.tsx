@@ -38,18 +38,6 @@ export function DesktopNavExtrasSkeleton() {
   );
 }
 
-export function MobileMoreSkeleton() {
-  return (
-    <div
-      aria-hidden
-      className="flex flex-col items-center justify-center gap-1 px-1 py-2 min-h-[56px] animate-pulse"
-    >
-      <div className="h-5 w-5 rounded bg-surface-container-high" />
-      <div className="h-2 w-8 rounded bg-surface-container-high" />
-    </div>
-  );
-}
-
 // Placeholder for the entire mobile bottom nav while the per-user
 // access + admin-defined config queries resolve. Matches the bar's
 // height + 5-cell grid so the swap to the real bar does not shift

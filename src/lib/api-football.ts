@@ -20,7 +20,10 @@ import type { AutoApiFootballStat } from "@/lib/bets/types";
 // so a single match-day's run hits 5–10 fixtures × 1 endpoint = well
 // inside the budget. No quota tracking here for v1.
 
-const BASE = "https://v3.football.api-sports.io";
+// Exported so the sibling modules (`api-football-data.ts`, `odds.ts`)
+// hit the same host without re-typing the URL.
+export const API_FOOTBALL_BASE = "https://v3.football.api-sports.io";
+const BASE = API_FOOTBALL_BASE;
 
 // Shared fetch wrapper. Every caller in this module follows the same
 // three rules: short-circuit to null when the API key is unset, send

@@ -13,6 +13,7 @@ import { LocksInCountdown } from "@/components/LocksInCountdown";
 import { localePath } from "@/lib/paths";
 import { formatDateTime } from "@/lib/format";
 import { serverNow } from "@/lib/server-now";
+import { MS_PER_HOUR, MS_PER_MINUTE } from "@/lib/time";
 import {
   getDeadlineContext,
   resolveMatchScoreLock,
@@ -143,9 +144,9 @@ function Countdown({ to }: { to: string }) {
   const t = new Date(to).getTime();
   const now = serverNow();
   const diff = Math.max(0, t - now);
-  const h = Math.floor(diff / 3_600_000);
-  const m = Math.floor((diff % 3_600_000) / 60_000);
-  const s = Math.floor((diff % 60_000) / 1000);
+  const h = Math.floor(diff / MS_PER_HOUR);
+  const m = Math.floor((diff % MS_PER_HOUR) / MS_PER_MINUTE);
+  const s = Math.floor((diff % MS_PER_MINUTE) / 1000);
   const pad = (n: number) => String(n).padStart(2, "0");
   return (
     <span className="font-[family-name:var(--font-score)] text-[20px] md:text-[24px] leading-none font-bold text-on-surface bidi-ltr">

@@ -1,15 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { runBackup } from "@/lib/backup";
-
-// Vercel sends `Authorization: Bearer ${CRON_SECRET}` on every cron firing.
-// Header-only (mirrors /api/cron/sync) so the secret never leaks into URLs
-// or access logs.
-function authorized(request: NextRequest): boolean {
-  const expected = process.env.CRON_SECRET;
-  if (!expected) return false;
-  const auth = request.headers.get("authorization");
-  return auth === `Bearer ${expected}`;
-}
+import { isAuthorizedCron } from "@/lib/cron-auth";
 
 // Daily backup runs against the live DB and hits the GitHub REST API
 // several times, so keep us on the Node runtime (Edge can't do crypto +
@@ -19,7 +10,7 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 export async function GET(request: NextRequest) {
-  if (!authorized(request)) {
+  if (!isAuthorizedCron(request)) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
   try {

@@ -1,18 +1,10 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { syncNews } from "@/lib/news-sync";
+import { isAuthorizedCron } from "@/lib/cron-auth";
 
 // News archive sync. Pulls Walla / Ynet / BBC into `news_items` every
-// 30 minutes (see vercel.json). Same auth shape as /api/cron/sync:
-// Vercel sends `Authorization: Bearer ${CRON_SECRET}` on every cron
-// firing. Header-only — no `?secret=` fallback so the secret never lands
-// in URL logs.
-function authorized(request: NextRequest): boolean {
-  const expected = process.env.CRON_SECRET;
-  if (!expected) return false;
-  const auth = request.headers.get("authorization");
-  return auth === `Bearer ${expected}`;
-}
-
+// 30 minutes (see vercel.json).
+//
 // Vercel cron fires at exactly `:00` and `:30` for `*/30 * * * *`. A
 // thundering herd of requests hitting Walla / Ynet at precisely those
 // moments is the most bot-like signal we could send. Jitter spreads
@@ -25,7 +17,7 @@ const MAX_JITTER_MS = 20_000;
 export const maxDuration = 60;
 
 export async function GET(request: NextRequest) {
-  if (!authorized(request)) {
+  if (!isAuthorizedCron(request)) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 

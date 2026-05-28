@@ -2,7 +2,6 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ChevronLeft, ChevronRight, Smartphone } from "lucide-react";
 import { hasLocale, type Locale, getDictionary } from "../../../dictionaries";
-import { requireAdmin } from "@/lib/admin";
 import { Card } from "@/components/ui";
 import { localePath } from "@/lib/paths";
 import { getMobileNavConfig } from "@/lib/mobile-nav-server";
@@ -21,7 +20,6 @@ export default async function AdminMobileNavSettingsPage({
   const { lang } = await params;
   if (!hasLocale(lang)) notFound();
   const locale = lang as Locale;
-  await requireAdmin(locale);
   const dict = await getDictionary(locale);
   const isHebrew = locale === "he";
   const ChevronBack = isHebrew ? ChevronRight : ChevronLeft;

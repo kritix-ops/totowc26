@@ -2,7 +2,6 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ChevronLeft, ChevronRight, Languages } from "lucide-react";
 import { hasLocale, type Locale } from "../../dictionaries";
-import { requireAdmin } from "@/lib/admin";
 import { localePath } from "@/lib/paths";
 import { listPlayersForReview } from "@/db/admin-queries";
 import { PlayerReviewBoard } from "./PlayerReviewBoard";
@@ -43,7 +42,6 @@ export default async function AdminPlayersPage({
   const { lang } = await params;
   if (!hasLocale(lang)) notFound();
   const locale = lang as Locale;
-  await requireAdmin(locale);
   const isHebrew = locale === "he";
   const ChevBack = isHebrew ? ChevronRight : ChevronLeft;
 

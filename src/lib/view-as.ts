@@ -15,10 +15,10 @@ export const VIEW_AS_COOKIE = "toto_view_as";
 
 export type ViewAsRole = "paid" | "unpaid";
 
-const VALID: ViewAsRole[] = ["paid", "unpaid"];
+const VALID = ["paid", "unpaid"] as const satisfies readonly ViewAsRole[];
 
 function isViewAsRole(v: unknown): v is ViewAsRole {
-  return typeof v === "string" && VALID.includes(v as ViewAsRole);
+  return typeof v === "string" && (VALID as readonly string[]).includes(v);
 }
 
 // Returns the active impersonation, or null when the admin is themselves.

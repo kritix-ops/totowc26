@@ -62,13 +62,7 @@ export function ProfileMenu({
     };
   }, [open]);
 
-  const toggle = () => {
-    setOpen((prev) => {
-      const next = !prev;
-      if (next) console.info("[profile menu open]", { isAdmin });
-      return next;
-    });
-  };
+  const toggle = () => setOpen((prev) => !prev);
 
   const close = () => setOpen(false);
 
@@ -81,7 +75,6 @@ export function ProfileMenu({
       segments.unshift(next);
     }
     const target = "/" + segments.join("/");
-    console.info("[profile menu language switch]", { from: locale, to: next, target });
     setOpen(false);
     startTransition(() => {
       router.push(target);

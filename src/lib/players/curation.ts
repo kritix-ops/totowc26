@@ -14,7 +14,7 @@
 //
 // All ids verified against the live players table on 2026-05-28.
 
-export const STAR_PLAYER_API_IDS: ReadonlyArray<number> = [
+const STAR_PLAYER_API_IDS: ReadonlyArray<number> = [
   // Argentina
   154,    // Lionel Andrés Messi
   6009,   // Julián Álvarez

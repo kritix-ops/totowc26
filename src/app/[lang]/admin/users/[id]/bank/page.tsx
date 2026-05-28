@@ -2,7 +2,6 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ChevronLeft, ChevronRight, Coins } from "lucide-react";
 import { getDictionary, hasLocale, type Locale } from "../../../../dictionaries";
-import { requireAdmin } from "@/lib/admin";
 import { getBankBreakdown } from "@/lib/bank";
 import { fetchUserBasic, fetchUserAdjustments } from "../../queries";
 import { Card, SectionHeading } from "@/components/ui";
@@ -18,7 +17,6 @@ export default async function AdminUserBankPage({
   const { lang, id } = await params;
   if (!hasLocale(lang)) notFound();
   const locale = lang as Locale;
-  await requireAdmin(locale);
   const dict = await getDictionary(locale);
   const isHebrew = locale === "he";
   const ChevronBack = isHebrew ? ChevronRight : ChevronLeft;

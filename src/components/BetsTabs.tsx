@@ -8,7 +8,7 @@ import { localePath } from "@/lib/paths";
 // between the three without losing context. Server component on
 // purpose — no client state needed since each tab is a real URL.
 
-export type BetsTabKey = "match-picks" | "tournament" | "groups" | "live";
+type BetsTabKey = "match-picks" | "tournament" | "groups" | "live";
 
 type TabDef = {
   key: BetsTabKey;

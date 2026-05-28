@@ -15,6 +15,7 @@ import { clsx } from "clsx";
 import { notFound } from "next/navigation";
 import { getDictionary, hasLocale, type Locale } from "./dictionaries";
 import { formatDateTime } from "@/lib/format";
+import { MS_PER_HOUR } from "@/lib/time";
 import { localePath } from "@/lib/paths";
 import { BrandLogo } from "@/components/BrandLogo";
 import { InstallHint } from "@/components/InstallHint";
@@ -1361,7 +1362,7 @@ function formatRelative(iso: string, locale: Locale): string {
   const diff = t - now;
   const isHebrew = locale === "he";
   if (diff <= 0) return isHebrew ? "התחיל" : "Started";
-  const hours = Math.round(diff / (1000 * 60 * 60));
+  const hours = Math.round(diff / MS_PER_HOUR);
   if (hours < 24) {
     return isHebrew ? `בעוד ${hours} שעות` : `in ${hours}h`;
   }
@@ -1472,7 +1473,7 @@ function computeCountdown(iso: string): {
   const target = new Date(iso).getTime();
   const diff = target - Date.now();
   if (diff <= 0) return { days: 0, hours: 0, started: true };
-  const totalHours = Math.floor(diff / (1000 * 60 * 60));
+  const totalHours = Math.floor(diff / MS_PER_HOUR);
   const days = Math.floor(totalHours / 24);
   const hours = totalHours % 24;
   return { days, hours, started: false };

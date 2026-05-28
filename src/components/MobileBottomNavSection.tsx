@@ -73,11 +73,6 @@ export async function MobileBottomNavSection({
             ? "grid-cols-2"
             : "grid-cols-1";
 
-  // (Per-render console.info dropped in the noise-reduction pass — the
-  // catalog state it surfaced is fully derivable from `config` + the
-  // role/page-visibility filters above. Add it back behind a debug
-  // flag if the mobile bar ever silently drops items in production.)
-
   return (
     <nav
       aria-label={isHebrew ? "ניווט תחתון" : "Bottom"}

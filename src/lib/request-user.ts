@@ -26,8 +26,3 @@ export async function getRequestUser(): Promise<RequestUser | null> {
   const email = h.get(TOTO_USER_EMAIL_HEADER);
   return { id, email };
 }
-
-export async function getRequestUserId(): Promise<string | null> {
-  const h = await headers();
-  return h.get(TOTO_USER_ID_HEADER);
-}

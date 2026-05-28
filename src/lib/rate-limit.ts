@@ -1,5 +1,7 @@
 import "server-only";
 
+import { MS_PER_HOUR } from "./time";
+
 // In-memory token bucket. Used by the public signup endpoint to slow a
 // single source from flooding the queue. Per-instance (each Vercel Lambda
 // has its own bucket and a cold start resets it) - that is *fine* for a
@@ -30,7 +32,7 @@ export type RateLimitOptions = {
 
 export function allow(key: string, opts: RateLimitOptions): boolean {
   const now = Date.now();
-  const refillRatePerMs = opts.tokensPerHour / 3_600_000;
+  const refillRatePerMs = opts.tokensPerHour / MS_PER_HOUR;
   const existing = STORE.get(key);
   const current = existing
     ? Math.min(

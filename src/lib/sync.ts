@@ -471,7 +471,7 @@ async function _ingestFromFootballData(
 // The submit gate at src/app/[lang]/play/[date]/actions.ts also
 // rejects late submissions, so the worst-case race during the gap
 // between lock_at and the next sync run is closed there.
-export async function lockExpiredCustomBets(): Promise<number> {
+async function lockExpiredCustomBets(): Promise<number> {
   const start = Date.now();
   const rows = await execRows<{ id: string; scope: string; lock_at: string }>(drizzleSql`
     update public.custom_bets
@@ -498,7 +498,7 @@ export async function lockExpiredCustomBets(): Promise<number> {
 // and flip it to 'cancelled'. The bank formula in src/lib/bank.ts
 // excludes cancelled duels from the per-user delta, so this single
 // status flip refunds the opener's stake.
-export async function cancelExpiredOpenDuels(): Promise<number> {
+async function cancelExpiredOpenDuels(): Promise<number> {
   const rows = await execRows<{ id: string; opener_id: string; stake: number }>(drizzleSql`
     update public.duels
     set status = 'cancelled'
@@ -562,7 +562,7 @@ function outcome(home: number, away: number): "1" | "X" | "2" {
   return "X";
 }
 
-export async function scoreFinalMatches(): Promise<{
+async function scoreFinalMatches(): Promise<{
   scoredMatches: number;
   scoredBets: number;
 }> {
@@ -751,7 +751,7 @@ type CandidateBet = {
   } | null;
 };
 
-export async function scoreAutoCustomBets(): Promise<number> {
+async function scoreAutoCustomBets(): Promise<number> {
   // 1) Candidate set. Both auto sources share the same shape.
   const candidates = await execRows<CandidateBet>(drizzleSql`
     select
@@ -1187,7 +1187,7 @@ type DuelGradingConfig = {
   threshold: number;
 };
 
-export async function scoreAutoSettleDuels(): Promise<number> {
+async function scoreAutoSettleDuels(): Promise<number> {
   const list = await execRows<{
     id: string;
     match_id: string;
@@ -1297,7 +1297,7 @@ type ReminderCandidate = {
   email: string;
 };
 
-export async function sendDueReminders(): Promise<number> {
+async function sendDueReminders(): Promise<number> {
   const start = Date.now();
 
   const [s] = await db

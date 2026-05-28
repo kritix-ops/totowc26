@@ -2,7 +2,6 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ChevronLeft, ChevronRight, Settings } from "lucide-react";
 import { hasLocale, type Locale } from "../../../dictionaries";
-import { requireAdmin } from "@/lib/admin";
 import { getCategoryPrizeBreakdown } from "@/db/queries";
 import { db } from "@/db";
 import { settings } from "@/db/schema";
@@ -19,7 +18,6 @@ export default async function AdminScoringSettingsPage({
   const { lang } = await params;
   if (!hasLocale(lang)) notFound();
   const locale = lang as Locale;
-  await requireAdmin(locale);
   const isHebrew = locale === "he";
   const ChevronBack = isHebrew ? ChevronRight : ChevronLeft;
 

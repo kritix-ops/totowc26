@@ -13,6 +13,7 @@ import {
   type BetTypeKey,
   type StageKey,
 } from "@/db/schema";
+import { MS_PER_MINUTE } from "./time";
 
 // Betting deadlines resolver. Resolution priority for every bet type:
 //   1. per-bet override        - match.lock_at_override (1/X/2) OR
@@ -228,7 +229,7 @@ export function resolveMatchScoreLock(
     typeKey: "match_score",
   });
   const effectiveLockAt = new Date(
-    input.kickoffAt.getTime() - offset * 60_000,
+    input.kickoffAt.getTime() - offset * MS_PER_MINUTE,
   );
   const result: ResolveResult = {
     effectiveLockAt,
@@ -327,7 +328,7 @@ export function previewCustomBetLock(
       ? context.tournamentStartAt ?? context.derivedTournamentStartAt
       : input.anchor;
   const effectiveLockAt = anchor
-    ? new Date(anchor.getTime() - offset * 60_000)
+    ? new Date(anchor.getTime() - offset * MS_PER_MINUTE)
     : null;
   return { effectiveLockAt, offsetMinutesApplied: offset, source, anchor };
 }

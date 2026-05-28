@@ -1,4 +1,5 @@
 import type { Locale } from "@/app/[lang]/dictionaries";
+import { MS_PER_MINUTE } from "./time";
 
 const IL_TIMEZONE = "Asia/Jerusalem";
 
@@ -37,7 +38,7 @@ export function localInputValueToIso(value: string): string | null {
   const [, y, mo, da, h, mi] = m;
   const utcGuess = Date.UTC(+y, +mo - 1, +da, +h, +mi);
   const tzMinutes = ilOffsetMinutesAt(utcGuess);
-  return new Date(utcGuess - tzMinutes * 60_000).toISOString();
+  return new Date(utcGuess - tzMinutes * MS_PER_MINUTE).toISOString();
 }
 
 // Offset of Asia/Jerusalem at the given UTC instant, in minutes east of
@@ -47,7 +48,7 @@ export function localInputValueToIso(value: string): string | null {
 function ilOffsetMinutesAt(utcMs: number): number {
   const p = ilDateParts(utcMs);
   const wallUtcMs = Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute);
-  return Math.round((wallUtcMs - utcMs) / 60_000);
+  return Math.round((wallUtcMs - utcMs) / MS_PER_MINUTE);
 }
 
 // Format a UTC instant as Asia/Jerusalem wall-clock parts. Shared by the

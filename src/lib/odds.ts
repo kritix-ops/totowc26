@@ -1,5 +1,7 @@
 import "server-only";
 
+import { API_FOOTBALL_BASE } from "./api-football";
+
 // API-Football /odds wrapper.
 //
 // Pulls the betting markets a bookmaker has published for a single
@@ -23,12 +25,12 @@ import "server-only";
 // the wrapper returns an empty markets array (rather than null) so the
 // admin UI can show "no odds yet" instead of an error toast.
 
-const BASE = "https://v3.football.api-sports.io";
+const BASE = API_FOOTBALL_BASE;
 
 // Bet365 - chosen as the default odds source per the plan §6.2.
 // Stable across seasons. Documented at api-football.com/documentation-v3
 // under the bookmakers endpoint.
-export const DEFAULT_BOOKMAKER_ID = 8;
+const DEFAULT_BOOKMAKER_ID = 8;
 
 // Normalised market shape consumed by the admin suggestions page and
 // the odds-normalize pricing helper. Decimal odds are preserved as

@@ -19,40 +19,6 @@ function ShimmerBlock({ className }: { className: string }) {
   );
 }
 
-export function DashboardSkeleton() {
-  return (
-    <section className="flex flex-col">
-      <div className="relative w-full h-[300px] sm:h-[400px] md:h-[520px] lg:h-[600px] bg-surface-container-high animate-pulse" />
-      <div className="relative z-10 -mt-10 sm:-mt-14 md:-mt-20 px-4 md:px-8 lg:px-16 flex justify-center">
-        <div className="w-full max-w-6xl bg-surface-container-low border border-outline rounded-lg shadow-[0_8px_24px_rgba(28,20,15,0.12)] p-5 md:p-7 flex flex-col gap-5 md:gap-6">
-          <div className="flex justify-center">
-            <ShimmerBlock className="h-12 w-32" />
-          </div>
-          <div aria-hidden className="h-px bg-outline/40" />
-          <div className="grid grid-cols-3 gap-3 md:gap-6">
-            <ShimmerBlock className="h-12" />
-            <ShimmerBlock className="h-12" />
-            <ShimmerBlock className="h-12" />
-          </div>
-        </div>
-      </div>
-      <div className="mx-auto w-full max-w-6xl px-4 md:px-8 lg:px-16 pt-8 md:pt-12 flex flex-col gap-8 md:gap-12">
-        <ShimmerBlock className="h-24" />
-        <div className="grid grid-cols-3 gap-3 md:gap-4">
-          <ShimmerBlock className="h-24" />
-          <ShimmerBlock className="h-24" />
-          <ShimmerBlock className="h-24" />
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          <ShimmerBlock className="h-40" />
-          <ShimmerBlock className="h-40" />
-          <ShimmerBlock className="h-40" />
-        </div>
-      </div>
-    </section>
-  );
-}
-
 export function ListPageSkeleton({
   withHeader = true,
 }: {

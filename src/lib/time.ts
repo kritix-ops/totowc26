@@ -8,7 +8,7 @@
 // Pure-JS, no env or React dependencies, safe to import from server +
 // client.
 
-export const MS_PER_SECOND = 1000;
+const MS_PER_SECOND = 1000;
 export const MS_PER_MINUTE = 60 * MS_PER_SECOND;
 export const MS_PER_HOUR = 60 * MS_PER_MINUTE;
 export const MS_PER_DAY = 24 * MS_PER_HOUR;
@@ -17,9 +17,4 @@ export const MS_PER_DAY = 24 * MS_PER_HOUR;
 // kickoff yet, pick a sensible far-out lock" branches.
 export function daysFromNow(n: number): number {
   return Date.now() + n * MS_PER_DAY;
-}
-
-// Epoch millis `n` hours into the future.
-export function hoursFromNow(n: number): number {
-  return Date.now() + n * MS_PER_HOUR;
 }

@@ -47,7 +47,6 @@ export function HiddenPageToast({ locale }: { locale: Locale }) {
       cleanHiddenUrl();
       return;
     }
-    console.info("[page visibility toast]", { key: hiddenParam });
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setShownKey(known);
     cleanHiddenUrl();
@@ -58,8 +57,6 @@ export function HiddenPageToast({ locale }: { locale: Locale }) {
   if (!shownKey) return null;
   const meta = HIDEABLE_PAGE_LABELS[shownKey as keyof typeof HIDEABLE_PAGE_LABELS];
   const pageLabel = isHebrew ? meta.he : meta.en;
-  const visible = true;
-  if (!visible) return null;
 
   return (
     <div

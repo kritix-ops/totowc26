@@ -27,7 +27,6 @@ export function LanguageToggle({
       segments.unshift(next);
     }
     const target = "/" + segments.join("/");
-    console.info("[language toggle switch]", { from: currentLocale, to: next, target });
     startTransition(() => {
       router.push(target);
     });

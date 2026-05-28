@@ -3,7 +3,6 @@ import { notFound } from "next/navigation";
 import { eq } from "drizzle-orm";
 import { ChevronLeft, ChevronRight, EyeOff } from "lucide-react";
 import { hasLocale, type Locale } from "../../dictionaries";
-import { requireAdmin } from "@/lib/admin";
 import { db } from "@/db";
 import { settings } from "@/db/schema";
 import { localePath } from "@/lib/paths";
@@ -18,7 +17,6 @@ export default async function AdminPagesPage({
   const { lang } = await params;
   if (!hasLocale(lang)) notFound();
   const locale = lang as Locale;
-  await requireAdmin(locale);
   const isHebrew = locale === "he";
   const ChevronBack = isHebrew ? ChevronRight : ChevronLeft;
 

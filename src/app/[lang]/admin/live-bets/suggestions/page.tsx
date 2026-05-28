@@ -6,7 +6,6 @@ import { clsx } from "clsx";
 import { hasLocale, type Locale } from "../../../dictionaries";
 import { Card, Chip, LabelCaps, SectionHeading } from "@/components/ui";
 import { Flag } from "@/components/Flag";
-import { requireAdmin } from "@/lib/admin";
 import { db } from "@/db";
 import { settings } from "@/db/schema";
 import { listFixturesForDate, listLiveBetsDates } from "@/db/admin-queries";
@@ -44,7 +43,6 @@ export default async function LiveBetSuggestionsPage({
   const { lang } = await params;
   if (!hasLocale(lang)) notFound();
   const locale = lang as Locale;
-  await requireAdmin(locale);
   const isHebrew = locale === "he";
   const ChevBack = isHebrew ? ChevronRight : ChevronLeft;
 

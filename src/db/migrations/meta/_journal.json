@@ -232,6 +232,13 @@
       "when": 1782065000000,
       "tag": "0032_entry_fee_120_backfill_approved",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1782070000000,
+      "tag": "0033_news_items",
+      "breakpoints": true
     }
   ]
 }

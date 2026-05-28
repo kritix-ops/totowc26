@@ -5,7 +5,6 @@ import { sql } from "drizzle-orm";
 import { ChevronLeft, ChevronRight, Trophy } from "lucide-react";
 import { hasLocale, type Locale } from "../../dictionaries";
 import { Card } from "@/components/ui";
-import { requireAdmin } from "@/lib/admin";
 import { db } from "@/db";
 import { execFirstRow, execRows } from "@/db/helpers";
 import { settings } from "@/db/schema";
@@ -43,7 +42,6 @@ export default async function TournamentSuggestionsPage({
   const { lang } = await params;
   if (!hasLocale(lang)) notFound();
   const locale = lang as Locale;
-  await requireAdmin(locale);
   const isHebrew = locale === "he";
   const ChevBack = isHebrew ? ChevronRight : ChevronLeft;
 

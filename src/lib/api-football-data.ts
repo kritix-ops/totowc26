@@ -1,5 +1,7 @@
 import "server-only";
 
+import { API_FOOTBALL_BASE, API_FOOTBALL_WC_LEAGUE_ID } from "./api-football";
+
 // API-Football data wrappers - slow-moving stuff that powers the
 // "World Cup zone" pages (squads, top scorers, team stats, recent
 // fixtures). Kept in a separate file from src/lib/api-football.ts so
@@ -16,10 +18,8 @@ import "server-only";
 // large - see _plans/2026-05-25-matchday-custom-bets-system.md §6.5
 // and the activation notes.
 
-const BASE = "https://v3.football.api-sports.io";
-// FIFA World Cup (national teams). id 15 is the FIFA *Club* World Cup
-// and returns 0 fixtures for the 2026 season — keep them straight.
-const WC_LEAGUE = 1;
+const BASE = API_FOOTBALL_BASE;
+const WC_LEAGUE = API_FOOTBALL_WC_LEAGUE_ID;
 
 function headers(): Record<string, string> | null {
   const key = process.env.API_FOOTBALL_KEY;

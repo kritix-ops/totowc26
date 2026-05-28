@@ -19,7 +19,7 @@ import { saveBet, type SaveBetResult } from "@/app/[lang]/bets/[matchId]/actions
 // fits the dashboard grid. Same inline save flow: the user does not
 // have to leave the home screen to fill match predictions.
 
-export type DashboardPickCardData = {
+type DashboardPickCardData = {
   id: string;
   homeCode: string;
   homeNameHe: string;

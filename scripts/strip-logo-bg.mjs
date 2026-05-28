@@ -4,7 +4,7 @@
 // to the corner color with full transparency.
 // Usage: pnpm logo:strip
 
-import { readFile, writeFile, copyFile } from "node:fs/promises";
+import { readFile, copyFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import sharp from "sharp";

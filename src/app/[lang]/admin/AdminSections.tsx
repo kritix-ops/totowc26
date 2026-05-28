@@ -37,7 +37,6 @@ export function AdminTile({
   label,
   badge,
   tone = "default",
-  external = false,
 }: {
   locale: Locale;
   path: string;
@@ -45,13 +44,7 @@ export function AdminTile({
   label: string;
   badge?: number;
   tone?: "default" | "warning";
-  // External means "leaves the admin area" (e.g. a /admin/system tile
-  // that links to /admin/email-test). Currently identical styling; the
-  // flag is kept so we can add a hint later without re-touching every
-  // caller.
-  external?: boolean;
 }) {
-  void external;
   const iconBg =
     tone === "warning"
       ? "bg-tertiary-fixed text-on-tertiary-fixed-variant"

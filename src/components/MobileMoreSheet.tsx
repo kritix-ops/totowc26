@@ -63,18 +63,7 @@ export function MobileMoreSheet({
   useEffect(() => { setOpen(false); }, [pathname]);
 
   const close = () => setOpen(false);
-  const toggle = () => {
-    setOpen((prev) => {
-      const next = !prev;
-      if (next) {
-        console.info("[mobile more sheet open]", {
-          itemCount: items.length,
-          keys: items.map((i) => i.key),
-        });
-      }
-      return next;
-    });
-  };
+  const toggle = () => setOpen((prev) => !prev);
 
   return (
     <>

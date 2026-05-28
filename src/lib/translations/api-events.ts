@@ -11,23 +11,6 @@
 import type { Locale } from "@/app/[lang]/dictionaries";
 import { t, type TermKey } from "./index";
 
-// ─── Event types ──────────────────────────────────────────────────────
-// API-Football returns one of: "Goal", "Card", "subst", "Var". We
-// surface the type alongside the detail so users have a clear label
-// even when the detail string is unfamiliar.
-const EVENT_TYPE_TO_TERM: Record<string, TermKey> = {
-  goal: "goal",
-  card: "yellow_card",   // refined by EVENT_DETAIL below for red cards
-  subst: "substitution",
-  var: "var_review",
-};
-
-export function translateEventType(locale: Locale, apiType: string): string {
-  const key = EVENT_TYPE_TO_TERM[apiType.toLowerCase()];
-  if (key) return t(locale, key);
-  return apiType;
-}
-
 // ─── Event details ────────────────────────────────────────────────────
 // API-Football's `detail` field for a Goal/Card/Subst row. Sample
 // values observed: "Normal Goal", "Penalty", "Own Goal",
@@ -92,34 +75,3 @@ export function translatePosition(locale: Locale, apiPosition: string | null | u
   return apiPosition;
 }
 
-// ─── Fixture status codes ─────────────────────────────────────────────
-// API-Football's fixture.status.short field. We only care about the
-// player-visible ones; everything else returns the raw code so QA can
-// see what we missed.
-const STATUS_LABELS: Record<string, { he: string; en: string }> = {
-  TBD:  { he: "טרם נקבע",   en: "TBD" },
-  NS:   { he: "טרם החל",    en: "Not started" },
-  "1H": { he: "מחצית 1",    en: "1st half" },
-  HT:   { he: "מחצית",      en: "Halftime" },
-  "2H": { he: "מחצית 2",    en: "2nd half" },
-  ET:   { he: "הארכה",      en: "Extra time" },
-  BT:   { he: "הפסקה לפני הארכה", en: "Break before ET" },
-  P:    { he: "פנדלים",     en: "Penalties" },
-  SUSP: { he: "הושעה",      en: "Suspended" },
-  INT:  { he: "הופסק",      en: "Interrupted" },
-  FT:   { he: "סיום",       en: "Full time" },
-  AET:  { he: "סיום בהארכה", en: "After extra time" },
-  PEN:  { he: "סיום בפנדלים", en: "After penalties" },
-  PST:  { he: "נדחה",       en: "Postponed" },
-  CANC: { he: "בוטל",       en: "Cancelled" },
-  ABD:  { he: "ננטש",       en: "Abandoned" },
-  AWD:  { he: "תוצאה טכנית", en: "Technical result" },
-  WO:   { he: "ויתור",      en: "Walkover" },
-  LIVE: { he: "חי",         en: "Live" },
-};
-
-export function translateFixtureStatus(locale: Locale, apiStatus: string): string {
-  const entry = STATUS_LABELS[apiStatus];
-  if (entry) return entry[locale === "he" ? "he" : "en"];
-  return apiStatus;
-}
