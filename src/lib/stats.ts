@@ -375,6 +375,38 @@ export async function getFormByCode(): Promise<Map<string, string>> {
   return map;
 }
 
+// Known API-Football name variants for teams whose API name doesn't
+// match our local nameEn after normalization. Keyed by our local TLA so
+// every consumer (apiNameToLocalTla, getApiTeamIdByCode, getTeamInjuries)
+// shares the same source — adding a new divergence here picks it up in
+// all three callers without a copy-paste hunt.
+//
+// Per project memory: API-Football team codes are unreliable; we
+// reconcile by normalized name with this alias fallback. Values are
+// stored pre-normalization (lower-case, no diacritics) so the lookup is
+// a single normalizeName() of the incoming string.
+const API_TEAM_NAME_ALIASES: Record<string, readonly string[]> = {
+  CZE: ["czech republic"],
+  BIH: ["bosnia and herzegovina"],
+  TUR: ["turkey"],
+  CPV: ["cape verde islands", "cabo verde"],
+  COD: ["congo dr", "democratic republic of congo"],
+  KOR: ["korea republic"],
+  CIV: ["cote d ivoire"],
+};
+
+// Reverse index of API_TEAM_NAME_ALIASES, built once at module load so
+// apiNameToLocalTla isn't rebuilding the map on every call. Normalised
+// `apiName → TLA`; an API name that matches via the team's own nameEn
+// goes through the direct lookup in apiNameToLocalTla instead.
+const API_NAME_TO_TLA: Record<string, string> = (() => {
+  const out: Record<string, string> = {};
+  for (const [tla, variants] of Object.entries(API_TEAM_NAME_ALIASES)) {
+    for (const v of variants) out[normalizeName(v)] = tla;
+  }
+  return out;
+})();
+
 // Helper used by both standings + team-list correlations: maps API team
 // names like "Czech Republic" to our local TLA via the alias table that
 // the mapping script uses. Kept here so the UI never has to know.
@@ -386,19 +418,7 @@ export function apiNameToLocalTla(
   for (const t of localTeams) {
     if (normalizeName(t.nameEn) === target) return t.code;
   }
-  // Alias fallbacks for the 5 known WC-2026 divergences.
-  const aliases: Record<string, string> = {
-    "czech republic": "CZE",
-    "bosnia and herzegovina": "BIH",
-    turkey: "TUR",
-    "cape verde islands": "CPV",
-    "cabo verde": "CPV",
-    "congo dr": "COD",
-    "democratic republic of congo": "COD",
-    "korea republic": "KOR",
-    "cote d ivoire": "CIV",
-  };
-  return aliases[target] ?? null;
+  return API_NAME_TO_TLA[target] ?? null;
 }
 
 function normalizeName(s: string): string {
@@ -474,18 +494,9 @@ export async function getApiTeamIdByCode(code: string): Promise<number | null> {
   for (const t of teams) {
     if (normalizeName(t.name) === normalizedOurs) return t.apiId;
   }
-  // Fallback: try the alias table in reverse. apiNameToLocalTla maps
-  // API team name → our TLA; we invert here to map our TLA → API name.
-  const inverse: Record<string, string[]> = {
-    CZE: ["czech republic"],
-    BIH: ["bosnia and herzegovina"],
-    TUR: ["turkey"],
-    CPV: ["cape verde islands", "cabo verde"],
-    COD: ["congo dr", "democratic republic of congo"],
-    KOR: ["korea republic"],
-    CIV: ["cote d ivoire"],
-  };
-  const apiVariants = inverse[code] ?? [];
+  // Fallback: walk the same shared alias table apiNameToLocalTla uses,
+  // but consume it in the TLA → variants direction.
+  const apiVariants = API_TEAM_NAME_ALIASES[code] ?? [];
   for (const variant of apiVariants) {
     const norm = normalizeName(variant);
     for (const t of teams) {
@@ -627,16 +638,10 @@ export async function getTeamInjuries(code: string): Promise<Array<{
   const ourName = local?.name_en;
   if (!ourName) return [];
   const norm = normalizeName(ourName);
-  const aliasTeamNames: Record<string, string[]> = {
-    CZE: ["czech republic"],
-    BIH: ["bosnia and herzegovina"],
-    TUR: ["turkey"],
-    CPV: ["cape verde islands", "cabo verde"],
-    COD: ["congo dr", "democratic republic of congo"],
-    KOR: ["korea republic"],
-    CIV: ["cote d ivoire"],
-  };
-  const acceptedNorm = new Set<string>([norm, ...(aliasTeamNames[code] ?? []).map(normalizeName)]);
+  const acceptedNorm = new Set<string>([
+    norm,
+    ...(API_TEAM_NAME_ALIASES[code] ?? []).map(normalizeName),
+  ]);
   return injuries
     .filter((inj) => acceptedNorm.has(normalizeName(inj.teamName)))
     .map((inj) => ({

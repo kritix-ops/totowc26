@@ -10,10 +10,14 @@ import "server-only";
 // Algorithm:
 //   - capacity tokens, refilled at `tokensPerHour / 3600` tokens per second.
 //   - allow() consumes one token if available, returns true; else returns
-//     false and the existing bucket is untouched.
+//     false and the bucket is updated with the residual fractional token.
 //   - Buckets are keyed by an opaque identifier (typically the request IP).
-//   - Stale buckets (full and untouched for an hour) are evicted on
-//     touch to keep the map bounded; nothing scans periodically.
+//   - The map grows unbounded across the lifetime of a single Lambda
+//     instance. Vercel cold-starts reset it, which keeps memory in check
+//     for the friends-pool scale this helper is sized for. If usage ever
+//     gets sustained enough that a single instance accumulates millions
+//     of distinct keys without restarting, swap this for Upstash/Redis
+//     (which is the right tool above ~10k unique keys anyway).
 
 type Bucket = { tokens: number; updatedAt: number };
 
