@@ -36,6 +36,22 @@ export type MultiChoiceOption = {
   subtitleHe?: string;
   subtitleEn?: string;
   icon?: string;
+  // Per-option payout override in tournament points. When set, this
+  // supersedes the bet-level `payoutSnapshot` for users picking this
+  // specific option. Snapshotted into bet_picks.payout_snapshot at
+  // pick time, so post-lock odds shifts never re-price a locked pick.
+  //
+  // Sourced from outright_odds_snapshot via the
+  // /admin/tournament-odds publish flow — see
+  // _plans/2026-05-30-outright-bet-payout-system.md. Computed from
+  // bookmaker decimal odds via normalizeOdds(), so the longshot
+  // premium baked into the existing engine applies per-option without
+  // a separate pricing path.
+  //
+  // Range: 1..settings.liveOddsMaxPayout (default 25). Optional for
+  // backwards compatibility — bets with no override keep the flat
+  // bet-level payout for every option.
+  payoutOverride?: number;
 };
 
 // `dynamicSource` lets a bet declare that its options live in a
@@ -51,6 +67,21 @@ export type MultiChoiceConfig = {
   kind: "multi_choice";
   options: MultiChoiceOption[];
   dynamicSource?: DynamicOptionSource;
+  // Per-option payout overrides keyed by option `value`. Used by
+  // outright bets that need longshot-premium pricing. Two places this
+  // matters:
+  //   - For STATIC option lists (48 WC teams), we also write
+  //     payoutOverride directly onto each MultiChoiceOption above.
+  //     This map is kept in sync as a flat lookup for the resolver.
+  //   - For DYNAMIC source bets (1,357 players) the `options` array
+  //     stays empty, so this map is the ONLY storage of per-option
+  //     payouts. Resolver reads from here; picker UI merges into the
+  //     hydrated dynamic list at render time.
+  //
+  // Optional everywhere — bets without per-option pricing leave it
+  // undefined and the bet-level payoutSnapshot is used as a flat
+  // payout per the historic behaviour.
+  payoutOverridesByValue?: Record<string, number>;
 };
 
 export type FreeTextConfig = {

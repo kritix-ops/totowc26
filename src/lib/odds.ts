@@ -20,10 +20,13 @@ import { API_FOOTBALL_BASE } from "./api-football";
 // admin session = ~10 requests. Well within budget.
 //
 // Bookmaker: hardcoded to Bet365 (id=8). API-Football's bookmaker IDs
-// are stable; we picked Bet365 because it covers every WC market and
-// publishes 1-2 weeks before kickoff. If a fixture has no Bet365 row,
-// the wrapper returns an empty markets array (rather than null) so the
-// admin UI can show "no odds yet" instead of an error toast.
+// are stable. NOTE: verified on 2026-05-30 that API-Football reports
+// `coverage.odds = false` for the World Cup (league=1) across all
+// seasons we checked (2022 and 2026). This wrapper still returns []
+// for any WC fixture regardless of bookmaker choice; the constant is
+// kept for non-WC fixtures (friendlies, qualifiers) where odds do
+// flow. For WC odds we use a different pipeline — see
+// _plans/2026-05-30-outright-bet-payout-system.md.
 
 const BASE = API_FOOTBALL_BASE;
 

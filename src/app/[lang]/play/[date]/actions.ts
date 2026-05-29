@@ -8,6 +8,7 @@ import { getUser } from "@/lib/supabase/auth";
 import { getUserAccess } from "@/lib/access";
 import { bankBalanceSql, bankCacheTag, lockUserForBetting } from "@/lib/bank";
 import type { PickAnswer } from "@/lib/bets/types";
+import { resolvePickPayoutAtSubmit } from "@/lib/bets/payout";
 import { resolveCustomBetLock } from "@/lib/deadlines";
 
 type Err =
@@ -54,6 +55,7 @@ export async function submitCustomBetPick(
           status: customBets.status,
           lockAt: customBets.lockAt,
           stakeSnapshot: customBets.stakeSnapshot,
+          payoutSnapshot: customBets.payoutSnapshot,
           answerType: customBets.answerType,
           answerConfig: customBets.answerConfig,
         })
@@ -126,12 +128,24 @@ export async function submitCustomBetPick(
         };
       }
 
+      // Resolve per-option payout (Top scorer, Champion, Group winners,
+      // ...) — falls back to bet.payoutSnapshot for flat-payout bets.
+      // Snapshotted at pick time so a later admin re-publish of the
+      // bet does not retro-reprice this user's locked-in pick.
+      const pickPayout = resolvePickPayoutAtSubmit({
+        answerType: bet.answerType,
+        answerConfig: bet.answerConfig,
+        answer,
+        betLevelPayout: bet.payoutSnapshot,
+      });
+
       if (existing) {
         await tx
           .update(userCustomBetPicks)
           .set({
             answer,
             stakePaid: bet.stakeSnapshot,
+            payoutSnapshot: pickPayout,
             updatedAt: new Date(),
           })
           .where(eq(userCustomBetPicks.id, existing.id));
@@ -141,11 +155,12 @@ export async function submitCustomBetPick(
           customBetId,
           answer,
           stakePaid: bet.stakeSnapshot,
+          payoutSnapshot: pickPayout,
         });
       }
 
       const balanceAfter = effectiveBalance - bet.stakeSnapshot;
-      return { ok: true as const, balanceAfter };
+      return { ok: true as const, balanceAfter, pickPayout };
     });
 
     if (result.ok) {
@@ -153,6 +168,7 @@ export async function submitCustomBetPick(
         userId: user.id,
         betId: customBetId,
         balanceAfter: result.balanceAfter,
+        pickPayout: result.pickPayout,
       });
       // Drop this user's cached bank breakdown so the header pill
       // shows the post-stake balance on their next nav.

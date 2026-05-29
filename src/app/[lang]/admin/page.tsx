@@ -5,6 +5,7 @@ import {
   Coins,
   Sparkles,
   Trophy,
+  ScrollText,
   Languages,
   Smartphone,
   Clock,
@@ -105,6 +106,12 @@ export default async function AdminPage({
           path="admin/tournament-suggestions"
           icon={<Trophy className="h-5 w-5" strokeWidth={1.75} />}
           label={isHebrew ? "הימורי טורניר" : "Tournament bets"}
+        />
+        <AdminTile
+          locale={locale}
+          path="admin/tournament-odds"
+          icon={<ScrollText className="h-5 w-5" strokeWidth={1.75} />}
+          label={isHebrew ? "יחסי טורניר" : "Tournament odds"}
         />
         {duplicateBetCount > 0 && (
           <AdminTile

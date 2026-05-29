@@ -166,8 +166,8 @@ export default async function LiveBetSuggestionsPage({
                 ) : markets.length === 0 ? (
                   <p className="text-xs text-on-surface-variant">
                     {isHebrew
-                      ? "אין שווקים זמינים אצל הבוקמייקר. בדרך כלל הם יפורסמו 1-2 שבועות לפני המשחק."
-                      : "No markets available from the bookmaker yet. Usually published 1-2 weeks before kickoff."}
+                      ? "API-Football לא מפרסם יחסי הימורים לגביע העולם (coverage.odds = false). להימורי outright (אלוף, מלך שערים, קבוצות בתים) השתמש בעורך יחסי הטורניר. תמיכה ביחסי לייב למשחקים נפרדים תגיע בשלב הבא דרך The Odds API."
+                      : "API-Football does not publish odds for the World Cup (coverage.odds = false). Use the Tournament odds editor for outright bets (champion, top scorer, group winners). Per-match live markets land in a follow-up via The Odds API."}
                   </p>
                 ) : (
                   <div className="flex flex-col gap-3">

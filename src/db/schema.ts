@@ -10,6 +10,7 @@ import {
   timestamp,
   date,
   jsonb,
+  numeric,
   uniqueIndex,
   index,
   primaryKey,
@@ -663,6 +664,12 @@ export const userCustomBetPicks = pgTable(
       .references(() => customBets.id, { onDelete: "cascade" }),
     answer: jsonb("answer").notNull(),
     stakePaid: smallint("stake_paid").notNull(),
+    // Frozen payout for this specific pick. Set at pick time from the
+    // chosen MultiChoiceOption.payoutOverride when the bet uses per-option
+    // pricing; otherwise from custom_bets.payoutSnapshot. NULL on
+    // pre-migration rows — the grader falls back to bet-level payout
+    // when NULL. See _plans/2026-05-30-outright-bet-payout-system.md.
+    payoutSnapshot: smallint("payout_snapshot"),
     pointsEarned: smallint("points_earned"),
     wasCorrect: boolean("was_correct"),
     locked: boolean("locked").notNull().default(false),
@@ -1099,6 +1106,56 @@ export const newsSyncCursors = pgTable("news_sync_cursors", {
     .defaultNow(),
 });
 
+// Outright-bet payout staging area. Background and full design in
+// _plans/2026-05-30-outright-bet-payout-system.md.
+//
+// Each row is one option (player or team) for one outright surface
+// (top_scorer / golden_ball / champion / runner_up / third / group_A..L)
+// with its decimal odds. Admin reviews the snapshot in
+// /admin/tournament-odds and "publishes" — at which point the per-option
+// payouts get baked into the target custom_bets.answer_config.options[]
+// via MultiChoiceOption.payoutOverride. The snapshot itself is not what
+// users bet on; it is the staging table.
+//
+// Why staging and not direct write into custom_bets:
+//   1. Lets admin re-fetch from Oddschecker without disturbing manual
+//      overrides (admin_override = true rows are preserved).
+//   2. Lets us preview the full per-option payout grid before commit.
+//   3. Keeps the historical audit trail of what the bookmaker board
+//      looked like at fetch time, independent of edits the admin made.
+//
+// surface is an enum-by-convention (not a pg enum) because admins never
+// add new surface kinds at runtime — the set is fixed by the bet
+// templates in tournament-suggestions/page.tsx. New surface = code
+// change.
+export const outrightOddsSnapshot = pgTable(
+  "outright_odds_snapshot",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    surface: text("surface").notNull(),
+    optionKind: text("option_kind").notNull(),
+    optionId: integer("option_id").notNull(),
+    displayName: text("display_name").notNull(),
+    // numeric(10,3) — three decimals is plenty for bookmaker quotes
+    // (typical board is 1.10..501.00 with 2-decimal precision).
+    decimalOdds: numeric("decimal_odds", { precision: 10, scale: 3 }).notNull(),
+    source: text("source").notNull(),
+    fetchedAt: timestamp("fetched_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    adminOverride: boolean("admin_override").notNull().default(false),
+    notes: text("notes"),
+  },
+  (t) => ({
+    surfaceIdx: index("outright_odds_snapshot_surface_idx").on(t.surface),
+    uniqueRow: uniqueIndex("outright_odds_snapshot_unique_row").on(
+      t.surface,
+      t.optionKind,
+      t.optionId,
+    ),
+  }),
+);
+
 // Per-table `<Name>` (select shape) + `New<Name>` (insert shape) pair
 // for every table in the schema. Drizzle infers them from the table
 // definition above, so a column rename here lands in every caller
@@ -1153,3 +1210,32 @@ export type NewsItemRow = typeof newsItems.$inferSelect;
 export type NewNewsItemRow = typeof newsItems.$inferInsert;
 export type NewsSyncCursorRow = typeof newsSyncCursors.$inferSelect;
 export type NewNewsSyncCursorRow = typeof newsSyncCursors.$inferInsert;
+export type OutrightOddsSnapshotRow =
+  typeof outrightOddsSnapshot.$inferSelect;
+export type NewOutrightOddsSnapshotRow =
+  typeof outrightOddsSnapshot.$inferInsert;
+
+// String-literal union for the nine fixed outright surfaces. Kept in
+// sync with the surface check constraint in
+// migrations/0034_outright_odds.sql and with the bet templates in
+// src/app/[lang]/admin/tournament-suggestions/page.tsx. Listed
+// long-form rather than generated from a constant array so a typo here
+// surfaces at compile time across every caller.
+export type OutrightSurface =
+  | "top_scorer"
+  | "golden_ball"
+  | "champion"
+  | "runner_up"
+  | "third"
+  | "group_A"
+  | "group_B"
+  | "group_C"
+  | "group_D"
+  | "group_E"
+  | "group_F"
+  | "group_G"
+  | "group_H"
+  | "group_I"
+  | "group_J"
+  | "group_K"
+  | "group_L";
