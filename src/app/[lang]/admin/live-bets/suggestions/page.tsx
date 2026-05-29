@@ -11,7 +11,7 @@ import { settings } from "@/db/schema";
 import { listFixturesForDate, listLiveBetsDates } from "@/db/admin-queries";
 import { localePath } from "@/lib/paths";
 import { formatDateTime } from "@/lib/format";
-import { fetchOddsForFixture, type MarketOdds } from "@/lib/odds";
+import { fetchOddsForMatch, type MarketOdds } from "@/lib/odds";
 import {
   normalizeOdds,
   type OddsNormConfig,
@@ -55,22 +55,24 @@ export default async function LiveBetSuggestionsPage({
     listLiveBetsDates(),
   ]);
 
-  // Resolve odds for every fixture in parallel. fetchOddsForFixture
+  // Resolve odds for every fixture in parallel. fetchOddsForMatch
   // already swallows errors (returns null), so a single bad fixture
-  // can't poison the whole page.
+  // can't poison the whole page. Under the hood the wrapper fetches
+  // the entire WC board once and shares it across these calls — see
+  // src/lib/the-odds-api.ts.
   const oddsByFixture = new Map<string, MarketOdds[] | null>();
   await Promise.all(
     fixtures.map(async (f) => {
-      if (f.apiFootballFixtureId === null) {
-        oddsByFixture.set(f.id, null);
-        return;
-      }
-      const markets = await fetchOddsForFixture(f.apiFootballFixtureId);
+      const markets = await fetchOddsForMatch({
+        homeTeamEn: f.homeNameEn,
+        awayTeamEn: f.awayNameEn,
+        kickoffAt: new Date(f.kickoffAt),
+      });
       oddsByFixture.set(f.id, markets);
     }),
   );
 
-  const apiKeyMissing = !process.env.API_FOOTBALL_KEY;
+  const apiKeyMissing = !process.env.THE_ODDS_API_KEY;
 
   return (
     <section className="px-4 md:px-16 py-6 md:py-12 flex flex-col gap-6 md:gap-8 max-w-5xl mx-auto w-full pb-24">
@@ -101,13 +103,13 @@ export default async function LiveBetSuggestionsPage({
         <Card className="p-4 md:p-5 bg-error-container text-on-error-container border border-error">
           <p className="text-sm font-bold">
             {isHebrew
-              ? "API_FOOTBALL_KEY לא מוגדר"
-              : "API_FOOTBALL_KEY is not set"}
+              ? "THE_ODDS_API_KEY לא מוגדר"
+              : "THE_ODDS_API_KEY is not set"}
           </p>
           <p className="text-xs mt-1">
             {isHebrew
-              ? "אי אפשר למשוך יחסים מבוקמייקר עד שהמפתח יוגדר ב-Vercel → Environment Variables."
-              : "Bookmaker odds can't be pulled until the key is added in Vercel → Environment Variables."}
+              ? "אי אפשר למשוך יחסים מבוקמייקר עד שהמפתח יוגדר ב-Vercel → Environment Variables. מפתח חינמי ב-the-odds-api.com (500 credits/חודש)."
+              : "Bookmaker odds can't be pulled until the key is added in Vercel → Environment Variables. Free key at the-odds-api.com (500 credits / month)."}
           </p>
         </Card>
       )}
@@ -151,13 +153,7 @@ export default async function LiveBetSuggestionsPage({
                   </div>
                 </header>
 
-                {f.apiFootballFixtureId === null ? (
-                  <p className="text-xs text-on-surface-variant">
-                    {isHebrew
-                      ? "המשחק לא מופה ל-API-Football. הרץ scripts/api-football-map-fixtures.mjs."
-                      : "Fixture not yet mapped to API-Football. Run scripts/api-football-map-fixtures.mjs."}
-                  </p>
-                ) : !markets ? (
+                {!markets ? (
                   <p className="text-xs text-on-surface-variant">
                     {isHebrew
                       ? "לא הצלחנו למשוך יחסים. בדוק את הלוג או נסה לרענן."
@@ -166,8 +162,8 @@ export default async function LiveBetSuggestionsPage({
                 ) : markets.length === 0 ? (
                   <p className="text-xs text-on-surface-variant">
                     {isHebrew
-                      ? "API-Football לא מפרסם יחסי הימורים לגביע העולם (coverage.odds = false). להימורי outright (אלוף, מלך שערים, קבוצות בתים) השתמש בעורך יחסי הטורניר. תמיכה ביחסי לייב למשחקים נפרדים תגיע בשלב הבא דרך The Odds API."
-                      : "API-Football does not publish odds for the World Cup (coverage.odds = false). Use the Tournament odds editor for outright bets (champion, top scorer, group winners). Per-match live markets land in a follow-up via The Odds API."}
+                      ? "אין יחסים זמינים למשחק הזה ב-The Odds API. ייתכן שהבוקמייקרים עוד לא פרסמו, או שיש אי-התאמת שמות נבחרות. אם הבעיה נמשכת — בדוק את הלוג שלא היה matched."
+                      : "No odds available for this match at The Odds API yet. Bookmakers may not have priced it, or there is a team-name mismatch. Check the [the-odds-api no event] log if the issue persists."}
                   </p>
                 ) : (
                   <div className="flex flex-col gap-3">
