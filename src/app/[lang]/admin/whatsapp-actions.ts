@@ -53,7 +53,11 @@ export async function setWhatsAppGroupUrl(
       userId: user.id,
       cleared: next === null,
     });
-    revalidatePath("/", "layout");
+    // The link only renders on the profile page + the admin panel.
+    // Narrowed from `revalidatePath("/", "layout")` so the save
+    // button releases as soon as the row is in the DB.
+    revalidatePath("/[lang]/profile", "page");
+    revalidatePath("/[lang]/admin", "page");
     return { ok: true };
   } catch (err) {
     console.error("setWhatsAppGroupUrl failed:", err);

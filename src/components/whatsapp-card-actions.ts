@@ -10,5 +10,9 @@ import { setWhatsAppCardDismissedCookie } from "@/lib/whatsapp-dismiss";
 export async function dismissWhatsAppCard(currentUrl: string): Promise<void> {
   if (!currentUrl) return;
   await setWhatsAppCardDismissedCookie(currentUrl);
-  revalidatePath("/", "layout");
+  // Only the dashboard and profile render the invite card. Narrowed
+  // from `revalidatePath("/", "layout")` so the close button doesn't
+  // freeze the whole shell behind a transition.
+  revalidatePath("/[lang]", "page");
+  revalidatePath("/[lang]/profile", "page");
 }

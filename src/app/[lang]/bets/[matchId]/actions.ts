@@ -141,7 +141,15 @@ export async function saveBet(
     // this user's bank entry so the next paint reflects the new stake
     // snapshot.
     updateTag(bankCacheTag(user.id));
-    revalidatePath("/", "layout");
+    // Targeted page-level invalidation. The previous `revalidatePath("/",
+    // "layout")` nuked the entire layout cache and made `useTransition`
+    // hold the "שומר…" button until the whole shell (header + bank +
+    // nav extras + every page-level Suspense child) re-rendered. The
+    // user reported this as "stuck on save". The dashboard, bets list,
+    // and bet detail are the only surfaces that show this user's pick.
+    revalidatePath("/[lang]", "page");
+    revalidatePath("/[lang]/bets", "page");
+    revalidatePath("/[lang]/bets/[matchId]", "page");
     return { ok: true };
   } catch (err) {
     console.error("saveBet failed:", err);

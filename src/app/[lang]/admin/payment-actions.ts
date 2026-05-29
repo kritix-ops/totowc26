@@ -46,7 +46,13 @@ async function decide(
     const affectedUserId = updated[0]?.userId;
     if (affectedUserId) updateTag(accessCacheTag(affectedUserId));
     updateTag(CACHE_TAG_POOL);
-    revalidatePath("/", "layout");
+    // Surfaces the admin sees right after deciding: payments panel,
+    // signup-requests panel, the affected user's profile, transparency.
+    // Tag invalidation above already covers other users on their next
+    // nav, so the layout-wide nuke was overkill and made the
+    // approve/reject buttons feel "stuck".
+    revalidatePath("/[lang]/admin", "page");
+    revalidatePath("/[lang]/transparency", "page");
     return { ok: true, status };
   } catch (err) {
     console.error("payment decide failed:", err);
@@ -88,7 +94,8 @@ export async function reopenPayment(
     const affectedUserId = updated[0]?.userId;
     if (affectedUserId) updateTag(accessCacheTag(affectedUserId));
     updateTag(CACHE_TAG_POOL);
-    revalidatePath("/", "layout");
+    revalidatePath("/[lang]/admin", "page");
+    revalidatePath("/[lang]/transparency", "page");
     return { ok: true, status: "approved" }; // status field reused as discriminant; reopen result not surfaced separately
   } catch (err) {
     console.error("payment reopen failed:", err);

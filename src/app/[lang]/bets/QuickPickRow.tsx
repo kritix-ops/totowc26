@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
 import { Check, AlertCircle, Minus, Plus } from "lucide-react";
 import { clsx } from "clsx";
 import { Card } from "@/components/ui";
@@ -53,7 +52,6 @@ export function QuickPickRow({
   lockMinutes: number;
   canEdit: boolean;
 }) {
-  const router = useRouter();
   const isHebrew = locale === "he";
   const hadPick = match.myHomeScore !== null && match.myAwayScore !== null;
 
@@ -107,7 +105,11 @@ export function QuickPickRow({
       }
       setSaved(true);
       setDirty(false);
-      router.refresh();
+      // saveBet calls revalidatePath on the dashboard, bets list, and
+      // bet detail — Next.js auto-applies the new RSC payload from the
+      // action response. A second router.refresh() here would stretch
+      // the transition's pending state through an extra round trip
+      // and keep "שומר…" up after the row is already in the DB.
     });
   };
 

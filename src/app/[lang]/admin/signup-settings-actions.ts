@@ -27,7 +27,9 @@ export async function setPublicSignupOpen(
       .set({ publicSignupOpen: open, updatedAt: new Date() })
       .where(eq(settings.id, 1));
     console.info("[public-signup toggled]", { userId: user.id, open });
-    revalidatePath("/", "layout");
+    // Signup page + admin panel both gate on this flag.
+    revalidatePath("/[lang]/signup", "page");
+    revalidatePath("/[lang]/admin", "page");
     return { ok: true };
   } catch (err) {
     console.error("setPublicSignupOpen failed:", err);

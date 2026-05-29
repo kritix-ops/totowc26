@@ -159,7 +159,11 @@ export async function approveSignupRequest(
     messageId: r.ok ? r.messageId : null,
   });
 
-  revalidatePath("/", "layout");
+  // Signup-requests panel and users panel are the only admin surfaces
+  // that show this row. Narrowed from `revalidatePath("/", "layout")`
+  // so the approve/reject buttons release the moment the row is in
+  // the DB instead of waiting on the whole shell to re-render.
+  revalidatePath("/[lang]/admin", "page");
   return { ok: true };
 }
 
@@ -210,6 +214,10 @@ export async function rejectSignupRequest(
     .where(eq(signupRequests.id, requestId));
 
   console.info("[signup rejected]", { requestId, by: adminId, note: note ?? null });
-  revalidatePath("/", "layout");
+  // Signup-requests panel and users panel are the only admin surfaces
+  // that show this row. Narrowed from `revalidatePath("/", "layout")`
+  // so the approve/reject buttons release the moment the row is in
+  // the DB instead of waiting on the whole shell to re-render.
+  revalidatePath("/[lang]/admin", "page");
   return { ok: true };
 }

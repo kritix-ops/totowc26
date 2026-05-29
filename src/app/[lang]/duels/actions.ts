@@ -257,7 +257,11 @@ export async function openDuel(input: OpenDuelInput): Promise<OpenDuelResult> {
       deadlineAt: joinDeadlineAt.toISOString(),
     });
     updateTag(bankCacheTag(user.id));
-    revalidatePath("/", "layout");
+    // Targeted page invalidation — see saveBet for why the previous
+    // `revalidatePath("/", "layout")` was making submit buttons hang
+    // inside `useTransition` until the whole shell re-rendered.
+    revalidatePath("/[lang]/duels", "layout");
+    revalidatePath("/[lang]/me", "page");
     return { ok: true, id: inserted };
   } catch (err) {
     console.error("[duel open] insert failed:", err);
@@ -343,7 +347,8 @@ export async function joinDuel(id: string): Promise<JoinDuelResult> {
     // "in flight" debit on their next nav.
     updateTag(bankCacheTag(user.id));
     if (result.openerId) updateTag(bankCacheTag(result.openerId));
-    revalidatePath("/", "layout");
+    revalidatePath("/[lang]/duels", "layout");
+    revalidatePath("/[lang]/me", "page");
     return { ok: true };
   } catch (err) {
     console.error("[duel join] failed:", err);
@@ -489,7 +494,8 @@ export async function settleDuel(
     if (result.winnerId) updateTag(bankCacheTag(result.winnerId));
     if (result.loserId) updateTag(bankCacheTag(result.loserId));
     updateTag(CACHE_TAG_LEADERBOARD);
-    revalidatePath("/", "layout");
+    revalidatePath("/[lang]/duels", "layout");
+    revalidatePath("/[lang]/leaderboard", "page");
     return { ok: true };
   } catch (err) {
     console.error("[duel settle] failed:", err);
@@ -556,7 +562,8 @@ export async function cancelDuel(
     updateTag(bankCacheTag(result.openerId));
     if (result.joinerId) updateTag(bankCacheTag(result.joinerId));
     updateTag(CACHE_TAG_LEADERBOARD);
-    revalidatePath("/", "layout");
+    revalidatePath("/[lang]/duels", "layout");
+    revalidatePath("/[lang]/me", "page");
     return { ok: true };
   } catch (err) {
     console.error("[duel cancel] failed:", err);

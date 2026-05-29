@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
 import {
   ExternalLink,
   Check,
@@ -39,7 +38,6 @@ export function PayPanel({
   payboxUrl: string;
 }) {
   const isHebrew = locale === "he";
-  const router = useRouter();
   const [status, setStatus] = useState<PaymentStatus>(paymentStatus);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -57,7 +55,10 @@ export function PayPanel({
         return;
       }
       setStatus("pending");
-      router.refresh();
+      // recordPayment already revalidates the /pay and /onboarding
+      // pages plus the access tag. An extra router.refresh() here
+      // would just keep the button in "Saving…" through another
+      // round trip after the row is in the DB.
     });
   };
 

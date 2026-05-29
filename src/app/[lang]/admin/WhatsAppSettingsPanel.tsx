@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
 import {
   ExternalLink,
   Check,
@@ -31,7 +30,6 @@ export function WhatsAppSettingsPanel({
   current: string | null;
 }) {
   const isHebrew = locale === "he";
-  const router = useRouter();
   const [value, setValue] = useState(current ?? "");
   const [error, setError] = useState<
     Exclude<SetWhatsAppGroupUrlResult, { ok: true }>["error"] | null
@@ -53,7 +51,9 @@ export function WhatsAppSettingsPanel({
         return;
       }
       setSaved(true);
-      router.refresh();
+      // The action's revalidatePath already pushes a fresh RSC payload
+      // back through the transition. A second router.refresh() doubled
+      // the wait and made the save button feel stuck.
     });
   };
 

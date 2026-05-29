@@ -1,11 +1,12 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
+import { revalidatePath, updateTag } from "next/cache";
 import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import { settings } from "@/db/schema";
 import { isAdmin } from "@/lib/admin";
 import { getUser } from "@/lib/supabase/auth";
+import { CACHE_TAG_SETTINGS } from "@/db/queries";
 
 // Surface for the admin /admin/settings/scoring page. Carries:
 //   • startingBank - every new player's opening points
@@ -225,7 +226,13 @@ export async function saveScoringSettings(
       })
       .where(eq(settings.id, 1));
     console.info("[settings updated]", { by: adminId, payload });
-    revalidatePath("/", "layout");
+    // Settings are read by getBetLockMinutes and other cached helpers;
+    // bust the tag so every page reads the new values on next nav. The
+    // admin scoring panel and transparency render the changed numbers
+    // directly, so revalidate those pages for an instant repaint.
+    updateTag(CACHE_TAG_SETTINGS);
+    revalidatePath("/[lang]/admin", "page");
+    revalidatePath("/[lang]/transparency", "page");
     return { ok: true };
   } catch (err) {
     console.error("saveScoringSettings failed:", err);

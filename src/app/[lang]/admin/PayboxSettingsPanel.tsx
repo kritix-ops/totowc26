@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
 import {
   ExternalLink,
   Check,
@@ -29,7 +28,6 @@ export function PayboxSettingsPanel({
   fallback: string;
 }) {
   const isHebrew = locale === "he";
-  const router = useRouter();
   const [value, setValue] = useState(current ?? "");
   const [error, setError] = useState<
     Exclude<SetPayboxUrlResult, { ok: true }>["error"] | null
@@ -51,7 +49,9 @@ export function PayboxSettingsPanel({
         return;
       }
       setSaved(true);
-      router.refresh();
+      // The action revalidates /pay, /onboarding, and the admin panel
+      // itself. The action response carries the fresh RSC payload, so
+      // a separate router.refresh() would just lengthen the transition.
     });
   };
 

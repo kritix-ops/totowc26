@@ -33,6 +33,11 @@ export function OnboardingForm({
   const displayFont = isHebrew
     ? "font-[family-name:var(--font-display)]"
     : "font-[family-name:var(--font-display-en)]";
+  // Still used for the "go to dashboard" CTA after approval. The
+  // recordPayment server action handles its own revalidation, so we
+  // intentionally do NOT call router.refresh() inside the submit
+  // transition — it would only delay the "Saved" state for no extra
+  // correctness.
   const router = useRouter();
 
   const [name, setName] = useState(initialName);
@@ -85,8 +90,10 @@ export function OnboardingForm({
         return;
       }
       setSubmittedStatus("pending");
-      // Refresh so server-side checks rerun.
-      router.refresh();
+      // recordPayment already revalidates /onboarding and /pay plus
+      // the access tag, so the next nav reflects the new pending row.
+      // A separate router.refresh() would keep "שולח…" up for an
+      // extra round trip after the row is already in the DB.
     });
   };
 

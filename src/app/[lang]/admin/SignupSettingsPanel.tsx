@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
 import { Check, AlertCircle, UserPlus } from "lucide-react";
 import { clsx } from "clsx";
 import type { Locale } from "../dictionaries";
@@ -23,7 +22,6 @@ export function PublicSignupSettingsPanel({
   current: boolean;
 }) {
   const isHebrew = locale === "he";
-  const router = useRouter();
   const [open, setOpen] = useState(current);
   const [error, setError] = useState<
     Exclude<SetPublicSignupOpenResult, { ok: true }>["error"] | null
@@ -46,7 +44,9 @@ export function PublicSignupSettingsPanel({
         return;
       }
       setSaved(true);
-      router.refresh();
+      // setPublicSignupOpen already revalidates /signup and the admin
+      // panel. The action response carries the new RSC payload, so
+      // an extra router.refresh() would just delay the saved chip.
     });
   };
 

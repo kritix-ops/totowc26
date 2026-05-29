@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
 import { AlertCircle, Check } from "lucide-react";
 import { clsx } from "clsx";
 import { Card, PillButton, SectionHeading } from "@/components/ui";
@@ -33,7 +32,6 @@ export function DuelActions({
   canEdit,
   joinDeadlinePassed,
 }: Props) {
-  const router = useRouter();
   const isHebrew = locale === "he";
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -68,6 +66,11 @@ export function DuelActions({
       : "Joining is closed. The duel will be auto-cancelled.",
   };
 
+  // join / cancel / settle: each server action revalidates the duels
+  // surfaces (and leaderboard for settle) itself. The transition picks
+  // up the new RSC payload from the action response, so an extra
+  // router.refresh() here would just stretch the pending state.
+
   const join = () => {
     setError(null);
     startTransition(async () => {
@@ -76,7 +79,6 @@ export function DuelActions({
         setError(res.error);
         return;
       }
-      router.refresh();
     });
   };
 
@@ -92,7 +94,6 @@ export function DuelActions({
         setError(res.error);
         return;
       }
-      router.refresh();
     });
   };
 
@@ -108,7 +109,6 @@ export function DuelActions({
         setError(res.error);
         return;
       }
-      router.refresh();
     });
   };
 

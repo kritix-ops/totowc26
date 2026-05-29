@@ -1,10 +1,11 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
+import { revalidatePath, updateTag } from "next/cache";
 import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import { profiles, payments } from "@/db/schema";
 import { getUser } from "@/lib/supabase/auth";
+import { accessCacheTag } from "@/lib/access";
 import { ENTRY_FEE_ILS } from "@/lib/paybox";
 
 export type SaveProfileResult =
@@ -32,7 +33,8 @@ export async function saveProfile(formData: FormData): Promise<SaveProfileResult
         set: { displayName, phone },
       });
 
-    revalidatePath("/", "layout");
+    revalidatePath("/[lang]/onboarding", "page");
+    revalidatePath("/[lang]/profile", "page");
     return { ok: true };
   } catch (err) {
     console.error("saveProfile failed:", err);
@@ -78,7 +80,13 @@ export async function recordPayment(): Promise<RecordPaymentResult> {
         reused: true,
       });
     }
-    revalidatePath("/", "layout");
+    // The unpaid-banner gate uses `getUserAccess`, which is cached
+    // with `access:${userId}`. Bust it so the banner disappears on
+    // the next nav once the admin approves the payment. Page-level
+    // paths keep the surfaces that show payment state fresh.
+    updateTag(accessCacheTag(user.id));
+    revalidatePath("/[lang]/pay", "page");
+    revalidatePath("/[lang]/onboarding", "page");
     return { ok: true };
   } catch (err) {
     console.error("recordPayment failed:", err);

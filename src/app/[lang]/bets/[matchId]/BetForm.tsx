@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
 import { Check, Stamp, Clock, AlertCircle, Plus, Minus } from "lucide-react";
 import { clsx } from "clsx";
 import { PillButton } from "@/components/ui";
@@ -38,7 +37,6 @@ export function BetForm({
   editable: boolean;
 }) {
   const isHebrew = locale === "he";
-  const router = useRouter();
   const [home, setHome] = useState(initialBet?.home ?? 0);
   const [away, setAway] = useState(initialBet?.away ?? 0);
   const [error, setError] = useState<
@@ -81,7 +79,10 @@ export function BetForm({
         return;
       }
       setSaved(true);
-      router.refresh();
+      // saveBet revalidates this page, the bets list, and the dashboard
+      // — Next.js will swap in the new RSC payload automatically.
+      // A separate router.refresh() would just extend the transition's
+      // pending state and keep "שומר…" visible an extra round trip.
     });
   };
 

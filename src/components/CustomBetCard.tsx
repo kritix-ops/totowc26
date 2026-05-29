@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
 import { AlertCircle, Check, Info, Lock, Minus, Plus } from "lucide-react";
 import { clsx } from "clsx";
 import { Card, Chip, LabelCaps } from "@/components/ui";
@@ -66,7 +65,6 @@ export function CustomBetCard({
   editable: boolean;
 }) {
   const isHebrew = locale === "he";
-  const router = useRouter();
 
   // The "current" answer the player has selected. Starts as their saved
   // pick if any, otherwise an empty draft of the right shape.
@@ -98,7 +96,10 @@ export function CustomBetCard({
         return;
       }
       setSavedFlash(true);
-      router.refresh();
+      // submitCustomBetPick already revalidates /play and /bets — the
+      // action response carries the new RSC payload. A separate
+      // router.refresh() would prolong the "Saving…" state for no
+      // additional correctness.
     });
   };
 

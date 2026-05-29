@@ -48,7 +48,12 @@ export async function setPayboxUrl(url: string): Promise<SetPayboxUrlResult> {
       userId: user.id,
       cleared: next === null,
     });
-    revalidatePath("/", "layout");
+    // The URL is consumed on /pay, /onboarding, and the admin panel.
+    // Narrowed from `revalidatePath("/", "layout")` so the save button
+    // doesn't hang inside `useTransition` until the whole shell rebuilds.
+    revalidatePath("/[lang]/pay", "page");
+    revalidatePath("/[lang]/onboarding", "page");
+    revalidatePath("/[lang]/admin", "page");
     return { ok: true };
   } catch (err) {
     console.error("setPayboxUrl failed:", err);

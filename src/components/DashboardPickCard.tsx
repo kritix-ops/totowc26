@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
 import { AlertCircle, CalendarClock, Check, Minus, Plus } from "lucide-react";
 import { clsx } from "clsx";
 import { Card, Chip, LabelCaps } from "@/components/ui";
@@ -46,7 +45,6 @@ export function DashboardPickCard({
   canEdit: boolean;
   lockMinutes: number;
 }) {
-  const router = useRouter();
   const isHebrew = locale === "he";
   const hadPick = match.myHome !== null && match.myAway !== null;
 
@@ -100,7 +98,11 @@ export function DashboardPickCard({
       }
       setSaved(true);
       setDirty(false);
-      router.refresh();
+      // saveBet revalidates the dashboard, bets list, and bet detail
+      // pages itself. The useTransition wrapper already waits for
+      // Next.js to apply the action's RSC payload — a separate
+      // router.refresh() here doubled the wait and kept "שומר…" on
+      // screen after the write was already durable.
     });
   };
 
