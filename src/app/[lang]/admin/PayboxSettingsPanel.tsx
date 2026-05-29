@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState } from "react";
 import {
   ExternalLink,
   Check,
@@ -12,6 +12,7 @@ import {
 import { clsx } from "clsx";
 import type { Locale } from "../dictionaries";
 import { Card, LabelCaps, SectionHeading } from "@/components/ui";
+import { usePendingAction } from "@/lib/use-pending-action";
 import { setPayboxUrl, type SetPayboxUrlResult } from "./paybox-actions";
 
 // Admin-only editor for the Paybox group link. The value is the single
@@ -33,7 +34,7 @@ export function PayboxSettingsPanel({
     Exclude<SetPayboxUrlResult, { ok: true }>["error"] | null
   >(null);
   const [saved, setSaved] = useState(false);
-  const [pending, startTransition] = useTransition();
+  const { pending, run } = usePendingAction();
 
   const dirty = (value.trim() || null) !== (current ?? null);
   const effective = value.trim() || fallback;
@@ -42,16 +43,16 @@ export function PayboxSettingsPanel({
   const submit = (next: string) => {
     setError(null);
     setSaved(false);
-    startTransition(async () => {
+    // usePendingAction clears the button on the action response, not on
+    // setPayboxUrl's revalidation re-render — so saving twice in a row
+    // never leaves the button stuck on "שומר…".
+    void run(async () => {
       const res = await setPayboxUrl(next);
       if (!res.ok) {
         setError(res.error);
         return;
       }
       setSaved(true);
-      // The action revalidates /pay, /onboarding, and the admin panel
-      // itself. The action response carries the fresh RSC payload, so
-      // a separate router.refresh() would just lengthen the transition.
     });
   };
 

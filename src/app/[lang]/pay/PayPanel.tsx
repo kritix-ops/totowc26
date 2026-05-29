@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState } from "react";
 import {
   ExternalLink,
   Check,
@@ -12,6 +12,7 @@ import {
 import { clsx } from "clsx";
 import type { Dictionary, Locale } from "../dictionaries";
 import { Card, LabelCaps, PillButton, SectionHeading } from "@/components/ui";
+import { usePendingAction } from "@/lib/use-pending-action";
 import { recordPayment } from "../onboarding/actions";
 import { ENTRY_FEE_ILS } from "@/lib/paybox";
 
@@ -40,7 +41,7 @@ export function PayPanel({
   const isHebrew = locale === "he";
   const [status, setStatus] = useState<PaymentStatus>(paymentStatus);
   const [error, setError] = useState<string | null>(null);
-  const [pending, startTransition] = useTransition();
+  const { pending, run } = usePendingAction();
 
   const isApproved = status === "approved";
   const isPending = status === "pending";
@@ -48,17 +49,15 @@ export function PayPanel({
 
   const handleIPaid = () => {
     setError(null);
-    startTransition(async () => {
+    // usePendingAction clears the button on the action response, not on
+    // recordPayment's revalidation re-render.
+    void run(async () => {
       const res = await recordPayment();
       if (!res.ok) {
         setError(res.error);
         return;
       }
       setStatus("pending");
-      // recordPayment already revalidates the /pay and /onboarding
-      // pages plus the access tag. An extra router.refresh() here
-      // would just keep the button in "Saving…" through another
-      // round trip after the row is in the DB.
     });
   };
 

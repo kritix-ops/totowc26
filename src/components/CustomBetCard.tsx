@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState } from "react";
 import { AlertCircle, Check, Info, Lock, Minus, Plus } from "lucide-react";
 import { clsx } from "clsx";
 import { Card, Chip, LabelCaps } from "@/components/ui";
@@ -19,6 +19,7 @@ import type {
   PickAnswer,
 } from "@/lib/bets/types";
 import { usePickerOptions } from "@/lib/picker-options/client";
+import { usePendingAction } from "@/lib/use-pending-action";
 import { submitCustomBetPick } from "@/app/[lang]/play/[date]/actions";
 
 // Threshold above which the multi_choice answer widget switches
@@ -71,7 +72,7 @@ export function CustomBetCard({
   const [draft, setDraft] = useState<PickAnswer | null>(bet.myAnswer);
   const [error, setError] = useState<string | null>(null);
   const [savedFlash, setSavedFlash] = useState(false);
-  const [pending, startTransition] = useTransition();
+  const { pending, run } = usePendingAction();
 
   const refund = bet.myStakePaid ?? 0;
   // If the draft is "empty" the user hasn't expressed a choice yet, so the
@@ -86,20 +87,19 @@ export function CustomBetCard({
     JSON.stringify(draft ?? null) !== JSON.stringify(bet.myAnswer ?? null);
 
   const onSubmit = () => {
-    if (!draft || !editable || overdrawn) return;
+    if (!draft || !editable || overdrawn || pending) return;
     setError(null);
     setSavedFlash(false);
-    startTransition(async () => {
+    // usePendingAction releases the button on the action response, not
+    // on submitCustomBetPick's revalidation re-render, so submitting
+    // several bets in a row never leaves one stuck on "שומר…".
+    void run(async () => {
       const res = await submitCustomBetPick(bet.id, draft);
       if (!res.ok) {
         setError(translateError(res.error, isHebrew, res));
         return;
       }
       setSavedFlash(true);
-      // submitCustomBetPick already revalidates /play and /bets — the
-      // action response carries the new RSC payload. A separate
-      // router.refresh() would prolong the "Saving…" state for no
-      // additional correctness.
     });
   };
 

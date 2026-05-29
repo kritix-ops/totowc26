@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useState } from "react";
 import { Check, AlertCircle, Minus, Plus } from "lucide-react";
 import { clsx } from "clsx";
 import { Card } from "@/components/ui";
 import { Flag } from "@/components/Flag";
 import type { Dictionary, Locale } from "../dictionaries";
 import { formatDateTime } from "@/lib/format";
+import { usePendingAction } from "@/lib/use-pending-action";
 import { saveBet, type SaveBetResult } from "./[matchId]/actions";
 
 // One match row on the quick-picks /bets page. Self-contained: pre-
@@ -60,7 +61,7 @@ export function QuickPickRow({
   const [saved, setSaved] = useState<boolean>(hadPick);
   const [dirty, setDirty] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
-  const [pending, startTransition] = useTransition();
+  const { pending, run } = usePendingAction();
 
   useEffect(() => {
     if (!saved || dirty) return;
@@ -97,7 +98,11 @@ export function QuickPickRow({
   const submit = () => {
     if (disabled || pending || !dirty) return;
     setError(null);
-    startTransition(async () => {
+    // usePendingAction awaits the action's RESPONSE and clears `pending`
+    // in a finally — it never waits on saveBet's revalidatePath to
+    // re-render the (Suspense-less, 200-row) bets page. That coupling is
+    // what made every save after the first hang on "שומר…".
+    void run(async () => {
       const res: SaveBetResult = await saveBet(match.id, home, away);
       if (!res.ok) {
         setError(res.error);
@@ -105,11 +110,6 @@ export function QuickPickRow({
       }
       setSaved(true);
       setDirty(false);
-      // saveBet calls revalidatePath on the dashboard, bets list, and
-      // bet detail — Next.js auto-applies the new RSC payload from the
-      // action response. A second router.refresh() here would stretch
-      // the transition's pending state through an extra round trip
-      // and keep "שומר…" up after the row is already in the DB.
     });
   };
 

@@ -1,13 +1,13 @@
 "use client";
 
 import Image from "next/image";
-import { useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
+import { useState } from "react";
 import { AlertCircle, Check, Lock, Pencil, X } from "lucide-react";
 import { clsx } from "clsx";
 import type { Locale } from "@/app/[lang]/dictionaries";
 import type { AdminPlayerReviewRow } from "@/db/admin-queries";
 import { Card } from "@/components/ui";
+import { usePendingAction } from "@/lib/use-pending-action";
 import {
   COMMON_ADMIN_ERRORS,
   translateAdminError,
@@ -40,12 +40,14 @@ export function PlayerReviewRow({
   row: AdminPlayerReviewRow;
 }) {
   const isHebrew = locale === "he";
-  const router = useRouter();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(row.nameHe ?? "");
-  const [pending, startTransition] = useTransition();
+  const { pending, run } = usePendingAction();
   const [error, setError] = useState<string | null>(null);
 
+  // All three actions revalidate /admin/players server-side, so the row
+  // updates from the action response. usePendingAction releases on that
+  // response, so reviewing players back-to-back never hangs a button.
   const submitEdit = () => {
     setError(null);
     const trimmed = draft.trim();
@@ -53,38 +55,35 @@ export function PlayerReviewRow({
       setError(isHebrew ? "השדה ריק" : "Empty");
       return;
     }
-    startTransition(async () => {
+    void run(async () => {
       const res = await setManualHebrewName(row.id, trimmed);
       if (!res.ok) {
         setError(res.error);
         return;
       }
       setEditing(false);
-      router.refresh();
     });
   };
 
   const submitApprove = () => {
     setError(null);
-    startTransition(async () => {
+    void run(async () => {
       const res = await approveTranslation(row.id);
       if (!res.ok) {
         setError(res.error);
         return;
       }
-      router.refresh();
     });
   };
 
   const submitReject = () => {
     setError(null);
-    startTransition(async () => {
+    void run(async () => {
       const res = await rejectTranslation(row.id);
       if (!res.ok) {
         setError(res.error);
         return;
       }
-      router.refresh();
     });
   };
 

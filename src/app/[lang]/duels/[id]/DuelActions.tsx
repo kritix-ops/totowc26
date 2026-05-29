@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState } from "react";
 import { AlertCircle, Check } from "lucide-react";
 import { clsx } from "clsx";
 import { Card, PillButton, SectionHeading } from "@/components/ui";
 import type { Dictionary, Locale } from "../../dictionaries";
+import { usePendingAction } from "@/lib/use-pending-action";
 import { cancelDuel, joinDuel, settleDuel } from "../actions";
 
 // All viewer-context-dependent CTAs for the duel detail page live here.
@@ -33,7 +34,7 @@ export function DuelActions({
   joinDeadlinePassed,
 }: Props) {
   const isHebrew = locale === "he";
-  const [pending, startTransition] = useTransition();
+  const { pending, run } = usePendingAction();
   const [error, setError] = useState<string | null>(null);
   const [reason, setReason] = useState("");
   const [resolvedValue, setResolvedValue] = useState<boolean | null>(null);
@@ -67,13 +68,14 @@ export function DuelActions({
   };
 
   // join / cancel / settle: each server action revalidates the duels
-  // surfaces (and leaderboard for settle) itself. The transition picks
-  // up the new RSC payload from the action response, so an extra
-  // router.refresh() here would just stretch the pending state.
+  // surfaces (and leaderboard for settle) itself. usePendingAction
+  // releases the button on the action response rather than waiting on
+  // that revalidation re-render, so a second duel action after the
+  // first can't queue behind an unsettled transition and hang.
 
   const join = () => {
     setError(null);
-    startTransition(async () => {
+    void run(async () => {
       const res = await joinDuel(duelId);
       if (!res.ok) {
         setError(res.error);
@@ -88,7 +90,7 @@ export function DuelActions({
       setError("invalid_input");
       return;
     }
-    startTransition(async () => {
+    void run(async () => {
       const res = await cancelDuel(duelId, reason.trim());
       if (!res.ok) {
         setError(res.error);
@@ -103,7 +105,7 @@ export function DuelActions({
       setError("invalid_input");
       return;
     }
-    startTransition(async () => {
+    void run(async () => {
       const res = await settleDuel(duelId, resolvedValue);
       if (!res.ok) {
         setError(res.error);

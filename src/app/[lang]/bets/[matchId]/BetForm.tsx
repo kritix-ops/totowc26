@@ -1,11 +1,12 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState } from "react";
 import { Check, Stamp, Clock, AlertCircle, Plus, Minus } from "lucide-react";
 import { clsx } from "clsx";
 import { PillButton } from "@/components/ui";
 import { Flag } from "@/components/Flag";
 import type { Dictionary, Locale } from "../../dictionaries";
+import { usePendingAction } from "@/lib/use-pending-action";
 import { saveBet, type SaveBetResult } from "./actions";
 
 // 1/X/2 score predictor for a single match. The "extra bets" (BTTS / Over
@@ -43,7 +44,7 @@ export function BetForm({
     Exclude<SaveBetResult, { ok: true }>["error"] | null
   >(null);
   const [saved, setSaved] = useState(false);
-  const [pending, startTransition] = useTransition();
+  const { pending, run } = usePendingAction();
 
   const pick: Pick = home === away ? "X" : home > away ? "1" : "2";
   const clamp = (n: number) => Math.max(0, Math.min(99, n));
@@ -72,17 +73,15 @@ export function BetForm({
     e.preventDefault();
     setError(null);
     setSaved(false);
-    startTransition(async () => {
+    // usePendingAction clears `pending` on the action response, not on
+    // the revalidation re-render, so the save button can't get stuck.
+    void run(async () => {
       const res = await saveBet(match.id, home, away);
       if (!res.ok) {
         setError(res.error);
         return;
       }
       setSaved(true);
-      // saveBet revalidates this page, the bets list, and the dashboard
-      // — Next.js will swap in the new RSC payload automatically.
-      // A separate router.refresh() would just extend the transition's
-      // pending state and keep "שומר…" visible an extra round trip.
     });
   };
 

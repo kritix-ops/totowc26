@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState } from "react";
 import { Check, AlertCircle, UserPlus } from "lucide-react";
 import { clsx } from "clsx";
 import type { Locale } from "../dictionaries";
 import { Card, LabelCaps, SectionHeading } from "@/components/ui";
+import { usePendingAction } from "@/lib/use-pending-action";
 import {
   setPublicSignupOpen,
   type SetPublicSignupOpenResult,
@@ -27,16 +28,18 @@ export function PublicSignupSettingsPanel({
     Exclude<SetPublicSignupOpenResult, { ok: true }>["error"] | null
   >(null);
   const [saved, setSaved] = useState(false);
-  const [pending, startTransition] = useTransition();
+  const { pending, run } = usePendingAction();
 
   const toggle = (next: boolean) => {
-    if (next === open) return;
+    if (next === open || pending) return;
     setError(null);
     setSaved(false);
     // Optimistic - flip the visual state immediately so the switch feels
     // instant; if the server rejects, we revert.
     setOpen(next);
-    startTransition(async () => {
+    // usePendingAction clears the toggle on the action response, not on
+    // setPublicSignupOpen's revalidation re-render.
+    void run(async () => {
       const res = await setPublicSignupOpen(next);
       if (!res.ok) {
         setOpen(!next);
@@ -44,9 +47,6 @@ export function PublicSignupSettingsPanel({
         return;
       }
       setSaved(true);
-      // setPublicSignupOpen already revalidates /signup and the admin
-      // panel. The action response carries the new RSC payload, so
-      // an extra router.refresh() would just delay the saved chip.
     });
   };
 

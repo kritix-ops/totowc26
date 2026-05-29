@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useState } from "react";
 import { AlertCircle, CalendarClock, Check, Minus, Plus } from "lucide-react";
 import { clsx } from "clsx";
 import { Card, Chip, LabelCaps } from "@/components/ui";
 import { Flag } from "@/components/Flag";
+import { usePendingAction } from "@/lib/use-pending-action";
 import type { Locale } from "@/app/[lang]/dictionaries";
 import {
   COMMON_PLAYER_ERRORS,
@@ -53,7 +54,7 @@ export function DashboardPickCard({
   const [saved, setSaved] = useState<boolean>(hadPick);
   const [dirty, setDirty] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
-  const [pending, startTransition] = useTransition();
+  const { pending, run } = usePendingAction();
 
   useEffect(() => {
     if (!saved || dirty) return;
@@ -90,7 +91,10 @@ export function DashboardPickCard({
   const submit = () => {
     if (disabled || pending || !dirty) return;
     setError(null);
-    startTransition(async () => {
+    // See QuickPickRow: usePendingAction releases the button on the
+    // action response, not on the revalidation re-render, so the card
+    // never sticks on "שומר…".
+    void run(async () => {
       const res: SaveBetResult = await saveBet(match.id, home, away);
       if (!res.ok) {
         setError(res.error);
@@ -98,11 +102,6 @@ export function DashboardPickCard({
       }
       setSaved(true);
       setDirty(false);
-      // saveBet revalidates the dashboard, bets list, and bet detail
-      // pages itself. The useTransition wrapper already waits for
-      // Next.js to apply the action's RSC payload — a separate
-      // router.refresh() here doubled the wait and kept "שומר…" on
-      // screen after the write was already durable.
     });
   };
 

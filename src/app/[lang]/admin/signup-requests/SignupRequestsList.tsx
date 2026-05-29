@@ -1,8 +1,7 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import {
   CheckCircle2,
   XCircle,
@@ -18,6 +17,7 @@ import type { Locale } from "../../dictionaries";
 import { PillButton, Chip, LabelCaps } from "@/components/ui";
 import { formatDateTime } from "@/lib/format";
 import { localePath } from "@/lib/paths";
+import { usePendingAction } from "@/lib/use-pending-action";
 import { approveSignupRequest, rejectSignupRequest } from "./actions";
 import type { SignupRequestRow } from "./queries";
 
@@ -91,30 +91,28 @@ export function RequestCard({
   locale: Locale;
   isHebrew: boolean;
 }) {
-  const router = useRouter();
-  const [pending, startTransition] = useTransition();
+  const { pending, run } = usePendingAction();
   const [error, setError] = useState<string | null>(null);
   const [showReject, setShowReject] = useState(false);
   const [rejectNote, setRejectNote] = useState("");
 
+  // Both actions revalidate the admin page server-side; usePendingAction
+  // releases the button on the action response so approving several
+  // requests in a row never hangs the second click.
   const onApprove = () => {
     setError(null);
-    startTransition(async () => {
+    void run(async () => {
       const r = await approveSignupRequest(request.id);
       if (!r.ok) setError(r.error);
-      else router.refresh();
     });
   };
 
   const onReject = () => {
     setError(null);
-    startTransition(async () => {
+    void run(async () => {
       const r = await rejectSignupRequest(request.id, rejectNote);
       if (!r.ok) setError(r.error);
-      else {
-        setShowReject(false);
-        router.refresh();
-      }
+      else setShowReject(false);
     });
   };
 

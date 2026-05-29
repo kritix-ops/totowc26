@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState } from "react";
 import {
   ExternalLink,
   Check,
@@ -13,6 +13,7 @@ import {
 import { clsx } from "clsx";
 import type { Locale } from "../dictionaries";
 import { Card, LabelCaps, SectionHeading } from "@/components/ui";
+import { usePendingAction } from "@/lib/use-pending-action";
 import {
   setWhatsAppGroupUrl,
   type SetWhatsAppGroupUrlResult,
@@ -35,7 +36,7 @@ export function WhatsAppSettingsPanel({
     Exclude<SetWhatsAppGroupUrlResult, { ok: true }>["error"] | null
   >(null);
   const [saved, setSaved] = useState(false);
-  const [pending, startTransition] = useTransition();
+  const { pending, run } = usePendingAction();
 
   const dirty = (value.trim() || null) !== (current ?? null);
   const effective = value.trim();
@@ -44,16 +45,15 @@ export function WhatsAppSettingsPanel({
   const submit = (next: string) => {
     setError(null);
     setSaved(false);
-    startTransition(async () => {
+    // usePendingAction clears the button on the action response, not on
+    // setWhatsAppGroupUrl's revalidation re-render.
+    void run(async () => {
       const res = await setWhatsAppGroupUrl(next);
       if (!res.ok) {
         setError(res.error);
         return;
       }
       setSaved(true);
-      // The action's revalidatePath already pushes a fresh RSC payload
-      // back through the transition. A second router.refresh() doubled
-      // the wait and made the save button feel stuck.
     });
   };
 

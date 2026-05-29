@@ -1,11 +1,12 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Copy, Check, CircleDot, AlertCircle, ExternalLink } from "lucide-react";
 import { clsx } from "clsx";
 import type { Dictionary, Locale } from "../dictionaries";
 import { PillButton, LabelCaps } from "@/components/ui";
+import { usePendingAction } from "@/lib/use-pending-action";
 import { saveProfile, recordPayment } from "./actions";
 import { localePath } from "@/lib/paths";
 
@@ -33,11 +34,10 @@ export function OnboardingForm({
   const displayFont = isHebrew
     ? "font-[family-name:var(--font-display)]"
     : "font-[family-name:var(--font-display-en)]";
-  // Still used for the "go to dashboard" CTA after approval. The
-  // recordPayment server action handles its own revalidation, so we
-  // intentionally do NOT call router.refresh() inside the submit
-  // transition — it would only delay the "Saved" state for no extra
-  // correctness.
+  // Only used for the "go to dashboard" CTA after approval — never
+  // inside a submit handler. saveProfile / recordPayment revalidate
+  // server-side; the button state is driven by usePendingAction off the
+  // action response, so it can't hang on a revalidation re-render.
   const router = useRouter();
 
   const [name, setName] = useState(initialName);
@@ -53,7 +53,7 @@ export function OnboardingForm({
   );
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [pending, startTransition] = useTransition();
+  const { pending, run } = usePendingAction();
 
   const recipient = "054-1234567";
 
@@ -71,7 +71,7 @@ export function OnboardingForm({
     const form = new FormData();
     form.set("displayName", name);
     form.set("phone", phone);
-    startTransition(async () => {
+    void run(async () => {
       const res = await saveProfile(form);
       if (!res.ok) {
         setError(res.error);
@@ -83,17 +83,13 @@ export function OnboardingForm({
 
   const handleIPaid = () => {
     setError(null);
-    startTransition(async () => {
+    void run(async () => {
       const res = await recordPayment();
       if (!res.ok) {
         setError(res.error);
         return;
       }
       setSubmittedStatus("pending");
-      // recordPayment already revalidates /onboarding and /pay plus
-      // the access tag, so the next nav reflects the new pending row.
-      // A separate router.refresh() would keep "שולח…" up for an
-      // extra round trip after the row is already in the DB.
     });
   };
 

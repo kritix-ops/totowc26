@@ -1,12 +1,12 @@
 "use client";
 
-import { useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
+import { useState } from "react";
 import { Check, X, RotateCcw, AlertCircle } from "lucide-react";
 import { clsx } from "clsx";
 import { Card, Chip, SectionHeading } from "@/components/ui";
 import type { Locale } from "../dictionaries";
 import { formatDateTime } from "@/lib/format";
+import { usePendingAction } from "@/lib/use-pending-action";
 import type { AdminPaymentRow } from "@/db/admin-queries";
 import {
   approvePayment,
@@ -32,10 +32,9 @@ export function PaymentsPanel({
   approvedSumIls: number;
 }) {
   const isHebrew = locale === "he";
-  const router = useRouter();
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [transitioning, startTransition] = useTransition();
+  const { run } = usePendingAction();
   const [filter, setFilter] = useState<Filter>("pending");
 
   const filtered =
@@ -43,23 +42,29 @@ export function PaymentsPanel({
       ? rows.filter((r) => r.status === "pending")
       : rows;
 
+  // Each decision revalidates the admin page server-side, so the row's
+  // new status streams back from the action response. usePendingAction
+  // releases on that response rather than waiting on the re-render, so
+  // approving several payments in a row never queues the second click
+  // behind an unsettled transition (the old hang).
   const handle = (id: string, fn: () => Promise<{ ok: boolean; error?: string }>) => {
     setError(null);
     setPendingId(id);
-    startTransition(async () => {
-      const res = await fn();
-      setPendingId(null);
-      if (!res.ok) {
-        setError(
-          res.error === "forbidden"
-            ? isHebrew ? "אין הרשאה" : "Not allowed"
-            : res.error === "not_found"
-              ? isHebrew ? "תשלום לא נמצא" : "Payment not found"
-              : isHebrew ? "שגיאת שמירה" : "Save failed",
-        );
-        return;
+    void run(async () => {
+      try {
+        const res = await fn();
+        if (!res.ok) {
+          setError(
+            res.error === "forbidden"
+              ? isHebrew ? "אין הרשאה" : "Not allowed"
+              : res.error === "not_found"
+                ? isHebrew ? "תשלום לא נמצא" : "Payment not found"
+                : isHebrew ? "שגיאת שמירה" : "Save failed",
+          );
+        }
+      } finally {
+        setPendingId(null);
       }
-      router.refresh();
     });
   };
 
@@ -124,7 +129,7 @@ export function PaymentsPanel({
               key={p.id}
               row={p}
               isHebrew={isHebrew}
-              pending={pendingId === p.id || transitioning && pendingId === p.id}
+              pending={pendingId === p.id}
               onApprove={() => handle(p.id, () => approvePayment(p.id))}
               onReject={() => handle(p.id, () => rejectPayment(p.id))}
               onReopen={() => handle(p.id, () => reopenPayment(p.id))}
