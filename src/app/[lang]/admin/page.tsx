@@ -5,6 +5,7 @@ import {
   Coins,
   Sparkles,
   Trophy,
+  ScrollText,
   Languages,
   Smartphone,
   Clock,
@@ -14,6 +15,7 @@ import {
   Type,
   BookOpenText,
   Wrench,
+  FlaskConical,
 } from "lucide-react";
 import { hasLocale, type Locale } from "../dictionaries";
 import { Card, LabelCaps } from "@/components/ui";
@@ -21,6 +23,7 @@ import {
   countDuplicateCustomBets,
   getPaymentTotals,
 } from "@/db/admin-queries";
+import { isSandbox } from "@/lib/env";
 import { countPendingSignups } from "./signup-requests/queries";
 import { AdminSection, AdminTile } from "./AdminSections";
 
@@ -106,6 +109,12 @@ export default async function AdminPage({
           icon={<Trophy className="h-5 w-5" strokeWidth={1.75} />}
           label={isHebrew ? "הימורי טורניר" : "Tournament bets"}
         />
+        <AdminTile
+          locale={locale}
+          path="admin/tournament-odds"
+          icon={<ScrollText className="h-5 w-5" strokeWidth={1.75} />}
+          label={isHebrew ? "יחסי טורניר" : "Tournament odds"}
+        />
         {duplicateBetCount > 0 && (
           <AdminTile
             locale={locale}
@@ -171,6 +180,15 @@ export default async function AdminPage({
               : "Sync, backup, access & diagnostics"
           }
         />
+        {isSandbox() && (
+          <AdminTile
+            locale={locale}
+            path="admin/sandbox"
+            icon={<FlaskConical className="h-5 w-5" strokeWidth={1.75} />}
+            label={isHebrew ? "סאנדבוקס ↔ פרודקשן" : "Sandbox ↔ production"}
+            tone="warning"
+          />
+        )}
       </AdminSection>
     </section>
   );

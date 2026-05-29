@@ -1,5 +1,6 @@
 import type { Locale } from "@/app/[lang]/dictionaries";
 import { getUserAccess } from "@/lib/access";
+import { isSandbox } from "@/lib/env";
 import { UnpaidBanner } from "./UnpaidBanner";
 
 // Streams the persistent "view-only / pay to unlock" banner above the
@@ -8,6 +9,8 @@ import { UnpaidBanner } from "./UnpaidBanner";
 // pops in once the access lookup resolves - skipping it entirely when
 // the user can edit (paid or admin) or when an admin is in view-as
 // mode (the view-as banner already tells the story).
+// In sandbox mode the SandboxBanner already occupies top-0, so this
+// banner drops 40px to sit just below it.
 export async function UnpaidBannerSection({
   locale,
   userId,
@@ -18,8 +21,9 @@ export async function UnpaidBannerSection({
   const access = await getUserAccess(userId);
   if (access.canEdit) return null;
   if (access.viewingAs) return null;
+  const topClass = isSandbox() ? "top-[40px]" : "top-0";
   return (
-    <div className="fixed top-0 left-0 right-0 z-[60]">
+    <div className={`fixed ${topClass} left-0 right-0 z-[60]`}>
       <UnpaidBanner locale={locale} />
     </div>
   );

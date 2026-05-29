@@ -15,8 +15,10 @@ import {
 } from "./dictionaries";
 import { AppShell } from "@/components/AppShell";
 import { HiddenPageToast } from "@/components/HiddenPageToast";
+import { SandboxBanner } from "@/components/SandboxBanner";
 import { ServiceWorkerRegistrar } from "@/components/ServiceWorkerRegistrar";
 import { SplashOverlay } from "@/components/SplashOverlay";
+import { isSandbox } from "@/lib/env";
 import {
   APPLE_SPLASH_SCREENS,
   SPLASH_LOCALES_AVAILABLE,
@@ -67,17 +69,21 @@ export async function generateMetadata({
     APPLE_SPLASH_SCREENS[locale]?.length > 0
       ? APPLE_SPLASH_SCREENS[locale]
       : APPLE_SPLASH_SCREENS.he;
+  // In sandbox mode the tab title is prefixed with [SANDBOX] so an admin
+  // with both prod and sandbox open in adjacent tabs can never confuse
+  // them even with the banner scrolled off.
+  const sandboxPrefix = isSandbox() ? "[SANDBOX] " : "";
   return {
     title: {
-      default: "טוטו מונדיאל 2026",
-      template: "%s · טוטו מונדיאל 2026",
+      default: `${sandboxPrefix}טוטו מונדיאל 2026`,
+      template: `${sandboxPrefix}%s · טוטו מונדיאל 2026`,
     },
     description: "טוטו חברים על משחקי המונדיאל 2026",
-    applicationName: "טוטו מונדיאל 2026",
+    applicationName: `${sandboxPrefix}טוטו מונדיאל 2026`,
     manifest: "/manifest.webmanifest",
     appleWebApp: {
       capable: true,
-      title: "טוטו מונדיאל",
+      title: `${sandboxPrefix}טוטו מונדיאל`,
       statusBarStyle: "default",
       startupImage,
     },
@@ -117,6 +123,7 @@ export default async function RootLayout({
         <SplashOverlay
           locale={SPLASH_LOCALES_AVAILABLE.includes(locale) ? locale : "he"}
         />
+        <SandboxBanner locale={locale} />
         <AppShell locale={locale} dict={dict}>
           {children}
         </AppShell>

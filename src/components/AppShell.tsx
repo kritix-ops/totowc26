@@ -15,6 +15,7 @@ import { MobileBottomNavSection } from "./MobileBottomNavSection";
 import { ViewAsBannerSection } from "./ViewAsBannerSection";
 import { UnpaidBannerSection } from "./UnpaidBannerSection";
 import { getUserAccess } from "@/lib/access";
+import { isSandbox } from "@/lib/env";
 import {
   DesktopNavExtrasSkeleton,
   GuestActionsSkeleton,
@@ -77,10 +78,24 @@ export async function AppShell({
   const showUnpaidBanner =
     signedIn && !showViewAsBanner && !!access && !access.canEdit;
   const reserveBanner = showViewAsBanner || showUnpaidBanner;
-  const headerTopClass = reserveBanner ? "top-[40px]" : "top-0";
-  const mainTopPaddingClass = reserveBanner
-    ? "pt-[calc(40px+3.5rem)] md:pt-[calc(40px+4rem)]"
-    : "pt-14 md:pt-16";
+  // The SandboxBanner (mounted in layout.tsx) takes another 40px at the
+  // very top in sandbox mode. The header and the view-as / unpaid
+  // banners shift down to match so they never sit under it.
+  const sandbox = isSandbox();
+  const headerTopClass = sandbox
+    ? reserveBanner
+      ? "top-[80px]"
+      : "top-[40px]"
+    : reserveBanner
+      ? "top-[40px]"
+      : "top-0";
+  const mainTopPaddingClass = sandbox
+    ? reserveBanner
+      ? "pt-[calc(80px+3.5rem)] md:pt-[calc(80px+4rem)]"
+      : "pt-[calc(40px+3.5rem)] md:pt-[calc(40px+4rem)]"
+    : reserveBanner
+      ? "pt-[calc(40px+3.5rem)] md:pt-[calc(40px+4rem)]"
+      : "pt-14 md:pt-16";
 
   return (
     <>
