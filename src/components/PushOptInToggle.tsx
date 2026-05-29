@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useState } from "react";
 import { AlertCircle, Bell, BellOff, Check } from "lucide-react";
 import { clsx } from "clsx";
 import type { Locale } from "@/app/[lang]/dictionaries";
@@ -8,6 +8,7 @@ import {
   translateError as translateErrorCode,
   type LocalizedTuple,
 } from "@/lib/error-i18n";
+import { usePendingAction } from "@/lib/use-pending-action";
 import { setPushOptIn } from "@/app/[lang]/profile/push-actions";
 
 // Profile-page toggle for push notifications. Manages the browser-side
@@ -40,7 +41,7 @@ type Props = {
 export function PushOptInToggle({ locale, initialOptIn }: Props) {
   const isHebrew = locale === "he";
   const [status, setStatus] = useState<Status>("initial");
-  const [pending, startTransition] = useTransition();
+  const { pending, run } = usePendingAction();
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -127,7 +128,7 @@ export function PushOptInToggle({ locale, initialOptIn }: Props) {
         setStatus("off");
         return;
       }
-      startTransition(async () => {
+      void run(async () => {
         const r = await setPushOptIn(true);
         if (!r.ok) {
           setError(r.error);
@@ -150,7 +151,7 @@ export function PushOptInToggle({ locale, initialOptIn }: Props) {
       const reg = await waitForActiveSW(5000);
       if (!reg) {
         // Nothing to unsubscribe locally; still flip the server flag.
-        startTransition(async () => {
+        void run(async () => {
           await setPushOptIn(false);
           setStatus("off");
         });
@@ -168,7 +169,7 @@ export function PushOptInToggle({ locale, initialOptIn }: Props) {
           body: JSON.stringify({ endpoint }),
         });
       }
-      startTransition(async () => {
+      void run(async () => {
         const r = await setPushOptIn(false);
         if (!r.ok) {
           setError(r.error);

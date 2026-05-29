@@ -1,9 +1,10 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AlertCircle, Check } from "lucide-react";
 import { Card, PillButton, SectionHeading } from "@/components/ui";
+import { usePendingAction } from "@/lib/use-pending-action";
 import {
   formatDateTime,
   isoToLocalInputValue,
@@ -202,14 +203,14 @@ function TournamentStartCard({
 }) {
   const router = useRouter();
   const [value, setValue] = useState<string>(isoToLocalInputValue(initial));
-  const [pending, startTransition] = useTransition();
+  const { pending, run } = usePendingAction();
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
 
   function onSave() {
     setError(null);
     setSaved(false);
-    startTransition(async () => {
+    void run(async () => {
       const iso = value ? localInputValueToIso(value) : null;
       const res = await saveTournamentStart(iso);
       if (!res.ok) {
@@ -224,7 +225,7 @@ function TournamentStartCard({
     setValue("");
     setError(null);
     setSaved(false);
-    startTransition(async () => {
+    void run(async () => {
       const res = await saveTournamentStart(null);
       if (!res.ok) setError(res.error);
       else {
@@ -314,14 +315,14 @@ function ReminderOffsetCard({
 }) {
   const router = useRouter();
   const [value, setValue] = useState<number>(initial);
-  const [pending, startTransition] = useTransition();
+  const { pending, run } = usePendingAction();
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
 
   function onSave() {
     setError(null);
     setSaved(false);
-    startTransition(async () => {
+    void run(async () => {
       const res = await saveReminderOffset(value);
       if (!res.ok) setError(res.error);
       else {
@@ -448,7 +449,7 @@ function TypeDefaultsCard({
 }) {
   const router = useRouter();
   const [values, setValues] = useState<Record<BetTypeKey, number>>({ ...initial });
-  const [pending, startTransition] = useTransition();
+  const { pending, run } = usePendingAction();
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
 
@@ -461,7 +462,7 @@ function TypeDefaultsCard({
   function onSave() {
     setError(null);
     setSaved(false);
-    startTransition(async () => {
+    void run(async () => {
       const rows = BET_TYPE_KEYS.map((k) => ({
         betType: k,
         offsetMinutes: values[k],
@@ -565,7 +566,7 @@ function StageDefaultsCard({
 }) {
   const router = useRouter();
   const [values, setValues] = useState<StageDraft>(() => buildStageDraft(initial));
-  const [pending, startTransition] = useTransition();
+  const { pending, run } = usePendingAction();
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
 
@@ -581,7 +582,7 @@ function StageDefaultsCard({
   function onSave() {
     setError(null);
     setSaved(false);
-    startTransition(async () => {
+    void run(async () => {
       const rows = STAGE_KEYS.map((stage) => {
         const trimmed = values[stage].trim();
         return {
@@ -765,7 +766,7 @@ function MatchdayRowEditor({
   const [value, setValue] = useState<string>(
     row.lockOffsetOverrideMinutes != null ? String(row.lockOffsetOverrideMinutes) : "",
   );
-  const [pending, startTransition] = useTransition();
+  const { pending, run } = usePendingAction();
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
 
@@ -779,7 +780,7 @@ function MatchdayRowEditor({
       setError("invalid");
       return;
     }
-    startTransition(async () => {
+    void run(async () => {
       const res = await saveMatchdayOverride(row.id, next);
       if (!res.ok) setError(res.error);
       else {
@@ -944,14 +945,14 @@ function MatchRowEditor({
   const [value, setValue] = useState<string>(
     isoToLocalInputValue(row.lockAtOverride),
   );
-  const [pending, startTransition] = useTransition();
+  const { pending, run } = usePendingAction();
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
 
   function onSave() {
     setError(null);
     setSaved(false);
-    startTransition(async () => {
+    void run(async () => {
       const iso = value ? localInputValueToIso(value) : null;
       const res = await saveMatchLockOverride(row.id, iso);
       if (!res.ok) setError(res.error);
@@ -965,7 +966,7 @@ function MatchRowEditor({
     setValue("");
     setError(null);
     setSaved(false);
-    startTransition(async () => {
+    void run(async () => {
       const res = await saveMatchLockOverride(row.id, null);
       if (!res.ok) setError(res.error);
       else {

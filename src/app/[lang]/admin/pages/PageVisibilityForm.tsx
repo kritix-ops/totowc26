@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AlertCircle, Check, Lock } from "lucide-react";
 import { clsx } from "clsx";
@@ -12,6 +12,7 @@ import {
   type HideablePageKey,
 } from "@/lib/page-visibility-catalog";
 import type { Locale } from "../../dictionaries";
+import { usePendingAction } from "@/lib/use-pending-action";
 import { saveHiddenPages } from "./actions";
 
 export function PageVisibilityForm({
@@ -25,7 +26,7 @@ export function PageVisibilityForm({
   const router = useRouter();
   const initialSet = useMemo(() => new Set(initialHidden), [initialHidden]);
   const [hidden, setHidden] = useState<Set<string>>(() => new Set(initialSet));
-  const [pending, startTransition] = useTransition();
+  const { pending, run } = usePendingAction();
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
 
@@ -49,7 +50,7 @@ export function PageVisibilityForm({
   function onSave() {
     setError(null);
     setSaved(false);
-    startTransition(async () => {
+    void run(async () => {
       const res = await saveHiddenPages(Array.from(hidden));
       if (!res.ok) {
         setError(res.error);

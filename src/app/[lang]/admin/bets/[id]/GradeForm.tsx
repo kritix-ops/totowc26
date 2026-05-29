@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { AlertCircle, Check, Minus, Plus, RotateCcw, Trophy } from "lucide-react";
 import { clsx } from "clsx";
@@ -16,6 +16,7 @@ import type {
   MultiChoiceOption,
   ResolvedValue,
 } from "@/lib/bets/types";
+import { usePendingAction } from "@/lib/use-pending-action";
 import { gradeCustomBet, reverseCustomBetGrading } from "../actions";
 
 type Status = "draft" | "open" | "locked" | "graded" | "reversed" | "cancelled";
@@ -46,7 +47,7 @@ export function GradeForm({
     | { kind: "reversed"; picksReverted: number }
     | null
   >(null);
-  const [pending, startTransition] = useTransition();
+  const { pending, run } = usePendingAction();
 
   const canGrade =
     bet.status === "open" || bet.status === "locked" || bet.status === "reversed";
@@ -62,7 +63,7 @@ export function GradeForm({
     if (!draft) return;
     setError(null);
     setSuccess(null);
-    startTransition(async () => {
+    void run(async () => {
       const res = await gradeCustomBet(bet.id, draft, reason);
       if (!res.ok) {
         setError(translateError(res.error, isHebrew));
@@ -93,7 +94,7 @@ export function GradeForm({
     }
     setError(null);
     setSuccess(null);
-    startTransition(async () => {
+    void run(async () => {
       const res = await reverseCustomBetGrading(bet.id, reason);
       if (!res.ok) {
         setError(translateError(res.error, isHebrew));

@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState } from "react";
 import { ArrowUpRight, ChevronLeft, ChevronRight, X } from "lucide-react";
 import type { Locale } from "@/app/[lang]/dictionaries";
+import { usePendingAction } from "@/lib/use-pending-action";
 import { Card } from "./ui";
 import { WhatsAppGlyph } from "./WhatsAppGlyph";
 import { dismissWhatsAppCard } from "./whatsapp-card-actions";
@@ -40,19 +41,17 @@ export function WhatsAppInviteCard({
   initialDismissed,
 }: Props) {
   const [dismissed, setDismissed] = useState(initialDismissed);
-  const [, startTransition] = useTransition();
+  const { run } = usePendingAction();
   if (dismissed) return null;
 
   const handleDismiss = (e: React.MouseEvent | React.PointerEvent) => {
     e.preventDefault();
     e.stopPropagation();
+    // Optimistic hide; usePendingAction swallows + logs any throw from
+    // the dismiss action so this stays fire-and-forget.
     setDismissed(true);
-    startTransition(async () => {
-      try {
-        await dismissWhatsAppCard(url);
-      } catch (err) {
-        console.error("[whatsapp dismiss failed]", err);
-      }
+    void run(async () => {
+      await dismissWhatsAppCard(url);
     });
   };
 

@@ -1,10 +1,10 @@
 "use client";
 
-import { useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { RefreshCw } from "lucide-react";
 import { clsx } from "clsx";
 import type { Locale } from "../../../dictionaries";
+import { usePendingAction } from "@/lib/use-pending-action";
 import { refreshOddsForFixture } from "./actions";
 
 // "Refresh odds" affordance per fixture. fetches the latest /odds
@@ -20,10 +20,10 @@ export function RefreshFixtureButton({
 }) {
   const router = useRouter();
   const isHebrew = locale === "he";
-  const [pending, startTransition] = useTransition();
+  const { pending, run } = usePendingAction();
 
   const click = () => {
-    startTransition(async () => {
+    void run(async () => {
       await refreshOddsForFixture(matchId);
       router.refresh();
     });

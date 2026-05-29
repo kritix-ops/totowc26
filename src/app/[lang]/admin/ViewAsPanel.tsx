@@ -1,12 +1,13 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Eye, Check, AlertCircle, Shield } from "lucide-react";
 import { clsx } from "clsx";
 import type { Locale } from "../dictionaries";
 import { Card, LabelCaps, SectionHeading } from "@/components/ui";
 import type { ViewAsRole } from "@/lib/view-as";
+import { usePendingAction } from "@/lib/use-pending-action";
 import { setViewAs, clearViewAs } from "./view-as-actions";
 
 export function ViewAsPanel({
@@ -19,7 +20,7 @@ export function ViewAsPanel({
   const isHebrew = locale === "he";
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
-  const [pending, startTransition] = useTransition();
+  const { pending, run } = usePendingAction();
   const [pendingTarget, setPendingTarget] = useState<ViewAsRole | "clear" | null>(
     null,
   );
@@ -27,7 +28,7 @@ export function ViewAsPanel({
   const apply = (target: ViewAsRole | "clear") => {
     setError(null);
     setPendingTarget(target);
-    startTransition(async () => {
+    void run(async () => {
       const res =
         target === "clear" ? await clearViewAs() : await setViewAs(target);
       setPendingTarget(null);

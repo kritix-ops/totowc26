@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { AlertCircle, Check } from "lucide-react";
 import { clsx } from "clsx";
@@ -11,6 +11,7 @@ import {
   type LocalizedTuple,
 } from "@/lib/admin/errors";
 import type { Locale } from "../../../dictionaries";
+import { usePendingAction } from "@/lib/use-pending-action";
 import { saveScoringSettings, type ScoringPayload } from "./actions";
 
 // Field type - number input by default, toggle for boolean settings.
@@ -244,7 +245,7 @@ export function ScoringForm({
   const isHebrew = locale === "he";
   const router = useRouter();
   const [values, setValues] = useState<ScoringPayload>(initial);
-  const [pending, startTransition] = useTransition();
+  const { pending, run } = usePendingAction();
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
 
@@ -275,7 +276,7 @@ export function ScoringForm({
       setError("invalid");
       return;
     }
-    startTransition(async () => {
+    void run(async () => {
       const res = await saveScoringSettings(values);
       if (!res.ok) {
         setError(res.error);

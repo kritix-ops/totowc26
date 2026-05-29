@@ -1,9 +1,10 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useMemo, useState } from "react";
 import { AlertCircle, Bell, Check } from "lucide-react";
 import { clsx } from "clsx";
 import { Card, PillButton, SectionHeading } from "@/components/ui";
+import { usePendingAction } from "@/lib/use-pending-action";
 import {
   COMMON_ADMIN_ERRORS,
   translateAdminError,
@@ -37,7 +38,7 @@ export function PushTestForm({ locale, candidates, optedInCount }: Props) {
   const [userId, setUserId] = useState<string>(candidates[0]?.id ?? "");
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
-  const [pending, startTransition] = useTransition();
+  const { pending, run } = usePendingAction();
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<SendTestPushResult | null>(null);
 
@@ -59,7 +60,7 @@ export function PushTestForm({ locale, candidates, optedInCount }: Props) {
       mode === "user"
         ? { kind: "user", userId }
         : { kind: "all-opted-in" };
-    startTransition(async () => {
+    void run(async () => {
       const res = await sendTestPush(target, { title, body });
       if (!res.ok) {
         setError(res.error);

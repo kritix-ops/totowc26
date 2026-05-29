@@ -3,7 +3,6 @@
 import {
   useState,
   useMemo,
-  useTransition,
   useDeferredValue,
   useEffect,
 } from "react";
@@ -40,6 +39,7 @@ import {
 } from "@/lib/admin/errors";
 import { formatDateTime } from "@/lib/format";
 import { localePath } from "@/lib/paths";
+import { usePendingAction } from "@/lib/use-pending-action";
 import { PillButton, LabelCaps, Chip } from "@/components/ui";
 import {
   setUserRole,
@@ -247,10 +247,10 @@ function Toolbar({
   selectedCount: number;
   onInvite: () => void;
 }) {
-  const [pending, startTransition] = useTransition();
+  const { pending, run } = usePendingAction();
   const onBulkApprove = () => {
     if (!pendingCount) return;
-    startTransition(async () => {
+    void run(async () => {
       await bulkApprovePending();
     });
   };
@@ -609,7 +609,7 @@ function UserDrawer({
   const [confirm, setConfirm] = useState<"remove" | "reset" | "demote" | null>(null);
   const [regeneratedLink, setRegeneratedLink] = useState<string | null>(null);
   const [linkCopied, setLinkCopied] = useState(false);
-  const [pending, startTransition] = useTransition();
+  const { pending, run } = usePendingAction();
 
   // Reset drawer-local form state when the parent swaps to a different
   // user (or when the canonical name/phone update underneath us). A
@@ -629,7 +629,7 @@ function UserDrawer({
   /* eslint-enable react-hooks/set-state-in-effect */
 
   const wrap = (fn: () => Promise<{ ok: boolean; error?: string }>) =>
-    startTransition(async () => {
+    void run(async () => {
       setError(null);
       const res = await fn();
       if (!res.ok && res.error) setError(res.error);
@@ -831,7 +831,7 @@ function UserDrawer({
               isHebrew ? "צור קישור הזמנה חדש" : "Regenerate invite link",
               <Send className="h-4 w-4" />,
               () =>
-                startTransition(async () => {
+                void run(async () => {
                   setError(null);
                   setLinkCopied(false);
                   const res = await regenerateInviteLink(
@@ -1102,12 +1102,12 @@ function InviteDialog({
   const [error, setError] = useState<string | null>(null);
   const [inviteUrl, setInviteUrl] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
-  const [pending, startTransition] = useTransition();
+  const { pending, run } = usePendingAction();
 
   const submit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setError(null);
-    startTransition(async () => {
+    void run(async () => {
       const res = await invitePlayer(name, phone, email, window.location.origin);
       if (!res.ok) {
         setError(res.error);

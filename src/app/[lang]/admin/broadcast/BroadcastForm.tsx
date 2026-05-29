@@ -1,9 +1,10 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useMemo, useState } from "react";
 import { AlertCircle, Check, Megaphone } from "lucide-react";
 import { clsx } from "clsx";
 import { Card, PillButton, SectionHeading } from "@/components/ui";
+import { usePendingAction } from "@/lib/use-pending-action";
 import {
   COMMON_ADMIN_ERRORS,
   translateAdminError,
@@ -46,7 +47,7 @@ export function BroadcastForm({
   const [body, setBody] = useState("");
   const [url, setUrl] = useState("");
   const [push, setPush] = useState<boolean>(pushAvailable);
-  const [pending, startTransition] = useTransition();
+  const { pending, run } = usePendingAction();
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<SendBroadcastResult | null>(null);
 
@@ -69,7 +70,7 @@ export function BroadcastForm({
     if (mode === "user") target = { kind: "user", userId };
     else if (mode === "all-opted-in") target = { kind: "all-opted-in" };
     else target = { kind: "all-players" };
-    startTransition(async () => {
+    void run(async () => {
       const res = await sendBroadcast({
         title: title.trim(),
         body: body.trim(),

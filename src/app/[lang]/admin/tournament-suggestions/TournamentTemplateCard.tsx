@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -24,6 +24,7 @@ import {
 import { localePath } from "@/lib/paths";
 import type { Locale } from "@/app/[lang]/dictionaries";
 import type { AnswerConfig } from "@/lib/bets/types";
+import { usePendingAction } from "@/lib/use-pending-action";
 import { publishTournamentTemplate } from "./actions";
 import type { TournamentTemplate } from "./page";
 
@@ -51,7 +52,7 @@ export function TournamentTemplateCard({
   // the warning panel can link the admin to it. Confirming "publish anyway"
   // re-submits with force=true.
   const [duplicateExistingId, setDuplicateExistingId] = useState<string | null>(null);
-  const [pending, startTransition] = useTransition();
+  const { pending, run } = usePendingAction();
 
   const [questionHe, setQuestionHe] = useState(template.questionHe);
   const [questionEn, setQuestionEn] = useState(template.questionEn);
@@ -72,7 +73,7 @@ export function TournamentTemplateCard({
       return;
     }
     const answerConfig = buildAnswerConfig(template);
-    startTransition(async () => {
+    void run(async () => {
       const res = await publishTournamentTemplate({
         questionHe,
         questionEn,

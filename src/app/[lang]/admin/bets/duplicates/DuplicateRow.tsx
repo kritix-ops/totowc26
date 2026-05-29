@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AlertCircle, Check, Edit3, X } from "lucide-react";
@@ -9,6 +9,7 @@ import { localePath } from "@/lib/paths";
 import { formatDateTime } from "@/lib/format";
 import type { Locale } from "@/app/[lang]/dictionaries";
 import type { AdminDuplicateBetRow } from "@/db/admin-queries";
+import { usePendingAction } from "@/lib/use-pending-action";
 import { cancelCustomBet } from "../actions";
 
 // Row + actions for the duplicates screen. Client-side so the row can hide
@@ -29,7 +30,7 @@ export function DuplicateRow({
   const router = useRouter();
   const [hidden, setHidden] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [pending, startTransition] = useTransition();
+  const { pending, run } = usePendingAction();
 
   if (hidden) return null;
 
@@ -59,7 +60,7 @@ export function DuplicateRow({
     }
 
     setError(null);
-    startTransition(async () => {
+    void run(async () => {
       const res = await cancelCustomBet(row.id);
       if (!res.ok) {
         setError(

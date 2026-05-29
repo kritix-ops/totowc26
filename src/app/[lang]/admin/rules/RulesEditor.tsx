@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Bell,
@@ -21,6 +21,7 @@ import {
 import { clsx } from "clsx";
 import type { Locale } from "../../dictionaries";
 import { Card, LabelCaps } from "@/components/ui";
+import { usePendingAction } from "@/lib/use-pending-action";
 import { saveOverride } from "../content/actions";
 
 export type RulesEntry = {
@@ -303,7 +304,7 @@ function LocaleField({
   const [draft, setDraft] = useState<string>(initialOverride ?? defaultValue);
   const [status, setStatus] = useState<FieldStatus>("idle");
   const [error, setError] = useState<string | null>(null);
-  const [pending, startTransition] = useTransition();
+  const { pending, run } = usePendingAction();
 
   const isDirty = draft !== (override ?? defaultValue);
   const isOverridden = override !== null;
@@ -315,7 +316,7 @@ function LocaleField({
   const onSave = () => {
     setError(null);
     setStatus("saving");
-    startTransition(async () => {
+    void run(async () => {
       console.info("[admin rules save] start", { key: fieldKey, locale, len: draft.length });
       const res = await saveOverride({
         key: fieldKey,
@@ -340,7 +341,7 @@ function LocaleField({
   const onReset = () => {
     setError(null);
     setStatus("saving");
-    startTransition(async () => {
+    void run(async () => {
       console.info("[admin rules reset] start", { key: fieldKey, locale });
       const res = await saveOverride({
         key: fieldKey,

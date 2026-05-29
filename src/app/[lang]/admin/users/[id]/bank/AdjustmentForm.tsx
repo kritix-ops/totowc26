@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { AlertCircle, Check, Plus, Minus } from "lucide-react";
 import { clsx } from "clsx";
@@ -10,6 +10,7 @@ import {
   translateAdminError,
   type LocalizedTuple,
 } from "@/lib/admin/errors";
+import { usePendingAction } from "@/lib/use-pending-action";
 import { adjustUserPoints } from "../../actions";
 import type { Locale } from "../../../../dictionaries";
 
@@ -26,7 +27,7 @@ export function AdjustmentForm({
   const [reason, setReason] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState<{ oldBalance: number; newBalance: number } | null>(null);
-  const [pending, startTransition] = useTransition();
+  const { pending, run } = usePendingAction();
 
   const numericDelta = Number(delta);
   const valid =
@@ -43,7 +44,7 @@ export function AdjustmentForm({
       setError("invalid");
       return;
     }
-    startTransition(async () => {
+    void run(async () => {
       const res = await adjustUserPoints(
         targetUserId,
         Math.trunc(numericDelta),

@@ -1,11 +1,11 @@
 "use client";
 
-import { useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Eye, X } from "lucide-react";
 import { clsx } from "clsx";
 import type { Locale } from "@/app/[lang]/dictionaries";
 import type { ViewAsRole } from "@/lib/view-as";
+import { usePendingAction } from "@/lib/use-pending-action";
 import { clearViewAs } from "@/app/[lang]/admin/view-as-actions";
 
 // Pinned banner shown across every page while an admin is impersonating
@@ -20,7 +20,7 @@ export function ViewAsBanner({
 }) {
   const isHebrew = locale === "he";
   const router = useRouter();
-  const [pending, startTransition] = useTransition();
+  const { pending, run } = usePendingAction();
 
   const label =
     role === "paid"
@@ -32,7 +32,11 @@ export function ViewAsBanner({
         : "Viewing as an unpaid player";
 
   const handleExit = () => {
-    startTransition(async () => {
+    // usePendingAction releases the button on the action response;
+    // router.refresh() (kept, since clearViewAs revalidates the whole
+    // layout for impersonation) runs in the background and no longer
+    // holds the button on "יוצא…".
+    void run(async () => {
       await clearViewAs();
       router.refresh();
     });

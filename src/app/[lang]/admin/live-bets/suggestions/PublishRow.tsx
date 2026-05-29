@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Check, AlertCircle, Pencil } from "lucide-react";
 import { clsx } from "clsx";
@@ -10,6 +10,7 @@ import {
   translateAdminError,
   type LocalizedTuple,
 } from "@/lib/admin/errors";
+import { usePendingAction } from "@/lib/use-pending-action";
 import { publishSuggestion } from "./actions";
 
 // One row inside a market group. Shows the selection, computed
@@ -35,7 +36,7 @@ export function PublishRow(props: Props) {
   const router = useRouter();
   const isHebrew = props.locale === "he";
 
-  const [pending, startTransition] = useTransition();
+  const { pending, run } = usePendingAction();
   const [published, setPublished] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
@@ -47,7 +48,7 @@ export function PublishRow(props: Props) {
 
   const submit = () => {
     setError(null);
-    startTransition(async () => {
+    void run(async () => {
       const res = await publishSuggestion({
         matchId: props.matchId,
         marketName: props.marketName,
@@ -68,6 +69,8 @@ export function PublishRow(props: Props) {
       router.refresh();
     });
   };
+  // usePendingAction releases the button on the action response; the
+  // kept router.refresh() updates the list in the background.
 
   if (published) {
     return (

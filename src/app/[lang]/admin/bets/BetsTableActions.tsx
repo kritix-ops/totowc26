@@ -1,12 +1,13 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Send, X, Edit3, AlertCircle, Check } from "lucide-react";
 import { PillButton } from "@/components/ui";
 import { localePath } from "@/lib/paths";
 import type { Locale } from "../../dictionaries";
+import { usePendingAction } from "@/lib/use-pending-action";
 import { publishCustomBet, cancelCustomBet } from "./actions";
 
 type Status =
@@ -30,7 +31,7 @@ export function BetsTableActions({
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [okFlash, setOkFlash] = useState<"published" | "cancelled" | null>(null);
-  const [pending, startTransition] = useTransition();
+  const { pending, run } = usePendingAction();
 
   const handle = (
     fn: () => Promise<{ ok: boolean; error?: string }>,
@@ -40,7 +41,7 @@ export function BetsTableActions({
     if (confirmMsg && !window.confirm(confirmMsg)) return;
     setError(null);
     setOkFlash(null);
-    startTransition(async () => {
+    void run(async () => {
       const res = await fn();
       if (!res.ok) {
         setError(

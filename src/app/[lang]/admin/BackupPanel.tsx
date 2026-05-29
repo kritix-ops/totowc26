@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Database,
@@ -17,6 +17,7 @@ import { clsx } from "clsx";
 import { Card, LabelCaps, PillButton } from "@/components/ui";
 import type { Locale } from "../dictionaries";
 import { formatDateTime } from "@/lib/format";
+import { usePendingAction } from "@/lib/use-pending-action";
 import { runBackupNow, type RunBackupResult } from "./backup-actions";
 import type { BackupRunRow } from "@/db/admin-queries";
 
@@ -29,13 +30,13 @@ export function BackupPanel({
 }) {
   const isHebrew = locale === "he";
   const router = useRouter();
-  const [pending, startTransition] = useTransition();
+  const { pending, run } = usePendingAction();
   const [result, setResult] = useState<RunBackupResult | null>(null);
   const [ranAt, setRanAt] = useState<Date | null>(null);
 
   const onClick = () => {
     setResult(null);
-    startTransition(async () => {
+    void run(async () => {
       const res = await runBackupNow();
       setResult(res);
       setRanAt(new Date());

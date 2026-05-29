@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   RefreshCw,
@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { clsx } from "clsx";
 import { Card, LabelCaps, PillButton } from "@/components/ui";
+import { usePendingAction } from "@/lib/use-pending-action";
 import type { Locale } from "../dictionaries";
 import {
   translateAdminError,
@@ -43,13 +44,13 @@ export function SyncPanel({
 }) {
   const isHebrew = locale === "he";
   const router = useRouter();
-  const [pending, startTransition] = useTransition();
+  const { pending, run } = usePendingAction();
   const [result, setResult] = useState<RunSyncResult | null>(null);
   const [ranAt, setRanAt] = useState<Date | null>(null);
 
   const onClick = () => {
     setResult(null);
-    startTransition(async () => {
+    void run(async () => {
       const res = await runSyncNow();
       setResult(res);
       setRanAt(new Date());
@@ -188,7 +189,7 @@ function QuotaCard({
   isHebrew: boolean;
   locale: Locale;
 }) {
-  const [pending, startTransition] = useTransition();
+  const { pending, run } = usePendingAction();
   const [latest, setLatest] = useState<ApiFootballQuota | null>(quota);
 
   // Stay in sync if the server-rendered prop changes after a sync run.
@@ -200,7 +201,7 @@ function QuotaCard({
   }
 
   const onRefresh = () => {
-    startTransition(async () => {
+    void run(async () => {
       const res = await refreshApiFootballQuota();
       if (res.ok) setLatest(res.quota);
     });
@@ -419,7 +420,7 @@ function UnmappedTeamChip({
 }) {
   const [open, setOpen] = useState(false);
   const [value, setValue] = useState("");
-  const [pending, startTransition] = useTransition();
+  const { pending, run } = usePendingAction();
   const [errorKey, setErrorKey] = useState<
     "bad_input" | "team_not_found" | "id_already_in_use" | "forbidden" | null
   >(null);
@@ -440,7 +441,7 @@ function UnmappedTeamChip({
       setErrorKey("bad_input");
       return;
     }
-    startTransition(async () => {
+    void run(async () => {
       const res = await setTeamApiFootballId(code, parsed);
       if (res.ok) {
         setDone(true);

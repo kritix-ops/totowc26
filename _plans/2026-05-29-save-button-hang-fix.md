@@ -71,13 +71,45 @@ Refactored (admin inline-save panels, same failure mode):
 - `src/app/[lang]/admin/WhatsAppSettingsPanel.tsx`
 - `src/app/[lang]/admin/SignupSettingsPanel.tsx`
 
-Intentionally left on `useTransition` + `router.push`/`replace`
-(they navigate away after the action, so the transition settling is the
-navigation itself, not an in-place revalidation — no hang):
+## Full system sweep (round 2)
+
+After the player-facing fix shipped, the same primitive was applied to
+EVERY remaining inline-save surface that revalidates in place, so the
+class of bug cannot recur anywhere:
+
+- admin: PaymentsPanel, SignupRequestsList, PlayerReviewRow,
+  ViewAsPanel, ViewAsBanner, BetsTableActions, DuplicateRow, GradeForm,
+  PublishRow, RefreshFixtureButton, TournamentTemplateCard,
+  AdjustmentForm, ScoringForm, DeadlinesForm (6 sub-sections),
+  PageVisibilityForm, MobileNavForm, RulesEditor, UsersExplorer
+  (3 sub-sections), SyncPanel (3 sub-sections), BackupPanel,
+  SandboxPanel (3 sub-sections), BroadcastForm, email TestForm,
+  PushTestForm
+- player/profile: PushOptInToggle, WhatsAppInviteCard
+
+`router.refresh()` is intentionally KEPT in the converted admin forms:
+with usePendingAction (no startTransition) it is fire-and-forget — it
+returns void synchronously, so the button releases on the action
+response and the refresh runs in the background. Same data-refresh
+behaviour, no hang.
+
+## Intentionally left on `useTransition`
+
+Navigating forms (they navigate away after the action, so the
+transition settles on navigation, not an in-place revalidation — no
+hang):
 - `src/app/[lang]/login/LoginForm.tsx`
 - `src/app/[lang]/set-password/SetPasswordForm.tsx`
+- `src/app/[lang]/signup/SignupForm.tsx`
 - `src/app/[lang]/duels/new/NewDuelForm.tsx`
 - `src/app/[lang]/admin/bets/BetForm.tsx`
+- `src/components/LanguageToggle.tsx`
+- `src/components/ProfileMenu.tsx`
+
+ContentEditor: one shared transition drives many independently-saving
+rows and discards `pending` (no visible "Saving…" button). Converting
+it to the single-flight usePendingAction would wrongly serialise row
+saves, and it has no stuck-button symptom — so it stays.
 
 ## QA checklist
 

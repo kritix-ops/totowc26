@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState } from "react";
 import { AlertCircle, Check, Send } from "lucide-react";
 import { clsx } from "clsx";
 import type { Locale } from "../../dictionaries";
 import { Card, LabelCaps, SectionHeading } from "@/components/ui";
+import { usePendingAction } from "@/lib/use-pending-action";
 import {
   translateAdminError,
   type LocalizedTuple,
@@ -35,7 +36,7 @@ export function TestForm({
   const [to, setTo] = useState(defaultTo);
   const [template, setTemplate] = useState<EmailTemplate>("user_confirmation");
   const [result, setResult] = useState<SendTestEmailResult | null>(null);
-  const [pending, startTransition] = useTransition();
+  const { pending, run } = usePendingAction();
 
   const env = result?.env ?? initialEnv;
   const canSend = env.resendApiKey === "set" && !!env.emailFrom;
@@ -43,7 +44,7 @@ export function TestForm({
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     setResult(null);
-    startTransition(async () => {
+    void run(async () => {
       const res = await sendTestEmail(to, template);
       setResult(res);
     });

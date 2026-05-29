@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useMemo, useState } from "react";
 import {
   ArrowDown,
   ArrowUp,
@@ -21,6 +21,7 @@ import {
   type MobileNavConfig,
   type MobileNavItemKey,
 } from "@/lib/mobile-nav";
+import { usePendingAction } from "@/lib/use-pending-action";
 import { saveMobileNavConfig } from "./actions";
 
 type CatalogEntry = { roleGate: "player" | "admin" | null };
@@ -44,7 +45,7 @@ export function MobileNavForm({
     initial.bottomBarCount,
   );
   const [dragKey, setDragKey] = useState<MobileNavItemKey | null>(null);
-  const [pending, startTransition] = useTransition();
+  const { pending, run } = usePendingAction();
   const [savedAt, setSavedAt] = useState<number | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
@@ -90,7 +91,7 @@ export function MobileNavForm({
     e.preventDefault();
     if (!canSave) return;
     setErrorMsg(null);
-    startTransition(async () => {
+    void run(async () => {
       const res = await saveMobileNavConfig({ items, bottomBarCount });
       if (res.ok) {
         setSavedAt(Date.now());
