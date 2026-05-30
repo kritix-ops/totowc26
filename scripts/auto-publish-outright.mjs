@@ -206,11 +206,26 @@ async function applyOverridesToBet({ pattern, overrides, surface, keepDynamic })
     options: updatedOptions ?? [],
     payoutOverridesByValue: overrides,
   };
-  await sql`
-    update custom_bets
-    set answer_config = ${sql.json(newConfig)}
-    where id = ${bet.id}
-  `;
+  // For dynamic-source bets (top_scorer / golden_ball), bump the
+  // bet-level payoutSnapshot to the longshot cap so a pick on a
+  // player NOT in payoutOverridesByValue falls back to a meaningful
+  // long-shot reward (~60) instead of the template's default 14/16.
+  // Static surfaces always populate every option in the map, so the
+  // fallback is never hit there.
+  if (isDynamic) {
+    await sql`
+      update custom_bets
+      set answer_config = ${sql.json(newConfig)},
+          payout_snapshot = ${oddsConfig.maxPayout}
+      where id = ${bet.id}
+    `;
+  } else {
+    await sql`
+      update custom_bets
+      set answer_config = ${sql.json(newConfig)}
+      where id = ${bet.id}
+    `;
+  }
   return {
     bet_id: bet.id,
     priced: Object.keys(overrides).length,
