@@ -29,7 +29,26 @@ import {
   compareBranches,
   mergeBranches,
   readGithubEnv,
+  type CompareResult,
 } from "./github";
+
+// ---------------------------------------------------------------------------
+// Common error shape
+// ---------------------------------------------------------------------------
+
+export type SandboxErrorCode =
+  | "unauth"
+  | "forbidden"
+  | "not-sandbox"
+  | "missing"
+  | "db"
+  | "auth"
+  | "conflict"
+  | "github";
+
+// Every action returns a finishedAt so the client can render a
+// "completed N seconds ago" line and pin the run to a wall-clock moment.
+type Stamped = { startedAt: string; finishedAt: string; durationMs: number };
 
 // ---------------------------------------------------------------------------
 // Guards
@@ -51,24 +70,35 @@ async function requireAdminSandbox(): Promise<
   return { ok: true, adminId: user.id };
 }
 
+function nowStamps(started: number): Stamped {
+  const finished = Date.now();
+  return {
+    startedAt: new Date(started).toISOString(),
+    finishedAt: new Date(finished).toISOString(),
+    durationMs: finished - started,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // pushSettingsToProd
 // ---------------------------------------------------------------------------
 
 export type PushSettingsResult =
-  | {
+  | (Stamped & {
       ok: true;
       changedColumns: string[];
       diff: SettingsDiffEntry[];
-    }
-  | {
+    })
+  | (Stamped & {
       ok: false;
-      error: "unauth" | "forbidden" | "not-sandbox" | "missing" | "db";
-    };
+      error: Extract<SandboxErrorCode, "unauth" | "forbidden" | "not-sandbox" | "missing" | "db">;
+      detail?: string;
+    });
 
 export async function pushSettingsToProd(): Promise<PushSettingsResult> {
+  const started = Date.now();
   const guard = await requireAdminSandbox();
-  if (!guard.ok) return { ok: false, error: guard.error };
+  if (!guard.ok) return { ok: false, error: guard.error, ...nowStamps(started) };
 
   try {
     const [sandboxRow, prodRow] = await Promise.all([
@@ -80,7 +110,12 @@ export async function pushSettingsToProd(): Promise<PushSettingsResult> {
       console.info("[admin sandbox push-settings] no-op", {
         adminId: guard.adminId,
       });
-      return { ok: true, changedColumns: [], diff: [] };
+      return {
+        ok: true,
+        changedColumns: [],
+        diff: [],
+        ...nowStamps(started),
+      };
     }
     // Build a partial update with only the columns that differ. Drizzle
     // accepts a typed Partial<SettingsRow> shape; cast at the boundary
@@ -93,105 +128,196 @@ export async function pushSettingsToProd(): Promise<PushSettingsResult> {
       .update(settings)
       .set(updates as Partial<typeof settings.$inferInsert>)
       .where(eq(settings.id, 1));
+    const stamps = nowStamps(started);
     console.info("[admin sandbox push-settings]", {
       adminId: guard.adminId,
       changedCount: diff.length,
       columns: diff.map((d) => d.column),
+      durationMs: stamps.durationMs,
     });
     revalidatePath("/", "layout");
     return {
       ok: true,
       changedColumns: diff.map((d) => d.column),
       diff,
+      ...stamps,
     };
   } catch (err) {
     console.error("[admin sandbox push-settings] failed:", err);
-    return { ok: false, error: "db" };
+    return {
+      ok: false,
+      error: "db",
+      detail: (err as Error).message?.slice(0, 300),
+      ...nowStamps(started),
+    };
   }
 }
 
 // ---------------------------------------------------------------------------
-// pushCodeToProd
+// pushCodeToProd / pullCodeFromProd
 // ---------------------------------------------------------------------------
 
-export type PushCodeResult =
-  | {
+export type CodeSyncResult =
+  | (Stamped & {
       ok: true;
+      direction: "push" | "pull";
       merged: boolean;
       mergeSha?: string;
+      mergeUrl?: string;
       reason?: "up-to-date";
       aheadBy: number;
-    }
-  | {
+      commits: { sha: string; message: string; author: string | null }[];
+      base: string;
+      head: string;
+    })
+  | (Stamped & {
       ok: false;
-      error: "unauth" | "forbidden" | "not-sandbox" | "auth" | "conflict" | "github";
+      direction: "push" | "pull";
+      error: Extract<SandboxErrorCode, "unauth" | "forbidden" | "not-sandbox" | "auth" | "conflict" | "github">;
       detail?: string;
-    };
+    });
+
+// Backward-compatible alias.
+export type PushCodeResult = CodeSyncResult;
 
 const PROD_BRANCH = "master";
 const SANDBOX_BRANCH = "sandbox";
 
-export async function pushCodeToProd(
+async function syncCode(
+  direction: "push" | "pull",
   rawMessage: string,
-): Promise<PushCodeResult> {
+): Promise<CodeSyncResult> {
+  const started = Date.now();
   const guard = await requireAdminSandbox();
-  if (!guard.ok) return { ok: false, error: guard.error };
+  if (!guard.ok) {
+    return { ok: false, direction, error: guard.error, ...nowStamps(started) };
+  }
 
-  const message = (rawMessage || "").trim().slice(0, 200) ||
-    `chore: promote sandbox to production (${formatIlNow()})`;
+  // push: base=master, head=sandbox → sandbox into master.
+  // pull: base=sandbox, head=master → master into sandbox.
+  const base = direction === "push" ? PROD_BRANCH : SANDBOX_BRANCH;
+  const head = direction === "push" ? SANDBOX_BRANCH : PROD_BRANCH;
+  const defaultMsg =
+    direction === "push"
+      ? `chore: promote sandbox to production (${formatIlNow()})`
+      : `chore: sync master into sandbox (${formatIlNow()})`;
+  const message = (rawMessage || "").trim().slice(0, 200) || defaultMsg;
+  const ns = direction === "push" ? "push-code" : "pull-code";
 
   let env;
   try {
     env = readGithubEnv();
   } catch (err) {
-    console.error("[admin sandbox push-code] missing env:", err);
-    return { ok: false, error: "github", detail: (err as Error).message };
+    console.error(`[admin sandbox ${ns}] missing env:`, err);
+    return {
+      ok: false,
+      direction,
+      error: "github",
+      detail: (err as Error).message,
+      ...nowStamps(started),
+    };
   }
 
   try {
-    const compare = await compareBranches(env, PROD_BRANCH, SANDBOX_BRANCH);
+    const compare: CompareResult = await compareBranches(env, base, head);
     if (compare.aheadBy === 0) {
-      console.info("[admin sandbox push-code] up-to-date", {
+      console.info(`[admin sandbox ${ns}] up-to-date`, {
         adminId: guard.adminId,
+        base,
+        head,
       });
-      return { ok: true, merged: false, reason: "up-to-date", aheadBy: 0 };
+      return {
+        ok: true,
+        direction,
+        merged: false,
+        reason: "up-to-date",
+        aheadBy: 0,
+        commits: [],
+        base,
+        head,
+        ...nowStamps(started),
+      };
     }
-    const outcome = await mergeBranches(
-      env,
-      PROD_BRANCH,
-      SANDBOX_BRANCH,
-      message,
-    );
+    const outcome = await mergeBranches(env, base, head, message);
     if (outcome.kind === "conflict") {
-      console.warn("[admin sandbox push-code] conflict", {
+      console.warn(`[admin sandbox ${ns}] conflict`, {
         adminId: guard.adminId,
+        base,
+        head,
         detail: outcome.detail.slice(0, 200),
       });
-      return { ok: false, error: "conflict", detail: outcome.detail };
+      return {
+        ok: false,
+        direction,
+        error: "conflict",
+        detail: outcome.detail,
+        ...nowStamps(started),
+      };
     }
     if (outcome.kind === "up-to-date") {
-      return { ok: true, merged: false, reason: "up-to-date", aheadBy: 0 };
+      return {
+        ok: true,
+        direction,
+        merged: false,
+        reason: "up-to-date",
+        aheadBy: 0,
+        commits: [],
+        base,
+        head,
+        ...nowStamps(started),
+      };
     }
-    console.info("[admin sandbox push-code]", {
+    const stamps = nowStamps(started);
+    const mergeUrl = `https://github.com/${env.owner}/${env.repo}/commit/${outcome.sha}`;
+    console.info(`[admin sandbox ${ns}]`, {
       adminId: guard.adminId,
+      base,
+      head,
       mergeSha: outcome.sha,
       aheadBy: compare.aheadBy,
+      durationMs: stamps.durationMs,
     });
     return {
       ok: true,
+      direction,
       merged: true,
       mergeSha: outcome.sha,
+      mergeUrl,
       aheadBy: compare.aheadBy,
+      commits: compare.commits.slice(-20),
+      base,
+      head,
+      ...stamps,
     };
   } catch (err) {
     const msg = (err as Error).message || String(err);
     if (msg.includes("(401)") || msg.includes("(403)")) {
-      console.error("[admin sandbox push-code] auth failed:", err);
-      return { ok: false, error: "auth", detail: msg };
+      console.error(`[admin sandbox ${ns}] auth failed:`, err);
+      return {
+        ok: false,
+        direction,
+        error: "auth",
+        detail: msg,
+        ...nowStamps(started),
+      };
     }
-    console.error("[admin sandbox push-code] failed:", err);
-    return { ok: false, error: "github", detail: msg.slice(0, 300) };
+    console.error(`[admin sandbox ${ns}] failed:`, err);
+    return {
+      ok: false,
+      direction,
+      error: "github",
+      detail: msg.slice(0, 300),
+      ...nowStamps(started),
+    };
   }
+}
+
+export async function pushCodeToProd(rawMessage: string): Promise<CodeSyncResult> {
+  return syncCode("push", rawMessage);
+}
+
+export async function pullCodeFromProd(rawMessage: string): Promise<CodeSyncResult> {
+  return syncCode("pull", rawMessage);
 }
 
 function formatIlNow(): string {
@@ -230,24 +356,35 @@ const REFRESH_TABLES = [
   { name: "content_overrides", schema: contentOverrides },
 ] as const;
 
+export type RefreshTableStep = {
+  table: string;
+  rowsCopied: number;
+  fetchMs: number;
+  insertMs: number;
+};
+
 export type RefreshResult =
-  | {
+  | (Stamped & {
       ok: true;
       perTable: Record<string, number>;
-      durationMs: number;
-    }
-  | {
+      steps: RefreshTableStep[];
+      truncateMs: number;
+      totalRows: number;
+    })
+  | (Stamped & {
       ok: false;
-      error: "unauth" | "forbidden" | "not-sandbox" | "db";
+      error: Extract<SandboxErrorCode, "unauth" | "forbidden" | "not-sandbox" | "db">;
       detail?: string;
-    };
+      steps?: RefreshTableStep[];
+    });
 
 export async function refreshSandboxFromProd(): Promise<RefreshResult> {
-  const guard = await requireAdminSandbox();
-  if (!guard.ok) return { ok: false, error: guard.error };
-
   const started = Date.now();
+  const guard = await requireAdminSandbox();
+  if (!guard.ok) return { ok: false, error: guard.error, ...nowStamps(started) };
+
   const perTable: Record<string, number> = {};
+  const steps: RefreshTableStep[] = [];
   const tableList = REFRESH_TABLES.map((t) => t.name).join(", ");
 
   try {
@@ -255,46 +392,67 @@ export async function refreshSandboxFromProd(): Promise<RefreshResult> {
     // sandbox DB untouched. Then truncate + insert inside one
     // transaction so a failure mid-restore rolls back.
     const prodRows: Record<string, unknown[]> = {};
+    const fetchTimings: Record<string, number> = {};
     for (const t of REFRESH_TABLES) {
+      const t0 = Date.now();
       const rows = await prodDb().select().from(t.schema as never);
+      fetchTimings[t.name] = Date.now() - t0;
       prodRows[t.name] = rows;
     }
 
+    const truncateStart = Date.now();
+    let truncateMs = 0;
+
     await db.transaction(async (tx) => {
-      // One TRUNCATE ... CASCADE wipes every refreshable table in a
-      // single statement. CASCADE follows FKs so dependent rows in the
-      // same group go with them; profiles/bets/payments are excluded
-      // from this list and won't be touched unless a FK from a
-      // refreshable table reaches into them (they don't - the bet
-      // tables point at profiles/matches, not the reverse).
       await tx.execute(
         sql.raw(`TRUNCATE TABLE ${tableList} RESTART IDENTITY CASCADE`),
       );
+      truncateMs = Date.now() - truncateStart;
       for (const t of REFRESH_TABLES) {
         const rows = prodRows[t.name]!;
+        const insertStart = Date.now();
         if (rows.length > 0) {
           await tx
             .insert(t.schema as never)
             .values(rows as never[]);
         }
+        const insertMs = Date.now() - insertStart;
         perTable[t.name] = rows.length;
+        steps.push({
+          table: t.name,
+          rowsCopied: rows.length,
+          fetchMs: fetchTimings[t.name] ?? 0,
+          insertMs,
+        });
       }
     });
 
-    const durationMs = Date.now() - started;
+    const stamps = nowStamps(started);
+    const totalRows = Object.values(perTable).reduce((s, n) => s + n, 0);
     console.info("[admin sandbox refresh-data]", {
       adminId: guard.adminId,
       perTable,
-      durationMs,
+      totalRows,
+      truncateMs,
+      durationMs: stamps.durationMs,
     });
     revalidatePath("/", "layout");
-    return { ok: true, perTable, durationMs };
+    return {
+      ok: true,
+      perTable,
+      steps,
+      truncateMs,
+      totalRows,
+      ...stamps,
+    };
   } catch (err) {
     console.error("[admin sandbox refresh-data] failed:", err);
     return {
       ok: false,
       error: "db",
       detail: (err as Error).message?.slice(0, 300),
+      steps,
+      ...nowStamps(started),
     };
   }
 }

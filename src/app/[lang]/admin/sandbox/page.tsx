@@ -8,10 +8,9 @@ import { loadSettingsDiff } from "./diff-helpers";
 import { compareBranches, readGithubEnv } from "./github";
 import { SandboxPanel, type GitCompareSummary } from "./SandboxPanel";
 
-// Admin-only landing for the three "promote sandbox → production"
-// controls plus "refresh sandbox data from production". The whole page
-// hard-404s on production - the env-var guard is the load-bearing
-// check, the server actions repeat it for defense in depth.
+// Admin-only landing for the four "sandbox ↔ production" controls. The
+// whole page hard-404s on production - the env-var guard is the
+// load-bearing check, the server actions repeat it for defense in depth.
 export default async function AdminSandboxPage({
   params,
 }: PageProps<"/[lang]/admin/sandbox">) {
@@ -48,8 +47,8 @@ export default async function AdminSandboxPage({
         </h1>
         <p className="text-sm md:text-base text-on-surface-variant">
           {isHebrew
-            ? "שלוש פעולות לקשר בין הסאנדבוקס לפרודקשן: לדחוף הגדרות, לדחוף קוד, ולשאוב נתונים מהפרוד לסאנדבוקס לבדיקה על מצב אמיתי."
-            : "Three actions that bridge sandbox and production: push settings, push code, and pull data from prod into sandbox for realistic testing."}
+            ? "ארבע פעולות לקשר בין הסאנדבוקס לפרודקשן: לדחוף הגדרות, לדחוף קוד, למשוך קוד מהפרוד, ולשאוב נתונים מהפרוד."
+            : "Four actions that bridge sandbox and production: push settings, push code, pull code from prod, and refresh data from prod."}
         </p>
       </header>
 
@@ -70,14 +69,22 @@ export default async function AdminSandboxPage({
   );
 }
 
+// One compare API call gives us aheadBy + behindBy + the commits sandbox
+// has but master doesn't (the push candidates). For the pull candidates
+// we need the mirror call (base=sandbox, head=master) so the commits
+// list contains what master has that sandbox doesn't.
 async function loadBranchCompare(): Promise<GitCompareSummary | null> {
   try {
     const env = readGithubEnv();
-    const compare = await compareBranches(env, "master", "sandbox");
+    const [pushCompare, pullCompare] = await Promise.all([
+      compareBranches(env, "master", "sandbox"),
+      compareBranches(env, "sandbox", "master"),
+    ]);
     return {
-      aheadBy: compare.aheadBy,
-      behindBy: compare.behindBy,
-      commits: compare.commits.slice(-20),
+      aheadBy: pushCompare.aheadBy,
+      behindBy: pushCompare.behindBy,
+      pushCommits: pushCompare.commits.slice(-20),
+      pullCommits: pullCompare.commits.slice(-20),
     };
   } catch (err) {
     console.error("[admin sandbox page] github compare failed:", err);
