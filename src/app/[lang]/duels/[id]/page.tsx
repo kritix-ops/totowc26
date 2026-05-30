@@ -9,6 +9,7 @@ import { getRequestUser } from "@/lib/request-user";
 import { getUserAccess } from "@/lib/access";
 import { isAdmin } from "@/lib/admin";
 import { execFirstRow } from "@/db/helpers";
+import { getBankBalance } from "@/lib/bank";
 import { localePath } from "@/lib/paths";
 import { formatDateTime } from "@/lib/format";
 import { serverNow } from "@/lib/server-now";
@@ -49,10 +50,12 @@ export default async function DuelDetailPage({ params }: PageParams) {
 
   const user = await getRequestUser();
   if (!user) redirect(localePath(locale, "login"));
-  const access = await getUserAccess(user.id);
-  const admin = await isAdmin(user.id);
-
-  const duel = await loadDuel(id);
+  const [access, admin, duel, bankBalance] = await Promise.all([
+    getUserAccess(user.id),
+    isAdmin(user.id),
+    loadDuel(id),
+    getBankBalance(user.id),
+  ]);
   if (!duel) notFound();
 
   const iAmOpener = duel.openerId === user.id;
@@ -158,6 +161,8 @@ export default async function DuelDetailPage({ params }: PageParams) {
         dict={dict}
         duelId={duel.id}
         status={duel.status}
+        stake={duel.stake}
+        bankBalance={bankBalance}
         iAmOpener={iAmOpener}
         isAdmin={admin}
         canEdit={access.canEdit}
