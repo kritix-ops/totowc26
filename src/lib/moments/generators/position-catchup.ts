@@ -1,7 +1,6 @@
 import "server-only";
 
 import { sql } from "drizzle-orm";
-import { TrendingUp } from "lucide-react";
 import { execFirstRow } from "@/db/helpers";
 import { getMyRankSummary } from "@/db/queries";
 import { localePath } from "@/lib/paths";
@@ -88,7 +87,7 @@ export const positionCatchup: Generator = async (ctx) => {
     type: "position_catchup" as const,
     urgency: "opportunity" as const,
     score,
-    icon: TrendingUp,
+    icon: "TrendingUp" as const,
     title: isHebrew
       ? `מקום ${rank.myRank} מתוך ${rank.total} - יש מה לעשות`
       : `Rank ${rank.myRank} of ${rank.total} - room to climb`,

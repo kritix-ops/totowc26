@@ -1,7 +1,6 @@
 import "server-only";
 
 import { sql } from "drizzle-orm";
-import { CalendarClock } from "lucide-react";
 import { execFirstRow } from "@/db/helpers";
 import { localePath } from "@/lib/paths";
 import type { Generator, Moment } from "../types";
@@ -69,7 +68,7 @@ export const unpickedMatchImminent: Generator = async (ctx) => {
     type: "unpicked_match_imminent",
     urgency,
     score,
-    icon: CalendarClock,
+    icon: "CalendarClock",
     title: isHebrew
       ? `עוד לא ניחשת על ${matchup}`
       : `You haven't picked ${matchup}`,

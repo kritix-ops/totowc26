@@ -1,7 +1,6 @@
 import "server-only";
 
 import { sql } from "drizzle-orm";
-import { Swords } from "lucide-react";
 import { execRows } from "@/db/helpers";
 import { localePath } from "@/lib/paths";
 import type { Generator } from "../types";
@@ -84,7 +83,7 @@ export const pendingDuelInvite: Generator = async (ctx) => {
     type: "pending_duel_invite",
     urgency: "time",
     score: 90,
-    icon: Swords,
+    icon: "Swords",
     title,
     body,
     ctaLabel: isHebrew

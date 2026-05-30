@@ -1,7 +1,6 @@
 import "server-only";
 
 import { sql } from "drizzle-orm";
-import { Swords } from "lucide-react";
 import { execFirstRow } from "@/db/helpers";
 import { localePath } from "@/lib/paths";
 import type { Generator } from "../types";
@@ -102,7 +101,7 @@ export const duelOpportunity: Generator = async (ctx) => {
     type: "duel_opportunity",
     urgency: "opportunity",
     score,
-    icon: Swords,
+    icon: "Swords",
     title: isHebrew
       ? `${r.opener_name} ${rankGap === 1 ? "מקום אחד" : `${rankGap} מקומות`} מעלייך - יש הזדמנות`
       : `${r.opener_name} is ${rankGap} rank${rankGap > 1 ? "s" : ""} ahead - duel time?`,
