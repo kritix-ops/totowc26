@@ -10,7 +10,7 @@
     },
     {
       "path": "/api/cron/odds-sync",
-      "schedule": "0 */12 * * *"
+      "schedule": "0 12 * * *"
     }
   ]
 }
