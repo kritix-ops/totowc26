@@ -26,6 +26,57 @@ import { RefreshFixtureButton } from "./RefreshFixtureButton";
 //   - Home/Away (no draw) is a Match Winner subset - skip 2 as well.
 const SKIPPED_MARKET_IDS = new Set<number>([1, 2, 19]);
 
+// Bilingual labels for the market shapes The Odds API surfaces. Keyed
+// by the canonical English name we get from src/lib/the-odds-api.ts so
+// the lookup survives wrapper-side relabels. Anything that misses the
+// table renders the English string unchanged.
+const MARKET_NAME_HE: Record<string, string> = {
+  "Match Winner": "מנצח/ת המשחק",
+  "Goals Over/Under": "מעל/מתחת לסך שערים",
+  "Both Teams to Score": "שתי הקבוצות יבקיעו",
+  "Asian Handicap": "הנדיקאפ אסייתי",
+};
+
+function localiseMarketName(en: string, isHebrew: boolean): string {
+  if (!isHebrew) return en;
+  return MARKET_NAME_HE[en] ?? en;
+}
+
+// Selection labels for the Hebrew side.
+//   - h2h: constants Home/Draw/Away (pinned in aggregateH2H).
+//   - totals: "<Over|Under> <point>" strings.
+//   - btts: Yes/No.
+//   - spreads: "<Home|Away> <signed point>" e.g. "Home -1.5".
+function localiseSelectionLabel(
+  en: string,
+  isHebrew: boolean,
+  homeName?: string,
+  awayName?: string,
+): string {
+  if (!isHebrew) return en;
+  if (en === "Home") return homeName ?? "בית מנצח";
+  if (en === "Away") return awayName ?? "חוץ מנצח";
+  if (en === "Draw") return "תיקו";
+  if (en === "Yes") return "כן";
+  if (en === "No") return "לא";
+  // Totals: "Over 2.5" / "Under 2.5".
+  const totals = /^(Over|Under)\s+([\d.]+)$/.exec(en.trim());
+  if (totals) {
+    const verb = totals[1] === "Over" ? "מעל" : "מתחת ל-";
+    return `${verb}${totals[2]} שערים`;
+  }
+  // Spreads: "Home -1.5" / "Away +1.5".
+  const spread = /^(Home|Away)\s+([+-]?[\d.]+)$/.exec(en.trim());
+  if (spread) {
+    const sideHe =
+      spread[1] === "Home"
+        ? (homeName ?? "בית")
+        : (awayName ?? "חוץ");
+    return `${sideHe} (${spread[2]})`;
+  }
+  return en;
+}
+
 type SearchSP = { date?: string | string[] };
 
 // Explicit prop typing - this route lives under [lang] so the auto-
@@ -299,11 +350,12 @@ function MarketGroup({
   oddsConfig: OddsNormConfig;
 }) {
   const isHebrew = locale === "he";
+  const marketNameDisplay = localiseMarketName(market.name, isHebrew);
   return (
     <div className="flex flex-col gap-2 p-3 rounded-lg bg-surface-container-low border border-outline-variant">
       <SectionHeading underline="thin" as="h3">
         <span className="inline-flex items-center gap-2">
-          <span>{market.name}</span>
+          <span>{marketNameDisplay}</span>
           <Chip className="text-xs">
             {market.selections.length}{" "}
             {isHebrew ? "אפשרויות" : "options"}
@@ -313,10 +365,23 @@ function MarketGroup({
       <ul className="flex flex-col gap-2">
         {market.selections.map((sel) => {
           const { stake, payout } = normalizeOdds(sel.decimalOdds, oddsConfig);
+          const selectionLabelDisplay = localiseSelectionLabel(
+            sel.label,
+            isHebrew,
+            homeName,
+            awayName,
+          );
           const { questionHe, questionEn, gradingRuleHe, gradingRuleEn } =
             buildBetCopy({
-              marketName: market.name,
-              selectionLabel: sel.label,
+              marketNameHe: localiseMarketName(market.name, true),
+              marketNameEn: market.name,
+              selectionLabelHe: localiseSelectionLabel(
+                sel.label,
+                true,
+                homeName,
+                awayName,
+              ),
+              selectionLabelEn: sel.label,
               homeName,
               awayName,
             });
@@ -325,8 +390,8 @@ function MarketGroup({
               <PublishRow
                 locale={locale}
                 matchId={matchId}
-                marketName={market.name}
-                selectionLabel={sel.label}
+                marketName={marketNameDisplay}
+                selectionLabel={selectionLabelDisplay}
                 decimalOdds={sel.decimalOdds}
                 stake={stake}
                 payout={payout}
@@ -345,15 +410,23 @@ function MarketGroup({
 
 // Generate plain-language question + grading rule copy for a market+selection.
 // Kept dumb on purpose - the admin can edit the strings inline before
-// publishing if a market needs special phrasing.
+// publishing if a market needs special phrasing. Takes bilingual labels
+// so the Hebrew side actually reads as Hebrew and the English side stays
+// canonical — previously the same English string was reused on both
+// sides, which left Hebrew users reading "Goals Over/Under - Over 2.5"
+// even when the page locale was 'he'.
 function buildBetCopy({
-  marketName,
-  selectionLabel,
+  marketNameHe,
+  marketNameEn,
+  selectionLabelHe,
+  selectionLabelEn,
   homeName,
   awayName,
 }: {
-  marketName: string;
-  selectionLabel: string;
+  marketNameHe: string;
+  marketNameEn: string;
+  selectionLabelHe: string;
+  selectionLabelEn: string;
   homeName: string;
   awayName: string;
 }): {
@@ -365,10 +438,10 @@ function buildBetCopy({
   const fixtureHe = `${homeName} נגד ${awayName}`;
   const fixtureEn = `${homeName} vs ${awayName}`;
   return {
-    questionHe: `${marketName} - ${selectionLabel} (${fixtureHe})`,
-    questionEn: `${marketName} - ${selectionLabel} (${fixtureEn})`,
-    gradingRuleHe: `כן אם השוק "${marketName}" סגר על "${selectionLabel}" במשחק ${fixtureHe}, אחרת לא.`,
-    gradingRuleEn: `Yes if market "${marketName}" settles on "${selectionLabel}" for ${fixtureEn}, otherwise no.`,
+    questionHe: `${marketNameHe} - ${selectionLabelHe} (${fixtureHe})`,
+    questionEn: `${marketNameEn} - ${selectionLabelEn} (${fixtureEn})`,
+    gradingRuleHe: `כן אם השוק "${marketNameHe}" סגר על "${selectionLabelHe}" במשחק ${fixtureHe}, אחרת לא.`,
+    gradingRuleEn: `Yes if market "${marketNameEn}" settles on "${selectionLabelEn}" for ${fixtureEn}, otherwise no.`,
   };
 }
 

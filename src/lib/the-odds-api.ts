@@ -50,7 +50,21 @@ const KICKOFF_TOLERANCE_MS = 60 * 60 * 1000;
 // suggestions page, the published-bet rows tagged by market id) keep
 // working with no if-elses.
 const MARKET_ID_H2H = 1; // API-Football "Match Winner"
+const MARKET_ID_SPREADS = 4; // API-Football "Asian Handicap"
 const MARKET_ID_TOTALS = 5; // API-Football "Goals Over/Under"
+const MARKET_ID_BTTS = 8; // API-Football "Both Teams Score"
+
+// HONEST CAVEAT: The Odds API's soccer feed does NOT expose corners,
+// cards (yellow/red), shots, fouls, possession, or any other per-team
+// statistical market. Those markets exist at real bookmakers (Bet365,
+// Betfair) but are part of "additional markets" that wholesale data
+// providers like The Odds API don't carry for soccer. To support them
+// we would need a different provider (paid, typically $200+/mo) or
+// manual admin entry. Per the project's "friends pool, not a
+// business" constraint we keep the suggestions UI to the markets we
+// can actually pull, and admins create custom_bets manually for
+// corners/cards (the standard /admin/bets flow already supports them
+// via the AutoApiFootballStat enum once API-Football grading runs).
 
 // ---------- API response types ----------
 
@@ -196,7 +210,12 @@ export async function fetchWcMatchOdds(args: {
   awayTeamEn: string;
   kickoffAt: Date;
 }): Promise<MarketOdds[] | null> {
-  const events = await fetchBoard(["h2h", "totals"]);
+  // Markets fetched: h2h (1X2), totals (goals over/under), btts (both
+  // teams to score yes/no), spreads (Asian handicap on goals). Each
+  // costs 1 credit per cron pass against the full WC board — 4 credits
+  // total. Per the budget calc above the cron schedule keeps us
+  // comfortably inside the free 500-credits/month tier.
+  const events = await fetchBoard(["h2h", "totals", "btts", "spreads"]);
   if (events == null) return null;
 
   const koMs = args.kickoffAt.getTime();
@@ -216,17 +235,38 @@ export async function fetchWcMatchOdds(args: {
     return [];
   }
 
+  // The emit shape is "one MarketOdds = one bet a friend will pick from".
+  // For h2h that's 1 entry with 3 options (Home/Draw/Away). For totals
+  // and spreads, the bookmaker offers MANY lines (2.5 / 3.5 / 4.5 / …)
+  // and EACH line is its own bet with 2 paired options — the user
+  // picks Over OR Under at that line. Emitting per-line keeps the
+  // suggestions UI showing "Over/Under 2.5 goals" as a single 2-option
+  // bet rather than 4 disconnected yes/no rows.
   const out: MarketOdds[] = [];
   const h2h = aggregateH2H(event);
   if (h2h.length > 0) {
     out.push({ marketId: MARKET_ID_H2H, name: "Match Winner", selections: h2h });
   }
-  const totals = aggregateTotals(event);
-  if (totals.length > 0) {
+  for (const group of aggregateTotals(event)) {
     out.push({
       marketId: MARKET_ID_TOTALS,
-      name: "Goals Over/Under",
-      selections: totals,
+      name: `Goals Over/Under ${group.point.toFixed(1)}`,
+      selections: group.selections,
+    });
+  }
+  const btts = aggregateBTTS(event);
+  if (btts.length > 0) {
+    out.push({
+      marketId: MARKET_ID_BTTS,
+      name: "Both Teams to Score",
+      selections: btts,
+    });
+  }
+  for (const group of aggregateSpreads(event)) {
+    out.push({
+      marketId: MARKET_ID_SPREADS,
+      name: `Asian Handicap ${group.point.toFixed(1)}`,
+      selections: group.selections,
     });
   }
   return out;
@@ -360,12 +400,18 @@ function aggregateH2H(event: OddsApiEvent): MarketOdds["selections"] {
   return out;
 }
 
-function aggregateTotals(event: OddsApiEvent): MarketOdds["selections"] {
-  // totals outcomes carry an additional `point` (e.g. 2.5). Group by
-  // name + point so different lines don't blend; the suggestions page
-  // surfaces each line separately.
-  const prices = new Map<string, number[]>();
-  const pointBy = new Map<string, number>();
+type Group = { point: number; selections: MarketOdds["selections"] };
+
+function aggregateTotals(event: OddsApiEvent): Group[] {
+  // totals outcomes carry a `point` (e.g. 2.5). One bookmaker prices
+  // Over 2.5 AND Under 2.5 as a PAIR — they share one line. Group by
+  // point so each line becomes a self-contained 2-option bet (Over /
+  // Under). Caller flattens to MarketOdds[] with the point baked into
+  // the market name.
+  const byPoint = new Map<
+    number,
+    { over: number[]; under: number[] }
+  >();
   for (const bm of event.bookmakers) {
     const market = bm.markets.find((m) => m.key === "totals");
     if (!market) continue;
@@ -374,21 +420,97 @@ function aggregateTotals(event: OddsApiEvent): MarketOdds["selections"] {
       if (!Number.isFinite(p) || p <= 1) continue;
       const point = typeof o.point === "number" ? o.point : null;
       if (point == null) continue;
-      const key = `${o.name}:${point}`;
-      const arr = prices.get(key) ?? [];
+      const bucket = byPoint.get(point) ?? { over: [], under: [] };
+      const side = normaliseName(o.name);
+      if (side === "over") bucket.over.push(p);
+      else if (side === "under") bucket.under.push(p);
+      byPoint.set(point, bucket);
+    }
+  }
+  const out: Group[] = [];
+  for (const [point, { over, under }] of byPoint) {
+    const overMed = median(over);
+    const underMed = median(under);
+    // Skip half-lines where only one side priced — the user can't pick
+    // an Over without an Under to pair against.
+    if (overMed == null || underMed == null) continue;
+    out.push({
+      point,
+      selections: [
+        { label: `Over ${point.toFixed(1)}`, decimalOdds: overMed },
+        { label: `Under ${point.toFixed(1)}`, decimalOdds: underMed },
+      ],
+    });
+  }
+  out.sort((a, b) => a.point - b.point);
+  return out;
+}
+
+function aggregateBTTS(event: OddsApiEvent): MarketOdds["selections"] {
+  // btts (both teams to score) outcomes are simple "Yes" / "No"
+  // labels. No `point`, no team-name normalisation needed.
+  const prices = new Map<string, number[]>();
+  for (const bm of event.bookmakers) {
+    const market = bm.markets.find((m) => m.key === "btts");
+    if (!market) continue;
+    for (const o of market.outcomes) {
+      const p = Number(o.price);
+      if (!Number.isFinite(p) || p <= 1) continue;
+      const k = normaliseName(o.name);
+      let label: string | null = null;
+      if (k === "yes") label = "Yes";
+      else if (k === "no") label = "No";
+      if (!label) continue;
+      const arr = prices.get(label) ?? [];
       arr.push(p);
-      prices.set(key, arr);
-      pointBy.set(key, point);
+      prices.set(label, arr);
+    }
+  }
+  const out: MarketOdds["selections"] = [];
+  for (const label of ["Yes", "No"] as const) {
+    const m = median(prices.get(label) ?? []);
+    if (m != null) out.push({ label, decimalOdds: m });
+  }
+  return out;
+}
+
+function aggregateSpreads(event: OddsApiEvent): MarketOdds["selections"] {
+  // spreads (handicap on goals) outcomes carry a `point` (the
+  // handicap, e.g. -1.5 / +1.5) AND the team name. Group by
+  // canonical team-side + point so each handicap line gets its own
+  // selection. Label format: "<Home|Away> <signed point>".
+  const prices = new Map<string, number[]>();
+  for (const bm of event.bookmakers) {
+    const market = bm.markets.find((m) => m.key === "spreads");
+    if (!market) continue;
+    for (const o of market.outcomes) {
+      const p = Number(o.price);
+      if (!Number.isFinite(p) || p <= 1) continue;
+      const point = typeof o.point === "number" ? o.point : null;
+      if (point == null) continue;
+      let side: "Home" | "Away" | null = null;
+      if (teamsMatch(o.name, event.home_team)) side = "Home";
+      else if (teamsMatch(o.name, event.away_team)) side = "Away";
+      if (!side) continue;
+      const k = `${side}:${point}`;
+      const arr = prices.get(k) ?? [];
+      arr.push(p);
+      prices.set(k, arr);
     }
   }
   const out: MarketOdds["selections"] = [];
   for (const [key, arr] of prices) {
     const m = median(arr);
     if (m == null) continue;
-    const point = pointBy.get(key) ?? 0;
-    const [name] = key.split(":");
-    out.push({ label: `${name} ${point.toFixed(1)}`, decimalOdds: m });
+    const [side, pointStr] = key.split(":");
+    const point = Number(pointStr);
+    const sign = point > 0 ? "+" : "";
+    out.push({
+      label: `${side} ${sign}${point.toFixed(1)}`,
+      decimalOdds: m,
+    });
   }
+  // Sort: Home lines together then Away, each ascending by point.
   out.sort((a, b) => a.label.localeCompare(b.label));
   return out;
 }
