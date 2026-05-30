@@ -3,7 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { sql } from "drizzle-orm";
 import { ChevronLeft, ChevronRight, Swords } from "lucide-react";
 import { getDictionary, hasLocale, type Locale } from "../../dictionaries";
-import { Card, Chip, LabelCaps, SectionHeading } from "@/components/ui";
+import { Card, Chip, LabelCaps, MatchupLabel, SectionHeading } from "@/components/ui";
 import { PayGateBanner } from "@/components/PayGateBanner";
 import { getRequestUser } from "@/lib/request-user";
 import { getUserAccess } from "@/lib/access";
@@ -91,7 +91,20 @@ export default async function DuelDetailPage({ params }: PageParams) {
         <div className="flex flex-wrap gap-2">
           <Chip>{scopeLabel(duel.scope, dict)}</Chip>
           {duel.matchLabel && (
-            <Chip className="bidi-ltr">{duel.matchLabel}</Chip>
+            <Chip>
+              {(() => {
+                const m = parseMatchupLabel(duel.matchLabel);
+                return m ? (
+                  <MatchupLabel
+                    home={m.home}
+                    away={m.away}
+                    locale={locale}
+                  />
+                ) : (
+                  duel.matchLabel
+                );
+              })()}
+            </Chip>
           )}
           <Chip tone={statusTone(duel.status)}>
             {statusLabel(duel.status, dict)}
@@ -263,6 +276,18 @@ function statusTone(
     case "cancelled":
       return "warning";
   }
+}
+
+// Same shape as duels/page.tsx — see the comment there for why we split
+// the SQL-built "<HOME> vs <AWAY>" string back into two codes before
+// rendering. Duplicated rather than imported to keep each page's parsing
+// self-contained.
+function parseMatchupLabel(
+  label: string,
+): { home: string; away: string } | null {
+  const m = label.match(/^(.+?)\s+vs\s+(.+)$/);
+  if (!m) return null;
+  return { home: m[1].trim(), away: m[2].trim() };
 }
 
 async function loadDuel(id: string): Promise<DuelDetail | null> {

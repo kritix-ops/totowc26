@@ -60,6 +60,7 @@ import {
   Chip,
   LabelCaps,
   ScoreDigit,
+  ScoreLine,
   SectionHeading,
 } from "@/components/ui";
 
@@ -1014,11 +1015,17 @@ function LastBetCard({
       <div className="p-5 md:p-6 bg-[#FBF6EB] flex flex-col gap-4">
         <div className="flex justify-between items-center">
           <LabelCaps>{dict.dashboard.yourBet}</LabelCaps>
-          <span className="font-[family-name:var(--font-score)] text-[24px] md:text-[28px] leading-none tracking-[0.1em] font-bold text-on-surface">
-            <span className="bidi-ltr">
-              {hasBet ? `${match.myHome} - ${match.myAway}` : "-"}
+          {hasBet ? (
+            <ScoreLine
+              home={match.myHome!}
+              away={match.myAway!}
+              className="font-[family-name:var(--font-score)] text-[24px] md:text-[28px] leading-none tracking-[0.1em] font-bold text-on-surface"
+            />
+          ) : (
+            <span className="font-[family-name:var(--font-score)] text-[24px] md:text-[28px] leading-none tracking-[0.1em] font-bold text-on-surface tabular-nums">
+              -
             </span>
-          </span>
+          )}
         </div>
         <div className="border-t border-outline-variant pt-4 flex justify-between items-end">
           <div className="flex flex-col gap-2">

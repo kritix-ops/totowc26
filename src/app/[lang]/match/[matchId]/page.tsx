@@ -27,7 +27,7 @@ import type {
 } from "@/lib/api-football-data";
 import { translateEventDetail, translatePosition } from "@/lib/translations/api-events";
 import { localePath } from "@/lib/paths";
-import { Card, Chip, LabelCaps, ScoreDigit, SectionHeading } from "@/components/ui";
+import { Card, Chip, LabelCaps, ScoreDigit, ScoreLine, SectionHeading } from "@/components/ui";
 import { Flag } from "@/components/Flag";
 import { HeadToHead } from "./HeadToHead";
 
@@ -101,9 +101,17 @@ export default async function MatchDetailPage({
         <div className="p-5 md:p-6 flex flex-col gap-4 bg-[#FBF6EB]">
           <div className="flex justify-between items-center">
             <LabelCaps>{dict.matchDetail.yourBet}</LabelCaps>
-            <span className="font-[family-name:var(--font-score)] text-2xl md:text-3xl font-bold text-on-surface bidi-ltr">
-              {myBet ? `${myBet.homeScore} - ${myBet.awayScore}` : "-"}
-            </span>
+            {myBet ? (
+              <ScoreLine
+                home={myBet.homeScore}
+                away={myBet.awayScore}
+                className="font-[family-name:var(--font-score)] text-2xl md:text-3xl font-bold text-on-surface"
+              />
+            ) : (
+              <span className="font-[family-name:var(--font-score)] text-2xl md:text-3xl font-bold text-on-surface tabular-nums">
+                -
+              </span>
+            )}
           </div>
           <div className="border-t border-outline-variant pt-4 flex justify-between items-end gap-3">
             <div className="flex flex-col gap-2 min-w-0">
@@ -168,9 +176,11 @@ export default async function MatchDetailPage({
                   <span className="flex-1 font-bold text-sm md:text-base truncate">
                     {fb.isYou ? dict.leaderboard.you : fb.displayName}
                   </span>
-                  <span className="font-[family-name:var(--font-score)] text-base md:text-xl font-bold text-on-surface bidi-ltr">
-                    {fb.homeScore} - {fb.awayScore}
-                  </span>
+                  <ScoreLine
+                    home={fb.homeScore}
+                    away={fb.awayScore}
+                    className="font-[family-name:var(--font-score)] text-base md:text-xl font-bold text-on-surface"
+                  />
                   {isFinal &&
                     (fbExact ? (
                       <Check className="h-5 w-5 text-secondary shrink-0" strokeWidth={2} />
@@ -484,9 +494,8 @@ function PredictionCard({
   isHebrew: boolean;
 }) {
   const pct = (p: number): string => `${Math.round(p * 100)}%`;
-  const score = prediction.predictedScoreHome && prediction.predictedScoreAway
-    ? `${prediction.predictedScoreHome} - ${prediction.predictedScoreAway}`
-    : null;
+  const hasScore =
+    prediction.predictedScoreHome != null && prediction.predictedScoreAway != null;
   return (
     <section className="flex flex-col gap-3">
       <SectionHeading as="h2" underline="thin">
@@ -516,7 +525,7 @@ function PredictionCard({
             tone="primary"
           />
         </div>
-        {(score || prediction.advice) && (
+        {(hasScore || prediction.advice) && (
           <div className="border-t border-outline-variant pt-3 flex items-end justify-between gap-3">
             {prediction.advice && (
               <div className="flex flex-col min-w-0 flex-1">
@@ -526,14 +535,16 @@ function PredictionCard({
                 </span>
               </div>
             )}
-            {score && (
+            {hasScore && (
               <div className="text-end shrink-0">
                 <LabelCaps as="div" className="mb-1">
                   {isHebrew ? "צפי" : "Predicted"}
                 </LabelCaps>
-                <span className="font-[family-name:var(--font-score)] text-2xl leading-none font-bold text-surface-tint bidi-ltr">
-                  {score}
-                </span>
+                <ScoreLine
+                  home={prediction.predictedScoreHome!}
+                  away={prediction.predictedScoreAway!}
+                  className="font-[family-name:var(--font-score)] text-2xl leading-none font-bold text-surface-tint"
+                />
               </div>
             )}
           </div>

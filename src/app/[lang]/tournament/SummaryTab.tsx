@@ -7,7 +7,7 @@ import {
   Square,
   Ambulance,
 } from "lucide-react";
-import { Card, LabelCaps, SectionHeading } from "@/components/ui";
+import { Card, LabelCaps, ScoreLine, SectionHeading } from "@/components/ui";
 import { Flag } from "@/components/Flag";
 import { localePath } from "@/lib/paths";
 import { formatDateTime } from "@/lib/format";
@@ -368,8 +368,8 @@ function RecentResultsList({
                   name={isHebrew ? r.homeNameHe : r.homeNameEn}
                   align="end"
                 />
-                <span className="font-[family-name:var(--font-score)] text-lg leading-none font-bold text-on-surface bidi-ltr px-2 shrink-0">
-                  {r.homeScore} - {r.awayScore}
+                <span className="font-[family-name:var(--font-score)] text-lg leading-none font-bold text-on-surface px-2 shrink-0 flex flex-col items-center">
+                  <ScoreLine home={r.homeScore} away={r.awayScore} />
                   {r.wentToPenalties && (
                     <span className="block text-[10px] text-on-surface-variant font-bold tracking-wide">
                       {isHebrew ? "פנדלים" : "PEN"}

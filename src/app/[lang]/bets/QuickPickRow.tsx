@@ -160,7 +160,13 @@ export function QuickPickRow({
       {/* Scoreboard + save button row. On mobile it occupies the
           whole width; on md+ it sits inside the same logical row. */}
       <div className="flex items-center justify-between gap-3 flex-wrap md:flex-nowrap">
-        <div className="flex items-center gap-2 tabular-nums bidi-ltr">
+        {/* No bidi-ltr here. The team header above flows with the
+            document direction (home on the right in Hebrew), so the
+            stepper row must follow the same flow — otherwise the home
+            stepper sits under the away team name, and tapping "Mexico's
+            stepper" (the right one in Hebrew) actually records the away
+            score. */}
+        <div className="flex items-center gap-2 tabular-nums">
           <Stepper
             value={home}
             onBump={(d) => onBump("home", d)}

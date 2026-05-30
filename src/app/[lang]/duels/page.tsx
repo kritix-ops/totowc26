@@ -4,7 +4,7 @@ import { sql } from "drizzle-orm";
 import { Plus, Swords, ChevronLeft, ChevronRight } from "lucide-react";
 import { clsx } from "clsx";
 import { getDictionary, hasLocale, type Locale } from "../dictionaries";
-import { Card, Chip, LabelCaps, PillButton } from "@/components/ui";
+import { Card, Chip, LabelCaps, MatchupLabel, PillButton } from "@/components/ui";
 import { PayGateBanner } from "@/components/PayGateBanner";
 import { getRequestUser } from "@/lib/request-user";
 import { getUserAccess } from "@/lib/access";
@@ -128,7 +128,20 @@ export default async function DuelsIndexPage({
                       <div className="flex flex-wrap gap-2">
                         <Chip>{scopeLabel(d.scope, dict)}</Chip>
                         {d.matchLabel && (
-                          <Chip className="bidi-ltr">{d.matchLabel}</Chip>
+                          <Chip>
+                            {(() => {
+                              const m = parseMatchupLabel(d.matchLabel);
+                              return m ? (
+                                <MatchupLabel
+                                  home={m.home}
+                                  away={m.away}
+                                  locale={locale}
+                                />
+                              ) : (
+                                d.matchLabel
+                              );
+                            })()}
+                          </Chip>
                         )}
                         <Chip tone={statusTone(d.status)}>
                           {statusLabel(d.status, dict)}
@@ -216,6 +229,20 @@ function scopeLabel(
     case "tournament":
       return dict.duels.scopeTournament;
   }
+}
+
+// The matchLabel SQL output is "<HOME> vs <AWAY>" (concatenated server-
+// side). Split it back into the two team codes so the display can flow
+// with the document direction — otherwise the home code sits on the left
+// in Hebrew, contradicting every other surface that puts the home team
+// on the right. Returns null when the string doesn't match the expected
+// shape, so the caller falls back to the raw label.
+function parseMatchupLabel(
+  label: string,
+): { home: string; away: string } | null {
+  const m = label.match(/^(.+?)\s+vs\s+(.+)$/);
+  if (!m) return null;
+  return { home: m[1].trim(), away: m[2].trim() };
 }
 
 function statusLabel(

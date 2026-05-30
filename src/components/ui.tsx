@@ -98,6 +98,79 @@ export function ScoreDigit({ value, dark }: { value: number | string; dark?: boo
   );
 }
 
+// `H – A` score where H sits adjacent to the home team and A adjacent to
+// the away team — regardless of locale. The previous pattern wrapped
+// "{home} - {away}" in `bidi-ltr` (LTR isolation), which forced the home
+// number to the left of the score even when the home team was rendered
+// on the right by the surrounding RTL flex. A Hebrew reader naturally
+// associates the rightmost number with the rightmost team, so the score
+// they saw next to a team was actually the OTHER team's. Rendering the
+// two numbers as separate inline-flex children makes the score flow with
+// the parent direction, so they line up under the team they belong to.
+export function ScoreLine({
+  home,
+  away,
+  className,
+  separator = "-",
+}: {
+  home: number | string;
+  away: number | string;
+  className?: string;
+  separator?: string;
+}) {
+  return (
+    <span
+      className={clsx(
+        "inline-flex items-center gap-1 tabular-nums whitespace-nowrap",
+        className,
+      )}
+    >
+      <span>{home}</span>
+      <span aria-hidden className="opacity-70">
+        {separator}
+      </span>
+      <span>{away}</span>
+    </span>
+  );
+}
+
+// "BRA vs GER" style matchup label. Same problem as ScoreLine: a single
+// Latin string like "BRA vs GER" forces an LTR run that puts the home
+// code on the left even in Hebrew, contradicting every other surface in
+// the app where the home team sits on the right. Splitting the two
+// codes into separate inline-flex children makes the label flow with
+// the parent direction, so the home code lines up with the home side.
+export function MatchupLabel({
+  home,
+  away,
+  className,
+  separatorHe = "נגד",
+  separatorEn = "vs",
+  locale,
+}: {
+  home: string;
+  away: string;
+  className?: string;
+  separatorHe?: string;
+  separatorEn?: string;
+  locale: "he" | "en";
+}) {
+  return (
+    <span
+      className={clsx(
+        "inline-flex items-center gap-1 whitespace-nowrap",
+        className,
+      )}
+    >
+      <span>{home}</span>
+      <span aria-hidden className="opacity-70">
+        {locale === "he" ? separatorHe : separatorEn}
+      </span>
+      <span>{away}</span>
+    </span>
+  );
+}
+
 export function SectionHeading({
   children,
   underline = "primary",

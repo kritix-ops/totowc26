@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { AlertCircle, Check, Info, Lock, Minus, Plus } from "lucide-react";
 import { clsx } from "clsx";
-import { Card, Chip, LabelCaps } from "@/components/ui";
+import { Card, Chip, LabelCaps, MatchupLabel } from "@/components/ui";
 import { SearchableChoicePicker } from "@/components/SearchableChoicePicker";
 import { LocksInCountdown } from "@/components/LocksInCountdown";
 import { formatDateTime } from "@/lib/format";
@@ -122,7 +122,20 @@ export function CustomBetCard({
           </h3>
           {bet.scopeLabel && (
             <span className="text-xs text-on-surface-variant tabular-nums">
-              {bet.scopeLabel}
+              {(() => {
+                // The scope label may already be plain text ("Matchday",
+                // "Group A") or a "<HOME> vs <AWAY>" matchup string. The
+                // matchup form gets rendered through MatchupLabel so the
+                // home code sits on the same side as the home team does
+                // everywhere else (right in Hebrew, left in English),
+                // instead of being frozen LTR by Latin-only text.
+                const m = bet.scopeLabel.match(/^(.+?)\s+(?:vs|נגד)\s+(.+)$/);
+                return m ? (
+                  <MatchupLabel home={m[1]} away={m[2]} locale={locale} />
+                ) : (
+                  bet.scopeLabel
+                );
+              })()}
             </span>
           )}
         </div>

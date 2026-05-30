@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { ChevronLeft, ChevronRight, Stamp } from "lucide-react";
 import { getDictionary, hasLocale, type Locale } from "../../../dictionaries";
-import { Card, LabelCaps } from "@/components/ui";
+import { Card, LabelCaps, ScoreLine } from "@/components/ui";
 import { BetsTabs } from "@/components/BetsTabs";
 import { Flag } from "@/components/Flag";
 import { PayGateBanner } from "@/components/PayGateBanner";
@@ -130,9 +130,11 @@ export default async function BetsLiveDayPage({
                       </div>
                       <div className="flex items-center gap-3 shrink-0">
                         {hasPick ? (
-                          <span className="font-[family-name:var(--font-score)] text-base md:text-lg font-bold bidi-ltr text-primary tabular-nums">
-                            {m.myHome} - {m.myAway}
-                          </span>
+                          <ScoreLine
+                            home={m.myHome!}
+                            away={m.myAway!}
+                            className="font-[family-name:var(--font-score)] text-base md:text-lg font-bold text-primary"
+                          />
                         ) : (
                           <div className="text-end">
                             <LabelCaps as="div" className="mb-0.5">

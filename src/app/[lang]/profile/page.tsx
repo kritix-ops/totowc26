@@ -35,7 +35,7 @@ import {
 import { db } from "@/db";
 import { profiles, settings } from "@/db/schema";
 import { eq } from "drizzle-orm";
-import { Card, LabelCaps, SectionHeading, Chip } from "@/components/ui";
+import { Card, LabelCaps, ScoreLine, SectionHeading, Chip } from "@/components/ui";
 import { Flag } from "@/components/Flag";
 import { PushOptInToggle } from "@/components/PushOptInToggle";
 import { WhatsAppInviteCard } from "@/components/WhatsAppInviteCard";
@@ -806,24 +806,28 @@ function MatchPickRow({
             <LabelCaps as="span" className="text-[10px]">
               {dict.profile.pickAnswerMine}
             </LabelCaps>
-            <span className="font-[family-name:var(--font-score)] text-sm md:text-base font-bold tabular-nums bidi-ltr">
-              {hasPick
-                ? `${pick.myHome} - ${pick.myAway}`
-                : (
-                  <span className="text-on-surface-variant font-normal italic">
-                    {dict.profile.pickStatusNoBet}
-                  </span>
-                )}
-            </span>
+            {hasPick ? (
+              <ScoreLine
+                home={pick.myHome!}
+                away={pick.myAway!}
+                className="font-[family-name:var(--font-score)] text-sm md:text-base font-bold"
+              />
+            ) : (
+              <span className="text-on-surface-variant font-normal italic">
+                {dict.profile.pickStatusNoBet}
+              </span>
+            )}
           </div>
           {isFinal && pick.homeScore !== null && pick.awayScore !== null && (
             <div className="flex flex-col items-center gap-0.5 min-w-0">
               <LabelCaps as="span" className="text-[10px]">
                 {dict.profile.pickResultActual}
               </LabelCaps>
-              <span className="font-[family-name:var(--font-score)] text-sm md:text-base font-bold tabular-nums bidi-ltr">
-                {pick.homeScore} - {pick.awayScore}
-              </span>
+              <ScoreLine
+                home={pick.homeScore}
+                away={pick.awayScore}
+                className="font-[family-name:var(--font-score)] text-sm md:text-base font-bold"
+              />
             </div>
           )}
           <PointsBadge value={isFinal ? points : null} locale={locale} />
