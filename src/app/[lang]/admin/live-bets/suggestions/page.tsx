@@ -1,22 +1,23 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { ChevronLeft, ChevronRight, Sparkles } from "lucide-react";
 import { clsx } from "clsx";
 import { hasLocale, type Locale } from "../../../dictionaries";
 import { Card, Chip, LabelCaps, SectionHeading } from "@/components/ui";
 import { Flag } from "@/components/Flag";
 import { db } from "@/db";
-import { settings } from "@/db/schema";
+import { liveOddsSnapshot, settings } from "@/db/schema";
 import { listFixturesForDate, listLiveBetsDates } from "@/db/admin-queries";
 import { localePath } from "@/lib/paths";
 import { formatDateTime } from "@/lib/format";
-import { fetchOddsForFixture, type MarketOdds } from "@/lib/odds";
+import { fetchOddsForMatch, type MarketOdds } from "@/lib/odds";
 import {
   normalizeOdds,
   type OddsNormConfig,
 } from "@/lib/odds-normalize";
 import { PublishRow } from "./PublishRow";
+import { PublishMarketGroup } from "./PublishMarketGroup";
 import { RefreshFixtureButton } from "./RefreshFixtureButton";
 
 // Markets we skip in the suggestions UI:
@@ -25,6 +26,57 @@ import { RefreshFixtureButton } from "./RefreshFixtureButton";
 //     market IDs alias the same concept (1 and 19); skip both.
 //   - Home/Away (no draw) is a Match Winner subset - skip 2 as well.
 const SKIPPED_MARKET_IDS = new Set<number>([1, 2, 19]);
+
+// Bilingual labels for the market shapes The Odds API surfaces. Keyed
+// by the canonical English name we get from src/lib/the-odds-api.ts so
+// the lookup survives wrapper-side relabels. Anything that misses the
+// table renders the English string unchanged.
+const MARKET_NAME_HE: Record<string, string> = {
+  "Match Winner": "מנצח/ת המשחק",
+  "Goals Over/Under": "מעל/מתחת לסך שערים",
+  "Both Teams to Score": "שתי הקבוצות יבקיעו",
+  "Asian Handicap": "הנדיקאפ אסייתי",
+};
+
+function localiseMarketName(en: string, isHebrew: boolean): string {
+  if (!isHebrew) return en;
+  return MARKET_NAME_HE[en] ?? en;
+}
+
+// Selection labels for the Hebrew side.
+//   - h2h: constants Home/Draw/Away (pinned in aggregateH2H).
+//   - totals: "<Over|Under> <point>" strings.
+//   - btts: Yes/No.
+//   - spreads: "<Home|Away> <signed point>" e.g. "Home -1.5".
+function localiseSelectionLabel(
+  en: string,
+  isHebrew: boolean,
+  homeName?: string,
+  awayName?: string,
+): string {
+  if (!isHebrew) return en;
+  if (en === "Home") return homeName ?? "בית מנצח";
+  if (en === "Away") return awayName ?? "חוץ מנצח";
+  if (en === "Draw") return "תיקו";
+  if (en === "Yes") return "כן";
+  if (en === "No") return "לא";
+  // Totals: "Over 2.5" / "Under 2.5".
+  const totals = /^(Over|Under)\s+([\d.]+)$/.exec(en.trim());
+  if (totals) {
+    const verb = totals[1] === "Over" ? "מעל" : "מתחת ל-";
+    return `${verb}${totals[2]} שערים`;
+  }
+  // Spreads: "Home -1.5" / "Away +1.5".
+  const spread = /^(Home|Away)\s+([+-]?[\d.]+)$/.exec(en.trim());
+  if (spread) {
+    const sideHe =
+      spread[1] === "Home"
+        ? (homeName ?? "בית")
+        : (awayName ?? "חוץ");
+    return `${sideHe} (${spread[2]})`;
+  }
+  return en;
+}
 
 type SearchSP = { date?: string | string[] };
 
@@ -55,22 +107,48 @@ export default async function LiveBetSuggestionsPage({
     listLiveBetsDates(),
   ]);
 
-  // Resolve odds for every fixture in parallel. fetchOddsForFixture
-  // already swallows errors (returns null), so a single bad fixture
-  // can't poison the whole page.
+  // Resolve odds per fixture. Two-tier strategy:
+  //   1. Read from live_odds_snapshot — the cron keeps this fresh
+  //      every 6h. Instant, no credit cost.
+  //   2. For fixtures the snapshot is missing on, fall back to the
+  //      live fetchOddsForMatch wrapper. The wrapper's module-level
+  //      cache shares one round-trip across all fallback calls.
+  //
+  // The "snapshot present" path is the hot path during normal admin
+  // sessions; the fallback only matters right after a new fixture
+  // lands in the DB or before the first cron run after deploy.
   const oddsByFixture = new Map<string, MarketOdds[] | null>();
+  const lastFetchedAt = new Map<string, Date | null>();
+  const fixtureIds = fixtures.map((f) => f.id);
+  if (fixtureIds.length > 0) {
+    const cachedRows = await db
+      .select({
+        matchId: liveOddsSnapshot.matchId,
+        markets: liveOddsSnapshot.markets,
+        fetchedAt: liveOddsSnapshot.fetchedAt,
+      })
+      .from(liveOddsSnapshot)
+      .where(inArray(liveOddsSnapshot.matchId, fixtureIds));
+    for (const row of cachedRows) {
+      oddsByFixture.set(row.matchId, row.markets as MarketOdds[]);
+      lastFetchedAt.set(row.matchId, row.fetchedAt);
+    }
+  }
   await Promise.all(
-    fixtures.map(async (f) => {
-      if (f.apiFootballFixtureId === null) {
-        oddsByFixture.set(f.id, null);
-        return;
-      }
-      const markets = await fetchOddsForFixture(f.apiFootballFixtureId);
-      oddsByFixture.set(f.id, markets);
-    }),
+    fixtures
+      .filter((f) => !oddsByFixture.has(f.id))
+      .map(async (f) => {
+        const markets = await fetchOddsForMatch({
+          homeTeamEn: f.homeNameEn,
+          awayTeamEn: f.awayNameEn,
+          kickoffAt: new Date(f.kickoffAt),
+        });
+        oddsByFixture.set(f.id, markets);
+        lastFetchedAt.set(f.id, markets ? new Date() : null);
+      }),
   );
 
-  const apiKeyMissing = !process.env.API_FOOTBALL_KEY;
+  const apiKeyMissing = !process.env.THE_ODDS_API_KEY;
 
   return (
     <section className="px-4 md:px-16 py-6 md:py-12 flex flex-col gap-6 md:gap-8 max-w-5xl mx-auto w-full pb-24">
@@ -101,13 +179,13 @@ export default async function LiveBetSuggestionsPage({
         <Card className="p-4 md:p-5 bg-error-container text-on-error-container border border-error">
           <p className="text-sm font-bold">
             {isHebrew
-              ? "API_FOOTBALL_KEY לא מוגדר"
-              : "API_FOOTBALL_KEY is not set"}
+              ? "THE_ODDS_API_KEY לא מוגדר"
+              : "THE_ODDS_API_KEY is not set"}
           </p>
           <p className="text-xs mt-1">
             {isHebrew
-              ? "אי אפשר למשוך יחסים מבוקמייקר עד שהמפתח יוגדר ב-Vercel → Environment Variables."
-              : "Bookmaker odds can't be pulled until the key is added in Vercel → Environment Variables."}
+              ? "אי אפשר למשוך יחסים מבוקמייקר עד שהמפתח יוגדר ב-Vercel → Environment Variables. מפתח חינמי ב-the-odds-api.com (500 credits/חודש)."
+              : "Bookmaker odds can't be pulled until the key is added in Vercel → Environment Variables. Free key at the-odds-api.com (500 credits / month)."}
           </p>
         </Card>
       )}
@@ -151,13 +229,7 @@ export default async function LiveBetSuggestionsPage({
                   </div>
                 </header>
 
-                {f.apiFootballFixtureId === null ? (
-                  <p className="text-xs text-on-surface-variant">
-                    {isHebrew
-                      ? "המשחק לא מופה ל-API-Football. הרץ scripts/api-football-map-fixtures.mjs."
-                      : "Fixture not yet mapped to API-Football. Run scripts/api-football-map-fixtures.mjs."}
-                  </p>
-                ) : !markets ? (
+                {!markets ? (
                   <p className="text-xs text-on-surface-variant">
                     {isHebrew
                       ? "לא הצלחנו למשוך יחסים. בדוק את הלוג או נסה לרענן."
@@ -166,8 +238,8 @@ export default async function LiveBetSuggestionsPage({
                 ) : markets.length === 0 ? (
                   <p className="text-xs text-on-surface-variant">
                     {isHebrew
-                      ? "אין שווקים זמינים אצל הבוקמייקר. בדרך כלל הם יפורסמו 1-2 שבועות לפני המשחק."
-                      : "No markets available from the bookmaker yet. Usually published 1-2 weeks before kickoff."}
+                      ? "אין יחסים זמינים למשחק הזה ב-The Odds API. ייתכן שהבוקמייקרים עוד לא פרסמו, או שיש אי-התאמת שמות נבחרות. אם הבעיה נמשכת — בדוק את הלוג שלא היה matched."
+                      : "No odds available for this match at The Odds API yet. Bookmakers may not have priced it, or there is a team-name mismatch. Check the [the-odds-api no event] log if the issue persists."}
                   </p>
                 ) : (
                   <div className="flex flex-col gap-3">
@@ -279,61 +351,112 @@ function MarketGroup({
   oddsConfig: OddsNormConfig;
 }) {
   const isHebrew = locale === "he";
+  const marketNameDisplay = localiseMarketName(market.name, isHebrew);
   return (
     <div className="flex flex-col gap-2 p-3 rounded-lg bg-surface-container-low border border-outline-variant">
       <SectionHeading underline="thin" as="h3">
         <span className="inline-flex items-center gap-2">
-          <span>{market.name}</span>
+          <span>{marketNameDisplay}</span>
           <Chip className="text-xs">
             {market.selections.length}{" "}
             {isHebrew ? "אפשרויות" : "options"}
           </Chip>
         </span>
       </SectionHeading>
-      <ul className="flex flex-col gap-2">
-        {market.selections.map((sel) => {
-          const { stake, payout } = normalizeOdds(sel.decimalOdds, oddsConfig);
+      {market.selections.length >= 2 ? (
+        // Grouped markets (Over/Under at a line, BTTS Yes/No, Handicap
+        // Home/Away) publish as ONE multi_choice bet so the friend
+        // picks the side rather than seeing both sides as unrelated
+        // yes/no rows.
+        (() => {
+          const options = market.selections.map((sel) => {
+            const { stake, payout } = normalizeOdds(sel.decimalOdds, oddsConfig);
+            return {
+              label: localiseSelectionLabel(sel.label, isHebrew, homeName, awayName),
+              decimalOdds: sel.decimalOdds,
+              stake,
+              payout,
+            };
+          });
           const { questionHe, questionEn, gradingRuleHe, gradingRuleEn } =
-            buildBetCopy({
-              marketName: market.name,
-              selectionLabel: sel.label,
+            buildGroupBetCopy({
+              marketNameHe: localiseMarketName(market.name, true),
+              marketNameEn: market.name,
               homeName,
               awayName,
             });
           return (
-            <li key={`${market.marketId}-${sel.label}`}>
-              <PublishRow
-                locale={locale}
-                matchId={matchId}
-                marketName={market.name}
-                selectionLabel={sel.label}
-                decimalOdds={sel.decimalOdds}
-                stake={stake}
-                payout={payout}
-                questionHe={questionHe}
-                questionEn={questionEn}
-                gradingRuleHe={gradingRuleHe}
-                gradingRuleEn={gradingRuleEn}
-              />
-            </li>
+            <PublishMarketGroup
+              locale={locale}
+              matchId={matchId}
+              marketName={marketNameDisplay}
+              options={options}
+              questionHe={questionHe}
+              questionEn={questionEn}
+              gradingRuleHe={gradingRuleHe}
+              gradingRuleEn={gradingRuleEn}
+            />
           );
-        })}
-      </ul>
+        })()
+      ) : (
+        <ul className="flex flex-col gap-2">
+          {market.selections.map((sel) => {
+            const { stake, payout } = normalizeOdds(sel.decimalOdds, oddsConfig);
+            const selectionLabelDisplay = localiseSelectionLabel(
+              sel.label,
+              isHebrew,
+              homeName,
+              awayName,
+            );
+            const { questionHe, questionEn, gradingRuleHe, gradingRuleEn } =
+              buildBetCopy({
+                marketNameHe: localiseMarketName(market.name, true),
+                marketNameEn: market.name,
+                selectionLabelHe: localiseSelectionLabel(
+                  sel.label,
+                  true,
+                  homeName,
+                  awayName,
+                ),
+                selectionLabelEn: sel.label,
+                homeName,
+                awayName,
+              });
+            return (
+              <li key={`${market.marketId}-${sel.label}`}>
+                <PublishRow
+                  locale={locale}
+                  matchId={matchId}
+                  marketName={marketNameDisplay}
+                  selectionLabel={selectionLabelDisplay}
+                  decimalOdds={sel.decimalOdds}
+                  stake={stake}
+                  payout={payout}
+                  questionHe={questionHe}
+                  questionEn={questionEn}
+                  gradingRuleHe={gradingRuleHe}
+                  gradingRuleEn={gradingRuleEn}
+                />
+              </li>
+            );
+          })}
+        </ul>
+      )}
     </div>
   );
 }
 
-// Generate plain-language question + grading rule copy for a market+selection.
-// Kept dumb on purpose - the admin can edit the strings inline before
-// publishing if a market needs special phrasing.
-function buildBetCopy({
-  marketName,
-  selectionLabel,
+// Group-shaped bet copy: the question asks WHAT the outcome will be,
+// not "yes or no", since the options themselves are the answers in a
+// multi_choice bet.
+function buildGroupBetCopy({
+  marketNameHe,
+  marketNameEn,
   homeName,
   awayName,
 }: {
-  marketName: string;
-  selectionLabel: string;
+  marketNameHe: string;
+  marketNameEn: string;
   homeName: string;
   awayName: string;
 }): {
@@ -345,10 +468,47 @@ function buildBetCopy({
   const fixtureHe = `${homeName} נגד ${awayName}`;
   const fixtureEn = `${homeName} vs ${awayName}`;
   return {
-    questionHe: `${marketName} - ${selectionLabel} (${fixtureHe})`,
-    questionEn: `${marketName} - ${selectionLabel} (${fixtureEn})`,
-    gradingRuleHe: `כן אם השוק "${marketName}" סגר על "${selectionLabel}" במשחק ${fixtureHe}, אחרת לא.`,
-    gradingRuleEn: `Yes if market "${marketName}" settles on "${selectionLabel}" for ${fixtureEn}, otherwise no.`,
+    questionHe: `${marketNameHe} - ${fixtureHe}`,
+    questionEn: `${marketNameEn} - ${fixtureEn}`,
+    gradingRuleHe: `התשובה היא האפשרות שעליה השוק "${marketNameHe}" סגר במשחק ${fixtureHe}.`,
+    gradingRuleEn: `The answer is the option the market "${marketNameEn}" settled on for ${fixtureEn}.`,
+  };
+}
+
+// Generate plain-language question + grading rule copy for a market+selection.
+// Kept dumb on purpose - the admin can edit the strings inline before
+// publishing if a market needs special phrasing. Takes bilingual labels
+// so the Hebrew side actually reads as Hebrew and the English side stays
+// canonical — previously the same English string was reused on both
+// sides, which left Hebrew users reading "Goals Over/Under - Over 2.5"
+// even when the page locale was 'he'.
+function buildBetCopy({
+  marketNameHe,
+  marketNameEn,
+  selectionLabelHe,
+  selectionLabelEn,
+  homeName,
+  awayName,
+}: {
+  marketNameHe: string;
+  marketNameEn: string;
+  selectionLabelHe: string;
+  selectionLabelEn: string;
+  homeName: string;
+  awayName: string;
+}): {
+  questionHe: string;
+  questionEn: string;
+  gradingRuleHe: string;
+  gradingRuleEn: string;
+} {
+  const fixtureHe = `${homeName} נגד ${awayName}`;
+  const fixtureEn = `${homeName} vs ${awayName}`;
+  return {
+    questionHe: `${marketNameHe} - ${selectionLabelHe} (${fixtureHe})`,
+    questionEn: `${marketNameEn} - ${selectionLabelEn} (${fixtureEn})`,
+    gradingRuleHe: `כן אם השוק "${marketNameHe}" סגר על "${selectionLabelHe}" במשחק ${fixtureHe}, אחרת לא.`,
+    gradingRuleEn: `Yes if market "${marketNameEn}" settles on "${selectionLabelEn}" for ${fixtureEn}, otherwise no.`,
   };
 }
 

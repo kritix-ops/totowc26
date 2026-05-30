@@ -18,6 +18,7 @@ import {
   Lock,
   CircleDot,
   Bell,
+  Sparkles,
 } from "lucide-react";
 import { clsx } from "clsx";
 import { getDictionary, hasLocale, type Locale } from "../dictionaries";
@@ -35,9 +36,10 @@ import {
 import { db } from "@/db";
 import { profiles, settings } from "@/db/schema";
 import { eq } from "drizzle-orm";
-import { Card, LabelCaps, SectionHeading, Chip } from "@/components/ui";
+import { Card, LabelCaps, ScoreLine, SectionHeading, Chip } from "@/components/ui";
 import { Flag } from "@/components/Flag";
 import { PushOptInToggle } from "@/components/PushOptInToggle";
+import { SmartFlagToggle } from "@/components/SmartFlagToggle";
 import { WhatsAppInviteCard } from "@/components/WhatsAppInviteCard";
 import { isWhatsAppCardDismissed } from "@/lib/whatsapp-dismiss";
 import { countUnreadNotifications } from "@/lib/notifications";
@@ -76,6 +78,9 @@ export default async function ProfilePage({
         displayName: profiles.displayName,
         role: profiles.role,
         pushOptIn: profiles.pushOptIn,
+        smartHubEnabled: profiles.smartHubEnabled,
+        pushLockReminders: profiles.pushLockReminders,
+        pushDuelReceived: profiles.pushDuelReceived,
       })
       .from(profiles)
       .where(eq(profiles.id, user.id))
@@ -229,6 +234,72 @@ export default async function ProfilePage({
               <LogOut className="h-5 w-5" strokeWidth={1.75} />
             </button>
           </form>
+        </Card>
+      </section>
+
+      {/* Smart Reminders preferences. Sits below the main Settings card
+          so the global push opt-in (which gates these two flags) is
+          read first. See _plans/2026-05-30-smart-reminders.md §3.5. */}
+      <section className="flex flex-col gap-4">
+        <SectionHeading>
+          <span className="inline-flex items-center gap-2">
+            <Sparkles
+              className="h-4 w-4 text-tertiary-fixed-dim"
+              strokeWidth={1.75}
+              aria-hidden
+            />
+            {isHebrew ? "תזכורות חכמות" : "Smart reminders"}
+          </span>
+        </SectionHeading>
+        <Card className="p-0 overflow-hidden">
+          <SmartFlagToggle
+            flag="smart_hub_enabled"
+            initial={profile?.smartHubEnabled ?? true}
+            icon={Sparkles}
+            label={isHebrew ? "הצג Smart Hub בדשבורד" : "Show Smart Hub on dashboard"}
+            hint={
+              isHebrew
+                ? "הכרטיס שמראה לך 3-4 פעולות אישיות בכל כניסה לעמוד הראשי."
+                : "The card that shows your top 3-4 personal actions on the homepage."
+            }
+            isHebrew={isHebrew}
+          />
+          <SmartFlagToggle
+            flag="push_lock_reminders"
+            initial={profile?.pushLockReminders ?? true}
+            icon={Clock}
+            label={isHebrew ? "Push כשהימור נסגר בקרוב" : "Push when a bet is about to lock"}
+            hint={
+              isHebrew
+                ? "תזכורת לקראת סגירה של הימור פתוח שלא הימרת עליו עדיין."
+                : "Reminder before an open bet you haven't picked locks."
+            }
+            isHebrew={isHebrew}
+            disabled={!(profile?.pushOptIn ?? false)}
+            disabledHint={
+              isHebrew
+                ? "הפעל קודם את ההתראות הראשיות למעלה."
+                : "Turn on the main push toggle above first."
+            }
+          />
+          <SmartFlagToggle
+            flag="push_duel_received"
+            initial={profile?.pushDuelReceived ?? true}
+            icon={Swords}
+            label={isHebrew ? "Push כשנפתח דו-קרב חדש" : "Push when a new duel is opened"}
+            hint={
+              isHebrew
+                ? "הודעה לכל הקבוצה כשמישהו פותח דו-קרב חדש שאפשר להצטרף אליו."
+                : "Notification when a friend opens a duel you can jump into."
+            }
+            isHebrew={isHebrew}
+            disabled={!(profile?.pushOptIn ?? false)}
+            disabledHint={
+              isHebrew
+                ? "הפעל קודם את ההתראות הראשיות למעלה."
+                : "Turn on the main push toggle above first."
+            }
+          />
         </Card>
       </section>
     </section>
@@ -806,24 +877,28 @@ function MatchPickRow({
             <LabelCaps as="span" className="text-[10px]">
               {dict.profile.pickAnswerMine}
             </LabelCaps>
-            <span className="font-[family-name:var(--font-score)] text-sm md:text-base font-bold tabular-nums bidi-ltr">
-              {hasPick
-                ? `${pick.myHome} - ${pick.myAway}`
-                : (
-                  <span className="text-on-surface-variant font-normal italic">
-                    {dict.profile.pickStatusNoBet}
-                  </span>
-                )}
-            </span>
+            {hasPick ? (
+              <ScoreLine
+                home={pick.myHome!}
+                away={pick.myAway!}
+                className="font-[family-name:var(--font-score)] text-sm md:text-base font-bold"
+              />
+            ) : (
+              <span className="text-on-surface-variant font-normal italic">
+                {dict.profile.pickStatusNoBet}
+              </span>
+            )}
           </div>
           {isFinal && pick.homeScore !== null && pick.awayScore !== null && (
             <div className="flex flex-col items-center gap-0.5 min-w-0">
               <LabelCaps as="span" className="text-[10px]">
                 {dict.profile.pickResultActual}
               </LabelCaps>
-              <span className="font-[family-name:var(--font-score)] text-sm md:text-base font-bold tabular-nums bidi-ltr">
-                {pick.homeScore} - {pick.awayScore}
-              </span>
+              <ScoreLine
+                home={pick.homeScore}
+                away={pick.awayScore}
+                className="font-[family-name:var(--font-score)] text-sm md:text-base font-bold"
+              />
             </div>
           )}
           <PointsBadge value={isFinal ? points : null} locale={locale} />

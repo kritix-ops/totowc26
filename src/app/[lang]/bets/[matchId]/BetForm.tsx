@@ -5,6 +5,7 @@ import { Check, Stamp, Clock, AlertCircle, Plus, Minus } from "lucide-react";
 import { clsx } from "clsx";
 import { PillButton } from "@/components/ui";
 import { Flag } from "@/components/Flag";
+import { PickScenarios } from "@/components/PickScenarios";
 import type { Dictionary, Locale } from "../../dictionaries";
 import { usePendingAction } from "@/lib/use-pending-action";
 import { saveBet, type SaveBetResult } from "./actions";
@@ -24,6 +25,8 @@ export function BetForm({
   match,
   initialBet,
   editable,
+  bankBalance,
+  scoring,
 }: {
   locale: Locale;
   dict: Dictionary;
@@ -36,6 +39,17 @@ export function BetForm({
   };
   initialBet: InitialBet;
   editable: boolean;
+  // Bank + scoring knobs come from settings; passed down so the
+  // scenarios panel can preview the outcome on the user's bank
+  // without an extra round-trip.
+  bankBalance: number;
+  scoring: {
+    exact: number;
+    outcome: number;
+    stake: number;
+    riskEnabled: boolean;
+    penalty: number;
+  };
 }) {
   const isHebrew = locale === "he";
   const [home, setHome] = useState(initialBet?.home ?? 0);
@@ -169,6 +183,29 @@ export function BetForm({
             {dict.matchBet.scoring}
           </p>
         </div>
+
+        <PickScenarios
+          locale={locale}
+          currentBalance={bankBalance}
+          stake={scoring.stake}
+          scenarios={[
+            {
+              label: isHebrew ? "פגיעה מדויקת" : "Exact score",
+              delta: scoring.exact,
+              tone: "positive",
+            },
+            {
+              label: isHebrew ? "כיוון נכון" : "Direction",
+              delta: scoring.outcome,
+              tone: "positive",
+            },
+            {
+              label: isHebrew ? "טעות" : "Wrong",
+              delta: scoring.riskEnabled ? -scoring.penalty : 0,
+              tone: scoring.riskEnabled ? "negative" : "neutral",
+            },
+          ]}
+        />
 
         <div className="bg-[#FBF6EB] border border-outline rounded-xl p-5 md:p-6 shadow-[0_8px_24px_rgba(28,20,15,0.08)] flex flex-col gap-3">
           <p className="inline-flex items-center gap-3 text-base text-on-surface-variant">

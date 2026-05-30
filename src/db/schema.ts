@@ -10,6 +10,7 @@ import {
   timestamp,
   date,
   jsonb,
+  numeric,
   uniqueIndex,
   index,
   primaryKey,
@@ -108,6 +109,15 @@ export const profiles = pgTable("profiles", {
   // pause without re-granting browser permission. See
   // _plans/2026-05-28-lock-reminders.md §5.
   pushOptIn: boolean("push_opt_in").notNull().default(false),
+  // Per-trigger toggles for the Smart Reminders feature. Each one is
+  // AND'd with pushOptIn at send time, so a player can keep push on
+  // generally but mute a specific channel. Defaults to true so the
+  // existing iteration-2 behavior (push lock reminders) survives the
+  // migration unchanged for anyone who already opted in.
+  // See _plans/2026-05-30-smart-reminders.md.
+  smartHubEnabled: boolean("smart_hub_enabled").notNull().default(true),
+  pushLockReminders: boolean("push_lock_reminders").notNull().default(true),
+  pushDuelReceived: boolean("push_duel_received").notNull().default(true),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
@@ -663,6 +673,12 @@ export const userCustomBetPicks = pgTable(
       .references(() => customBets.id, { onDelete: "cascade" }),
     answer: jsonb("answer").notNull(),
     stakePaid: smallint("stake_paid").notNull(),
+    // Frozen payout for this specific pick. Set at pick time from the
+    // chosen MultiChoiceOption.payoutOverride when the bet uses per-option
+    // pricing; otherwise from custom_bets.payoutSnapshot. NULL on
+    // pre-migration rows — the grader falls back to bet-level payout
+    // when NULL. See _plans/2026-05-30-outright-bet-payout-system.md.
+    payoutSnapshot: smallint("payout_snapshot"),
     pointsEarned: smallint("points_earned"),
     wasCorrect: boolean("was_correct"),
     locked: boolean("locked").notNull().default(false),
@@ -936,6 +952,12 @@ export const NOTIFICATION_KINDS = [
   "bet_graded",
   "match_final",
   "custom",
+  // Sent by sendPushReminders when a custom bet is about to lock and
+  // the user has not picked. Companion feed row to the existing push
+  // payload. See _plans/2026-05-30-smart-reminders.md.
+  "lock_reminder",
+  // Sent inline from openDuel to the joiner-eligible recipient.
+  "duel_received",
 ] as const;
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];
 
@@ -996,6 +1018,33 @@ export const pushSubscriptions = pgTable(
   (t) => ({
     endpointUniq: uniqueIndex("push_subscriptions_endpoint_uniq").on(t.endpoint),
     userIdx: index("push_subscriptions_user_idx").on(t.userId),
+  }),
+);
+
+// user_moment_dismissals: one row per (user, smart-hub moment) the user
+// has dismissed. The Smart Hub ranker LEFT JOINs this table and drops
+// any moment whose dismissed_until > now(). The dismiss API route sets
+// the timestamp to "tomorrow 04:00 Asia/Jerusalem" so the same nudge
+// does not reappear inside the same betting day. moment_key is the
+// generator-stable identifier (e.g. "unpicked_match:<matchId>"),
+// validated by a CHECK constraint in migration 0036. See
+// _plans/2026-05-30-smart-reminders.md.
+export const userMomentDismissals = pgTable(
+  "user_moment_dismissals",
+  {
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => profiles.id, { onDelete: "cascade" }),
+    momentKey: text("moment_key").notNull(),
+    dismissedUntil: timestamp("dismissed_until", { withTimezone: true })
+      .notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.userId, t.momentKey] }),
+    untilIdx: index("user_moment_dismissals_until_idx").on(t.dismissedUntil),
   }),
 );
 
@@ -1099,6 +1148,77 @@ export const newsSyncCursors = pgTable("news_sync_cursors", {
     .defaultNow(),
 });
 
+// Per-fixture persisted snapshot of bookmaker odds. Cron-refreshed
+// from The Odds API by /api/cron/odds-sync and read by the admin
+// suggestions surface. See migrations/0035_live_odds_snapshot.sql for
+// the design rationale.
+export const liveOddsSnapshot = pgTable(
+  "live_odds_snapshot",
+  {
+    matchId: uuid("match_id")
+      .primaryKey()
+      .references(() => matches.id, { onDelete: "cascade" }),
+    markets: jsonb("markets").notNull(),
+    fetchedAt: timestamp("fetched_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    notes: text("notes"),
+  },
+  (t) => ({
+    fetchedAtIdx: index("live_odds_snapshot_fetched_at_idx").on(t.fetchedAt),
+  }),
+);
+
+// Outright-bet payout staging area. Background and full design in
+// _plans/2026-05-30-outright-bet-payout-system.md.
+//
+// Each row is one option (player or team) for one outright surface
+// (top_scorer / golden_ball / champion / runner_up / third / group_A..L)
+// with its decimal odds. Admin reviews the snapshot in
+// /admin/tournament-odds and "publishes" — at which point the per-option
+// payouts get baked into the target custom_bets.answer_config.options[]
+// via MultiChoiceOption.payoutOverride. The snapshot itself is not what
+// users bet on; it is the staging table.
+//
+// Why staging and not direct write into custom_bets:
+//   1. Lets admin re-fetch from Oddschecker without disturbing manual
+//      overrides (admin_override = true rows are preserved).
+//   2. Lets us preview the full per-option payout grid before commit.
+//   3. Keeps the historical audit trail of what the bookmaker board
+//      looked like at fetch time, independent of edits the admin made.
+//
+// surface is an enum-by-convention (not a pg enum) because admins never
+// add new surface kinds at runtime — the set is fixed by the bet
+// templates in tournament-suggestions/page.tsx. New surface = code
+// change.
+export const outrightOddsSnapshot = pgTable(
+  "outright_odds_snapshot",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    surface: text("surface").notNull(),
+    optionKind: text("option_kind").notNull(),
+    optionId: integer("option_id").notNull(),
+    displayName: text("display_name").notNull(),
+    // numeric(10,3) — three decimals is plenty for bookmaker quotes
+    // (typical board is 1.10..501.00 with 2-decimal precision).
+    decimalOdds: numeric("decimal_odds", { precision: 10, scale: 3 }).notNull(),
+    source: text("source").notNull(),
+    fetchedAt: timestamp("fetched_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    adminOverride: boolean("admin_override").notNull().default(false),
+    notes: text("notes"),
+  },
+  (t) => ({
+    surfaceIdx: index("outright_odds_snapshot_surface_idx").on(t.surface),
+    uniqueRow: uniqueIndex("outright_odds_snapshot_unique_row").on(
+      t.surface,
+      t.optionKind,
+      t.optionId,
+    ),
+  }),
+);
+
 // Per-table `<Name>` (select shape) + `New<Name>` (insert shape) pair
 // for every table in the schema. Drizzle infers them from the table
 // definition above, so a column rename here lands in every caller
@@ -1139,6 +1259,8 @@ export type NewBetReminderSent = typeof betReminderSent.$inferInsert;
 // same name would shadow it (and confuse consumers that import both).
 export type PushSubscriptionRow = typeof pushSubscriptions.$inferSelect;
 export type NewPushSubscription = typeof pushSubscriptions.$inferInsert;
+export type UserMomentDismissal = typeof userMomentDismissals.$inferSelect;
+export type NewUserMomentDismissal = typeof userMomentDismissals.$inferInsert;
 export type UserNotification = typeof userNotifications.$inferSelect;
 export type NewUserNotification = typeof userNotifications.$inferInsert;
 export type ContentOverride = typeof contentOverrides.$inferSelect;
@@ -1153,3 +1275,34 @@ export type NewsItemRow = typeof newsItems.$inferSelect;
 export type NewNewsItemRow = typeof newsItems.$inferInsert;
 export type NewsSyncCursorRow = typeof newsSyncCursors.$inferSelect;
 export type NewNewsSyncCursorRow = typeof newsSyncCursors.$inferInsert;
+export type OutrightOddsSnapshotRow =
+  typeof outrightOddsSnapshot.$inferSelect;
+export type NewOutrightOddsSnapshotRow =
+  typeof outrightOddsSnapshot.$inferInsert;
+export type LiveOddsSnapshotRow = typeof liveOddsSnapshot.$inferSelect;
+export type NewLiveOddsSnapshotRow = typeof liveOddsSnapshot.$inferInsert;
+
+// String-literal union for the nine fixed outright surfaces. Kept in
+// sync with the surface check constraint in
+// migrations/0034_outright_odds.sql and with the bet templates in
+// src/app/[lang]/admin/tournament-suggestions/page.tsx. Listed
+// long-form rather than generated from a constant array so a typo here
+// surfaces at compile time across every caller.
+export type OutrightSurface =
+  | "top_scorer"
+  | "golden_ball"
+  | "champion"
+  | "runner_up"
+  | "third"
+  | "group_A"
+  | "group_B"
+  | "group_C"
+  | "group_D"
+  | "group_E"
+  | "group_F"
+  | "group_G"
+  | "group_H"
+  | "group_I"
+  | "group_J"
+  | "group_K"
+  | "group_L";

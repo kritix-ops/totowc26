@@ -6,7 +6,10 @@ import { getRequestUser } from "@/lib/request-user";
 import { getUserAccess } from "@/lib/access";
 import { getFixtureWithBets, getMyBet } from "@/db/queries";
 import { execFirstRow } from "@/db/helpers";
-import type { StageKey } from "@/db/schema";
+import { db } from "@/db";
+import { settings as settingsTable, type StageKey } from "@/db/schema";
+import { eq } from "drizzle-orm";
+import { getBankBalance } from "@/lib/bank";
 import { Card, LabelCaps } from "@/components/ui";
 import { PayGateBanner } from "@/components/PayGateBanner";
 import { LocksInCountdown } from "@/components/LocksInCountdown";
@@ -33,7 +36,7 @@ export default async function MatchBetPage({
 
   const match = await getFixtureWithBets(matchId);
   if (!match) notFound();
-  const [myBet, access, context, a] = await Promise.all([
+  const [myBet, access, context, a, scoringRow, bankBalance] = await Promise.all([
     getMyBet(matchId, user.id),
     getUserAccess(user.id),
     getDeadlineContext(),
@@ -50,7 +53,26 @@ export default async function MatchBetPage({
       where m.id = ${matchId}::uuid
       limit 1
     `),
+    db
+      .select({
+        scoringExact: settingsTable.scoringExact,
+        scoringOutcome: settingsTable.scoringOutcome,
+        stakeMain: settingsTable.stakeMain,
+        matchRiskEnabled: settingsTable.matchRiskEnabled,
+        matchRiskPenalty: settingsTable.matchRiskPenalty,
+      })
+      .from(settingsTable)
+      .where(eq(settingsTable.id, 1))
+      .then((rows) => rows[0]),
+    getBankBalance(user.id),
   ]);
+  const scoring = {
+    exact: scoringRow?.scoringExact ?? 15,
+    outcome: scoringRow?.scoringOutcome ?? 5,
+    stake: scoringRow?.stakeMain ?? 0,
+    riskEnabled: scoringRow?.matchRiskEnabled ?? false,
+    penalty: scoringRow?.matchRiskPenalty ?? 5,
+  };
 
   const isHebrew = locale === "he";
   const homeName = isHebrew ? match.homeNameHe : match.homeNameEn;
@@ -127,6 +149,8 @@ export default async function MatchBetPage({
           myBet ? { home: myBet.homeScore, away: myBet.awayScore } : null
         }
         editable={lockable}
+        bankBalance={bankBalance}
+        scoring={scoring}
       />
 
       {!lockable && access.canEdit && (

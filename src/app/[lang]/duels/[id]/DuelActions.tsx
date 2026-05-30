@@ -4,6 +4,7 @@ import { useState } from "react";
 import { AlertCircle, Check } from "lucide-react";
 import { clsx } from "clsx";
 import { Card, PillButton, SectionHeading } from "@/components/ui";
+import { PickScenarios } from "@/components/PickScenarios";
 import type { Dictionary, Locale } from "../../dictionaries";
 import { usePendingAction } from "@/lib/use-pending-action";
 import { cancelDuel, joinDuel, settleDuel } from "../actions";
@@ -17,6 +18,12 @@ type Props = {
   dict: Dictionary;
   duelId: string;
   status: "open" | "matched" | "settled" | "cancelled";
+  // Duel stake (per side). Used to render the join-side scenarios card
+  // so the joiner sees exactly what their bank will look like under
+  // every resolution path before they commit. Server passes the stored
+  // value verbatim — never recomputed client-side.
+  stake: number;
+  bankBalance: number;
   iAmOpener: boolean;
   isAdmin: boolean;
   canEdit: boolean;
@@ -28,6 +35,8 @@ export function DuelActions({
   dict,
   duelId,
   status,
+  stake,
+  bankBalance,
   iAmOpener,
   isAdmin,
   canEdit,
@@ -124,14 +133,41 @@ export function DuelActions({
         {!canEdit ? (
           <p className="text-sm text-on-surface-variant">{labels.notPaid}</p>
         ) : (
-          <PillButton
-            type="button"
-            onClick={join}
-            disabled={pending}
-            className={clsx("min-h-[48px]", pending && "opacity-60 cursor-not-allowed")}
-          >
-            {pending ? labels.pending : labels.joinCta}
-          </PillButton>
+          <>
+            {/* What happens to YOUR bank if you join.
+                Symmetric duel: winner takes the other side's stake,
+                cancellation refunds. */}
+            <PickScenarios
+              locale={locale}
+              currentBalance={bankBalance}
+              stake={stake}
+              scenarios={[
+                {
+                  label: isHebrew ? "אם תזכה" : "If you win",
+                  delta: 2 * stake,
+                  tone: "positive",
+                },
+                {
+                  label: isHebrew ? "אם תפסיד" : "If you lose",
+                  delta: 0,
+                  tone: "negative",
+                },
+                {
+                  label: isHebrew ? "אם הדו-קרב יבוטל" : "If the duel is cancelled",
+                  delta: stake,
+                  tone: "neutral",
+                },
+              ]}
+            />
+            <PillButton
+              type="button"
+              onClick={join}
+              disabled={pending || bankBalance < stake}
+              className={clsx("min-h-[48px]", pending && "opacity-60 cursor-not-allowed")}
+            >
+              {pending ? labels.pending : labels.joinCta}
+            </PillButton>
+          </>
         )}
       </Card>,
     );

@@ -18,6 +18,7 @@ import type {
   GradingConfig,
   ResolvedValue,
 } from "@/lib/bets/types";
+import { resolvePickPayoutAtGrade } from "@/lib/bets/payout";
 
 // Discriminated result so the client can branch on the error string.
 type Err =
@@ -613,10 +614,16 @@ export async function gradeCustomBet(
       // Credit picks. We pull them inside the txn so a pick written
       // between SELECT and UPDATE still gets graded (advisory locks on
       // submission already serialise concurrent writes per user).
+      //
+      // payoutSnapshot pulled per-pick: outright bets price each option
+      // individually (Mbappé pays 7, longshot pays 25). Pre-migration
+      // rows have NULL payoutSnapshot — resolvePickPayoutAtGrade falls
+      // back to the bet-level payout for those.
       const picks = await tx
         .select({
           id: userCustomBetPicks.id,
           answer: userCustomBetPicks.answer,
+          payoutSnapshot: userCustomBetPicks.payoutSnapshot,
         })
         .from(userCustomBetPicks)
         .where(eq(userCustomBetPicks.customBetId, id));
@@ -629,10 +636,14 @@ export async function gradeCustomBet(
           resolvedValue,
         );
         if (correct) winners += 1;
+        const winPayout = resolvePickPayoutAtGrade({
+          pickPayoutSnapshot: pk.payoutSnapshot,
+          betLevelPayout: bet.payoutSnapshot,
+        });
         await tx
           .update(userCustomBetPicks)
           .set({
-            pointsEarned: correct ? bet.payoutSnapshot : 0,
+            pointsEarned: correct ? winPayout : 0,
             wasCorrect: correct,
             locked: true,
             updatedAt: new Date(),

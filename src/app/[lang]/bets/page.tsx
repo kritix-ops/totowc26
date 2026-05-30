@@ -8,6 +8,9 @@ import { PayGateBanner } from "@/components/PayGateBanner";
 import { getRequestUser } from "@/lib/request-user";
 import { getUserAccess } from "@/lib/access";
 import { execRows } from "@/db/helpers";
+import { db } from "@/db";
+import { settings as settingsTable } from "@/db/schema";
+import { eq } from "drizzle-orm";
 import { getBetLockMinutes } from "@/db/queries";
 import { formatDateTime } from "@/lib/format";
 import { localePath } from "@/lib/paths";
@@ -43,10 +46,26 @@ export default async function QuickBetsPage({
   if (!user) redirect(localePath(locale, "login"));
   const access = await getUserAccess(user.id);
 
-  const [matches, lockMinutes] = await Promise.all([
+  const [matches, lockMinutes, scoringRow] = await Promise.all([
     loadEditableMatches(user.id),
     getBetLockMinutes(),
+    db
+      .select({
+        scoringExact: settingsTable.scoringExact,
+        scoringOutcome: settingsTable.scoringOutcome,
+        matchRiskEnabled: settingsTable.matchRiskEnabled,
+        matchRiskPenalty: settingsTable.matchRiskPenalty,
+      })
+      .from(settingsTable)
+      .where(eq(settingsTable.id, 1))
+      .then((rows) => rows[0]),
   ]);
+  const scoring = {
+    exact: scoringRow?.scoringExact ?? 15,
+    outcome: scoringRow?.scoringOutcome ?? 5,
+    riskEnabled: scoringRow?.matchRiskEnabled ?? false,
+    penalty: scoringRow?.matchRiskPenalty ?? 5,
+  };
 
   // Group by Asia/Jerusalem matchday. Days are already in order from
   // the query.
@@ -82,6 +101,42 @@ export default async function QuickBetsPage({
         <p className="text-sm text-on-surface-variant">
           {dict.quickBets.subtitle}
         </p>
+        {/* Compact scoring-rules hint. Lives once at the top of the
+            page so the per-row Quick-pick cards stay tight. Each
+            scoring delta is rendered as a small chip with its sign
+            colour-coded the same way PickScenarios does it. */}
+        <div className="flex flex-wrap items-center gap-2 text-xs text-on-surface-variant pt-1">
+          <span className="font-bold">
+            {isHebrew ? "ניקוד:" : "Scoring:"}
+          </span>
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-success-container text-on-success-container tabular-nums">
+            <span>
+              {isHebrew ? "פגיעה" : "Exact"}
+            </span>
+            <bdi className="font-bold">+{scoring.exact}</bdi>
+          </span>
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-success-container text-on-success-container tabular-nums">
+            <span>
+              {isHebrew ? "כיוון" : "Direction"}
+            </span>
+            <bdi className="font-bold">+{scoring.outcome}</bdi>
+          </span>
+          {scoring.riskEnabled ? (
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-error-container text-on-error-container tabular-nums">
+              <span>
+                {isHebrew ? "טעות" : "Wrong"}
+              </span>
+              <bdi className="font-bold">-{scoring.penalty}</bdi>
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-surface-container-high text-on-surface-variant tabular-nums">
+              <span>
+                {isHebrew ? "טעות" : "Wrong"}
+              </span>
+              <bdi className="font-bold">0</bdi>
+            </span>
+          )}
+        </div>
       </header>
 
       {!access.canEdit && <PayGateBanner locale={locale} dict={dict} />}

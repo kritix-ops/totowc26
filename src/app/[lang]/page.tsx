@@ -22,7 +22,9 @@ import { InstallHint } from "@/components/InstallHint";
 import { CategoryPrizeStrip } from "@/components/CategoryPrizeStrip";
 import { getRequestUser } from "@/lib/request-user";
 import { getUserAccess } from "@/lib/access";
+import { getBankBalance } from "@/lib/bank";
 import { DashboardPickCard } from "@/components/DashboardPickCard";
+import { SmartHubAsync, SmartHubSkeleton } from "@/components/SmartHub";
 import { WhatsAppInviteCard } from "@/components/WhatsAppInviteCard";
 import { db } from "@/db";
 import { settings } from "@/db/schema";
@@ -59,6 +61,7 @@ import {
   Chip,
   LabelCaps,
   ScoreDigit,
+  ScoreLine,
   SectionHeading,
 } from "@/components/ui";
 
@@ -301,6 +304,14 @@ function PlayerHome({
           <StatusRowAsync locale={locale} dict={dict} userId={userId} />
         </Suspense>
 
+        {/* Smart Hub — personal "up next" card. See
+            _plans/2026-05-30-smart-reminders.md. Streamed independently
+            so the rest of the dashboard never waits on the moment
+            engine fan-out. */}
+        <Suspense fallback={<SmartHubSkeleton />}>
+          <SmartHubAsync locale={locale} userId={userId} />
+        </Suspense>
+
         <Suspense fallback={<UpcomingSectionSkeleton />}>
           <UpcomingSectionAsync locale={locale} dict={dict} userId={userId} />
         </Suspense>
@@ -448,14 +459,32 @@ async function UpcomingSectionAsync({
   dict: Awaited<ReturnType<typeof getDictionary>>;
   userId: string;
 }) {
-  // These three fan out in parallel; the section paints when all
-  // three resolve. `lockMinutes` and `access` are both cheap
-  // single-row lookups, the heavy one is the fixtures query.
-  const [upcoming, access, lockMinutes] = await Promise.all([
+  // These five fan out in parallel; the section paints when all
+  // resolve. `lockMinutes`, `scoring` and `bankBalance` are all cheap
+  // single-row lookups; the heavy one is the fixtures query. The two
+  // new lookups feed the per-card scenarios panel.
+  const [upcoming, access, lockMinutes, scoringRow, bankBalance] = await Promise.all([
     getUpcomingFixtures(userId, 6),
     getUserAccess(userId),
     getBetLockMinutes(),
+    db
+      .select({
+        scoringExact: settings.scoringExact,
+        scoringOutcome: settings.scoringOutcome,
+        matchRiskEnabled: settings.matchRiskEnabled,
+        matchRiskPenalty: settings.matchRiskPenalty,
+      })
+      .from(settings)
+      .where(eq(settings.id, 1))
+      .then((rows) => rows[0]),
+    getBankBalance(userId),
   ]);
+  const scoring = {
+    exact: scoringRow?.scoringExact ?? 15,
+    outcome: scoringRow?.scoringOutcome ?? 5,
+    riskEnabled: scoringRow?.matchRiskEnabled ?? false,
+    penalty: scoringRow?.matchRiskPenalty ?? 5,
+  };
   return (
     <UpcomingSection
       locale={locale}
@@ -463,6 +492,8 @@ async function UpcomingSectionAsync({
       upcoming={upcoming}
       canEdit={access.canEdit}
       lockMinutes={lockMinutes}
+      bankBalance={bankBalance}
+      scoring={scoring}
     />
   );
 }
@@ -601,6 +632,13 @@ function PlayerHomePreview({
           upcoming={data.upcoming}
           canEdit={canEdit}
           lockMinutes={lockMinutes}
+          bankBalance={30}
+          scoring={{
+            exact: 15,
+            outcome: 5,
+            riskEnabled: false,
+            penalty: 5,
+          }}
         />
 
         <div className="flex flex-col gap-8 md:gap-12 lg:grid lg:grid-cols-12 lg:gap-x-12 lg:gap-y-12">
@@ -784,12 +822,21 @@ function UpcomingSection({
   upcoming,
   lockMinutes,
   canEdit,
+  bankBalance,
+  scoring,
 }: {
   locale: Locale;
   dict: Awaited<ReturnType<typeof getDictionary>>;
   upcoming: FixtureWithMyBet[];
   lockMinutes: number;
   canEdit: boolean;
+  bankBalance: number;
+  scoring: {
+    exact: number;
+    outcome: number;
+    riskEnabled: boolean;
+    penalty: number;
+  };
 }) {
   const isHebrew = locale === "he";
   return (
@@ -837,6 +884,8 @@ function UpcomingSection({
               countdownLabel={formatRelative(m.kickoffAt, locale)}
               canEdit={canEdit}
               lockMinutes={lockMinutes}
+              bankBalance={bankBalance}
+              scoring={scoring}
             />
           ))}
         </div>
@@ -975,11 +1024,17 @@ function LastBetCard({
       <div className="p-5 md:p-6 bg-[#FBF6EB] flex flex-col gap-4">
         <div className="flex justify-between items-center">
           <LabelCaps>{dict.dashboard.yourBet}</LabelCaps>
-          <span className="font-[family-name:var(--font-score)] text-[24px] md:text-[28px] leading-none tracking-[0.1em] font-bold text-on-surface">
-            <span className="bidi-ltr">
-              {hasBet ? `${match.myHome} - ${match.myAway}` : "-"}
+          {hasBet ? (
+            <ScoreLine
+              home={match.myHome!}
+              away={match.myAway!}
+              className="font-[family-name:var(--font-score)] text-[24px] md:text-[28px] leading-none tracking-[0.1em] font-bold text-on-surface"
+            />
+          ) : (
+            <span className="font-[family-name:var(--font-score)] text-[24px] md:text-[28px] leading-none tracking-[0.1em] font-bold text-on-surface tabular-nums">
+              -
             </span>
-          </span>
+          )}
         </div>
         <div className="border-t border-outline-variant pt-4 flex justify-between items-end">
           <div className="flex flex-col gap-2">

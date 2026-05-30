@@ -1,0 +1,198 @@
+import { describe, expect, it } from "vitest";
+import type {
+  AnswerConfig,
+  MultiChoiceConfig,
+  PickAnswer,
+} from "./types";
+import {
+  resolvePickPayoutAtGrade,
+  resolvePickPayoutAtSubmit,
+} from "./payout";
+
+// Pure-function tests for the per-option payout resolver. No DB. Both
+// callers (the pick action and the grade action) route through these
+// two functions, so getting the truth-table right here is what keeps
+// outright bets paying the correct per-option amount.
+
+const flatBet = {
+  answerType: "multi_choice" as const,
+  betLevelPayout: 14,
+  answerConfig: {
+    kind: "multi_choice",
+    options: [
+      { value: "mbappe", labelHe: "Mbappé", labelEn: "Mbappé" },
+      { value: "longshot", labelHe: "Longshot", labelEn: "Longshot" },
+    ],
+  } satisfies MultiChoiceConfig,
+};
+
+const pricedBet = {
+  answerType: "multi_choice" as const,
+  betLevelPayout: 14,
+  answerConfig: {
+    kind: "multi_choice",
+    options: [
+      {
+        value: "mbappe",
+        labelHe: "Mbappé",
+        labelEn: "Mbappé",
+        payoutOverride: 7,
+      },
+      {
+        value: "kane",
+        labelHe: "Kane",
+        labelEn: "Kane",
+        payoutOverride: 8,
+      },
+      {
+        value: "longshot",
+        labelHe: "Longshot",
+        labelEn: "Longshot",
+        payoutOverride: 25,
+      },
+    ],
+  } satisfies MultiChoiceConfig,
+};
+
+const pickMbappe: PickAnswer = { type: "multi_choice", value: "mbappe" };
+const pickLongshot: PickAnswer = { type: "multi_choice", value: "longshot" };
+const pickUnknown: PickAnswer = { type: "multi_choice", value: "ghost_player" };
+const pickYes: PickAnswer = { type: "yes_no", value: true };
+
+describe("resolvePickPayoutAtSubmit", () => {
+  it("uses per-option override when the chosen option has one", () => {
+    const r = resolvePickPayoutAtSubmit({
+      answerType: pricedBet.answerType,
+      answerConfig: pricedBet.answerConfig,
+      answer: pickMbappe,
+      betLevelPayout: pricedBet.betLevelPayout,
+    });
+    expect(r).toBe(7);
+  });
+
+  it("uses the longshot's larger override when picked", () => {
+    const r = resolvePickPayoutAtSubmit({
+      answerType: pricedBet.answerType,
+      answerConfig: pricedBet.answerConfig,
+      answer: pickLongshot,
+      betLevelPayout: pricedBet.betLevelPayout,
+    });
+    expect(r).toBe(25);
+  });
+
+  it("falls back to bet-level payout for flat-payout bets (no overrides)", () => {
+    const r = resolvePickPayoutAtSubmit({
+      answerType: flatBet.answerType,
+      answerConfig: flatBet.answerConfig,
+      answer: pickMbappe,
+      betLevelPayout: flatBet.betLevelPayout,
+    });
+    expect(r).toBe(14);
+  });
+
+  it("falls back to bet-level when the picked option is not in the config", () => {
+    const r = resolvePickPayoutAtSubmit({
+      answerType: pricedBet.answerType,
+      answerConfig: pricedBet.answerConfig,
+      answer: pickUnknown,
+      betLevelPayout: pricedBet.betLevelPayout,
+    });
+    expect(r).toBe(14);
+  });
+
+  it("ignores override on non-multi_choice answer types", () => {
+    const r = resolvePickPayoutAtSubmit({
+      answerType: "yes_no",
+      answerConfig: { kind: "yes_no" },
+      answer: pickYes,
+      betLevelPayout: 6,
+    });
+    expect(r).toBe(6);
+  });
+
+  it("rounds a non-integer override to nearest integer", () => {
+    const cfg: AnswerConfig = {
+      kind: "multi_choice",
+      options: [
+        {
+          value: "x",
+          labelHe: "x",
+          labelEn: "x",
+          payoutOverride: 7.6,
+        },
+      ],
+    };
+    const r = resolvePickPayoutAtSubmit({
+      answerType: "multi_choice",
+      answerConfig: cfg,
+      answer: { type: "multi_choice", value: "x" },
+      betLevelPayout: 14,
+    });
+    expect(r).toBe(8);
+  });
+
+  it("ignores a negative/zero override and falls back to bet-level", () => {
+    const cfg: AnswerConfig = {
+      kind: "multi_choice",
+      options: [
+        {
+          value: "x",
+          labelHe: "x",
+          labelEn: "x",
+          payoutOverride: 0,
+        },
+      ],
+    };
+    const r = resolvePickPayoutAtSubmit({
+      answerType: "multi_choice",
+      answerConfig: cfg,
+      answer: { type: "multi_choice", value: "x" },
+      betLevelPayout: 14,
+    });
+    expect(r).toBe(14);
+  });
+
+  it("handles missing answerConfig gracefully (treats as flat-payout)", () => {
+    const r = resolvePickPayoutAtSubmit({
+      answerType: "multi_choice",
+      answerConfig: null,
+      answer: pickMbappe,
+      betLevelPayout: 14,
+    });
+    expect(r).toBe(14);
+  });
+});
+
+describe("resolvePickPayoutAtGrade", () => {
+  it("uses the snapshotted pick payout when present", () => {
+    const r = resolvePickPayoutAtGrade({
+      pickPayoutSnapshot: 7,
+      betLevelPayout: 14,
+    });
+    expect(r).toBe(7);
+  });
+
+  it("falls back to bet-level for pre-migration picks with NULL snapshot", () => {
+    const r = resolvePickPayoutAtGrade({
+      pickPayoutSnapshot: null,
+      betLevelPayout: 14,
+    });
+    expect(r).toBe(14);
+  });
+
+  it("respects the snapshot even when it equals the bet-level value", () => {
+    const r = resolvePickPayoutAtGrade({
+      pickPayoutSnapshot: 14,
+      betLevelPayout: 14,
+    });
+    expect(r).toBe(14);
+  });
+
+  it("respects a high longshot snapshot beyond the bet-level value", () => {
+    const r = resolvePickPayoutAtGrade({
+      pickPayoutSnapshot: 25,
+      betLevelPayout: 14,
+    });
+    expect(r).toBe(25);
+  });
+});

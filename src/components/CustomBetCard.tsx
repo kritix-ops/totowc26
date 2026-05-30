@@ -1,9 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { AlertCircle, Check, Info, Lock, Minus, Plus } from "lucide-react";
 import { clsx } from "clsx";
-import { Card, Chip, LabelCaps } from "@/components/ui";
+import { Card, Chip, LabelCaps, MatchupLabel } from "@/components/ui";
 import { SearchableChoicePicker } from "@/components/SearchableChoicePicker";
 import { LocksInCountdown } from "@/components/LocksInCountdown";
 import { formatDateTime } from "@/lib/format";
@@ -20,6 +20,8 @@ import type {
 } from "@/lib/bets/types";
 import { usePickerOptions } from "@/lib/picker-options/client";
 import { usePendingAction } from "@/lib/use-pending-action";
+import { resolvePickPayoutAtSubmit } from "@/lib/bets/payout";
+import { PickScenarios } from "@/components/PickScenarios";
 import { submitCustomBetPick } from "@/app/[lang]/play/[date]/actions";
 
 // Threshold above which the multi_choice answer widget switches
@@ -120,7 +122,20 @@ export function CustomBetCard({
           </h3>
           {bet.scopeLabel && (
             <span className="text-xs text-on-surface-variant tabular-nums">
-              {bet.scopeLabel}
+              {(() => {
+                // The scope label may already be plain text ("Matchday",
+                // "Group A") or a "<HOME> vs <AWAY>" matchup string. The
+                // matchup form gets rendered through MatchupLabel so the
+                // home code sits on the same side as the home team does
+                // everywhere else (right in Hebrew, left in English),
+                // instead of being frozen LTR by Latin-only text.
+                const m = bet.scopeLabel.match(/^(.+?)\s+(?:vs|נגד)\s+(.+)$/);
+                return m ? (
+                  <MatchupLabel home={m[1]} away={m[2]} locale={locale} />
+                ) : (
+                  bet.scopeLabel
+                );
+              })()}
             </span>
           )}
         </div>
@@ -158,6 +173,41 @@ export function CustomBetCard({
         onChange={setDraft}
         disabled={!editable || pending}
       />
+
+      {/* Scenarios: shows current bank, post-stake balance, and the
+          balance under each possible outcome. The "if correct" delta
+          uses resolvePickPayoutAtSubmit so per-option payouts
+          (outright bets) flip the number as the user picks each
+          option. When no pick is selected yet we fall back to the
+          bet-level payout so the user still sees a meaningful preview
+          before tapping anything. */}
+      {(() => {
+        const effectivePayout = resolvePickPayoutAtSubmit({
+          answerType: bet.answerType,
+          answerConfig: bet.answerConfig,
+          answer: draft ?? { type: "yes_no", value: false },
+          betLevelPayout: bet.payoutSnapshot,
+        });
+        return (
+          <PickScenarios
+            locale={locale}
+            currentBalance={effective}
+            stake={hasChoice ? bet.stakeSnapshot : 0}
+            scenarios={[
+              {
+                label: isHebrew ? "אם תפגע" : "If correct",
+                delta: effectivePayout,
+                tone: "positive",
+              },
+              {
+                label: isHebrew ? "אם תטעה" : "If wrong",
+                delta: 0,
+                tone: "neutral",
+              },
+            ]}
+          />
+        );
+      })()}
 
       {/* Stake/payout + submit */}
       <div className="flex flex-col-reverse md:flex-row md:items-center md:justify-between gap-3 pt-3 border-t border-outline-variant">
@@ -366,6 +416,8 @@ function AnswerWidget({
     // multi_choice bets keep the pill-grid / dropdown threshold logic.
     const dynamicSource =
       cfg.kind === "multi_choice" ? cfg.dynamicSource : undefined;
+    const payoutOverridesByValue =
+      cfg.kind === "multi_choice" ? cfg.payoutOverridesByValue : undefined;
     if (dynamicSource) {
       return (
         <DynamicPickerWidget
@@ -374,6 +426,7 @@ function AnswerWidget({
           value={value}
           onChange={onChange}
           disabled={disabled}
+          payoutOverridesByValue={payoutOverridesByValue}
         />
       );
     }
@@ -451,16 +504,43 @@ function DynamicPickerWidget({
   value,
   onChange,
   disabled,
+  payoutOverridesByValue,
 }: {
   source: DynamicOptionSource;
   locale: Locale;
   value: PickAnswer | null;
   onChange: (v: PickAnswer | null) => void;
   disabled?: boolean;
+  // Per-option payout map written by the tournament-odds publish
+  // flow. When present we splice the matching payout into each
+  // option's subtitle so users see "Mbappé · payout 7" vs
+  // "ben­ch player · payout 25" inside the picker — making the
+  // longshot premium visible at pick time.
+  payoutOverridesByValue?: Record<string, number>;
 }) {
   const isHebrew = locale === "he";
   const { options, loading, error } = usePickerOptions(source, locale);
   const current = value?.type === "multi_choice" ? value.value : null;
+
+  // Decorate hydrated options with the per-option payout label when
+  // we have a price map. The original subtitle (jersey / position)
+  // gets kept and the payout chip joins it with a separator.
+  const decoratedOptions = useMemo(() => {
+    if (!payoutOverridesByValue || options.length === 0) return options;
+    const labelHe = "תשלום";
+    const labelEn = "payout";
+    return options.map((o) => {
+      const p = payoutOverridesByValue[o.value];
+      if (typeof p !== "number" || !Number.isFinite(p)) return o;
+      const tagHe = `${labelHe} ${p}`;
+      const tagEn = `${labelEn} ${p}`;
+      return {
+        ...o,
+        subtitleHe: o.subtitleHe ? `${o.subtitleHe} · ${tagHe}` : tagHe,
+        subtitleEn: o.subtitleEn ? `${o.subtitleEn} · ${tagEn}` : tagEn,
+      };
+    });
+  }, [options, payoutOverridesByValue]);
 
   if (loading) {
     return (
@@ -483,7 +563,7 @@ function DynamicPickerWidget({
 
   return (
     <SearchableChoicePicker
-      options={options}
+      options={decoratedOptions}
       currentValue={current}
       locale={locale}
       disabled={disabled}

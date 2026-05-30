@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 import { Radio, Sparkles, Goal } from "lucide-react";
 import { clsx } from "clsx";
 import { getDictionary, hasLocale, type Locale } from "../dictionaries";
-import { Card, Chip, LabelCaps } from "@/components/ui";
+import { Card, Chip, LabelCaps, ScoreLine } from "@/components/ui";
 import { Flag } from "@/components/Flag";
 import { getRequestUser } from "@/lib/request-user";
 import { getLiveMatches, type LiveMatchRow } from "@/db/queries";
@@ -142,10 +142,8 @@ function LiveMatchCard({
         )
       : null;
 
-  const liveScoreLabel =
-    match.homeScore !== null && match.awayScore !== null
-      ? `${match.homeScore} - ${match.awayScore}`
-      : "-";
+  const hasLiveScore =
+    match.homeScore !== null && match.awayScore !== null;
 
   return (
     <Card className="p-4 md:p-5 flex flex-col gap-3">
@@ -176,9 +174,17 @@ function LiveMatchCard({
             {homeName}
           </span>
         </div>
-        <span className="font-[family-name:var(--font-score)] text-3xl md:text-4xl leading-none font-bold tabular-nums bidi-ltr">
-          {liveScoreLabel}
-        </span>
+        {hasLiveScore ? (
+          <ScoreLine
+            home={match.homeScore!}
+            away={match.awayScore!}
+            className="font-[family-name:var(--font-score)] text-3xl md:text-4xl leading-none font-bold"
+          />
+        ) : (
+          <span className="font-[family-name:var(--font-score)] text-3xl md:text-4xl leading-none font-bold tabular-nums">
+            -
+          </span>
+        )}
         <div className="flex items-center gap-2 flex-1 min-w-0 justify-end">
           <span className="text-sm md:text-base font-bold truncate text-end">
             {awayName}
@@ -225,9 +231,11 @@ function LiveMatchCard({
         <div className="flex items-center justify-between gap-3 pt-2 border-t border-outline-variant">
           <div className="flex flex-col gap-0.5">
             <LabelCaps>{dict.live.yourPickLabel}</LabelCaps>
-            <span className="font-[family-name:var(--font-score)] text-lg font-bold tabular-nums bidi-ltr">
-              {match.myHomeScore} - {match.myAwayScore}
-            </span>
+            <ScoreLine
+              home={match.myHomeScore!}
+              away={match.myAwayScore!}
+              className="font-[family-name:var(--font-score)] text-lg font-bold"
+            />
           </div>
           <div className="flex flex-col items-end gap-0.5">
             <LabelCaps>

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { AlertCircle } from "lucide-react";
 import { clsx } from "clsx";
 import { Card, PillButton, SectionHeading } from "@/components/ui";
+import { PickScenarios } from "@/components/PickScenarios";
 import type { Dictionary, Locale } from "../../dictionaries";
 import { openDuel } from "../actions";
 
@@ -358,6 +359,35 @@ export function NewDuelForm({
             {labels.deadlineHint}
           </p>
         </div>
+
+        {/* Live scenarios — recompute as the stake slider moves so the
+            opener can see exactly what their bank will look like under
+            both outcomes. Duel payouts are symmetric: winner takes the
+            other side's stake (+stake net), loser keeps -stake. The
+            "stake" row above the scenarios shows the immediate -stake
+            deduction at duel open time. */}
+        <PickScenarios
+          locale={locale}
+          currentBalance={balance}
+          stake={stake}
+          scenarios={[
+            {
+              label: isHebrew ? "אם תזכה" : "If you win",
+              delta: 2 * stake,
+              tone: "positive",
+            },
+            {
+              label: isHebrew ? "אם תפסיד" : "If you lose",
+              delta: 0,
+              tone: "negative",
+            },
+            {
+              label: isHebrew ? "אם הדו-קרב יבוטל" : "If the duel is cancelled",
+              delta: stake,
+              tone: "neutral",
+            },
+          ]}
+        />
       </Card>
 
       {scope === "match" && (

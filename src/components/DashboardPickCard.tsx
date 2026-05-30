@@ -5,6 +5,7 @@ import { AlertCircle, CalendarClock, Check, Minus, Plus } from "lucide-react";
 import { clsx } from "clsx";
 import { Card, Chip, LabelCaps } from "@/components/ui";
 import { Flag } from "@/components/Flag";
+import { PickScenarios } from "@/components/PickScenarios";
 import { usePendingAction } from "@/lib/use-pending-action";
 import type { Locale } from "@/app/[lang]/dictionaries";
 import {
@@ -39,12 +40,26 @@ export function DashboardPickCard({
   countdownLabel,
   canEdit,
   lockMinutes,
+  bankBalance,
+  scoring,
 }: {
   locale: Locale;
   match: DashboardPickCardData;
   countdownLabel: string;
   canEdit: boolean;
   lockMinutes: number;
+  // Bank + scoring knobs so the inline scenarios row inside the card
+  // can preview the outcome without a network round-trip. The
+  // dashboard surfaces up to 3 of these cards side-by-side; each one
+  // shows the same scoring rules but pulls its own pick's potential
+  // delta off the user's CURRENT bank.
+  bankBalance: number;
+  scoring: {
+    exact: number;
+    outcome: number;
+    riskEnabled: boolean;
+    penalty: number;
+  };
 }) {
   const isHebrew = locale === "he";
   const hadPick = match.myHome !== null && match.myAway !== null;
@@ -149,6 +164,29 @@ export function DashboardPickCard({
           />
         </div>
       </div>
+
+      <PickScenarios
+        locale={locale}
+        currentBalance={bankBalance}
+        stake={0}
+        scenarios={[
+          {
+            label: isHebrew ? "פגיעה" : "Exact",
+            delta: scoring.exact,
+            tone: "positive",
+          },
+          {
+            label: isHebrew ? "כיוון" : "Direction",
+            delta: scoring.outcome,
+            tone: "positive",
+          },
+          {
+            label: isHebrew ? "טעות" : "Wrong",
+            delta: scoring.riskEnabled ? -scoring.penalty : 0,
+            tone: scoring.riskEnabled ? "negative" : "neutral",
+          },
+        ]}
+      />
 
       <div className="mt-auto pt-3 border-t border-outline-variant flex flex-col gap-2">
         <button

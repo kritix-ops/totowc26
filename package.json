@@ -27,7 +27,12 @@
     "api-football:check": "node --env-file=.env.local scripts/api-football-check-mapping.mjs",
     "api-football:probe": "node --env-file=.env.local scripts/api-football-probe.mjs",
     "api-football:squads": "node --env-file=.env.local scripts/api-football-sync-squads.mjs",
-    "translate:players": "node --env-file=.env.local scripts/translate-players.mjs"
+    "translate:players": "node --env-file=.env.local scripts/translate-players.mjs",
+    "outright:ingest": "node --env-file=.env.local scripts/ingest-outright-odds.mjs",
+    "outright:derive": "node --env-file=.env.local scripts/derive-outright-odds.mjs",
+    "outright:publish": "node --env-file=.env.local scripts/auto-publish-outright.mjs",
+    "odds-api:probe": "node --env-file=.env.local scripts/probe-the-odds-api.mjs",
+    "odds-api:fetch": "node --env-file=.env.local scripts/fetch-the-odds-api.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.10.3",

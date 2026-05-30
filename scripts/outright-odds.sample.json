@@ -1,0 +1,41 @@
+[
+  {
+    "surface": "top_scorer",
+    "_comment": "Paste decimal odds (not American +600 format). Convert American to decimal: positive odds N → 1 + N/100; negative odds -N → 1 + 100/N. Mbappé +600 → 7.0.",
+    "rows": [
+      { "name": "Kylian Mbappé",   "decimal_odds": 7.0,  "notes": "Bet365 +600" },
+      { "name": "Harry Kane",       "decimal_odds": 8.0,  "notes": "Bet365 +700" },
+      { "name": "Erling Haaland",   "decimal_odds": 15.0, "notes": "Bet365 +1400" },
+      { "name": "Lionel Messi",     "decimal_odds": 15.0, "notes": "Bet365 +1400" }
+    ]
+  },
+  {
+    "surface": "golden_ball",
+    "rows": [
+      { "name": "Kylian Mbappé",     "decimal_odds": 6.0 },
+      { "name": "Jude Bellingham",   "decimal_odds": 7.0 },
+      { "name": "Lamine Yamal",      "decimal_odds": 9.0 }
+    ]
+  },
+  {
+    "surface": "champion",
+    "_comment": "Use English team names exactly as they appear in our teams table. Country/team names are case-insensitive.",
+    "rows": [
+      { "name": "France",     "decimal_odds": 5.5 },
+      { "name": "Spain",      "decimal_odds": 5.5 },
+      { "name": "England",    "decimal_odds": 7.0 },
+      { "name": "Brazil",     "decimal_odds": 9.0 },
+      { "name": "Argentina",  "decimal_odds": 10.0 }
+    ]
+  },
+  {
+    "surface": "group_A",
+    "_comment": "Group A of WC 2026: Mexico, USA, South Africa, Uruguay (verify against the actual draw).",
+    "rows": [
+      { "name": "Mexico",       "decimal_odds": 1.7 },
+      { "name": "USA",          "decimal_odds": 3.5 },
+      { "name": "Uruguay",      "decimal_odds": 4.5 },
+      { "name": "South Africa", "decimal_odds": 9.0 }
+    ]
+  }
+]

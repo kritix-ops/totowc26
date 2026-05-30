@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { Swords } from "lucide-react";
-import { Card, LabelCaps, SectionHeading } from "@/components/ui";
+import { Card, LabelCaps, ScoreLine, SectionHeading } from "@/components/ui";
 import { localePath } from "@/lib/paths";
 import { formatDateTime } from "@/lib/format";
 import type { Locale } from "../../dictionaries";
@@ -107,8 +107,8 @@ export function HeadToHead({
               {m.status === "final" &&
               m.aGoals != null &&
               m.bGoals != null ? (
-                <span className="font-[family-name:var(--font-score)] text-lg leading-none font-bold text-on-surface bidi-ltr shrink-0">
-                  {m.aGoals} - {m.bGoals}
+                <span className="font-[family-name:var(--font-score)] text-lg leading-none font-bold text-on-surface shrink-0 inline-flex items-center gap-1">
+                  <ScoreLine home={m.aGoals} away={m.bGoals} />
                   {m.wentToPenalties && (
                     <span className="text-xs ms-1 text-on-surface-variant">
                       {isHebrew ? "(פנדלים)" : "(pen)"}
