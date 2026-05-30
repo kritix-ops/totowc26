@@ -68,6 +68,8 @@ const SURFACES = new Set([
 
 const PLAYER_SURFACES = new Set(["top_scorer", "golden_ball"]);
 
+// (matcher state moved onto each index — see buildIndex below.)
+
 const url = process.env.DIRECT_URL;
 if (!url) {
   console.error("DIRECT_URL is not set. Pass --env-file=.env.local.");
@@ -235,11 +237,23 @@ try {
 // ---------- name matching helpers ----------
 
 function buildIndex(entities) {
-  // key = normalised name → { id, canonical }. Multiple normalised
-  // forms can point at the same option (e.g. "Mbappé" and "Mbappe"
-  // both index to Kylian Mbappé). canonical is the first non-empty
-  // display name we saw — used as the display_name on the snapshot row.
+  // Build a multi-key index that lets us match Oddschecker's shortened
+  // names against the DB's full names. For each entity we index:
+  //   1. The full normalised name ("erling braut haaland")
+  //   2. Every individual word ≥ 3 chars ("erling", "braut", "haaland")
+  //   3. Every adjacent-word pair ("erling braut", "braut haaland",
+  //      "erling haaland" we don't emit — but the first+last pair we do).
+  //
+  // Plus first+last name pair ("erling haaland") for the common case
+  // where a bookmaker drops middle names.
+  //
+  // Collision rule: first writer wins. The full-name entry is written
+  // first, so direct matches never get overridden by a shorter alias
+  // pointing to a different player. Tokens with collisions just lose
+  // their secondary lookup — admin sees an unmatched warning and can
+  // disambiguate manually.
   const m = new Map();
+  const fullList = [];
   for (const e of entities) {
     const canonical = e.names[0];
     if (!canonical) continue;
@@ -247,23 +261,76 @@ function buildIndex(entities) {
       const k = normaliseName(n);
       if (!k) continue;
       if (!m.has(k)) m.set(k, { id: e.id, canonical });
+      fullList.push({ key: k, id: e.id, canonical });
+      const tokens = k.split(" ").filter((t) => t.length >= 3);
+      if (tokens.length >= 2) {
+        const first = tokens[0];
+        const last = tokens[tokens.length - 1];
+        const firstLast = `${first} ${last}`;
+        if (!m.has(firstLast)) m.set(firstLast, { id: e.id, canonical });
+        if (!m.has(last)) m.set(last, { id: e.id, canonical });
+      }
+    }
+  }
+  // Stash the substring-search list ON the Map itself so each index
+  // carries its own copy. Shared module-level state would let the
+  // teams build silently overwrite the players build.
+  m.__fullNames = fullList;
+  // Also index "<initial> <lastname>" pairs so abbreviated DB names
+  // like "R. Lukaku" match Oddschecker's "Romelu Lukaku" input.
+  for (const f of fullList) {
+    const tks = f.key.split(" ").filter((t) => t.length >= 1);
+    if (tks.length >= 2 && tks[0].length === 1) {
+      const initialLast = `${tks[0]} ${tks[tks.length - 1]}`;
+      if (!m.has(initialLast)) m.set(initialLast, { id: f.id, canonical: f.canonical });
     }
   }
   return m;
 }
 
 function lookup(index, raw) {
-  const direct = index.get(normaliseName(raw));
+  const norm = normaliseName(raw);
+  const direct = index.get(norm);
   if (direct) return direct;
-  // Lastname-only fallback: Oddschecker frequently shows just the
-  // surname for well-known players ("Mbappé" rather than "Kylian
-  // Mbappé"). Try the last whitespace-delimited token if direct lookup
-  // failed.
-  const parts = normaliseName(raw).split(" ").filter(Boolean);
-  if (parts.length >= 2) {
-    const last = parts[parts.length - 1];
-    const hit = index.get(last);
-    if (hit) return hit;
+  // First + Last fallback: "Erling Haaland" → match against the
+  // synthetic "erling haaland" key we added in buildIndex even
+  // though the DB row is "Erling Braut Haaland".
+  const tokens = norm.split(" ").filter(Boolean);
+  if (tokens.length >= 2) {
+    const firstLast = `${tokens[0]} ${tokens[tokens.length - 1]}`;
+    const fl = index.get(firstLast);
+    if (fl) return fl;
+    // Initial-form match: input "Romelu Lukaku" → look up "r lukaku"
+    // for DB rows stored as "R. Lukaku".
+    const initialLast = `${tokens[0][0]} ${tokens[tokens.length - 1]}`;
+    const il = index.get(initialLast);
+    if (il) return il;
+    const last = tokens[tokens.length - 1];
+    if (last.length >= 3) {
+      const hit = index.get(last);
+      if (hit) return hit;
+    }
+  }
+  // Substring fallback: API-Football stores legal-document birth names
+  // like "Kylian Mbappé Lottin", "Marcus Lilian Thuram-Ulien". The
+  // bookmaker spells the common-use name ("Kylian Mbappé", "Marcus
+  // Thuram"). If the input as a whole appears as a CONTIGUOUS
+  // substring of any indexed full name, treat it as a match. We
+  // require the input to have ≥ 2 tokens so single-word inputs don't
+  // sweep up unrelated players.
+  if (tokens.length >= 2) {
+    const candidates = (index.__fullNames ?? []).filter((f) => f.key.includes(norm));
+    if (candidates.length === 1) return { id: candidates[0].id, canonical: candidates[0].canonical };
+    // ALL tokens present in some DB name (each as a whole word).
+    // Catches "Marcus Thuram" → "Marcus Lilian Thuram-Ulien" when
+    // contiguous substring fails because of middle names.
+    const allTokensFn = (index.__fullNames ?? []).filter((f) => {
+      const dbTokens = new Set(f.key.split(" "));
+      return tokens.every((t) => dbTokens.has(t));
+    });
+    if (allTokensFn.length === 1) {
+      return { id: allTokensFn[0].id, canonical: allTokensFn[0].canonical };
+    }
   }
   return null;
 }

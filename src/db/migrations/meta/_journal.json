@@ -239,6 +239,20 @@
       "when": 1782070000000,
       "tag": "0033_news_items",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1782075000000,
+      "tag": "0034_outright_odds",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1782080000000,
+      "tag": "0035_live_odds_snapshot",
+      "breakpoints": true
     }
   ]
 }
