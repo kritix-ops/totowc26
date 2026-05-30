@@ -7,6 +7,7 @@ import {
   customBets,
   outrightOddsSnapshot,
   settings as settingsTable,
+  teams as teamsTable,
   type OutrightSurface,
 } from "@/db/schema";
 import { getUser } from "@/lib/supabase/auth";
@@ -184,20 +185,52 @@ export async function publishSurfaceToBet(input: {
 
     const snapshotRows = await db
       .select({
+        optionKind: outrightOddsSnapshot.optionKind,
         optionId: outrightOddsSnapshot.optionId,
         decimalOdds: outrightOddsSnapshot.decimalOdds,
       })
       .from(outrightOddsSnapshot)
       .where(eq(outrightOddsSnapshot.surface, input.surface));
 
-    // Snapshot's option_id is the api_football_id; the multi_choice
-    // option's `value` is the same numeric id rendered as a string.
+    // Snapshot's option_id is the api_football_id (player) or
+    // api_football_team_id (team). The bet's options[].value uses a
+    // different key convention depending on the surface:
+    //   - dynamicSource=players surfaces (top_scorer, golden_ball)
+    //     → value is api_football_id as a string. Direct match.
+    //   - static team surfaces (champion, runner_up, third, group_*)
+    //     → value is the 3-letter ISO team code (e.g. "ESP").
+    //     We translate via the teams table.
+    const teamCodeByApiId = new Map<number, string>();
+    const hasTeamSnapshot = snapshotRows.some((r) => r.optionKind === "team");
+    if (hasTeamSnapshot) {
+      const apiIds = snapshotRows
+        .filter((r) => r.optionKind === "team")
+        .map((r) => r.optionId);
+      const teams = await db
+        .select({
+          code: teamsTable.code,
+          apiFootballTeamId: teamsTable.apiFootballTeamId,
+        })
+        .from(teamsTable);
+      for (const t of teams) {
+        if (t.apiFootballTeamId == null) continue;
+        if (apiIds.includes(t.apiFootballTeamId)) {
+          teamCodeByApiId.set(t.apiFootballTeamId, t.code);
+        }
+      }
+    }
+
     const priceByValue = new Map<string, number>();
     for (const r of snapshotRows) {
       const dec = Number(r.decimalOdds);
       if (!Number.isFinite(dec) || dec <= 1.0) continue;
       const { payout } = normalizeOdds(dec, oddsConfig);
-      priceByValue.set(String(r.optionId), payout);
+      if (r.optionKind === "team") {
+        const code = teamCodeByApiId.get(Number(r.optionId));
+        if (code) priceByValue.set(code, payout);
+      } else {
+        priceByValue.set(String(r.optionId), payout);
+      }
     }
 
     let updated = 0;
