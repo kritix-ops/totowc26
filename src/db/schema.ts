@@ -1106,6 +1106,27 @@ export const newsSyncCursors = pgTable("news_sync_cursors", {
     .defaultNow(),
 });
 
+// Per-fixture persisted snapshot of bookmaker odds. Cron-refreshed
+// from The Odds API by /api/cron/odds-sync and read by the admin
+// suggestions surface. See migrations/0035_live_odds_snapshot.sql for
+// the design rationale.
+export const liveOddsSnapshot = pgTable(
+  "live_odds_snapshot",
+  {
+    matchId: uuid("match_id")
+      .primaryKey()
+      .references(() => matches.id, { onDelete: "cascade" }),
+    markets: jsonb("markets").notNull(),
+    fetchedAt: timestamp("fetched_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    notes: text("notes"),
+  },
+  (t) => ({
+    fetchedAtIdx: index("live_odds_snapshot_fetched_at_idx").on(t.fetchedAt),
+  }),
+);
+
 // Outright-bet payout staging area. Background and full design in
 // _plans/2026-05-30-outright-bet-payout-system.md.
 //
@@ -1214,6 +1235,8 @@ export type OutrightOddsSnapshotRow =
   typeof outrightOddsSnapshot.$inferSelect;
 export type NewOutrightOddsSnapshotRow =
   typeof outrightOddsSnapshot.$inferInsert;
+export type LiveOddsSnapshotRow = typeof liveOddsSnapshot.$inferSelect;
+export type NewLiveOddsSnapshotRow = typeof liveOddsSnapshot.$inferInsert;
 
 // String-literal union for the nine fixed outright surfaces. Kept in
 // sync with the surface check constraint in

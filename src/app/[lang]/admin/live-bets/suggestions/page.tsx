@@ -1,13 +1,13 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { ChevronLeft, ChevronRight, Sparkles } from "lucide-react";
 import { clsx } from "clsx";
 import { hasLocale, type Locale } from "../../../dictionaries";
 import { Card, Chip, LabelCaps, SectionHeading } from "@/components/ui";
 import { Flag } from "@/components/Flag";
 import { db } from "@/db";
-import { settings } from "@/db/schema";
+import { liveOddsSnapshot, settings } from "@/db/schema";
 import { listFixturesForDate, listLiveBetsDates } from "@/db/admin-queries";
 import { localePath } from "@/lib/paths";
 import { formatDateTime } from "@/lib/format";
@@ -55,21 +55,45 @@ export default async function LiveBetSuggestionsPage({
     listLiveBetsDates(),
   ]);
 
-  // Resolve odds for every fixture in parallel. fetchOddsForMatch
-  // already swallows errors (returns null), so a single bad fixture
-  // can't poison the whole page. Under the hood the wrapper fetches
-  // the entire WC board once and shares it across these calls — see
-  // src/lib/the-odds-api.ts.
+  // Resolve odds per fixture. Two-tier strategy:
+  //   1. Read from live_odds_snapshot — the cron keeps this fresh
+  //      every 6h. Instant, no credit cost.
+  //   2. For fixtures the snapshot is missing on, fall back to the
+  //      live fetchOddsForMatch wrapper. The wrapper's module-level
+  //      cache shares one round-trip across all fallback calls.
+  //
+  // The "snapshot present" path is the hot path during normal admin
+  // sessions; the fallback only matters right after a new fixture
+  // lands in the DB or before the first cron run after deploy.
   const oddsByFixture = new Map<string, MarketOdds[] | null>();
+  const lastFetchedAt = new Map<string, Date | null>();
+  const fixtureIds = fixtures.map((f) => f.id);
+  if (fixtureIds.length > 0) {
+    const cachedRows = await db
+      .select({
+        matchId: liveOddsSnapshot.matchId,
+        markets: liveOddsSnapshot.markets,
+        fetchedAt: liveOddsSnapshot.fetchedAt,
+      })
+      .from(liveOddsSnapshot)
+      .where(inArray(liveOddsSnapshot.matchId, fixtureIds));
+    for (const row of cachedRows) {
+      oddsByFixture.set(row.matchId, row.markets as MarketOdds[]);
+      lastFetchedAt.set(row.matchId, row.fetchedAt);
+    }
+  }
   await Promise.all(
-    fixtures.map(async (f) => {
-      const markets = await fetchOddsForMatch({
-        homeTeamEn: f.homeNameEn,
-        awayTeamEn: f.awayNameEn,
-        kickoffAt: new Date(f.kickoffAt),
-      });
-      oddsByFixture.set(f.id, markets);
-    }),
+    fixtures
+      .filter((f) => !oddsByFixture.has(f.id))
+      .map(async (f) => {
+        const markets = await fetchOddsForMatch({
+          homeTeamEn: f.homeNameEn,
+          awayTeamEn: f.awayNameEn,
+          kickoffAt: new Date(f.kickoffAt),
+        });
+        oddsByFixture.set(f.id, markets);
+        lastFetchedAt.set(f.id, markets ? new Date() : null);
+      }),
   );
 
   const apiKeyMissing = !process.env.THE_ODDS_API_KEY;

@@ -30,6 +30,11 @@ import type { MarketOdds } from "./odds";
 
 const BASE = "https://api.the-odds-api.com/v4";
 const SPORT_KEY = "soccer_fifa_world_cup";
+// Separate sport key used for the tournament-winner outright market.
+// The Odds API exposes outrights under a sibling key rather than as a
+// market on the per-match key. Only a small subset of bookmakers price
+// it (Betfair Exchange is the most reliable source).
+const SPORT_KEY_CHAMPION = "soccer_fifa_world_cup_winner";
 const REGION = process.env.THE_ODDS_API_REGION ?? "eu";
 const BOARD_TTL_MS = 5 * 60 * 1000;
 // Wider window than the deadline tolerance — kickoffs in our DB and
@@ -224,6 +229,102 @@ export async function fetchWcMatchOdds(args: {
       selections: totals,
     });
   }
+  return out;
+}
+
+// ---------- champion outright ----------
+
+export type ChampionOutrightRow = {
+  teamName: string;
+  decimalOdds: number;
+  bookmakerCount: number;
+};
+
+// Fetch the median per-team odds for the WC tournament-winner outright
+// market. Returns an empty array if no bookmakers have priced it yet
+// (rare — the market is open ~1 year out) or null on transport error.
+//
+// One credit per call. Cron triggers this once on each /api/cron/odds-
+// sync run; the suggestions/tournament-odds editor reads from the
+// outright_odds_snapshot table the cron writes into.
+export async function fetchWcChampionOutright(): Promise<
+  ChampionOutrightRow[] | null
+> {
+  const key = process.env.THE_ODDS_API_KEY;
+  if (!key) {
+    console.warn("[the-odds-api stubbed]", {
+      reason: "THE_ODDS_API_KEY not set",
+      surface: "champion",
+    });
+    return null;
+  }
+  const url =
+    `${BASE}/sports/${SPORT_KEY_CHAMPION}/odds` +
+    `?regions=${REGION}` +
+    `&markets=outrights` +
+    `&oddsFormat=decimal` +
+    `&apiKey=${key}`;
+  const t0 = Date.now();
+  try {
+    const res = await fetch(url, { next: { revalidate: 300 } });
+    const ms = Date.now() - t0;
+    if (!res.ok) {
+      console.warn("[the-odds-api champion error]", {
+        status: res.status,
+        ms,
+      });
+      return null;
+    }
+    const events = (await res.json()) as OddsApiEvent[];
+    console.info("[the-odds-api champion fetch]", {
+      ms,
+      events: events.length,
+      region: REGION,
+      remaining: res.headers.get("x-requests-remaining"),
+      lastCredits: res.headers.get("x-requests-last"),
+    });
+    return aggregateOutright(events);
+  } catch (err) {
+    console.error("[the-odds-api champion failed]", err);
+    return null;
+  }
+}
+
+function aggregateOutright(events: OddsApiEvent[]): ChampionOutrightRow[] {
+  // The outright market wraps every team in a single event with
+  // one outcome per team; bookmakers each carry their own outcome list.
+  // Group by team name (normalised) and take the median across books.
+  const prices = new Map<string, { display: string; quotes: number[] }>();
+  for (const event of events) {
+    for (const bm of event.bookmakers) {
+      const market = bm.markets.find((m) => m.key === "outrights");
+      if (!market) continue;
+      for (const o of market.outcomes) {
+        const p = Number(o.price);
+        if (!Number.isFinite(p) || p <= 1) continue;
+        const k = normaliseName(o.name);
+        if (!k) continue;
+        const cur = prices.get(k);
+        if (cur) {
+          cur.quotes.push(p);
+        } else {
+          prices.set(k, { display: o.name, quotes: [p] });
+        }
+      }
+    }
+  }
+  const out: ChampionOutrightRow[] = [];
+  for (const { display, quotes } of prices.values()) {
+    const m = median(quotes);
+    if (m == null) continue;
+    out.push({
+      teamName: display,
+      decimalOdds: m,
+      bookmakerCount: quotes.length,
+    });
+  }
+  // Favourite first, then in decimal-odds order.
+  out.sort((a, b) => a.decimalOdds - b.decimalOdds);
   return out;
 }
 
