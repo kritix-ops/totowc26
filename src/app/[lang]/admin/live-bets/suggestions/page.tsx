@@ -17,6 +17,7 @@ import {
   type OddsNormConfig,
 } from "@/lib/odds-normalize";
 import { PublishRow } from "./PublishRow";
+import { PublishMarketGroup } from "./PublishMarketGroup";
 import { RefreshFixtureButton } from "./RefreshFixtureButton";
 
 // Markets we skip in the suggestions UI:
@@ -362,50 +363,116 @@ function MarketGroup({
           </Chip>
         </span>
       </SectionHeading>
-      <ul className="flex flex-col gap-2">
-        {market.selections.map((sel) => {
-          const { stake, payout } = normalizeOdds(sel.decimalOdds, oddsConfig);
-          const selectionLabelDisplay = localiseSelectionLabel(
-            sel.label,
-            isHebrew,
-            homeName,
-            awayName,
-          );
+      {market.selections.length >= 2 ? (
+        // Grouped markets (Over/Under at a line, BTTS Yes/No, Handicap
+        // Home/Away) publish as ONE multi_choice bet so the friend
+        // picks the side rather than seeing both sides as unrelated
+        // yes/no rows.
+        (() => {
+          const options = market.selections.map((sel) => {
+            const { stake, payout } = normalizeOdds(sel.decimalOdds, oddsConfig);
+            return {
+              label: localiseSelectionLabel(sel.label, isHebrew, homeName, awayName),
+              decimalOdds: sel.decimalOdds,
+              stake,
+              payout,
+            };
+          });
           const { questionHe, questionEn, gradingRuleHe, gradingRuleEn } =
-            buildBetCopy({
+            buildGroupBetCopy({
               marketNameHe: localiseMarketName(market.name, true),
               marketNameEn: market.name,
-              selectionLabelHe: localiseSelectionLabel(
-                sel.label,
-                true,
-                homeName,
-                awayName,
-              ),
-              selectionLabelEn: sel.label,
               homeName,
               awayName,
             });
           return (
-            <li key={`${market.marketId}-${sel.label}`}>
-              <PublishRow
-                locale={locale}
-                matchId={matchId}
-                marketName={marketNameDisplay}
-                selectionLabel={selectionLabelDisplay}
-                decimalOdds={sel.decimalOdds}
-                stake={stake}
-                payout={payout}
-                questionHe={questionHe}
-                questionEn={questionEn}
-                gradingRuleHe={gradingRuleHe}
-                gradingRuleEn={gradingRuleEn}
-              />
-            </li>
+            <PublishMarketGroup
+              locale={locale}
+              matchId={matchId}
+              marketName={marketNameDisplay}
+              options={options}
+              questionHe={questionHe}
+              questionEn={questionEn}
+              gradingRuleHe={gradingRuleHe}
+              gradingRuleEn={gradingRuleEn}
+            />
           );
-        })}
-      </ul>
+        })()
+      ) : (
+        <ul className="flex flex-col gap-2">
+          {market.selections.map((sel) => {
+            const { stake, payout } = normalizeOdds(sel.decimalOdds, oddsConfig);
+            const selectionLabelDisplay = localiseSelectionLabel(
+              sel.label,
+              isHebrew,
+              homeName,
+              awayName,
+            );
+            const { questionHe, questionEn, gradingRuleHe, gradingRuleEn } =
+              buildBetCopy({
+                marketNameHe: localiseMarketName(market.name, true),
+                marketNameEn: market.name,
+                selectionLabelHe: localiseSelectionLabel(
+                  sel.label,
+                  true,
+                  homeName,
+                  awayName,
+                ),
+                selectionLabelEn: sel.label,
+                homeName,
+                awayName,
+              });
+            return (
+              <li key={`${market.marketId}-${sel.label}`}>
+                <PublishRow
+                  locale={locale}
+                  matchId={matchId}
+                  marketName={marketNameDisplay}
+                  selectionLabel={selectionLabelDisplay}
+                  decimalOdds={sel.decimalOdds}
+                  stake={stake}
+                  payout={payout}
+                  questionHe={questionHe}
+                  questionEn={questionEn}
+                  gradingRuleHe={gradingRuleHe}
+                  gradingRuleEn={gradingRuleEn}
+                />
+              </li>
+            );
+          })}
+        </ul>
+      )}
     </div>
   );
+}
+
+// Group-shaped bet copy: the question asks WHAT the outcome will be,
+// not "yes or no", since the options themselves are the answers in a
+// multi_choice bet.
+function buildGroupBetCopy({
+  marketNameHe,
+  marketNameEn,
+  homeName,
+  awayName,
+}: {
+  marketNameHe: string;
+  marketNameEn: string;
+  homeName: string;
+  awayName: string;
+}): {
+  questionHe: string;
+  questionEn: string;
+  gradingRuleHe: string;
+  gradingRuleEn: string;
+} {
+  const fixtureHe = `${homeName} נגד ${awayName}`;
+  const fixtureEn = `${homeName} vs ${awayName}`;
+  return {
+    questionHe: `${marketNameHe} - ${fixtureHe}`,
+    questionEn: `${marketNameEn} - ${fixtureEn}`,
+    gradingRuleHe: `התשובה היא האפשרות שעליה השוק "${marketNameHe}" סגר במשחק ${fixtureHe}.`,
+    gradingRuleEn: `The answer is the option the market "${marketNameEn}" settled on for ${fixtureEn}.`,
+  };
 }
 
 // Generate plain-language question + grading rule copy for a market+selection.

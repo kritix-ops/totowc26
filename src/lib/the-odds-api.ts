@@ -474,12 +474,16 @@ function aggregateBTTS(event: OddsApiEvent): MarketOdds["selections"] {
   return out;
 }
 
-function aggregateSpreads(event: OddsApiEvent): MarketOdds["selections"] {
+function aggregateSpreads(event: OddsApiEvent): Group[] {
   // spreads (handicap on goals) outcomes carry a `point` (the
-  // handicap, e.g. -1.5 / +1.5) AND the team name. Group by
-  // canonical team-side + point so each handicap line gets its own
-  // selection. Label format: "<Home|Away> <signed point>".
-  const prices = new Map<string, number[]>();
+  // handicap) AND the team name. A line pairs Home -X with Away +X
+  // (or Home +X with Away -X). We canonicalise on the Home side's
+  // signed handicap: positive = Home gets a head start, negative =
+  // Home gives up goals.
+  const byPoint = new Map<
+    number,
+    { home: number[]; away: number[] }
+  >();
   for (const bm of event.bookmakers) {
     const market = bm.markets.find((m) => m.key === "spreads");
     if (!market) continue;
@@ -488,29 +492,39 @@ function aggregateSpreads(event: OddsApiEvent): MarketOdds["selections"] {
       if (!Number.isFinite(p) || p <= 1) continue;
       const point = typeof o.point === "number" ? o.point : null;
       if (point == null) continue;
-      let side: "Home" | "Away" | null = null;
-      if (teamsMatch(o.name, event.home_team)) side = "Home";
-      else if (teamsMatch(o.name, event.away_team)) side = "Away";
-      if (!side) continue;
-      const k = `${side}:${point}`;
-      const arr = prices.get(k) ?? [];
-      arr.push(p);
-      prices.set(k, arr);
+      // Canonical line = signed handicap from the HOME side's
+      // perspective. If this outcome is on the away side, mirror.
+      let homeSignedLine: number | null = null;
+      let side: "home" | "away" | null = null;
+      if (teamsMatch(o.name, event.home_team)) {
+        side = "home";
+        homeSignedLine = point;
+      } else if (teamsMatch(o.name, event.away_team)) {
+        side = "away";
+        homeSignedLine = -point;
+      }
+      if (side == null || homeSignedLine == null) continue;
+      const bucket = byPoint.get(homeSignedLine) ?? { home: [], away: [] };
+      if (side === "home") bucket.home.push(p);
+      else bucket.away.push(p);
+      byPoint.set(homeSignedLine, bucket);
     }
   }
-  const out: MarketOdds["selections"] = [];
-  for (const [key, arr] of prices) {
-    const m = median(arr);
-    if (m == null) continue;
-    const [side, pointStr] = key.split(":");
-    const point = Number(pointStr);
-    const sign = point > 0 ? "+" : "";
+  const out: Group[] = [];
+  for (const [homeLine, { home, away }] of byPoint) {
+    const homeMed = median(home);
+    const awayMed = median(away);
+    if (homeMed == null || awayMed == null) continue;
+    const homeSign = homeLine > 0 ? "+" : "";
+    const awaySign = -homeLine > 0 ? "+" : "";
     out.push({
-      label: `${side} ${sign}${point.toFixed(1)}`,
-      decimalOdds: m,
+      point: homeLine,
+      selections: [
+        { label: `Home ${homeSign}${homeLine.toFixed(1)}`, decimalOdds: homeMed },
+        { label: `Away ${awaySign}${(-homeLine).toFixed(1)}`, decimalOdds: awayMed },
+      ],
     });
   }
-  // Sort: Home lines together then Away, each ascending by point.
-  out.sort((a, b) => a.label.localeCompare(b.label));
+  out.sort((a, b) => a.point - b.point);
   return out;
 }

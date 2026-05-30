@@ -148,6 +148,147 @@ export async function publishSuggestion(
   }
 }
 
+// Publish a single bet that's actually a CHOICE between paired
+// options (Over/Under at a line, Yes/No on BTTS, Home/Away on a
+// handicap line). The friend picks one of the options and the per-
+// option payout — derived from each side's decimal odds — applies on
+// resolution. Replaces the old "one yes/no bet per side" shape that
+// fragmented Over and Under into two unrelated rows.
+export type PublishMultiChoiceInput = {
+  matchId: string;
+  marketName: string;
+  // The decimal odds we showed the admin per option. The server
+  // re-normalises to payout via the same normalizeOdds the page
+  // uses on render — never trust the client's payout integer alone.
+  options: Array<{
+    label: string;
+    decimalOdds: number;
+    stake: number;
+    payout: number;
+  }>;
+  questionHe: string;
+  questionEn: string;
+  gradingRuleHe: string;
+  gradingRuleEn: string;
+};
+
+export async function publishMultiChoiceSuggestion(
+  input: PublishMultiChoiceInput,
+): Promise<PublishSuggestionResult> {
+  const user = await getUser();
+  if (!user) return { ok: false, error: "unauth" };
+  if (!(await isAdmin(user.id))) {
+    console.warn("[live-bet multi publish denied]", { userId: user.id });
+    return { ok: false, error: "forbidden" };
+  }
+
+  if (
+    !Array.isArray(input.options) ||
+    input.options.length < 2 ||
+    input.options.length > 8 ||
+    input.questionHe.trim().length === 0 ||
+    input.questionEn.trim().length === 0 ||
+    input.gradingRuleHe.trim().length < 3 ||
+    input.gradingRuleEn.trim().length < 3
+  ) {
+    return { ok: false, error: "invalid_input" };
+  }
+  for (const opt of input.options) {
+    if (
+      !Number.isInteger(opt.stake) ||
+      !Number.isInteger(opt.payout) ||
+      opt.stake < 0 ||
+      opt.payout <= opt.stake ||
+      typeof opt.label !== "string" ||
+      opt.label.trim().length === 0
+    ) {
+      return { ok: false, error: "invalid_input" };
+    }
+  }
+
+  const [m] = await db
+    .select({
+      id: matchesTable.id,
+      kickoffAt: matchesTable.kickoffAt,
+      status: matchesTable.status,
+    })
+    .from(matchesTable)
+    .where(eq(matchesTable.id, input.matchId))
+    .limit(1);
+  if (!m) return { ok: false, error: "match_not_found" };
+  if (m.status !== "scheduled") {
+    return { ok: false, error: "match_locked" };
+  }
+
+  const lockAt = new Date(m.kickoffAt.getTime() - 60 * 60_000);
+  if (lockAt.getTime() <= Date.now()) {
+    return { ok: false, error: "match_locked" };
+  }
+
+  const matchdayId = await upsertMatchdayFromKickoff(m.kickoffAt);
+
+  // Bet-level snapshot = the highest payout among the options. The
+  // grader falls back to this for any pre-migration row that wrote a
+  // NULL pick.payoutSnapshot. Stake snapshot = the shared stake (all
+  // options share the same stake at publish time).
+  const stake = input.options[0].stake;
+  const maxPayout = Math.max(...input.options.map((o) => o.payout));
+
+  const options = input.options.map((o, i) => ({
+    value: `opt_${i}`,
+    labelHe: o.label,
+    labelEn: o.label,
+    payoutOverride: o.payout,
+  }));
+  const payoutOverridesByValue: Record<string, number> = {};
+  for (const o of options) payoutOverridesByValue[o.value] = o.payoutOverride;
+
+  try {
+    const [row] = await db
+      .insert(customBets)
+      .values({
+        scope: "match",
+        matchId: input.matchId,
+        matchdayId,
+        questionHe: input.questionHe.trim(),
+        questionEn: input.questionEn.trim(),
+        gradingRuleHe: input.gradingRuleHe.trim(),
+        gradingRuleEn: input.gradingRuleEn.trim(),
+        answerType: "multi_choice",
+        answerConfig: {
+          kind: "multi_choice",
+          options,
+          payoutOverridesByValue,
+        },
+        stakeSnapshot: stake,
+        payoutSnapshot: maxPayout,
+        gradingSource: "manual",
+        gradingConfig: null,
+        status: "open",
+        lockAt,
+        publishedAt: new Date(),
+        createdBy: user.id,
+      })
+      .returning({ id: customBets.id });
+
+    console.info("[live-bet multi publish]", {
+      adminId: user.id,
+      customBetId: row.id,
+      matchId: input.matchId,
+      marketName: input.marketName,
+      optionCount: input.options.length,
+      stake,
+      maxPayout,
+    });
+    revalidatePath("/[lang]/admin/live-bets/suggestions", "page");
+    revalidatePath("/[lang]/play/[date]", "page");
+    return { ok: true, id: row.id };
+  } catch (err) {
+    console.error("[live-bet multi publish] insert failed:", err);
+    return { ok: false, error: "db" };
+  }
+}
+
 // Force the page to refetch odds for one fixture. The /odds wrapper
 // caches for 60s via next.revalidate; revalidatePath busts the whole
 // route's fetch cache. matchId is logged for observability but not
