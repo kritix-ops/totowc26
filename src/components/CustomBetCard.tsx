@@ -20,6 +20,8 @@ import type {
 } from "@/lib/bets/types";
 import { usePickerOptions } from "@/lib/picker-options/client";
 import { usePendingAction } from "@/lib/use-pending-action";
+import { resolvePickPayoutAtSubmit } from "@/lib/bets/payout";
+import { PickScenarios } from "@/components/PickScenarios";
 import { submitCustomBetPick } from "@/app/[lang]/play/[date]/actions";
 
 // Threshold above which the multi_choice answer widget switches
@@ -158,6 +160,41 @@ export function CustomBetCard({
         onChange={setDraft}
         disabled={!editable || pending}
       />
+
+      {/* Scenarios: shows current bank, post-stake balance, and the
+          balance under each possible outcome. The "if correct" delta
+          uses resolvePickPayoutAtSubmit so per-option payouts
+          (outright bets) flip the number as the user picks each
+          option. When no pick is selected yet we fall back to the
+          bet-level payout so the user still sees a meaningful preview
+          before tapping anything. */}
+      {(() => {
+        const effectivePayout = resolvePickPayoutAtSubmit({
+          answerType: bet.answerType,
+          answerConfig: bet.answerConfig,
+          answer: draft ?? { type: "yes_no", value: false },
+          betLevelPayout: bet.payoutSnapshot,
+        });
+        return (
+          <PickScenarios
+            locale={locale}
+            currentBalance={effective}
+            stake={hasChoice ? bet.stakeSnapshot : 0}
+            scenarios={[
+              {
+                label: isHebrew ? "אם תפגע" : "If correct",
+                delta: effectivePayout,
+                tone: "positive",
+              },
+              {
+                label: isHebrew ? "אם תטעה" : "If wrong",
+                delta: 0,
+                tone: "neutral",
+              },
+            ]}
+          />
+        );
+      })()}
 
       {/* Stake/payout + submit */}
       <div className="flex flex-col-reverse md:flex-row md:items-center md:justify-between gap-3 pt-3 border-t border-outline-variant">
