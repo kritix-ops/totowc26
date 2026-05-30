@@ -210,12 +210,14 @@ export async function fetchWcMatchOdds(args: {
   awayTeamEn: string;
   kickoffAt: Date;
 }): Promise<MarketOdds[] | null> {
-  // Markets fetched: h2h (1X2), totals (goals over/under), btts (both
-  // teams to score yes/no), spreads (Asian handicap on goals). Each
-  // costs 1 credit per cron pass against the full WC board — 4 credits
-  // total. Per the budget calc above the cron schedule keeps us
-  // comfortably inside the free 500-credits/month tier.
-  const events = await fetchBoard(["h2h", "totals", "btts", "spreads"]);
+  // Markets fetched: h2h (1X2), totals (goals over/under), spreads
+  // (Asian handicap on goals). 3 credits per cron pass against the
+  // full WC board. NOTE: "btts" is NOT a valid market key in The Odds
+  // API v4 — returns 422 INVALID_MARKET. Both-teams-to-score is
+  // sometimes encoded inside the totals variants but not as a
+  // standalone market for soccer; if we ever need it as its own bet
+  // surface, admin still creates it manually via /admin/bets.
+  const events = await fetchBoard(["h2h", "totals", "spreads"]);
   if (events == null) return null;
 
   const koMs = args.kickoffAt.getTime();
