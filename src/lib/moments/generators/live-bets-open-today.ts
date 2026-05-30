@@ -1,7 +1,6 @@
 import "server-only";
 
 import { sql } from "drizzle-orm";
-import { Radio } from "lucide-react";
 import { execFirstRow } from "@/db/helpers";
 import { localePath } from "@/lib/paths";
 import type { Generator } from "../types";
@@ -63,7 +62,7 @@ export const liveBetsOpenToday: Generator = async (ctx) => {
       ? "critical"
       : "time",
     score,
-    icon: Radio,
+    icon: "Radio",
     title: isHebrew
       ? `${count} הימורי לייב פתוחים להיום`
       : `${count} live bets open today`,

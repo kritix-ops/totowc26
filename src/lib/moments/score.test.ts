@@ -1,18 +1,18 @@
 import { describe, expect, it } from "vitest";
-import { Sparkles } from "lucide-react";
 import { rankAndPick, urgencyBoost, catchUpBoost } from "./score";
 import type { Moment, MomentType } from "./types";
 
 // Build a Moment with sane defaults so each test can override just the
 // field under examination. Generators in production fill all fields;
-// here we only care about score+type for the ranker math.
+// here we only care about score+type for the ranker math. Icon is the
+// string identifier the server passes to the Smart Hub client island.
 function m(score: number, type: MomentType, key: string): Moment {
   return {
     key,
     type,
     urgency: "time",
     score,
-    icon: Sparkles,
+    icon: "Sparkles",
     title: key,
     body: "",
     ctaLabel: "Open",

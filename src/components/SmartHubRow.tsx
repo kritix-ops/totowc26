@@ -2,11 +2,21 @@
 
 import { useState, useTransition } from "react";
 import Link from "next/link";
-import { X, ArrowUpRight } from "lucide-react";
+import {
+  X,
+  ArrowUpRight,
+  Clock,
+  CalendarClock,
+  Swords,
+  Radio,
+  TrendingUp,
+  Flame,
+  Sparkles,
+} from "lucide-react";
 import { clsx } from "clsx";
 import { useRouter } from "next/navigation";
 import type { LucideIcon } from "lucide-react";
-import type { MomentUrgency } from "@/lib/moments/types";
+import type { MomentIcon, MomentUrgency } from "@/lib/moments/types";
 
 // One row in the Smart Hub. Two interactive surfaces side by side:
 //   - The left "main" area is a Link to the CTA target.
@@ -18,13 +28,28 @@ import type { MomentUrgency } from "@/lib/moments/types";
 // inside the link would otherwise navigate before our handler
 // runs. Splitting the surfaces gives clean affordances on mobile.
 //
+// Icon is passed by NAME (string), not by component reference: React 19
+// forbids passing functions across the server→client boundary unless
+// marked "use server", and a LucideIcon is a component (function). The
+// map below resolves the name to the real icon on this side.
+//
 // See _plans/2026-05-30-smart-reminders.md §3.1.
+
+const ICONS: Record<MomentIcon, LucideIcon> = {
+  Clock,
+  CalendarClock,
+  Swords,
+  Radio,
+  TrendingUp,
+  Flame,
+  Sparkles,
+};
 
 type Props = {
   momentKey: string;
   type: string;
   urgency: MomentUrgency;
-  icon: LucideIcon;
+  icon: MomentIcon;
   title: string;
   body: string;
   ctaLabel: string;
@@ -38,7 +63,7 @@ export function SmartHubRow({
   momentKey,
   type,
   urgency,
-  icon: Icon,
+  icon,
   title,
   body,
   ctaLabel,
@@ -47,6 +72,7 @@ export function SmartHubRow({
   index,
   isHebrew,
 }: Props) {
+  const Icon = ICONS[icon] ?? Sparkles;
   const [hidden, setHidden] = useState(false);
   const [pending, startTransition] = useTransition();
   const router = useRouter();

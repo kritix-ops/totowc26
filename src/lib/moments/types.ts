@@ -1,4 +1,3 @@
-import type { LucideIcon } from "lucide-react";
 import type { Locale } from "@/app/[lang]/dictionaries";
 
 // Each Smart Hub row is a Moment. Generators produce Moment | null and
@@ -17,6 +16,20 @@ export type MomentType =
 
 export type MomentUrgency = "critical" | "time" | "opportunity" | "info";
 
+// String identifiers for the lucide icons we render in the Smart Hub.
+// We pass the NAME across the server→client boundary, not the component
+// reference - React 19 forbids passing a function (a LucideIcon IS a
+// component, which serializes as a function) from a server component to
+// a client component. The client island maps the name to the real icon.
+export type MomentIcon =
+  | "Clock"
+  | "CalendarClock"
+  | "Swords"
+  | "Radio"
+  | "TrendingUp"
+  | "Flame"
+  | "Sparkles";
+
 export type Moment = {
   // Stable identifier for this specific moment. Used as the dismissal
   // key, so it must be deterministic across renders for the same
@@ -28,7 +41,7 @@ export type Moment = {
   // 0-100, ranker input. Generators set a baseline; the ranker layers
   // diversity / recency adjustments on top.
   score: number;
-  icon: LucideIcon;
+  icon: MomentIcon;
   title: string;
   body: string;
   ctaLabel: string;
