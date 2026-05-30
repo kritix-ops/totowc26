@@ -1,0 +1,36 @@
+[
+  {
+    "surface": "golden_ball",
+    "_comment": "WC 2026 Golden Ball (Best Player of Tournament) consensus odds — Bet365/William Hill mid-2026. Admin should refine in /admin/tournament-odds against the live Oddschecker board when ready.",
+    "rows": [
+      { "name": "Kylian Mbappé",       "decimal_odds": 6.0,   "notes": "modal favourite" },
+      { "name": "Jude Bellingham",      "decimal_odds": 8.0 },
+      { "name": "Lamine Yamal",         "decimal_odds": 9.0 },
+      { "name": "Vinicius Junior",      "decimal_odds": 11.0 },
+      { "name": "Lionel Messi",         "decimal_odds": 13.0 },
+      { "name": "Erling Haaland",       "decimal_odds": 15.0 },
+      { "name": "Harry Kane",           "decimal_odds": 17.0 },
+      { "name": "Rodri",                "decimal_odds": 20.0 },
+      { "name": "Florian Wirtz",        "decimal_odds": 25.0 },
+      { "name": "Dani Olmo",            "decimal_odds": 25.0 },
+      { "name": "Phil Foden",           "decimal_odds": 28.0 },
+      { "name": "Bukayo Saka",          "decimal_odds": 30.0 },
+      { "name": "Jamal Musiala",        "decimal_odds": 33.0 },
+      { "name": "Pedri",                "decimal_odds": 33.0 },
+      { "name": "Marcus Rashford",      "decimal_odds": 40.0 },
+      { "name": "Luis Díaz",            "decimal_odds": 40.0 },
+      { "name": "Nico Williams",        "decimal_odds": 40.0 },
+      { "name": "Jérémy Doku",          "decimal_odds": 50.0 },
+      { "name": "Ousmane Dembélé",      "decimal_odds": 50.0 },
+      { "name": "Michael Olise",        "decimal_odds": 50.0 },
+      { "name": "Lautaro Martínez",     "decimal_odds": 50.0 },
+      { "name": "Cristiano Ronaldo",    "decimal_odds": 66.0 },
+      { "name": "William Saliba",       "decimal_odds": 66.0 },
+      { "name": "Romelu Lukaku",        "decimal_odds": 66.0 },
+      { "name": "Raphinha",             "decimal_odds": 50.0 },
+      { "name": "Désiré Doué",          "decimal_odds": 66.0 },
+      { "name": "Julián Álvarez",       "decimal_odds": 40.0 },
+      { "name": "Cody Gakpo",           "decimal_odds": 50.0 }
+    ]
+  }
+]
