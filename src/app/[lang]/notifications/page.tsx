@@ -10,6 +10,8 @@ import {
   Trophy,
   Sparkles,
   Info,
+  Clock,
+  Swords,
 } from "lucide-react";
 import { clsx } from "clsx";
 import { hasLocale, type Locale } from "../dictionaries";
@@ -194,14 +196,23 @@ function NotificationIcon({ kind }: { kind: NotificationKind }) {
       return <Trophy className="h-5 w-5" strokeWidth={1.75} />;
     case "custom":
       return <Info className="h-5 w-5" strokeWidth={1.75} />;
+    case "lock_reminder":
+      return <Clock className="h-5 w-5" strokeWidth={1.75} />;
+    case "duel_received":
+      return <Swords className="h-5 w-5" strokeWidth={1.75} />;
   }
 }
 
 function toneFor(kind: NotificationKind): string {
   switch (kind) {
-    case "announcement": return "bg-primary-fixed text-on-primary-fixed-variant";
-    case "bet_graded":   return "bg-secondary-container text-on-secondary-container";
-    case "match_final":  return "bg-tertiary-fixed text-on-tertiary-fixed-variant";
-    case "custom":       return "bg-surface-variant text-on-surface";
+    case "announcement":   return "bg-primary-fixed text-on-primary-fixed-variant";
+    case "bet_graded":     return "bg-secondary-container text-on-secondary-container";
+    case "match_final":    return "bg-tertiary-fixed text-on-tertiary-fixed-variant";
+    case "custom":         return "bg-surface-variant text-on-surface";
+    case "lock_reminder":  return "bg-error-container text-on-error-container";
+    case "duel_received":  return "bg-tertiary-fixed text-on-tertiary-fixed-variant";
   }
+  // Unreachable — every NotificationKind handled above. Explicit
+  // fallthrough satisfies tsc's "function lacks ending return".
+  return "bg-surface-variant text-on-surface";
 }
