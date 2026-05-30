@@ -24,6 +24,7 @@ import { getRequestUser } from "@/lib/request-user";
 import { getUserAccess } from "@/lib/access";
 import { getBankBalance } from "@/lib/bank";
 import { DashboardPickCard } from "@/components/DashboardPickCard";
+import { SmartHubAsync, SmartHubSkeleton } from "@/components/SmartHub";
 import { WhatsAppInviteCard } from "@/components/WhatsAppInviteCard";
 import { db } from "@/db";
 import { settings } from "@/db/schema";
@@ -301,6 +302,14 @@ function PlayerHome({
       <div className="mx-auto w-full max-w-6xl px-4 md:px-8 lg:px-16 pt-8 md:pt-12 flex flex-col gap-8 md:gap-12">
         <Suspense fallback={<StatusRowSkeleton />}>
           <StatusRowAsync locale={locale} dict={dict} userId={userId} />
+        </Suspense>
+
+        {/* Smart Hub — personal "up next" card. See
+            _plans/2026-05-30-smart-reminders.md. Streamed independently
+            so the rest of the dashboard never waits on the moment
+            engine fan-out. */}
+        <Suspense fallback={<SmartHubSkeleton />}>
+          <SmartHubAsync locale={locale} userId={userId} />
         </Suspense>
 
         <Suspense fallback={<UpcomingSectionSkeleton />}>

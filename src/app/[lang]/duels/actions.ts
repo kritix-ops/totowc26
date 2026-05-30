@@ -3,7 +3,7 @@
 import { revalidatePath, updateTag } from "next/cache";
 import { and, eq, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { execFirstRow } from "@/db/helpers";
+import { execFirstRow, execRows } from "@/db/helpers";
 import { duels, matches as matchesTable, matchdays, settings } from "@/db/schema";
 import { getUser } from "@/lib/supabase/auth";
 import { isAdmin } from "@/lib/admin";
@@ -13,6 +13,7 @@ import { CACHE_TAG_LEADERBOARD } from "@/db/queries";
 import { sendEmail } from "@/lib/email/client";
 import { getEmailCopy, interpolate } from "@/lib/email/copy";
 import { DuelJoinedEmail } from "@/lib/email/templates/DuelJoinedEmail";
+import { notifyUsers } from "@/lib/notifications";
 import { MS_PER_HOUR, MS_PER_MINUTE, daysFromNow } from "@/lib/time";
 
 // 1v1 duel server actions. See _plans/2026-05-27-betting-overhaul.md §7
@@ -256,6 +257,20 @@ export async function openDuel(input: OpenDuelInput): Promise<OpenDuelResult> {
       scope: input.scope,
       deadlineAt: joinDeadlineAt.toISOString(),
     });
+
+    // Fire the "new duel opened" notification to every paid player
+    // except the opener. Push is gated per-user by push_opt_in AND
+    // push_duel_received (see _plans/2026-05-30-smart-reminders.md
+    // §3.4). Best-effort; failures are logged inside notifyUsers and
+    // never block the user's response.
+    void notifyDuelOpened(
+      inserted,
+      user.id,
+      input.questionHe.trim(),
+      input.questionEn.trim(),
+      input.stake,
+    );
+
     updateTag(bankCacheTag(user.id));
     // Targeted page invalidation — see saveBet for why the previous
     // `revalidatePath("/", "layout")` was making submit buttons hang
@@ -595,6 +610,102 @@ async function upsertMatchdayByDate(date: string): Promise<string> {
     .values({ date })
     .returning({ id: matchdays.id });
   return created.id;
+}
+
+// Fan out a "new duel opened" notification to every paid player except
+// the opener. Push fires only for users who have BOTH the global
+// push_opt_in flag AND the per-trigger push_duel_received flag on; the
+// feed row is recorded for everyone so they see it in /notifications
+// even if push is muted. Truncates the question to a tap-friendly
+// length to avoid wrapping the device's push card.
+//
+// Called from openDuel after the DB insert succeeds. Best-effort: the
+// caller `void`s the promise so a Resend / web-push hiccup never
+// blocks the response.
+async function notifyDuelOpened(
+  duelId: string,
+  openerId: string,
+  questionHe: string,
+  questionEn: string,
+  stake: number,
+): Promise<void> {
+  try {
+    // Recipients = paid players minus the opener, split by their
+    // push_duel_received flag. Two pools so a single notifyUsers call
+    // is enough per pool.
+    const rows = await execRows<{ id: string; allow_push: boolean }>(sql`
+      select p.id::text as "id",
+             (p.push_opt_in and p.push_duel_received) as "allow_push"
+      from public.profiles p
+      where p.id <> ${openerId}::uuid
+        and exists (
+          select 1 from public.payments pm
+          where pm.user_id = p.id and pm.status = 'approved'
+        )
+    `);
+    if (rows.length === 0) return;
+
+    // Opener display name for the title. One extra round trip but a
+    // tiny query; worth the personalization in a friends pool.
+    const opener = await execFirstRow<{ display_name: string }>(sql`
+      select display_name from public.profiles where id = ${openerId}::uuid
+    `);
+    const openerName = opener?.display_name ?? "";
+
+    const titleHe = openerName
+      ? `${openerName} פתח/ה דו-קרב חדש`
+      : "דו-קרב חדש פתוח לכניסה";
+    const bodyHe = `על ${stake} נק' · ${truncate(questionHe, 100)}`;
+    const titleEn = openerName
+      ? `${openerName} just opened a duel`
+      : "A new duel is open";
+    const bodyEn = `${stake} pts on the line · ${truncate(questionEn, 100)}`;
+
+    // We can't read per-user locale here; the feed page renders the
+    // strings as stored, so we pick Hebrew (the primary locale) and
+    // append English in the body for the EN subset. Same pattern as
+    // the existing match_final notify.
+    const pushTargets = rows.filter((r) => r.allow_push).map((r) => r.id);
+    const feedOnlyTargets = rows.filter((r) => !r.allow_push).map((r) => r.id);
+
+    const url = `/he/duels/${duelId}`;
+    if (pushTargets.length > 0) {
+      await notifyUsers(
+        { kind: "users", userIds: pushTargets },
+        {
+          kind: "duel_received",
+          title: titleHe,
+          body: `${bodyHe}\n${titleEn} — ${bodyEn}`,
+          url,
+          push: true,
+        },
+      );
+    }
+    if (feedOnlyTargets.length > 0) {
+      await notifyUsers(
+        { kind: "users", userIds: feedOnlyTargets },
+        {
+          kind: "duel_received",
+          title: titleHe,
+          body: `${bodyHe}\n${titleEn} — ${bodyEn}`,
+          url,
+          push: false,
+        },
+      );
+    }
+    console.info("[duel notify opened]", {
+      duelId,
+      openerId,
+      push: pushTargets.length,
+      feedOnly: feedOnlyTargets.length,
+    });
+  } catch (err) {
+    console.error("[duel notify opened failed]", { duelId, err });
+  }
+}
+
+function truncate(s: string, max: number): string {
+  return s.length <= max ? s : `${s.slice(0, max - 1)}…`;
 }
 
 async function firstKickoffOnDate(date: string): Promise<Date | null> {

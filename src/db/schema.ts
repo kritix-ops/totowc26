@@ -109,6 +109,15 @@ export const profiles = pgTable("profiles", {
   // pause without re-granting browser permission. See
   // _plans/2026-05-28-lock-reminders.md §5.
   pushOptIn: boolean("push_opt_in").notNull().default(false),
+  // Per-trigger toggles for the Smart Reminders feature. Each one is
+  // AND'd with pushOptIn at send time, so a player can keep push on
+  // generally but mute a specific channel. Defaults to true so the
+  // existing iteration-2 behavior (push lock reminders) survives the
+  // migration unchanged for anyone who already opted in.
+  // See _plans/2026-05-30-smart-reminders.md.
+  smartHubEnabled: boolean("smart_hub_enabled").notNull().default(true),
+  pushLockReminders: boolean("push_lock_reminders").notNull().default(true),
+  pushDuelReceived: boolean("push_duel_received").notNull().default(true),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
@@ -943,6 +952,12 @@ export const NOTIFICATION_KINDS = [
   "bet_graded",
   "match_final",
   "custom",
+  // Sent by sendPushReminders when a custom bet is about to lock and
+  // the user has not picked. Companion feed row to the existing push
+  // payload. See _plans/2026-05-30-smart-reminders.md.
+  "lock_reminder",
+  // Sent inline from openDuel to the joiner-eligible recipient.
+  "duel_received",
 ] as const;
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];
 
@@ -1003,6 +1018,33 @@ export const pushSubscriptions = pgTable(
   (t) => ({
     endpointUniq: uniqueIndex("push_subscriptions_endpoint_uniq").on(t.endpoint),
     userIdx: index("push_subscriptions_user_idx").on(t.userId),
+  }),
+);
+
+// user_moment_dismissals: one row per (user, smart-hub moment) the user
+// has dismissed. The Smart Hub ranker LEFT JOINs this table and drops
+// any moment whose dismissed_until > now(). The dismiss API route sets
+// the timestamp to "tomorrow 04:00 Asia/Jerusalem" so the same nudge
+// does not reappear inside the same betting day. moment_key is the
+// generator-stable identifier (e.g. "unpicked_match:<matchId>"),
+// validated by a CHECK constraint in migration 0036. See
+// _plans/2026-05-30-smart-reminders.md.
+export const userMomentDismissals = pgTable(
+  "user_moment_dismissals",
+  {
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => profiles.id, { onDelete: "cascade" }),
+    momentKey: text("moment_key").notNull(),
+    dismissedUntil: timestamp("dismissed_until", { withTimezone: true })
+      .notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.userId, t.momentKey] }),
+    untilIdx: index("user_moment_dismissals_until_idx").on(t.dismissedUntil),
   }),
 );
 
@@ -1217,6 +1259,8 @@ export type NewBetReminderSent = typeof betReminderSent.$inferInsert;
 // same name would shadow it (and confuse consumers that import both).
 export type PushSubscriptionRow = typeof pushSubscriptions.$inferSelect;
 export type NewPushSubscription = typeof pushSubscriptions.$inferInsert;
+export type UserMomentDismissal = typeof userMomentDismissals.$inferSelect;
+export type NewUserMomentDismissal = typeof userMomentDismissals.$inferInsert;
 export type UserNotification = typeof userNotifications.$inferSelect;
 export type NewUserNotification = typeof userNotifications.$inferInsert;
 export type ContentOverride = typeof contentOverrides.$inferSelect;

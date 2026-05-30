@@ -1510,6 +1510,7 @@ async function sendPushReminders(
       and pk.id is null
       and brs.user_id is null
       and p.push_opt_in = true
+      and p.push_lock_reminders = true
       and exists (
         select 1 from public.payments pm
         where pm.user_id = p.id and pm.status = 'approved'
@@ -1539,6 +1540,17 @@ async function sendPushReminders(
         values
           (${r.bet_id}::uuid, ${r.user_id}::uuid, 'push')
         on conflict do nothing
+      `);
+      // Mirror the push as a feed row so the player still sees the
+      // reminder in /notifications later. `pushed=true` because the
+      // device wake has already happened. See
+      // _plans/2026-05-30-smart-reminders.md §3.4.
+      await db.execute(drizzleSql`
+        insert into public.user_notifications
+          (user_id, kind, title, body, url, pushed)
+        values
+          (${r.user_id}::uuid, 'lock_reminder', ${payload.title},
+           ${payload.body}, ${payload.url}, true)
       `);
       sent += 1;
       console.info("[lock reminder send]", {
