@@ -1,0 +1,754 @@
+Fetching API-Football team list for season 2026…
+    fetching API-Football season roster for ARG…
+    season roster: 68 players
+
+=== ARG (20+6 keep, 8 delete, 0 unresolved) ===
+  - delete  6000     Lucas Martínez Quarta
+  - delete  1493     Marcos Javier Acuña
+  - delete  362755   Gianluca Prestianni Gross
+  - delete  288699   Máximo Perrone
+  - delete  306706   Agustín Giay
+  - delete  6610     Marcos Nicolás Senesi Barón
+  - delete  6608     Gabriel Hernán Rojas
+  - delete  449249   Franco Mastantuono
+  + insert  2468     Gonzalo Montiel                    (api: Gonzalo Ariel Montiel)
+  + insert  2467     Lisandro Martínez                  (api: Lisandro Martínez)
+  + insert  6        Leonardo Balerdi                   (api: Leonardo Julián Balerdi Rosa)
+  + insert  6231     Facundo Medina                     (api: Facundo Axel Medina)
+  + insert  1578     Giovani Lo Celso                   (api: Giovani Lo Celso)
+  + insert  217      Lautaro Martínez                   (api: Lautaro Javier Martínez)
+    fetching API-Football season roster for AUT…
+    season roster: 26 players
+    global lookup AUT Alessandro Schöpf…
+
+=== AUT (25+1 keep, 0 delete, 0 unresolved) ===
+  + insert  417      Alessandro Schöpf                  (api: Alessandro André Schöpf)
+    fetching API-Football season roster for BEL…
+    season roster: 25 players
+    global lookup BEL Thibaut Courtois…
+    global lookup BEL Mike Penders…
+    global lookup BEL Hans Vanaken…
+    global lookup BEL Matias Fernandez Pardo…
+    global lookup BEL Romelu Lukaku…
+    global lookup BEL Leandro Trossard…
+
+=== BEL (20+6 keep, 1 delete, 0 unresolved) ===
+  - delete  340077   M. Fernandez-Pardo
+  + insert  730      Thibaut Courtois                   (api: Thibaut Nicolas Marc Courtois)
+  + insert  340151   Mike Penders                       (api: Mike Louis Penders)
+  + insert  78       Hans Vanaken                       (api: Hans Vanaken)
+  + insert  324041   Matias Fernandez Pardo             (api: Matías Pardo Barbosa)
+  + insert  907      Romelu Lukaku                      (api: Romelu Menama Lukaku Bolingoli)
+  + insert  1946     Leandro Trossard                   (api: Leandro Trossard)
+    fetching API-Football season roster for BIH…
+    season roster: 23 players
+    global lookup BIH Dennis Hadzikadunic…
+    global lookup BIH Nidal Celik…
+    global lookup BIH Amir Hadžiahmetović…
+    global lookup BIH Esmir Bajraktarevic…
+    global lookup BIH Jovo Lukic…
+    global lookup BIH Haris Tabakovic…
+
+=== BIH (20+5 keep, 1 delete, 1 unresolved) ===
+  - delete  395589   N. Äelik
+  + insert  53517    Dennis Hadzikadunic                (api: Dennis Hadžikadunić)
+  + insert  50006    Amir Hadžiahmetović                (api: Amir Hadžiahmetović)
+  + insert  329409   Esmir Bajraktarevic                (api: Esmir Bajraktarević)
+  + insert  77037    Jovo Lukic                         (api: Jovo Lukić)
+  + insert  28382    Haris Tabakovic                    (api: Haris Tabaković)
+  ? UNRESOLVED DF  Nidal Celik
+    fetching API-Football season roster for BRA…
+    season roster: 85 players
+
+=== BRA (20+6 keep, 0 delete, 0 unresolved) ===
+  + insert  860      Alex Sandro                        (api: Alex Sandro Lobo Silva)
+  + insert  257      Marquinhos                         (api: Marcos Aoás Corrêa)
+  + insert  10135    Bruno Guimarães                    (api: Bruno Guimarães Rodriguez Moura)
+  + insert  299      Fabinho                            (api: Fábio Henrique Tavares)
+  + insert  1646     Lucas Paquetá                      (api: Lucas Tolentino Coelho de Lima)
+  + insert  1496     Raphinha                           (api: Raphael Dias Belloli)
+    fetching API-Football season roster for CAN…
+    season roster: 36 players
+    global lookup CAN Moïse Bombito…
+    global lookup CAN Alphonso Davies…
+    global lookup CAN Alistair Johnston…
+    global lookup CAN Alfie Jones…
+    global lookup CAN Richie Laryea…
+    global lookup CAN Stephen Eustáquio…
+    global lookup CAN Ismaël Koné…
+    global lookup CAN Jacob Shaffelburg…
+    global lookup CAN Promise David…
+
+=== CAN (17+6 keep, 20 delete, 3 unresolved) ===
+  - delete  203436   Ralph-William Johnson Priso-Mbongue
+  - delete  370936   Noah Abraham Sewonet Abatneh
+  - delete  328046   I. Koné
+  - delete  203428   Jacen Rex Orlando Russell-Rowe
+  - delete  50778    James Pantemis
+  - delete  50816    Richmond Mamah Laryea
+  - delete  146325   Aribusitamunoipirim Emmanuel Pepple
+  - delete  351582   Luka Robert Gavran
+  - delete  541949   M. Aiyenero
+  - delete  296458   Daniel David Jebbison
+  - delete  51293    T. Bair
+  - delete  313353   P. David
+  - delete  512956   Malik Henry
+  - delete  193279   Jayden Nelson
+  - delete  50925    Kamal Anthony Miller
+  - delete  8660     Zorhan Ludovic Bassong
+  - delete  19007    David Junior Wayne Hoilett
+  - delete  370938   Tiago de Freitas Guimarães Coimbra
+  - delete  201707   Jahkeele Stanford Jack Marshall-Rutty
+  - delete  269936   Matteo Camillo Paul de Brienne
+  + insert  509      Alphonso Davies                    (api: Alphonso Boyle Davies)
+  + insert  78547    Alistair Johnston                  (api: Alistair William Johnston)
+  + insert  319480   Alfie Jones                        (api: Alfie Jones)
+  + insert  35570    Stephen Eustáquio                  (api: Stephen Antunes Eustáquio)
+  + insert  245002   Ismaël Koné                        (api: Ismael Koné)
+  + insert  50826    Jacob Shaffelburg                  (api: Jacob Everett Shaffelburg)
+  ? UNRESOLVED DF  Moïse Bombito
+  ? UNRESOLVED DF  Richie Laryea
+  ? UNRESOLVED FW  Promise David
+    fetching API-Football season roster for CPV…
+    season roster: 0 players
+    global lookup CPV Josimar Dias…
+    global lookup CPV Carlos Santos…
+    global lookup CPV Steven Moreira…
+    global lookup CPV Joao Paulo Fernandes…
+    global lookup CPV Sidny Lopes Cabral…
+    global lookup CPV Roberto Lopes…
+    global lookup CPV Ianique Tavares…
+    global lookup CPV Edilson Borges…
+    global lookup CPV Laros Duarte…
+    global lookup CPV Dailon Livramento…
+
+=== CPV (16+8 keep, 6 delete, 2 unresolved) ===
+  - delete  15304    Vózinha
+  - delete  41608    Diney Borges
+  - delete  2331     Stopira
+  - delete  69260    Pico
+  - delete  163200   C. dos Santos
+  - delete  142016   João Paulo
+  + insert  289227   Carlos Santos                      (api: Jose Carlos dos Santos)
+  + insert  22139    Steven Moreira                     (api: Steven Moreira)
+  + insert  279510   Joao Paulo Fernandes               (api: João Fernandes Oliveira)
+  + insert  308689   Sidny Lopes Cabral                 (api: Sidny Lopes Cabral)
+  + insert  234535   Roberto Lopes                      (api: Roberto Lopes Nascimento)
+  + insert  465539   Edilson Borges                     (api: Edilson Neves Borges)
+  + insert  37436    Laros Duarte                       (api: Laros d'Encarnação Duarte)
+  + insert  343287   Dailon Livramento                  (api: Dailon Rocha Livramento do Rosario)
+  ? UNRESOLVED GK  Josimar Dias
+  ? UNRESOLVED DF  Ianique Tavares
+    fetching API-Football season roster for COL…
+    season roster: 73 players
+
+=== COL (21+2 keep, 6 delete, 0 unresolved) ===
+  - delete  195717   Yerson Mosquera Valdelamar
+  - delete  6011     Rafael Santos Borré Maury
+  - delete  324034   Gustavo Adolfo Puerta Molano
+  - delete  13691    Johan Stiven Carbonero Balanta
+  - delete  125674   Juan David Cabal Murillo
+  - delete  47237    Luis Javier Suárez Charris
+  + insert  13571    Willer Ditta                       (api: Willer Emilio Ditta Pérez)
+  + insert  47582    Juan Camilo Hernández              (api: Juan Camilo Hernández Suárez)
+    fetching API-Football season roster for CRO…
+    season roster: 26 players
+    global lookup CRO Dominik Kotarski…
+    global lookup CRO Joško Gvardiol…
+    global lookup CRO Mateo Kovačić…
+
+=== CRO (23+3 keep, 1 delete, 0 unresolved) ===
+  - delete  2291     M. Kovačić
+  + insert  524      Dominik Kotarski                   (api: Dominik Kotarski)
+  + insert  129033   Joško Gvardiol                     (api: Joško Gvardiol)
+  + insert  429600   Mateo Kovačić                      (api: Mateo Kovacic)
+    fetching API-Football season roster for CUW…
+    season roster: 48 players
+
+=== CUW (25+1 keep, 0 delete, 0 unresolved) ===
+  + insert  228      Armando Obispo                     (api: Armando Obispo)
+    fetching API-Football season roster for COD…
+    season roster: 23 players
+    global lookup COD Mike Epolo…
+    global lookup COD Gedeon Kalulu…
+    global lookup COD Dylan Batubinsika…
+    global lookup COD Nathan Mukau…
+    global lookup COD Ngal'ayel Mukau Mbuku…
+    global lookup COD Gael Kakuta…
+
+=== COD (20+3 keep, 3 delete, 3 unresolved) ===
+  - delete  129670   Nathanaël Mbuku
+  - delete  375598   Ngal'ayel Mukau
+  - delete  314509   Matthieu Luka Epolo
+  + insert  24245    Gedeon Kalulu                      (api: Gédéon Kalulu Kyatengwa)
+  + insert  8445     Dylan Batubinsika                  (api: Buduka Dylan Batubinsika)
+  + insert  47545    Gael Kakuta                        (api: Gaël Romeo Kakuta Mambenga)
+  ? UNRESOLVED GK  Mike Epolo
+  ? UNRESOLVED MF  Nathan Mukau
+  ? UNRESOLVED MF  Ngal'ayel Mukau Mbuku
+    fetching API-Football season roster for EGY…
+    season roster: 31 players
+    global lookup EGY El Mahdy Soliman…
+    global lookup EGY Tarek Alaa…
+    global lookup EGY Mostafa Ziko…
+    global lookup EGY Hamza Abdelkarim…
+
+=== EGY (15+9 keep, 17 delete, 2 unresolved) ===
+  - delete  2668     Mostafa Mohamed Ahmed Abdallah
+  - delete  292695   Ahmed Nabil Ashour Abdelaal
+  - delete  17190    Mohamed Sobhi
+  - delete  2666     Salah Mohsen
+  - delete  16831    Al Mahdi Soliman
+  - delete  16862    Mostafa Fathi
+  - delete  550372   N. Mansy
+  - delete  190576   Ahmed Eid
+  - delete  550469   M. Alaa
+  - delete  550371   T. Alaa
+  - delete  550412   M. Hamdi
+  - delete  182021   Mohamed Shehata
+  - delete  269275   Osama Faisal
+  - delete  550448   M. Ismail
+  - delete  2648     Ahmed El Shenawy
+  - delete  17032    Khaled Sobhy
+  - delete  16901    Islam Issa Elsayed Mohamed Ateya
+  + insert  16797    Mohamed El Shenawy                 (api: Mohamed El Sayed Mohamed El Sh Gomaa)
+  + insert  16996    El Mahdy Soliman                   (api: El Hany Soliman)
+  + insert  498250   Mohamed Alaa                       (api: Mohamed Alaa)
+  + insert  2656     Karim Hafez                        (api: Karim Hafez Ramadan Seif El Din)
+  + insert  16841    Mohanad Lasheen                    (api: Mohanad Mostafa Ahmed Abdelmonem)
+  + insert  2660     Nabil Emad                         (api: Nabil Emad Al El Mahdy)
+  + insert  16871    Ahmed Zizo                         (api: Ahmed Mostafa Mohamed Sayed)
+  + insert  2664     Mahmoud Trezeguet                  (api: Mahmoud Ahmed Ibrahim Hassan)
+  + insert  484778   Hamza Abdelkarim                   (api: Hamza Abdelkarim)
+  ? UNRESOLVED DF  Tarek Alaa
+  ? UNRESOLVED MF  Mostafa Ziko
+    fetching API-Football season roster for ENG…
+    season roster: 43 players
+    global lookup ENG Ivan Toney…
+    global lookup ENG Ollie Watkins…
+    global lookup ENG Bukayo Saka…
+
+=== ENG (18+8 keep, 14 delete, 0 unresolved) ===
+  - delete  20355    Aaron Christopher Ramsdale
+  - delete  19209    Oluwafikayomi Oluwadamilola Tomori
+  - delete  288102   Adam James Wharton
+  - delete  18960    Jason Sean Steele
+  - delete  2935     Jacob Harry Maguire
+  - delete  895      James David Garner
+  - delete  631      Philip Walter Foden
+  - delete  19428    Jarrod Bowen
+  - delete  18766    Dominic Nathaniel Calvert-Lewin
+  - delete  19959    Benjamin William White
+  - delete  18883    Dominic Ayodele Solanke-Mitchell
+  - delete  152982   Cole Jermaine Palmer
+  - delete  284492   Lewis Kieran Hall
+  - delete  18778    Harvey Lewis Barnes
+  + insert  19545    Reece James                        (api: Reece Lewis James)
+  + insert  158698   Jarell Quansah                     (api: Jarell Amorin Quansah)
+  + insert  2937     Declan Rice                        (api: Declan Rice)
+  + insert  19586    Eberechi Eze                       (api: Eberechi Oluchi Eze)
+  + insert  184      Harry Kane                         (api: Harry Edward Kane)
+  + insert  19974    Ivan Toney                         (api: Ivan Benjamin Elijah Toney)
+  + insert  19366    Ollie Watkins                      (api: Oliver George Arthur Watkins)
+  + insert  1460     Bukayo Saka                        (api: Bukayo Ayoyinka Temidayo Saka)
+    fetching API-Football season roster for FRA…
+    season roster: 25 players
+    global lookup FRA Robin Risser…
+    global lookup FRA William Saliba…
+    global lookup FRA Jules Koundé…
+    global lookup FRA Manu Koné…
+    global lookup FRA Bradley Barcola…
+    global lookup FRA Jean-Philippe Mateta…
+
+=== FRA (20+6 keep, 1 delete, 0 unresolved) ===
+  - delete  22147    M. Koné
+  + insert  347211   Robin Risser                       (api: Robin Risser Birckel)
+  + insert  22090    William Saliba                     (api: William Alain André Gabriel Saliba)
+  + insert  1257     Jules Koundé                       (api: Jules Olivier Koundé)
+  + insert  26953    Manu Koné                          (api: Kouamatien Emmanuel Koné)
+  + insert  161904   Bradley Barcola                    (api: Bradley Barcola)
+  + insert  25927    Jean-Philippe Mateta               (api: Jean-Philippe Mateta)
+    fetching API-Football season roster for GER…
+    season roster: 25 players
+    global lookup GER Manuel Neuer…
+    global lookup GER Nadiem Amiri…
+    global lookup GER Jamie Leweling…
+    global lookup GER Jamal Musiala…
+    global lookup GER Felix Nmecha…
+    global lookup GER Maximilian Beier…
+
+=== GER (18+8 keep, 6 delete, 0 unresolved) ===
+  - delete  24868    Josha Mamadou Karaboue Vagnoman
+  - delete  24798    Chris Jan Führich
+  - delete  25903    Finn Gilbert Dahmen
+  - delete  177665   Anton Levi Stach
+  - delete  510      Serge David Gnabry
+  - delete  178077   Kevin Schade
+  + insert  497      Manuel Neuer                       (api: Manuel Peter Neuer)
+  + insert  714      Nadiem Amiri                       (api: Nadiem Amiri)
+  + insert  18970    Pascal Gross                       (api: (manual override))
+  + insert  128533   Jamie Leweling                     (api: Jamie Leweling)
+  + insert  181812   Jamal Musiala                      (api: Jamal Musiala)
+  + insert  637      Felix Nmecha                       (api: Felix Kalu Nmecha)
+  + insert  328033   Alexander Pavlović                 (api: (manual override))
+  + insert  158644   Maximilian Beier                   (api: Maximilian Beier)
+    fetching API-Football season roster for HAI…
+    season roster: 38 players
+    global lookup HAI Duke Lacroix…
+    global lookup HAI Keeto Thermoncy…
+    global lookup HAI Dominique Simon…
+    global lookup HAI Wilson Isidor…
+    global lookup HAI Lenny Joseph…
+
+=== HAI (19+5 keep, 3 delete, 2 unresolved) ===
+  - delete  573613   K. Thermoncy
+  - delete  102505   Markhus Lacroix
+  - delete  540857   C. F. Sainte
+  + insert  20850    Carlens Arcus                      (api: Carlens Jean Fedlaire Ruby Arcus)
+  + insert  237142   Carl-Fred Sainthe                  (api: Carl Fred Sainté)
+  + insert  194242   Dominique Simon                    (api: Dominique Celidor Simon)
+  + insert  84087    Wilson Isidor                      (api: Wilson Isidor)
+  + insert  21613    Lenny Joseph                       (api: Lenny Joseph)
+  ? UNRESOLVED DF  Duke Lacroix
+  ? UNRESOLVED DF  Keeto Thermoncy
+    fetching API-Football season roster for CIV…
+    season roster: 25 players
+    global lookup CIV Ange-Yoan Bonny…
+    global lookup CIV Oumar Diakité…
+    global lookup CIV Yan Diomande…
+
+=== CIV (23+3 keep, 1 delete, 0 unresolved) ===
+  - delete  334429   O. Diakité
+  + insert  275651   Ange-Yoan Bonny                    (api: Ange-Yoan Bonny)
+  + insert  23229    Oumar Diakité                      (api: Oumar Diakite)
+  + insert  513776   Yan Diomande                       (api: Yan Diomande)
+    fetching API-Football season roster for JPN…
+    season roster: 63 players
+
+=== JPN (22+4 keep, 1 delete, 0 unresolved) ===
+  - delete  33142    S. Tanaka
+  + insert  38114    Itakura Ko                         (api: Ko Itakura)
+  + insert  32966    Tanaka Ao                          (api: Ao Tanaka)
+  + insert  8500     Endo Wataru                        (api: Wataru Endo)
+  + insert  32862    Kubo Takefusa                      (api: Takefusa Kubo)
+    fetching API-Football season roster for MAR…
+    season roster: 28 players
+    global lookup MAR Munir El Kajoui…
+    global lookup MAR Ahmed Reda Tagnaouti…
+    global lookup MAR Youssef Belammari…
+    global lookup MAR Nayef Aguerd…
+    global lookup MAR Ayyoub Bouaddi…
+    global lookup MAR Sofyan Amrabat…
+    global lookup MAR Ayoube Amaimouni…
+
+=== MAR (19+6 keep, 17 delete, 1 unresolved) ===
+  - delete  2702     M. Mohamedi
+  - delete  284071   Oussama Targhalline
+  - delete  396202   Rayane Bounida
+  - delete  31386    J. El Yamiq
+  - delete  47422    Y. En-Nesyri
+  - delete  417830   A. Ait Boudlal
+  - delete  306979   H. Igamane
+  - delete  144879   El Mahdi Benabid
+  - delete  129682   Amine Adli
+  - delete  294290   Mehdi Harrar
+  - delete  290740   Ilias Akhomach
+  - delete  146771   Mohamed Rabie Hrimat
+  - delete  396198   Ismaël Baouf
+  - delete  127803   Souffian El Karouani
+  - delete  343320   E. Ben Seghir
+  - delete  194572   M. Chibi
+  - delete  457101   Mohamed Yassir Zabiri
+  + insert  2703     Ahmed Reda Tagnaouti               (api: Ahmed Reda Tagnaouti)
+  + insert  146772   Youssef Belammari                  (api: Youssef Belammari)
+  + insert  21694    Nayef Aguerd                       (api: Nayef Aguerd)
+  + insert  438688   Ayyoub Bouaddi                     (api: Ayyoub Bouaddi)
+  + insert  74       Sofyan Amrabat                     (api: Sofyan Amrabat)
+  + insert  334309   Ayoube Amaimouni                   (api: Ayoube Amaimouni-Echghouyab)
+  ? UNRESOLVED GK  Munir El Kajoui
+    fetching API-Football season roster for NED…
+    season roster: 25 players
+    global lookup NED Robin Roefs…
+    global lookup NED Jurriën Timber…
+    global lookup NED John Paul van Hecke…
+    global lookup NED Frenkie de Jong…
+    global lookup NED Marten de Roon…
+    global lookup NED Mats Wieffer…
+    global lookup NED Memphis Depay…
+    global lookup NED Justin Kluivert…
+    global lookup NED Crysencio Summerville…
+
+=== NED (16+9 keep, 9 delete, 1 unresolved) ===
+  - delete  37143    Lutsharel Geertruida
+  - delete  194      Stefan de Vrij
+  - delete  162016   Xavier Quentin Shay Simons
+  - delete  37137    Justin Bijlow
+  - delete  388786   Kees Smit
+  - delete  38695    Jan Paul van Hecke
+  - delete  37890    Jerdy Schouten
+  - delete  314266   Luciano Valente
+  - delete  152654   Jeremie Agyekum Frimpong
+  + insert  194536   Robin Roefs                        (api: Robin Roefs)
+  + insert  38746    Jurriën Timber                     (api: Jurriën David Norman Timber)
+  + insert  538      Frenkie de Jong                    (api: Frenkie de Jong)
+  + insert  30432    Marten de Roon                     (api: Marten Elco de Roon)
+  + insert  36905    Guus Til                           (api: (manual override))
+  + insert  92993    Mats Wieffer                       (api: Mats Wieffer)
+  + insert  667      Memphis Depay                      (api: Memphis Depay)
+  + insert  792      Justin Kluivert                    (api: Justin Dean Kluivert)
+  + insert  37724    Crysencio Summerville              (api: Crysencio Jilbert Sylverio Cir Summerville)
+  ? UNRESOLVED DF  John Paul van Hecke
+    fetching API-Football season roster for NZL…
+    season roster: 30 players
+    global lookup NZL Michael Woud…
+    global lookup NZL Callan Elliot…
+    global lookup NZL Ryan Thomas…
+    global lookup NZL Lachlan Bayliss…
+
+=== NZL (22+4 keep, 1 delete, 0 unresolved) ===
+  - delete  242      R. Thomas
+  + insert  36777    Michael Woud                       (api: Michael Cornelis Woud)
+  + insert  6932     Callan Elliot                      (api: Callan Rennie Elliot)
+  + insert  400266   Ryan Thomas                        (api: Ryan Thomas)
+  + insert  405957   Lachlan Bayliss                    (api: Lachlan Bayliss)
+    fetching API-Football season roster for NOR…
+    season roster: 35 players
+    global lookup NOR Sander Tangvik…
+    global lookup NOR Fredrik Aursnes…
+
+=== NOR (21+5 keep, 3 delete, 0 unresolved) ===
+  - delete  39066    Felix Horn Myhre
+  - delete  39325    Viljar Røsholt Myhra
+  - delete  39083    Odin Lurås Bjørtuft
+  + insert  264378   Sander Tangvik                     (api: Sander Tangvik)
+  + insert  265444   Sondre Langås                      (api: Sondre Klingen Langås)
+  + insert  37127    Martin Ødegaard                    (api: Martin Ødegaard)
+  + insert  277930   Thelo Aasgaard                     (api: Thelo  Gerard Aasgaard)
+  + insert  39043    Fredrik Aursnes                    (api: Fredrik Aursnes)
+    fetching API-Football season roster for POR…
+    season roster: 26 players
+    global lookup POR Nélson Semedo…
+    global lookup POR Rafael Leão…
+
+=== POR (19+7 keep, 6 delete, 0 unresolved) ===
+  - delete  336585   Mateus Gonçalo Espanha Fernandes
+  - delete  41103    Ricardo Jorge da Luz Horta
+  - delete  41960    Mário Ricardo Silva Velho
+  - delete  18748    Pedro António Pereira Gonçalves
+  - delete  41111    João Paulo Dias Fernandes
+  - delete  331832   António João Pereira de Albuquerque Tavares
+  + insert  369      Diogo Costa                        (api: (manual override))
+  + insert  567      Rúben Dias                         (api: (manual override))
+  + insert  130      Nélson Semedo                      (api: Nélson Cabral Semedo)
+  + insert  636      Bernardo Silva                     (api: (manual override))
+  + insert  128384   Vitinha                            (api: (manual override))
+  + insert  874      Cristiano Ronaldo                  (api: (manual override))
+  + insert  22236    Rafael Leão                        (api: Rafael Alexandre da Conceição Leão)
+    fetching API-Football season roster for RSA…
+    season roster: 28 players
+
+=== RSA (22+4 keep, 9 delete, 0 unresolved) ===
+  - delete  278387   Renaldo Leaner
+  - delete  46641    Bongokuhle Hlongwane
+  - delete  461412   T. Smith
+  - delete  99017    B. Aubaas
+  - delete  330170   E. Mokwana
+  - delete  483109   M. Nkota
+  - delete  46344    S. Mbule
+  - delete  46365    S. Ngezana
+  - delete  430077   S. Campbell
+  + insert  359561   Kamogelo Sebelebele                (api: Kamogelo Sebelebele)
+  + insert  163041   Bradley Cross                      (api: Bradley Cross)
+  + insert  392387   Olwethu Makhanya                   (api: Olwethu Makhanya)
+  + insert  127429   Iqraam Rayners                     (api: Iqraam Rayners)
+    fetching API-Football season roster for SCO…
+    season roster: 33 players
+    global lookup SCO Ross Stewart…
+
+=== SCO (21+5 keep, 5 delete, 0 unresolved) ===
+  - delete  68466    Andrew Irving
+  - delete  282767   Tommy Daniel John Conway
+  - delete  1743     Ross McCrorie
+  - delete  1104     Scott Bain
+  - delete  343558   Lennon Lee Miller
+  + insert  1106     Craig Gordon                       (api: Craig Sinclair Gordon)
+  + insert  44871    Aaron Hickey                       (api: Aaron Buchanan Hickey)
+  + insert  343576   Ben Gannon-Doak                    (api: Ben Gannon Doak)
+  + insert  45175    Lawrence Shankland                 (api: Lawrence Shankland)
+  + insert  44938    Ross Stewart                       (api: Ross Mark Stewart)
+    fetching API-Football season roster for SEN…
+    season roster: 24 players
+    global lookup SEN Édouard Mendy…
+    global lookup SEN Kalidou Koulibaly…
+    global lookup SEN Moustapha Mbow…
+    global lookup SEN Ilay Camara…
+    global lookup SEN Bara Sapoko Ndiaye…
+    global lookup SEN Sadio Mané…
+    global lookup SEN Iliman Ndiaye…
+
+=== SEN (21+7 keep, 8 delete, 0 unresolved) ===
+  - delete  386481   M. Diakhon
+  - delete  20535    Mouhamadou Habibou Diallo
+  - delete  203456   O. Niang
+  - delete  344813   M. Camara
+  - delete  358431   Nobel Mendy
+  - delete  22015    Boulaye Dia
+  - delete  2986     É. Mendy
+  - delete  20534    C. Sabaly
+  + insert  302316   Édouard Mendy                      (api: Edouard Mendy)
+  + insert  318      Kalidou Koulibaly                  (api: Kalidou Koulibaly)
+  + insert  174881   Moustapha Mbow                     (api: Mamadou Moustapha Mbow)
+  + insert  371839   Ilay Camara                        (api: Ilay Camara)
+  + insert  630895   Bara Sapoko Ndiaye                 (api: Bara Ndiaye)
+  + insert  304      Sadio Mané                         (api: Sadio Mané)
+  + insert  18592    Iliman Ndiaye                      (api: Iliman Cheikh Baroy Ndiaye)
+    fetching API-Football season roster for KOR…
+    season roster: 70 players
+    global lookup KOR Lee Kihyuk…
+    global lookup KOR Cho Yumin…
+    global lookup KOR Hwang Inbeom…
+    global lookup KOR Eom Jisung…
+
+=== KOR (22+1 keep, 4 delete, 3 unresolved) ===
+  - delete  2901     In-Beom Hwang
+  - delete  304951   Gi-Hyuk Lee
+  - delete  237050   Ji-Sung Eom
+  - delete  34239    Yu-Min Cho
+  + insert  4850     Cho Yumin                          (api: Chorfi Chorfi)
+  ? UNRESOLVED DF  Lee Kihyuk
+  ? UNRESOLVED MF  Hwang Inbeom
+  ? UNRESOLVED MF  Eom Jisung
+    fetching API-Football season roster for ESP…
+    season roster: 27 players
+    global lookup ESP Marc Pubill…
+    global lookup ESP Eric García…
+    global lookup ESP Fabián Ruiz…
+    global lookup ESP Mikel Merino…
+
+=== ESP (19+7 keep, 9 delete, 0 unresolved) ===
+  - delete  333682   Cristhian Andrey Mosquera Ibargüen
+  - delete  1697     Pablo Fornals Malla
+  - delete  336594   Pablo Barrios
+  - delete  358628   Samu
+  - delete  361497   Dean Donny Huijsen
+  - delete  47317    Ander Barrenetxea Muguruza
+  - delete  47269    Alejandro Remiro Gargallo
+  - delete  930      Carlos Soler Barragán
+  - delete  340626   Fermín López Martín
+  + insert  295793   Marc Pubill                        (api: Marc Pubill Pagès)
+  + insert  303638   Eric García                        (api: Eric Urigüen García)
+  + insert  328      Fabián Ruiz                        (api: Fabián Ruiz Peña)
+  + insert  296667   Gavi                               (api: (manual override))
+  + insert  44       Rodri                              (api: Rodrigo Hernández Cascante)
+  + insert  47311    Mikel Merino                       (api: Mikel Merino Zazón)
+  + insert  183799   Nico Williams                      (api: (manual override))
+    fetching API-Football season roster for SWE…
+    season roster: 0 players
+    global lookup SWE Viktor Johansson…
+    global lookup SWE Kristoffer Nordfeldt…
+    global lookup SWE Jacob Widell Zetterström…
+    global lookup SWE Hjalmar Ekdal…
+    global lookup SWE Gabriel Gudmundsson…
+    global lookup SWE Isak Hien…
+    global lookup SWE Emil Holm…
+    global lookup SWE Gustaf Lagerbielke…
+    global lookup SWE Victor Lindelöf…
+    global lookup SWE Eric Smith…
+    global lookup SWE Carl Starfelt…
+    global lookup SWE Elliot Mjällby…
+    global lookup SWE Daniel Svensson…
+    global lookup SWE Jesper Karlström…
+    global lookup SWE Yasin Ayari…
+    global lookup SWE Mattias Svanberg…
+    global lookup SWE Lucas Bergvall…
+    global lookup SWE Besfort Zeneli…
+    global lookup SWE Taha Ali…
+    global lookup SWE Alexander Bernhardsson…
+    global lookup SWE Anthony Elanga…
+    global lookup SWE Viktor Gyökeres…
+    global lookup SWE Alexander Isak…
+    global lookup SWE Gustaf Nilsson…
+    global lookup SWE Benjamin Nygren…
+    global lookup SWE Ken Sema…
+
+=== SWE (0+24 keep, 2 delete, 2 unresolved) ===
+  - delete  226765   E. Stroud
+  - delete  160925   T. Ali
+  + insert  161223   Viktor Johansson                   (api: Viktor Johansson)
+  + insert  2851     Kristoffer Nordfeldt               (api: Bo Kristoffer Nordfeldt)
+  + insert  48033    Jacob Widell Zetterström           (api: Jacob Mikael Widell Zetterström)
+  + insert  47903    Hjalmar Ekdal                      (api: Hjalmar Ekdal)
+  + insert  47969    Gabriel Gudmundsson                (api: Gabriel Johan Gudmundsson)
+  + insert  137976   Isak Hien                          (api: Isak Malcolm Kwaku Hien)
+  + insert  47985    Emil Holm                          (api: Emil Alfons Holm)
+  + insert  137721   Gustaf Lagerbielke                 (api: Gustaf Johan Lagerbielke)
+  + insert  889      Victor Lindelöf                    (api: Victor Jörgen Nilsson Lindelöf)
+  + insert  8486     Eric Smith                         (api: Eric Anders Smith)
+  + insert  47988    Carl Starfelt                      (api: Carl Anders Theodor Starfelt)
+  + insert  198654   Daniel Svensson                    (api: Daniel Svensson)
+  + insert  48047    Jesper Karlström                   (api: Jesper Kewe Karlström)
+  + insert  265820   Yasin Ayari                        (api: Yasin Abbas Ayari)
+  + insert  30484    Mattias Svanberg                   (api: Mattias Olof Svanberg)
+  + insert  347316   Lucas Bergvall                     (api: Lucas Erik Holger Bergvall)
+  + insert  350850   Besfort Zeneli                     (api: Besfort Zeneli)
+  + insert  47696    Alexander Bernhardsson             (api: Alexander Olof Bernhardsson)
+  + insert  153430   Anthony Elanga                     (api: Anthony David Junior Elanga)
+  + insert  18979    Viktor Gyökeres                    (api: Viktor Einar Gyökeres)
+  + insert  2864     Alexander Isak                     (api: Alexander Isak)
+  + insert  15683    Gustaf Nilsson                     (api: Håkan Gustaf Nilsson)
+  + insert  48002    Benjamin Nygren                    (api: Erik Benjamin Nygren)
+  + insert  2860     Ken Sema                           (api: Kenneth Nlata Sema)
+  ? UNRESOLVED DF  Elliot Mjällby
+  ? UNRESOLVED FW  Taha Ali
+    fetching API-Football season roster for SUI…
+    season roster: 26 players
+    global lookup SUI Zeki Amdouni…
+    global lookup SUI Christian Fassnacht…
+    global lookup SUI Cedric Itten…
+
+=== SUI (23+3 keep, 3 delete, 0 unresolved) ===
+  - delete  277862   Joël Almada Monteiro
+  - delete  290646   Alvyn Antonio Sanches
+  - delete  48491    Vincent Olivier Sierro
+  + insert  123469   Zeki Amdouni                       (api: Mohamed Zeki Amdouni)
+  + insert  952      Christian Fassnacht                (api: Christian Andreas Fassnacht)
+  + insert  48497    Cedric Itten                       (api: Cedric Jan Itten)
+    fetching API-Football season roster for TUN…
+    season roster: 0 players
+    global lookup TUN Sabri Ben Hessen…
+    global lookup TUN Abdelmouhib Chamakh…
+    global lookup TUN Aymen Dahman…
+    global lookup TUN Ali Abdi…
+    global lookup TUN Adem Arous…
+    global lookup TUN Mohamed Amine Ben Hamida…
+    global lookup TUN Dylan Bronn…
+    global lookup TUN Raed Chikhaoui…
+    global lookup TUN Moutaz Neffati…
+    global lookup TUN Omar Rekik…
+    global lookup TUN Montassar Talbi…
+    global lookup TUN Yan Valery…
+    global lookup TUN Mortadha Ben Ouanes…
+    global lookup TUN Anis Ben Slimane…
+    global lookup TUN Rani Khedira…
+    global lookup TUN Mohamed Hadj Mahmoud…
+    global lookup TUN Hannibal Mejbri…
+    global lookup TUN Ellyes Skhiri…
+    global lookup TUN Elias Achouri…
+    global lookup TUN Khalil Ayari…
+    global lookup TUN Firas Chaouat…
+    global lookup TUN Rayan Elloumi…
+    global lookup TUN Hazem Mastouri…
+    global lookup TUN Elias Saad…
+    global lookup TUN Sebastian Tounekti…
+
+=== TUN (1+21 keep, 8 delete, 4 unresolved) ===
+  - delete  533295   K. Ayari
+  - delete  49424    A. Dahmen
+  - delete  533360   R. Chikhaoui
+  - delete  393977   A. Arous
+  - delete  135059   A. Ben Hmida
+  - delete  67195    H. Mahmoud
+  - delete  49423    S. Ben Hsan
+  - delete  533394   C. Abdelmouhib
+  + insert  311033   Abdelmouhib Chamakh                (api: Abdelmouhib Chamakh)
+  + insert  49583    Ali Abdi                           (api: Ali El Abdi)
+  + insert  2945     Dylan Bronn                        (api: Dylan Daniel Mahmoud Bronn)
+  + insert  396421   Raed Chikhaoui                     (api: Raed Chikhaoui)
+  + insert  375608   Moutaz Neffati                     (api: Moutaz Neffati)
+  + insert  163068   Omar Rekik                         (api: Omar Rekik)
+  + insert  50030    Montassar Talbi                    (api: Montassar Omar Talbi)
+  + insert  18942    Yan Valery                         (api: Yan Valery)
+  + insert  49469    Mortadha Ben Ouanes                (api: Ahmed Mortadha Ben Ouanes)
+  + insert  199310   Anis Ben Slimane                   (api: Anis Ben Slimane)
+  + insert  25300    Rani Khedira                       (api: Rani Khedira)
+  + insert  16816    Mohamed Hadj Mahmoud               (api: Mohamed Mahmoud)
+  + insert  180560   Hannibal Mejbri                    (api: Hannibal Mejbri)
+  + insert  21587    Ellyes Skhiri                      (api: Ellyes Joris Skhiri)
+  + insert  42012    Elias Achouri                      (api: Mohamed Elias Achouri)
+  + insert  461291   Khalil Ayari                       (api: Khalil Ayari)
+  + insert  2962     Firas Chaouat                      (api: Firas Chaouat)
+  + insert  566059   Rayan Elloumi                      (api: Rayan Elloumi)
+  + insert  344862   Hazem Mastouri                     (api: Hazem Mastouri)
+  + insert  323974   Elias Saad                         (api: Elias Saad)
+  + insert  57518    Sebastian Tounekti                 (api: Sebastian Tounekti)
+  ? UNRESOLVED GK  Sabri Ben Hessen
+  ? UNRESOLVED GK  Aymen Dahman
+  ? UNRESOLVED DF  Adem Arous
+  ? UNRESOLVED DF  Mohamed Amine Ben Hamida
+    fetching API-Football season roster for USA…
+    season roster: 26 players
+    global lookup USA Sergiño Dest…
+    global lookup USA Miles Robinson…
+    global lookup USA Tyler Adams…
+    global lookup USA Alejandro Zendejas…
+    global lookup USA Haji Wright…
+
+=== USA (21+5 keep, 11 delete, 0 unresolved) ===
+  - delete  50879    M. Robinson
+  - delete  201714   Aidan Zen Patrick Morris
+  - delete  25617    T. Tillman
+  - delete  312896   D. Luna
+  - delete  119002   J. Tolkin
+  - delete  25335    J. Klinsmann
+  - delete  102685   Patrick Schulte
+  - delete  407652   Patrick Agyemang
+  - delete  351571   R. Celentano
+  - delete  80752    Francis Tanner James Tessmann
+  - delete  133185   João Lucas de Souza Cardoso
+  + insert  38735    Sergiño Dest                       (api: Sergiño Gianni Dest)
+  + insert  362399   Miles Robinson                     (api: Miles Robinson)
+  + insert  1150     Tyler Adams                        (api: Tyler Shaan Adams)
+  + insert  35885    Alejandro Zendejas                 (api: Alejandro Zendejas Saavedra)
+  + insert  427      Haji Wright                        (api: Haji Amir Wright)
+
+=== SUMMARY ===
+  ARG  keep=20+6  delete=8
+  AUT  keep=25+1  delete=0
+  BEL  keep=20+6  delete=1
+  BIH  keep=20+5  delete=1  ? 1 unresolved
+  BRA  keep=20+6  delete=0
+  CAN  keep=17+6  delete=20  ? 3 unresolved
+  CPV  keep=16+8  delete=6  ? 2 unresolved
+  COL  keep=21+2  delete=6
+  CRO  keep=23+3  delete=1
+  CUW  keep=25+1  delete=0
+  COD  keep=20+3  delete=3  ? 3 unresolved
+  EGY  keep=15+9  delete=17  ? 2 unresolved
+  ENG  keep=18+8  delete=14
+  FRA  keep=20+6  delete=1
+  GER  keep=18+8  delete=6
+  HAI  keep=19+5  delete=3  ? 2 unresolved
+  CIV  keep=23+3  delete=1
+  JPN  keep=22+4  delete=1
+  MAR  keep=19+6  delete=17  ? 1 unresolved
+  NED  keep=16+9  delete=9  ? 1 unresolved
+  NZL  keep=22+4  delete=1
+  NOR  keep=21+5  delete=3
+  POR  keep=19+7  delete=6
+  RSA  keep=22+4  delete=9
+  SCO  keep=21+5  delete=5
+  SEN  keep=21+7  delete=8
+  KOR  keep=22+1  delete=4  ? 3 unresolved
+  ESP  keep=19+7  delete=9
+  SWE  keep=0+24  delete=2  ? 2 unresolved
+  SUI  keep=23+3  delete=3
+  TUN  keep=1+21  delete=8  ? 4 unresolved
+  USA  keep=21+5  delete=11
+  ALG  (pending — not yet announced)
+  AUS  (pending — not yet announced)
+  CZE  (pending — not yet announced)
+  ECU  (pending — not yet announced)
+  GHA  (pending — not yet announced)
+  IRN  (pending — not yet announced)
+  IRQ  (pending — not yet announced)
+  JOR  (pending — not yet announced)
+  KSA  (pending — not yet announced)
+  MEX  (pending — not yet announced)
+  PAN  (pending — not yet announced)
+  PAR  (pending — not yet announced)
+  QAT  (pending — not yet announced)
+  TUR  (pending — not yet announced)
+  URY  (pending — not yet announced)
+  UZB  (pending — not yet announced)
+
+DRY RUN — no DB writes made.

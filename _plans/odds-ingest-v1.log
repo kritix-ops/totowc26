@@ -1,0 +1,28 @@
+[ingest unmatched] surface=top_scorer name="Richarlison" — no player found
+[ingest unmatched] surface=top_scorer name="Neymar" — no player found
+[ingest unmatched] surface=top_scorer name="Dani Olmo" — no player found
+[ingest unmatched] surface=top_scorer name="Casemiro" — no player found
+[ingest unmatched] surface=top_scorer name="Lee Kangin" — no player found
+[ingest unmatched] surface=top_scorer name="Pedri" — no player found
+[ingest summary] {
+  surface: 'top_scorer',
+  matched: 97,
+  unmatched: 6,
+  upserted: 97,
+  preserved: 0
+}
+[ingest unmatched] surface=golden_ball name="Kaoru Mitoma" — no player found
+[ingest summary] {
+  surface: 'golden_ball',
+  matched: 11,
+  unmatched: 1,
+  upserted: 11,
+  preserved: 0
+}
+[ingest done] {
+  surfaces_ok: 2,
+  surfaces_failed: 0,
+  rows_upserted: 108,
+  rows_preserved_due_to_override: 0,
+  rows_unmatched: 7
+}
