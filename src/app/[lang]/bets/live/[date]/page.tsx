@@ -162,7 +162,7 @@ export default async function BetsLiveDayPage({
                           locale={locale}
                           bankBalance={bankBalance}
                           editable={isEditable(b)}
-                          bet={toCardData(b, isHebrew, m.homeCode, m.awayCode)}
+                          bet={toCardData(b, "match", isHebrew, m.homeCode, m.awayCode)}
                         />
                       ))}
                     </div>
@@ -193,7 +193,7 @@ export default async function BetsLiveDayPage({
                 locale={locale}
                 bankBalance={bankBalance}
                 editable={isEditable(b)}
-                bet={toCardData(b, isHebrew)}
+                bet={toCardData(b, "day", isHebrew)}
               />
             ))}
           </div>
@@ -222,7 +222,10 @@ function SectionTitle({
 }
 
 // Cast the SQL-shaped row into the strongly-typed card props. SQL row has
-// `unknown` for JSONB columns; we narrow at this boundary.
+// `unknown` for JSONB columns; we narrow at this boundary. `scope` is
+// supplied by the caller — match-scope rows render inside a per-fixture
+// section, day-scope rows render in the day-wide list, so the caller
+// always knows which kind it has.
 function toCardData(
   row: {
     id: string;
@@ -240,6 +243,7 @@ function toCardData(
     myAnswer: unknown;
     myStakePaid: number | null;
   },
+  scope: "match" | "day",
   isHebrew: boolean,
   homeCode?: string,
   awayCode?: string,
@@ -256,6 +260,7 @@ function toCardData(
     gradingRuleEn: row.gradingRuleEn,
     answerType: row.answerType,
     answerConfig: row.answerConfig as AnswerConfig,
+    scope,
     stakeSnapshot: row.stakeSnapshot,
     payoutSnapshot: row.payoutSnapshot,
     lockAt: row.lockAt,

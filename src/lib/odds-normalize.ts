@@ -41,27 +41,61 @@ export function normalizeOdds(
   config: OddsNormConfig,
 ): NormalisedPrice {
   const stake = clampPositiveInt(config.baseStake, 1);
+  const payout = computeOddsPayout(decimalOdds, {
+    notionalStake: stake,
+    maxPayout: config.maxPayout,
+    houseEdgePct: config.houseEdgePct,
+  });
+  return { stake, payout };
+}
+
+// Outright/free-pick variant. Same formula as normalizeOdds but the
+// caller charges nothing (stake 0) — `notionalStake` is only the
+// multiplier feeding the odds calculation. Used by tournament/stage/group
+// scope bets where the player puts no points down. See
+// _plans/2026-05-31-free-tournament-bets-and-rescaled-payouts.md.
+export type OutrightNormConfig = {
+  notionalStake: number;
+  maxPayout: number;
+  houseEdgePct: number;
+};
+
+export function normalizeOutrightOdds(
+  decimalOdds: number,
+  config: OutrightNormConfig,
+): { payout: number } {
+  return { payout: computeOddsPayout(decimalOdds, config) };
+}
+
+// Shared payout math. Pulled out so normalizeOdds (live, charges stake)
+// and normalizeOutrightOdds (free-pick, charges nothing) cannot drift in
+// their floor/cap/edge handling.
+function computeOddsPayout(
+  decimalOdds: number,
+  config: { notionalStake: number; maxPayout: number; houseEdgePct: number },
+): number {
+  const notional = clampPositiveInt(config.notionalStake, 1);
   // Bookmaker decimal odds are always > 1; guard the rare degenerate
   // case (1.0 means a guaranteed-pay market) by returning the minimum
   // viable payout instead of throwing.
   const safeOdds = decimalOdds > 1 ? decimalOdds : 1.01;
   const houseEdgeFactor =
     (100 - clampInRange(config.houseEdgePct, 0, 50)) / 100;
-  const rawPayout = stake * safeOdds * houseEdgeFactor;
+  const rawPayout = notional * safeOdds * houseEdgeFactor;
 
-  // Round half-up so a fair odds of 2.0 with stake 3 yields a payout
+  // Round half-up so a fair odds of 2.0 with notional 3 yields a payout
   // of 6 rather than 5 (Math.round handles .5 → next even on some
   // engines; we use a fixed +0.5 floor for predictability).
   let payout = Math.floor(rawPayout + 0.5);
 
-  const cap = clampPositiveInt(config.maxPayout, stake + 1);
+  const cap = clampPositiveInt(config.maxPayout, notional + 1);
   if (payout > cap) payout = cap;
-  // Floor at stake + 1 so even a heavy favourite still pays at least
+  // Floor at notional + 1 so even a heavy favourite still pays at least
   // +1 net on a correct pick. The minimum-1 net keeps every market
   // meaningful even after the house edge crunches the payout.
-  if (payout <= stake) payout = stake + 1;
+  if (payout <= notional) payout = notional + 1;
 
-  return { stake, payout };
+  return payout;
 }
 
 function clampPositiveInt(value: number, min: number): number {

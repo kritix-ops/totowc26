@@ -1,17 +1,15 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { eq } from "drizzle-orm";
 import { sql } from "drizzle-orm";
 import { ChevronLeft, ChevronRight, Trophy } from "lucide-react";
 import { hasLocale, type Locale } from "../../dictionaries";
 import { Card } from "@/components/ui";
-import { db } from "@/db";
 import { execFirstRow, execRows } from "@/db/helpers";
-import { settings } from "@/db/schema";
 import { localePath } from "@/lib/paths";
 import { serverNow } from "@/lib/server-now";
 import { MS_PER_DAY, MS_PER_MINUTE } from "@/lib/time";
 import type { DynamicOptionSource } from "@/lib/bets/types";
+import { OUTRIGHT_MAX_PAYOUT } from "@/lib/bets/free-pick-scopes";
 import { TournamentTemplateCard } from "./TournamentTemplateCard";
 
 // Curated library of tournament-scope bet templates. Each one is a
@@ -45,20 +43,16 @@ export default async function TournamentSuggestionsPage({
   const isHebrew = locale === "he";
   const ChevBack = isHebrew ? ChevronRight : ChevronLeft;
 
-  const [teams, [cfg], lastFixtureRow] = await Promise.all([
+  const [teams, lastFixtureRow] = await Promise.all([
     loadWcTeams(),
-    db
-      .select({
-        baseStake: settings.liveOddsBaseStake,
-        maxPayout: settings.liveOddsMaxPayout,
-      })
-      .from(settings)
-      .where(eq(settings.id, 1)),
     loadLastWcKickoff(),
   ]);
 
-  const baseStake = cfg?.baseStake ?? 3;
-  const maxPayout = cfg?.maxPayout ?? 25;
+  // Tournament/stage/group bets are free picks: stake 0, payouts on the
+  // outright scale (notional unit 1, cap 25). See
+  // _plans/2026-05-31-free-tournament-bets-and-rescaled-payouts.md.
+  const baseStake = 0;
+  const maxPayout = OUTRIGHT_MAX_PAYOUT;
 
   // Default lock for tournament-wide bets that resolve at the end of
   // the tournament: 5 min before the final. For per-stage bets that
@@ -196,16 +190,20 @@ function buildTemplates({
   // bet record and lets server-side roster updates (squad re-sync,
   // translation fixes) propagate without rewriting every row.
 
-  // Payout suggestions tuned so longshot templates pay more than the
-  // base stake but stay under the configured cap. Admin can edit per
-  // template before publishing.
-  const championPayout = Math.min(maxPayout, Math.max(baseStake + 2, 18));
-  const runnerUpPayout = Math.min(maxPayout, Math.max(baseStake + 2, 12));
-  const thirdPayout    = Math.min(maxPayout, Math.max(baseStake + 1, 9));
-  const scorerPayout   = Math.min(maxPayout, Math.max(baseStake + 2, 14));
-  const goldenBallPayout = Math.min(maxPayout, Math.max(baseStake + 2, 16));
-  const numberPayout   = Math.min(maxPayout, Math.max(baseStake + 1, 10));
-  const yesNoPayout    = Math.min(maxPayout, Math.max(baseStake + 1, 6));
+  // Bet-level payout fallbacks on the rescaled outright scale. The
+  // cap (OUTRIGHT_MAX_PAYOUT = 25) is the same one publishSurfaceToBet
+  // writes to unmatched options, so an unranked-player pick after
+  // publishing still pays the cap. Pre-publish these values just
+  // populate the card chip and the static-bet template defaults; the
+  // admin can edit per template before saving. See
+  // _plans/2026-05-31-free-tournament-bets-and-rescaled-payouts.md.
+  const championPayout    = Math.min(maxPayout, 12);
+  const runnerUpPayout    = Math.min(maxPayout, 10);
+  const thirdPayout       = Math.min(maxPayout, 8);
+  const scorerPayout      = Math.min(maxPayout, 10);
+  const goldenBallPayout  = Math.min(maxPayout, 12);
+  const numberPayout      = Math.min(maxPayout, 10);
+  const yesNoPayout       = Math.min(maxPayout, 5);
 
   return [
     {

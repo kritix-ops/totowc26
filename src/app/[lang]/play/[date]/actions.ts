@@ -9,6 +9,7 @@ import { getUserAccess } from "@/lib/access";
 import { bankBalanceSql, bankCacheTag, lockUserForBetting } from "@/lib/bank";
 import type { PickAnswer } from "@/lib/bets/types";
 import { resolvePickPayoutAtSubmit } from "@/lib/bets/payout";
+import { isFreePickScope } from "@/lib/bets/free-pick-scopes";
 import { resolveCustomBetLock } from "@/lib/deadlines";
 
 type Err =
@@ -111,6 +112,21 @@ export async function submitCustomBetPick(
       // Bank check inside the txn so this user's other in-flight stakes
       // are visible. We add the existing pick's stake back since updating
       // a pick refunds the old one before charging the new.
+      //
+      // Tournament/stage/group bets are free picks (see
+      // src/lib/bets/free-pick-scopes.ts): the stake is forced to 0
+      // regardless of what bet.stakeSnapshot says, so a legacy record
+      // that still carries a non-zero stakeSnapshot still costs the
+      // player nothing. Logged so we can verify the override fired.
+      const isFreePick = isFreePickScope(bet.scope);
+      const effectiveStake = isFreePick ? 0 : bet.stakeSnapshot;
+      if (isFreePick && bet.stakeSnapshot > 0) {
+        console.info("[free-pick scope]", {
+          betId: bet.id,
+          scope: bet.scope,
+          legacyStakeSnapshot: bet.stakeSnapshot,
+        });
+      }
       const balanceRows = await tx.execute(
         sql`select ${bankBalanceSql(user.id)} as balance`,
       );
@@ -119,7 +135,7 @@ export async function submitCustomBetPick(
       );
       const refund = existing?.stakePaid ?? 0;
       const effectiveBalance = balance + refund;
-      const needed = bet.stakeSnapshot - effectiveBalance;
+      const needed = effectiveStake - effectiveBalance;
       if (needed > 0) {
         return {
           ok: false as const,
@@ -144,7 +160,7 @@ export async function submitCustomBetPick(
           .update(userCustomBetPicks)
           .set({
             answer,
-            stakePaid: bet.stakeSnapshot,
+            stakePaid: effectiveStake,
             payoutSnapshot: pickPayout,
             updatedAt: new Date(),
           })
@@ -154,12 +170,12 @@ export async function submitCustomBetPick(
           userId: user.id,
           customBetId,
           answer,
-          stakePaid: bet.stakeSnapshot,
+          stakePaid: effectiveStake,
           payoutSnapshot: pickPayout,
         });
       }
 
-      const balanceAfter = effectiveBalance - bet.stakeSnapshot;
+      const balanceAfter = effectiveBalance - effectiveStake;
       return { ok: true as const, balanceAfter, pickPayout };
     });
 

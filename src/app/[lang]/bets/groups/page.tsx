@@ -172,6 +172,9 @@ function toCardData(row: GroupPlayBetRow): CustomBetCardData {
     gradingRuleEn: row.gradingRuleEn,
     answerType: row.answerType,
     answerConfig: row.answerConfig as AnswerConfig,
+    // getGroupPlayBets filters WHERE scope = 'group' — every row here
+    // is by construction a group-scope bet, so it's a free pick.
+    scope: "group",
     stakeSnapshot: row.stakeSnapshot,
     payoutSnapshot: row.payoutSnapshot,
     lockAt: row.lockAt,

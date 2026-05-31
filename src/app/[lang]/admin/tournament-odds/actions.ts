@@ -6,13 +6,17 @@ import { db } from "@/db";
 import {
   customBets,
   outrightOddsSnapshot,
-  settings as settingsTable,
   teams as teamsTable,
   type OutrightSurface,
 } from "@/db/schema";
 import { getUser } from "@/lib/supabase/auth";
 import { isAdmin } from "@/lib/admin";
-import { normalizeOdds } from "@/lib/odds-normalize";
+import { normalizeOutrightOdds } from "@/lib/odds-normalize";
+import {
+  OUTRIGHT_HOUSE_EDGE_PCT,
+  OUTRIGHT_MAX_PAYOUT,
+  OUTRIGHT_NOTIONAL_STAKE,
+} from "@/lib/bets/free-pick-scopes";
 import type {
   AnswerConfig,
   MultiChoiceConfig,
@@ -134,19 +138,14 @@ export async function publishSurfaceToBet(input: {
   if (!auth.ok) return auth;
 
   try {
-    const [cfgRow] = await db
-      .select({
-        baseStake: settingsTable.liveOddsBaseStake,
-        maxPayout: settingsTable.liveOddsMaxPayout,
-        houseEdgePct: settingsTable.liveOddsHouseEdgePct,
-      })
-      .from(settingsTable)
-      .where(eq(settingsTable.id, 1));
-
+    // Outright surfaces (champion, top scorer, group winners, …) use the
+    // free-pick payout scale — notional unit 1, cap 25, 5% edge — instead
+    // of the live-odds settings. See
+    // _plans/2026-05-31-free-tournament-bets-and-rescaled-payouts.md.
     const oddsConfig = {
-      baseStake: cfgRow?.baseStake ?? 3,
-      maxPayout: cfgRow?.maxPayout ?? 25,
-      houseEdgePct: cfgRow?.houseEdgePct ?? 5,
+      notionalStake: OUTRIGHT_NOTIONAL_STAKE,
+      maxPayout: OUTRIGHT_MAX_PAYOUT,
+      houseEdgePct: OUTRIGHT_HOUSE_EDGE_PCT,
     };
 
     const [bet] = await db
@@ -224,7 +223,7 @@ export async function publishSurfaceToBet(input: {
     for (const r of snapshotRows) {
       const dec = Number(r.decimalOdds);
       if (!Number.isFinite(dec) || dec <= 1.0) continue;
-      const { payout } = normalizeOdds(dec, oddsConfig);
+      const { payout } = normalizeOutrightOdds(dec, oddsConfig);
       if (r.optionKind === "team") {
         const code = teamCodeByApiId.get(Number(r.optionId));
         if (code) priceByValue.set(code, payout);
@@ -283,7 +282,7 @@ export async function publishSurfaceToBet(input: {
       optionsTotal: isDynamic ? "dynamic" : options.length,
       withOverrideFromSnapshot: updated,
       longshotDefault: longshot,
-      baseStake: oddsConfig.baseStake,
+      notionalStake: oddsConfig.notionalStake,
       maxPayout: oddsConfig.maxPayout,
       houseEdgePct: oddsConfig.houseEdgePct,
     });

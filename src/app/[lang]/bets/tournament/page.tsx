@@ -135,6 +135,7 @@ function toCardData(row: TournamentPlayBetRow): CustomBetCardData {
     gradingRuleEn: row.gradingRuleEn,
     answerType: row.answerType,
     answerConfig: row.answerConfig as AnswerConfig,
+    scope: row.scope,
     stakeSnapshot: row.stakeSnapshot,
     payoutSnapshot: row.payoutSnapshot,
     lockAt: row.lockAt,

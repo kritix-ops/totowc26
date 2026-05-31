@@ -32,9 +32,17 @@ if (!url) {
 
 const sql = postgres(url, { prepare: false });
 
-// Hoisted to module scope so the helpers below can read them. Populated
-// from the settings table on entry to the main async block.
-let oddsConfig = { baseStake: 3, maxPayout: 25, houseEdgePct: 5 };
+// Outright (tournament/stage/group) payout scale. Mirrors the
+// OUTRIGHT_* constants in src/lib/bets/free-pick-scopes.ts. The
+// numbers are intentionally NOT read from settings.live_odds_* because
+// outright markets are free picks on a tighter scale than live bets;
+// reading live-odds settings would re-introduce the 43/60-point
+// payouts the new system fixed. See
+// _plans/2026-05-31-free-tournament-bets-and-rescaled-payouts.md.
+//
+// `baseStake` here is the NOTIONAL stake used only in the odds math.
+// Custom bets in these scopes charge 0 at submit time regardless.
+const oddsConfig = { baseStake: 1, maxPayout: 25, houseEdgePct: 5 };
 
 const SURFACE_TO_QUESTION_PATTERN = {
   champion: /מי תזכה במונדיאל/,
@@ -47,14 +55,6 @@ const SURFACE_TO_QUESTION_PATTERN = {
 const GROUP_SURFACES = ["group_A","group_B","group_C","group_D","group_E","group_F","group_G","group_H","group_I","group_J","group_K","group_L"];
 
 try {
-  // ---------- settings ----------
-  const [cfg] = await sql`select live_odds_base_stake, live_odds_max_payout, live_odds_house_edge_pct from settings where id=1`;
-  oddsConfig = {
-    baseStake: cfg?.live_odds_base_stake ?? 3,
-    maxPayout: cfg?.live_odds_max_payout ?? 25,
-    houseEdgePct: cfg?.live_odds_house_edge_pct ?? 5,
-  };
-
   // ---------- teams lookup (api_football_team_id → code) ----------
   const teamRows = await sql`
     select code, name_en, name_he, flag, group_id, api_football_team_id
@@ -206,12 +206,12 @@ async function applyOverridesToBet({ pattern, overrides, surface, keepDynamic })
     options: updatedOptions ?? [],
     payoutOverridesByValue: overrides,
   };
-  // For dynamic-source bets (top_scorer / golden_ball), bump the
-  // bet-level payoutSnapshot to the longshot cap so a pick on a
-  // player NOT in payoutOverridesByValue falls back to a meaningful
-  // long-shot reward (~60) instead of the template's default 14/16.
-  // Static surfaces always populate every option in the map, so the
-  // fallback is never hit there.
+  // For dynamic-source bets (top_scorer / golden_ball), set the
+  // bet-level payoutSnapshot to the longshot cap (25) so a pick on
+  // a player NOT in payoutOverridesByValue falls back to the
+  // longshot default — same as what publishSurfaceToBet writes for
+  // unmatched static options. Static surfaces always populate every
+  // option in the map, so the fallback is never hit there.
   if (isDynamic) {
     await sql`
       update custom_bets
@@ -268,8 +268,11 @@ async function upsertGroupBet({ groupLetter, options, overrides }) {
   const lockAt = firstKickoff[0]?.ko
     ? new Date(new Date(firstKickoff[0].ko).getTime() - 60 * 60_000)
     : new Date("2026-06-11T17:00:00Z");
-  const baseStake = oddsConfig.baseStake;
-  const maxPayout = Math.max(...Object.values(overrides));
+  // Free-pick scope: charge nothing at submit. Bet-level fallback
+  // mirrors the longshot default (cap = 25) so an unmatched-team
+  // pick still pays the longshot premium.
+  const stakeSnapshot = 0;
+  const fallbackPayout = oddsConfig.maxPayout;
   const questionHe = `מי תנצח בקבוצה ${groupLetter}?`;
   const questionEn = `Who wins Group ${groupLetter}?`;
   const ruleHe = `הקבוצה שתסיים במקום הראשון של קבוצה ${groupLetter} בתום שלב הבתים.`;
@@ -282,7 +285,7 @@ async function upsertGroupBet({ groupLetter, options, overrides }) {
        grading_source, grading_config, status, lock_at, published_at, created_by)
     values
       ('group', ${groupLetter}, ${questionHe}, ${questionEn}, ${ruleHe}, ${ruleEn},
-       'multi_choice', ${sql.json(cfg)}, ${baseStake}, ${maxPayout},
+       'multi_choice', ${sql.json(cfg)}, ${stakeSnapshot}, ${fallbackPayout},
        'manual', null, 'open', ${lockAt.toISOString()}, now(), ${admin?.id ?? null})
     returning id
   `;

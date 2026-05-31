@@ -260,6 +260,13 @@
       "when": 1782085000000,
       "tag": "0036_smart_reminders",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1782087000000,
+      "tag": "0037_free_tournament_bets",
+      "breakpoints": true
     }
   ]
 }
