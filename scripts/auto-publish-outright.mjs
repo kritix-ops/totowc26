@@ -145,24 +145,40 @@ try {
       const team = teamByApiId.get(Number(row.option_id));
       if (team) oddsByCode.set(team.code, Number(row.decimal_odds));
     }
+    // Per-group flat payout: every team in the group pays the same
+    // amount. Computed as the rounded average of each team's
+    // odds-derived payout, clamped to [2, OUTRIGHT_MAX_PAYOUT]. This
+    // intentionally collapses favourite/longshot differentiation
+    // within a group — picking the strong team rewards the same as
+    // picking the weak one — while still tuning between groups so a
+    // "competitive" group (Group C: BRA/MAR/SCO/HAI) pays more than
+    // a one-horse group (Group D: USA/PAR/AUS/TUR). See the design
+    // discussion in conversation 2026-05-31.
+    const perTeamPayouts = [];
+    for (const t of groupTeams) {
+      const dec = oddsByCode.get(t.code) ?? null;
+      perTeamPayouts.push(dec != null ? normalizePayout(dec) : oddsConfig.maxPayout);
+    }
+    const avg = perTeamPayouts.reduce((s, p) => s + p, 0) / perTeamPayouts.length;
+    const flatPayout = Math.max(2, Math.min(oddsConfig.maxPayout, Math.round(avg)));
+
     const overrides = {};
     const options = [];
     for (const t of groupTeams.sort((a,b) => a.code.localeCompare(b.code))) {
-      const dec = oddsByCode.get(t.code) ?? null;
-      const payout = dec != null ? normalizePayout(dec) : oddsConfig.maxPayout;
-      overrides[t.code] = payout;
+      overrides[t.code] = flatPayout;
       options.push({
         value: t.code,
         labelHe: t.name_he,
         labelEn: t.name_en,
         icon: t.flag,
-        payoutOverride: payout,
+        payoutOverride: flatPayout,
       });
     }
     const result = await upsertGroupBet({
       groupLetter,
       options,
       overrides,
+      flatPayout,
     });
     summary[surface] = result;
   }
@@ -233,7 +249,7 @@ async function applyOverridesToBet({ pattern, overrides, surface, keepDynamic })
   };
 }
 
-async function upsertGroupBet({ groupLetter, options, overrides }) {
+async function upsertGroupBet({ groupLetter, options, overrides, flatPayout }) {
   const existing = await sql`
     select id, answer_config
     from custom_bets
@@ -250,13 +266,17 @@ async function upsertGroupBet({ groupLetter, options, overrides }) {
   };
   if (existing.length > 0) {
     const bet = existing[0];
+    // payout_snapshot mirrors the flat per-group payout so the card's
+    // bet-level chip ("זכייה: X") matches every per-option override.
     await sql`
       update custom_bets
-      set answer_config = ${sql.json(cfg)},
-          status = 'open'
+      set answer_config   = ${sql.json(cfg)},
+          stake_snapshot  = 0,
+          payout_snapshot = ${flatPayout},
+          status          = 'open'
       where id = ${bet.id}
     `;
-    return { bet_id: bet.id, action: "updated", priced: Object.keys(overrides).length };
+    return { bet_id: bet.id, action: "updated", priced: Object.keys(overrides).length, flatPayout };
   }
   // Compute lock_at = 60 min before first kickoff of this group's
   // first match. Falls back to 2026-06-11 18:00 UTC if no match exists.
@@ -268,11 +288,11 @@ async function upsertGroupBet({ groupLetter, options, overrides }) {
   const lockAt = firstKickoff[0]?.ko
     ? new Date(new Date(firstKickoff[0].ko).getTime() - 60 * 60_000)
     : new Date("2026-06-11T17:00:00Z");
-  // Free-pick scope: charge nothing at submit. Bet-level fallback
-  // mirrors the longshot default (cap = 25) so an unmatched-team
-  // pick still pays the longshot premium.
+  // Free-pick scope: charge nothing at submit. Bet-level payout
+  // mirrors the flat per-group payout so picking ANY team in the
+  // group pays the same as the card's "זכייה" chip.
   const stakeSnapshot = 0;
-  const fallbackPayout = oddsConfig.maxPayout;
+  const fallbackPayout = flatPayout;
   const questionHe = `מי תנצח בקבוצה ${groupLetter}?`;
   const questionEn = `Who wins Group ${groupLetter}?`;
   const ruleHe = `הקבוצה שתסיים במקום הראשון של קבוצה ${groupLetter} בתום שלב הבתים.`;
