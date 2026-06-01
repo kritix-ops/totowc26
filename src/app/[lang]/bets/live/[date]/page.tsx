@@ -4,6 +4,7 @@ import { ChevronLeft, ChevronRight, Stamp } from "lucide-react";
 import { getDictionary, hasLocale, type Locale } from "../../../dictionaries";
 import { Card, LabelCaps, ScoreLine } from "@/components/ui";
 import { BetsTabs } from "@/components/BetsTabs";
+import { SurpriseMeButton } from "@/components/SurpriseMeButton";
 import { Flag } from "@/components/Flag";
 import { PayGateBanner } from "@/components/PayGateBanner";
 import {
@@ -97,6 +98,10 @@ export default async function BetsLiveDayPage({
 
       {!access.canEdit && <PayGateBanner locale={locale} dict={dict} />}
 
+      {access.canEdit && detail.bets.length > 0 && (
+        <SurpriseMeButton locale={locale} target={{ surface: "live", date }} />
+      )}
+
       {/* Section 1: Fixtures with link to 1/X/2 form */}
       {detail.fixtures.length > 0 && (
         <section className="flex flex-col gap-3">
@@ -162,7 +167,7 @@ export default async function BetsLiveDayPage({
                           locale={locale}
                           bankBalance={bankBalance}
                           editable={isEditable(b)}
-                          bet={toCardData(b, isHebrew, m.homeCode, m.awayCode)}
+                          bet={toCardData(b, "match", isHebrew, m.homeCode, m.awayCode)}
                         />
                       ))}
                     </div>
@@ -193,7 +198,7 @@ export default async function BetsLiveDayPage({
                 locale={locale}
                 bankBalance={bankBalance}
                 editable={isEditable(b)}
-                bet={toCardData(b, isHebrew)}
+                bet={toCardData(b, "day", isHebrew)}
               />
             ))}
           </div>
@@ -222,7 +227,10 @@ function SectionTitle({
 }
 
 // Cast the SQL-shaped row into the strongly-typed card props. SQL row has
-// `unknown` for JSONB columns; we narrow at this boundary.
+// `unknown` for JSONB columns; we narrow at this boundary. `scope` is
+// supplied by the caller — match-scope rows render inside a per-fixture
+// section, day-scope rows render in the day-wide list, so the caller
+// always knows which kind it has.
 function toCardData(
   row: {
     id: string;
@@ -240,6 +248,7 @@ function toCardData(
     myAnswer: unknown;
     myStakePaid: number | null;
   },
+  scope: "match" | "day",
   isHebrew: boolean,
   homeCode?: string,
   awayCode?: string,
@@ -256,6 +265,7 @@ function toCardData(
     gradingRuleEn: row.gradingRuleEn,
     answerType: row.answerType,
     answerConfig: row.answerConfig as AnswerConfig,
+    scope,
     stakeSnapshot: row.stakeSnapshot,
     payoutSnapshot: row.payoutSnapshot,
     lockAt: row.lockAt,

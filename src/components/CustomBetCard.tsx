@@ -21,6 +21,7 @@ import type {
 import { usePickerOptions } from "@/lib/picker-options/client";
 import { usePendingAction } from "@/lib/use-pending-action";
 import { resolvePickPayoutAtSubmit } from "@/lib/bets/payout";
+import { isFreePickScope } from "@/lib/bets/free-pick-scopes";
 import { PickScenarios } from "@/components/PickScenarios";
 import { submitCustomBetPick } from "@/app/[lang]/play/[date]/actions";
 
@@ -45,6 +46,11 @@ export type CustomBetCardData = {
   gradingRuleEn: string;
   answerType: "yes_no" | "number" | "multi_choice" | "free_text";
   answerConfig: AnswerConfig;
+  // The bet's scope. Determines whether the pick is free
+  // (tournament/stage/group → no stake debit, "ללא עלות" copy) or
+  // priced (match/day → standard live-odds stake). See
+  // src/lib/bets/free-pick-scopes.ts.
+  scope: "match" | "day" | "stage" | "group" | "tournament";
   stakeSnapshot: number;
   payoutSnapshot: number;
   lockAt: string;
@@ -76,11 +82,16 @@ export function CustomBetCard({
   const [savedFlash, setSavedFlash] = useState(false);
   const { pending, run } = usePendingAction();
 
+  // Tournament/stage/group bets are free picks: stake is forced to 0
+  // regardless of what bet.stakeSnapshot says, in case a legacy record
+  // slipped through with a non-zero value.
+  const isFreePick = isFreePickScope(bet.scope);
+  const effectiveStake = isFreePick ? 0 : bet.stakeSnapshot;
   const refund = bet.myStakePaid ?? 0;
   // If the draft is "empty" the user hasn't expressed a choice yet, so the
   // submit-cost is 0 (we render submit disabled in that case anyway).
   const hasChoice = !!draft;
-  const newCost = hasChoice ? bet.stakeSnapshot : 0;
+  const newCost = hasChoice ? effectiveStake : 0;
   const effective = bankBalance + refund;
   const bankAfter = effective - newCost;
   const overdrawn = hasChoice && bankAfter < 0;
@@ -212,12 +223,18 @@ export function CustomBetCard({
       {/* Stake/payout + submit */}
       <div className="flex flex-col-reverse md:flex-row md:items-center md:justify-between gap-3 pt-3 border-t border-outline-variant">
         <div className="flex flex-wrap items-center gap-2 text-xs md:text-sm text-on-surface-variant">
-          <span>
-            {isHebrew ? "עלות" : "Stake"}:{" "}
-            <bdi className="tabular-nums font-bold text-on-surface">
-              {bet.stakeSnapshot}
-            </bdi>
-          </span>
+          {isFreePick ? (
+            <span className="font-bold text-on-surface">
+              {isHebrew ? "ללא עלות" : "Free"}
+            </span>
+          ) : (
+            <span>
+              {isHebrew ? "עלות" : "Stake"}:{" "}
+              <bdi className="tabular-nums font-bold text-on-surface">
+                {effectiveStake}
+              </bdi>
+            </span>
+          )}
           <span aria-hidden className="opacity-40">·</span>
           <span>
             {isHebrew ? "זכייה" : "Payout"}:{" "}
@@ -225,7 +242,7 @@ export function CustomBetCard({
               {bet.payoutSnapshot}
             </bdi>
           </span>
-          {hasChoice && dirty && (
+          {hasChoice && dirty && newCost > 0 && (
             <>
               <span aria-hidden className="opacity-40">·</span>
               <span className={clsx(overdrawn && "text-error font-bold")}>

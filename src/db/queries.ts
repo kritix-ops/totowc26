@@ -3,7 +3,7 @@ import { sql } from "drizzle-orm";
 import { unstable_cache } from "next/cache";
 import { execFirstRow, execRows } from "./helpers";
 import type { MultiChoiceOption } from "@/lib/bets/types";
-import { duelCaseSql, duelDeltaSql } from "@/lib/bank";
+import { bankBalanceSql, duelCaseSql, duelDeltaSql } from "@/lib/bank";
 import { STAR_PLAYER_RANK, TEAM_RANK } from "@/lib/players/curation";
 
 // Cache tags used to invalidate cross-request cached queries from the
@@ -250,6 +250,9 @@ async function loadLeaderboardFromDb(
       join duel_stats ds   on ds.user_id  = p.id
       join adjustments adj on adj.user_id = p.id
       join bet_counts bc   on bc.user_id  = p.id
+      -- The monkey bot is ranked separately as a benchmark, never inline
+      -- among humans. See getMonkeyBenchmark().
+      where p.is_bot = false
     ),
     scored as (
       select
@@ -297,6 +300,68 @@ export async function getLeaderboard(
     { tags: [CACHE_TAG_LEADERBOARD], revalidate: 60 },
   );
   return cached();
+}
+
+// The monkey bot's score for one tab, computed with the SAME math the
+// leaderboard uses but for the single bot row. Rendered as a separate
+// "beat-the-monkey" benchmark line, so it never gets a rank among humans.
+// Returns null when no bot profile exists (bootstrap script not run yet).
+export type MonkeyBenchmark = {
+  userId: string;
+  displayName: string;
+  points: number;
+  grossPoints: number;
+  betCount: number;
+};
+
+export async function getMonkeyBenchmark(
+  tab: LeaderboardTab = "overall",
+): Promise<MonkeyBenchmark | null> {
+  const monkey = await execFirstRow<{ id: string; displayName: string }>(sql`
+    select id::text as "id", display_name as "displayName"
+    from public.profiles
+    where is_bot = true
+    order by created_at asc
+    limit 1
+  `);
+  if (!monkey) return null;
+  const id = monkey.id;
+
+  // Per-tab score, mirroring loadLeaderboardFromDb's `scored` CASE for one id.
+  const scoreExpr =
+    tab === "matches"
+      ? sql`(select coalesce(sum(coalesce(mb.points_earned, 0)), 0)::int
+             from public.match_bets mb where mb.user_id = ${id})`
+      : tab === "live"
+        ? sql`(select coalesce(sum(coalesce(pk.points_earned, 0) - pk.stake_paid), 0)::int
+               from public.user_custom_bet_picks pk where pk.user_id = ${id})`
+        : tab === "duels"
+          ? duelDeltaSql(id)
+          : bankBalanceSql(id);
+
+  const row = await execFirstRow<{
+    points: number;
+    gross: number;
+    betCount: number;
+  }>(sql`
+    select
+      (${scoreExpr})::int as "points",
+      (
+        coalesce((select sum(coalesce(mb.points_earned, 0))::int
+          from public.match_bets mb where mb.user_id = ${id}), 0)
+        + coalesce((select sum(coalesce(pk.points_earned, 0))::int
+          from public.user_custom_bet_picks pk where pk.user_id = ${id}), 0)
+      )::int as "gross",
+      (select count(*)::int from public.match_bets mb where mb.user_id = ${id}) as "betCount"
+  `);
+
+  return {
+    userId: id,
+    displayName: monkey.displayName,
+    points: Number(row?.points ?? 0),
+    grossPoints: Number(row?.gross ?? 0),
+    betCount: Number(row?.betCount ?? 0),
+  };
 }
 
 export type MyRankSummary = {

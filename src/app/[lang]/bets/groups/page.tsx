@@ -9,6 +9,7 @@ import {
   type CustomBetCardData,
 } from "@/components/CustomBetCard";
 import { BetsTabs } from "@/components/BetsTabs";
+import { SurpriseMeButton } from "@/components/SurpriseMeButton";
 import { getUser } from "@/lib/supabase/auth";
 import { getUserAccess } from "@/lib/access";
 import { getBankBalance } from "@/lib/bank";
@@ -116,6 +117,10 @@ export default async function BetsGroupsPage({
         </p>
       </header>
 
+      {access.canEdit && totalBets > 0 && (
+        <SurpriseMeButton locale={locale} target={{ surface: "groups" }} />
+      )}
+
       {totalBets === 0 ? (
         <Card className="p-6 text-center text-on-surface-variant">
           {isHebrew
@@ -172,6 +177,9 @@ function toCardData(row: GroupPlayBetRow): CustomBetCardData {
     gradingRuleEn: row.gradingRuleEn,
     answerType: row.answerType,
     answerConfig: row.answerConfig as AnswerConfig,
+    // getGroupPlayBets filters WHERE scope = 'group' — every row here
+    // is by construction a group-scope bet, so it's a free pick.
+    scope: "group",
     stakeSnapshot: row.stakeSnapshot,
     payoutSnapshot: row.payoutSnapshot,
     lockAt: row.lockAt,

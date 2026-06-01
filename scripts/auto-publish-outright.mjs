@@ -32,9 +32,17 @@ if (!url) {
 
 const sql = postgres(url, { prepare: false });
 
-// Hoisted to module scope so the helpers below can read them. Populated
-// from the settings table on entry to the main async block.
-let oddsConfig = { baseStake: 3, maxPayout: 25, houseEdgePct: 5 };
+// Outright (tournament/stage/group) payout scale. Mirrors the
+// OUTRIGHT_* constants in src/lib/bets/free-pick-scopes.ts. The
+// numbers are intentionally NOT read from settings.live_odds_* because
+// outright markets are free picks on a tighter scale than live bets;
+// reading live-odds settings would re-introduce the 43/60-point
+// payouts the new system fixed. See
+// _plans/2026-05-31-free-tournament-bets-and-rescaled-payouts.md.
+//
+// `baseStake` here is the NOTIONAL stake used only in the odds math.
+// Custom bets in these scopes charge 0 at submit time regardless.
+const oddsConfig = { baseStake: 1, maxPayout: 25, houseEdgePct: 5 };
 
 const SURFACE_TO_QUESTION_PATTERN = {
   champion: /מי תזכה במונדיאל/,
@@ -47,14 +55,6 @@ const SURFACE_TO_QUESTION_PATTERN = {
 const GROUP_SURFACES = ["group_A","group_B","group_C","group_D","group_E","group_F","group_G","group_H","group_I","group_J","group_K","group_L"];
 
 try {
-  // ---------- settings ----------
-  const [cfg] = await sql`select live_odds_base_stake, live_odds_max_payout, live_odds_house_edge_pct from settings where id=1`;
-  oddsConfig = {
-    baseStake: cfg?.live_odds_base_stake ?? 3,
-    maxPayout: cfg?.live_odds_max_payout ?? 25,
-    houseEdgePct: cfg?.live_odds_house_edge_pct ?? 5,
-  };
-
   // ---------- teams lookup (api_football_team_id → code) ----------
   const teamRows = await sql`
     select code, name_en, name_he, flag, group_id, api_football_team_id
@@ -145,24 +145,40 @@ try {
       const team = teamByApiId.get(Number(row.option_id));
       if (team) oddsByCode.set(team.code, Number(row.decimal_odds));
     }
+    // Per-group flat payout: every team in the group pays the same
+    // amount. Computed as the rounded average of each team's
+    // odds-derived payout, clamped to [2, OUTRIGHT_MAX_PAYOUT]. This
+    // intentionally collapses favourite/longshot differentiation
+    // within a group — picking the strong team rewards the same as
+    // picking the weak one — while still tuning between groups so a
+    // "competitive" group (Group C: BRA/MAR/SCO/HAI) pays more than
+    // a one-horse group (Group D: USA/PAR/AUS/TUR). See the design
+    // discussion in conversation 2026-05-31.
+    const perTeamPayouts = [];
+    for (const t of groupTeams) {
+      const dec = oddsByCode.get(t.code) ?? null;
+      perTeamPayouts.push(dec != null ? normalizePayout(dec) : oddsConfig.maxPayout);
+    }
+    const avg = perTeamPayouts.reduce((s, p) => s + p, 0) / perTeamPayouts.length;
+    const flatPayout = Math.max(2, Math.min(oddsConfig.maxPayout, Math.round(avg)));
+
     const overrides = {};
     const options = [];
     for (const t of groupTeams.sort((a,b) => a.code.localeCompare(b.code))) {
-      const dec = oddsByCode.get(t.code) ?? null;
-      const payout = dec != null ? normalizePayout(dec) : oddsConfig.maxPayout;
-      overrides[t.code] = payout;
+      overrides[t.code] = flatPayout;
       options.push({
         value: t.code,
         labelHe: t.name_he,
         labelEn: t.name_en,
         icon: t.flag,
-        payoutOverride: payout,
+        payoutOverride: flatPayout,
       });
     }
     const result = await upsertGroupBet({
       groupLetter,
       options,
       overrides,
+      flatPayout,
     });
     summary[surface] = result;
   }
@@ -206,12 +222,12 @@ async function applyOverridesToBet({ pattern, overrides, surface, keepDynamic })
     options: updatedOptions ?? [],
     payoutOverridesByValue: overrides,
   };
-  // For dynamic-source bets (top_scorer / golden_ball), bump the
-  // bet-level payoutSnapshot to the longshot cap so a pick on a
-  // player NOT in payoutOverridesByValue falls back to a meaningful
-  // long-shot reward (~60) instead of the template's default 14/16.
-  // Static surfaces always populate every option in the map, so the
-  // fallback is never hit there.
+  // For dynamic-source bets (top_scorer / golden_ball), set the
+  // bet-level payoutSnapshot to the longshot cap (25) so a pick on
+  // a player NOT in payoutOverridesByValue falls back to the
+  // longshot default — same as what publishSurfaceToBet writes for
+  // unmatched static options. Static surfaces always populate every
+  // option in the map, so the fallback is never hit there.
   if (isDynamic) {
     await sql`
       update custom_bets
@@ -233,7 +249,7 @@ async function applyOverridesToBet({ pattern, overrides, surface, keepDynamic })
   };
 }
 
-async function upsertGroupBet({ groupLetter, options, overrides }) {
+async function upsertGroupBet({ groupLetter, options, overrides, flatPayout }) {
   const existing = await sql`
     select id, answer_config
     from custom_bets
@@ -250,13 +266,17 @@ async function upsertGroupBet({ groupLetter, options, overrides }) {
   };
   if (existing.length > 0) {
     const bet = existing[0];
+    // payout_snapshot mirrors the flat per-group payout so the card's
+    // bet-level chip ("זכייה: X") matches every per-option override.
     await sql`
       update custom_bets
-      set answer_config = ${sql.json(cfg)},
-          status = 'open'
+      set answer_config   = ${sql.json(cfg)},
+          stake_snapshot  = 0,
+          payout_snapshot = ${flatPayout},
+          status          = 'open'
       where id = ${bet.id}
     `;
-    return { bet_id: bet.id, action: "updated", priced: Object.keys(overrides).length };
+    return { bet_id: bet.id, action: "updated", priced: Object.keys(overrides).length, flatPayout };
   }
   // Compute lock_at = 60 min before first kickoff of this group's
   // first match. Falls back to 2026-06-11 18:00 UTC if no match exists.
@@ -268,8 +288,11 @@ async function upsertGroupBet({ groupLetter, options, overrides }) {
   const lockAt = firstKickoff[0]?.ko
     ? new Date(new Date(firstKickoff[0].ko).getTime() - 60 * 60_000)
     : new Date("2026-06-11T17:00:00Z");
-  const baseStake = oddsConfig.baseStake;
-  const maxPayout = Math.max(...Object.values(overrides));
+  // Free-pick scope: charge nothing at submit. Bet-level payout
+  // mirrors the flat per-group payout so picking ANY team in the
+  // group pays the same as the card's "זכייה" chip.
+  const stakeSnapshot = 0;
+  const fallbackPayout = flatPayout;
   const questionHe = `מי תנצח בקבוצה ${groupLetter}?`;
   const questionEn = `Who wins Group ${groupLetter}?`;
   const ruleHe = `הקבוצה שתסיים במקום הראשון של קבוצה ${groupLetter} בתום שלב הבתים.`;
@@ -282,7 +305,7 @@ async function upsertGroupBet({ groupLetter, options, overrides }) {
        grading_source, grading_config, status, lock_at, published_at, created_by)
     values
       ('group', ${groupLetter}, ${questionHe}, ${questionEn}, ${ruleHe}, ${ruleEn},
-       'multi_choice', ${sql.json(cfg)}, ${baseStake}, ${maxPayout},
+       'multi_choice', ${sql.json(cfg)}, ${stakeSnapshot}, ${fallbackPayout},
        'manual', null, 'open', ${lockAt.toISOString()}, now(), ${admin?.id ?? null})
     returning id
   `;

@@ -5,6 +5,7 @@ import { hasLocale, type Locale } from "../../dictionaries";
 import { Card, Chip, LabelCaps, PillButton, SectionHeading } from "@/components/ui";
 import { localePath } from "@/lib/paths";
 import { formatDateTime } from "@/lib/format";
+import { isFreePickScope } from "@/lib/bets/free-pick-scopes";
 import {
   countDuplicateCustomBets,
   listCustomBets,
@@ -308,9 +309,13 @@ function BetCard({
       </div>
       <div className="flex items-center justify-between gap-3 flex-wrap pt-3 border-t border-outline-variant">
         <p className="text-sm text-on-surface-variant">
-          {isHebrew
-            ? `עלות ${bet.stakeSnapshot} · זכייה ${bet.payoutSnapshot}`
-            : `Stake ${bet.stakeSnapshot} · Payout ${bet.payoutSnapshot}`}
+          {isFreePickScope(bet.scope)
+            ? isHebrew
+              ? `ללא עלות · זכייה ${bet.payoutSnapshot}`
+              : `Free · Payout ${bet.payoutSnapshot}`
+            : isHebrew
+              ? `עלות ${bet.stakeSnapshot} · זכייה ${bet.payoutSnapshot}`
+              : `Stake ${bet.stakeSnapshot} · Payout ${bet.payoutSnapshot}`}
         </p>
         <BetsTableActions
           locale={locale}

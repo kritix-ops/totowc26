@@ -1,0 +1,23 @@
+
+=== SUMMARY ===
+┌─────────────┬────────────────────────────────────────┬────────┬────────────────┬───────────┐
+│ (index)     │ bet_id                                 │ priced │ options_on_bet │ action    │
+├─────────────┼────────────────────────────────────────┼────────┼────────────────┼───────────┤
+│ top_scorer  │ '9a942623-3620-4837-a835-1f38d40b311b' │ 111    │ 0              │           │
+│ golden_ball │ '827bc2b5-3aad-4baa-8a95-dd31ec66e410' │ 26     │ 0              │           │
+│ champion    │ 'cecf0723-d16e-4a02-8434-794e816307f2' │ 36     │ 48             │           │
+│ runner_up   │ '3aba112d-09b0-419a-817e-26c23b9adc3f' │ 36     │ 48             │           │
+│ third       │ 'ffd8b538-b4ac-4a6a-8da0-01a1003b9663' │ 36     │ 48             │           │
+│ group_A     │ '31b16249-cb56-45fc-8b5c-7bf3b20fa914' │ 4      │                │ 'updated' │
+│ group_B     │ 'ad955841-a2e2-463b-997d-32fbe9b1739d' │ 4      │                │ 'updated' │
+│ group_C     │ 'fad0c46e-905f-4a4a-b357-f98a0561f064' │ 4      │                │ 'updated' │
+│ group_D     │ '017fc5c8-b6c7-4952-ac5a-38f2842ee41e' │ 4      │                │ 'updated' │
+│ group_E     │ '2e7508e6-bdbc-4a65-b95e-d25797eb67c0' │ 4      │                │ 'updated' │
+│ group_F     │ '7e65f11d-210e-492b-a371-455f23ba4cf4' │ 4      │                │ 'updated' │
+│ group_G     │ '16e9880d-7800-4812-a763-75f20d688f07' │ 4      │                │ 'updated' │
+│ group_H     │ 'e437379f-dc02-4a7e-9437-a35880e36f5c' │ 4      │                │ 'updated' │
+│ group_I     │ '109b577c-e937-4675-a3f3-4a72e416fc54' │ 4      │                │ 'updated' │
+│ group_J     │ '8777ab88-de01-4b90-b05e-e91856b30007' │ 4      │                │ 'updated' │
+│ group_K     │ '4ba41695-6313-4ab9-8548-efcb7a396a57' │ 4      │                │ 'updated' │
+│ group_L     │ '43dcc33f-37ca-4c68-8da8-a1844baf0d13' │ 4      │                │ 'updated' │
+└─────────────┴────────────────────────────────────────┴────────┴────────────────┴───────────┘

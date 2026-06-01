@@ -7,6 +7,7 @@ import {
   type CustomBetCardData,
 } from "@/components/CustomBetCard";
 import { BetsTabs } from "@/components/BetsTabs";
+import { SurpriseMeButton } from "@/components/SurpriseMeButton";
 import { getUser } from "@/lib/supabase/auth";
 import { getUserAccess } from "@/lib/access";
 import { getBankBalance } from "@/lib/bank";
@@ -77,7 +78,6 @@ export default async function BetsTournamentPage({
   const nowMs = serverNow();
   const isEditable = (b: { status: string; lockAt: string }) =>
     access.canEdit && b.status === "open" && new Date(b.lockAt).getTime() > nowMs;
-
   return (
     <section className="px-4 md:px-16 py-6 md:py-12 flex flex-col gap-6 md:gap-8 max-w-3xl mx-auto w-full pb-24">
       <header className="flex flex-col gap-3">
@@ -95,6 +95,10 @@ export default async function BetsTournamentPage({
             : "One-shot bets across the whole tournament. Each locks at the first relevant kickoff."}
         </p>
       </header>
+
+      {access.canEdit && bets.length > 0 && (
+        <SurpriseMeButton locale={locale} target={{ surface: "tournament" }} />
+      )}
 
       {nonEmpty.length === 0 ? (
         <Card className="p-6 text-center text-on-surface-variant">
@@ -135,6 +139,7 @@ function toCardData(row: TournamentPlayBetRow): CustomBetCardData {
     gradingRuleEn: row.gradingRuleEn,
     answerType: row.answerType,
     answerConfig: row.answerConfig as AnswerConfig,
+    scope: row.scope,
     stakeSnapshot: row.stakeSnapshot,
     payoutSnapshot: row.payoutSnapshot,
     lockAt: row.lockAt,

@@ -1,0 +1,168 @@
+translate-players.mjs starting
+  phase=all, batchSize=20, wikidataDelayMs=1000, forceRetranslate=false, dryRun=false
+  translate model: claude-haiku-4-5-20251001
+  review model:    claude-haiku-4-5-20251001
+
+Phase 0 — Wikidata: 141 candidate rows.
+  [  1/141] Facundo Medina → פקונדו מדינה
+  [  2/141] Giovani Lo Celso → ג'ובאני לו צ'לסו
+  [  3/141] Gonzalo Montiel → גונסאלו מונטיאל
+  [  4/141] Lautaro Martínez → לאוטרו מרטינס
+  [  5/141] Leonardo Balerdi → לאונרדו באלרדי
+  [  6/141] Lisandro Martínez → ליסנדרו מרטינס
+  [  7/141] Mathew David Ryan → מת'יו ריאן
+  [  8/141] Miloš Degenek → מילוש דגנק
+  [  9/141] Kye Francis Rowles (no Wikidata match)
+  [ 10/141] Jordan Jacob Bos → ג'ורדן בוס
+  [ 11/141] Martin Callie Boyle (no Wikidata match)
+  [ 12/141] Paul Michael Junior Okon-Engstler (no Wikidata match)
+  [ 13/141] Kai Clifton Trewin (no Wikidata match)
+  [ 14/141] Nishan Velupillay → נישאן ולופילאי
+  [ 15/141] Connor Isaac Metcalfe (no Wikidata match)
+  [ 16/141] Ajdin Hrustić (no Wikidata match)
+  [ 17/141] Awer Bul Mabil → אוור מביל
+  [ 18/141] Nestory Irankunda → נסטורי אירנקונדה
+  [ 19/141] P. Beach (no Wikidata match)
+  [ 20/141] Paul Izzo → פול איזו
+  [ 21/141] Aiden Connor O'Neill (no Wikidata match)
+  [ 22/141] L. Herrington (no Wikidata match)
+  [ 23/141] Riley Patrick McGree (no Wikidata match)
+  [ 24/141] Aziz Eraltay Behich → עזיז בחיץ'
+  [ 25/141] J. Italiano (no Wikidata match)
+  [ 26/141] D. Jurić (no Wikidata match)
+  [ 27/141] Patrick Yazbek → פטריק יזבכ
+  [ 28/141] Cameron Robert Burgess (no Wikidata match)
+  [ 29/141] Jason Kato Geria (no Wikidata match)
+  [ 30/141] Alessandro Circati (no Wikidata match)
+  [ 31/141] A. Robertson (no Wikidata match)
+  [ 32/141] A. Šuto (no Wikidata match)
+  [ 33/141] Alessandro Schöpf → אלסנדרו שופף
+  [ 34/141] Hans Vanaken → האנס פנאקן
+  [ 35/141] Leandro Trossard → לאונרדו טרוסארד
+  [ 36/141] Matias Fernandez Pardo → מתיאס פרננדס-פארדו
+  [ 37/141] Dennis Hadzikadunic (no Wikidata match)
+  [ 38/141] Alex Sandro → אלכס סנדרו
+  [ 39/141] Bruno Guimarães → ברונו גימראייש
+  [ 40/141] Lucas Paquetá → לוקאס פאקטה
+  [ 41/141] Alfie Jones (no Wikidata match)
+  [ 42/141] Alistair Johnston → אליסטר ג'ונסטון
+  [ 43/141] Alphonso Davies → אלפונסו דייוויס
+  [ 44/141] Ismaël Koné → איסמאל קונה
+  [ 45/141] Oumar Diakité → עומר דיאקיטה
+  [ 46/141] Juan Camilo Hernández → קוצ'ו הרננדס
+  [ 47/141] Willer Ditta (no Wikidata match)
+  [ 48/141] Carlos Santos (no Wikidata match)
+  [ 49/141] Edilson Borges (no Wikidata match)
+  [ 50/141] Joao Paulo Fernandes (no Wikidata match)
+  [ 51/141] Roberto Lopes (no Wikidata match)
+  [ 52/141] Mateo Kovačić → מתאו קובאצ'יץ'
+  [ 53/141] Armando Obispo → ארמנדו אוביספו
+  [ 54/141] El Mahdy Soliman (no Wikidata match)
+  [ 55/141] Hamza Abdelkarim → חמזה עבד אל-כרים
+  [ 56/141] Karim Hafez (no Wikidata match)
+  [ 57/141] Mohamed Alaa (no Wikidata match)
+  [ 58/141] Nabil Emad (no Wikidata match)
+  [ 59/141] Bukayo Saka → בוקאיו סאקה
+  [ 60/141] Declan Rice → דקלן רייס
+  [ 61/141] Eberechi Eze → אברצ'י אזה
+  [ 62/141] Harry Kane → הארי קיין
+  [ 63/141] Ivan Toney → איוואן טוני
+  [ 64/141] Jarell Quansah → ג'ארל קוואנסה
+  [ 65/141] Ollie Watkins → אולי ווטקינס
+  [ 66/141] Reece James → ריס ג'יימס
+  [ 67/141] Eric García → אריק גרסיה
+  [ 68/141] Fabián Ruiz → פביאן רואיס
+  [ 69/141] Gavi → גאבי
+  [ 70/141] Marc Pubill → מארק פוביל
+  [ 71/141] Mikel Merino → מיקל מרינו
+  [ 72/141] Nico Williams → ניקו ויליאמס
+  [ 73/141] Bradley Barcola → בראדלי ברקולה
+  [ 74/141] Jean-Philippe Mateta → ז'אן-פיליפ מטטה
+  [ 75/141] Jules Koundé → ז'ול קונדה
+  [ 76/141] Manu Koné → קואדיו קונה
+  [ 77/141] William Saliba → ויליאם סאליבה
+  [ 78/141] Alexander Pavlović (no Wikidata match)
+  [ 79/141] Felix Nmecha → פליקס מצ'ה
+  [ 80/141] Jamal Musiala → ג'מאל מוסיאלה
+  [ 81/141] Jamie Leweling → כדורגלן גרמני-גנאי
+  [ 82/141] Manuel Neuer → מנואל נוייר
+  [ 83/141] Maximilian Beier → מקסימיליאן באייר
+  [ 84/141] Nadiem Amiri → נדים אמירי
+  [ 85/141] Carl-Fred Sainthe (no Wikidata match)
+  [ 86/141] Carlens Arcus (no Wikidata match)
+  [ 87/141] Endo Wataru → ווטארו אנדו
+  [ 88/141] Itakura Ko → קו איטקורה
+  [ 89/141] Kubo Takefusa → טקפוסה קובו
+  [ 90/141] Tanaka Ao → אאו טנאקה
+  [ 91/141] Cho Yumin → צ'ו יו-מין
+  [ 92/141] Ahmed Reda Tagnaouti → אחמד א-תגנאותי
+  [ 93/141] Ayoube Amaimouni (no Wikidata match)
+  [ 94/141] Ayyoub Bouaddi → איוב בועדי
+  [ 95/141] Crysencio Summerville → כריסנסיו סאמרוויל
+  [ 96/141] Frenkie de Jong → פרנקי דה יונג
+  [ 97/141] Guus Til → חוס טיל
+  [ 98/141] Jurriën Timber → יוריאן טימבר
+  [ 99/141] Justin Kluivert → ג'סטין קלייברט
+  [100/141] Marten de Roon → מארטן דה רון
+  [101/141] Mats Wieffer → מאטס וייפר
+  [102/141] Memphis Depay → ממפיס דפאי
+  [103/141] Robin Roefs → רובין רופס
+  [104/141] Fredrik Aursnes → פרדריק אורסנס
+  [105/141] Martin Ødegaard → מרטין אודגור
+  [106/141] Sander Tangvik (no Wikidata match)
+  [107/141] Sondre Langås (no Wikidata match)
+  [108/141] Thelo Aasgaard (no Wikidata match)
+  [109/141] Ryan Thomas → ראיין פורטאוס
+  [110/141] Bernardo Silva → ברנרדו סילבה
+  [111/141] Cristiano Ronaldo → כריסטיאנו רונאלדו
+  [112/141] Diogo Costa → דיוגו קושטה
+  [113/141] Nélson Semedo → נלסון סמדו
+  [114/141] Rafael Leão → רפאל ליאו
+  [115/141] Rúben Dias → רובן דיאש
+  [116/141] Bradley Cross (no Wikidata match)
+  [117/141] Iqraam Rayners (no Wikidata match)
+  [118/141] Kamogelo Sebelebele (no Wikidata match)
+  [119/141] Olwethu Makhanya (no Wikidata match)
+  [120/141] Aaron Hickey → ארון היקי
+  [121/141] Craig Gordon → קרייג גורדון
+  [122/141] Lawrence Shankland → לורנס שנקלנד
+  [123/141] Ross Stewart (no Wikidata match)
+  [124/141] Bara Sapoko Ndiaye (no Wikidata match)
+  [125/141] Édouard Mendy → אדוארד מנדי
+  [126/141] Moustapha Mbow (no Wikidata match)
+  [127/141] Cedric Itten (no Wikidata match)
+  [128/141] Christian Fassnacht → כריסטיאן פאסנאכט
+  [129/141] Zeki Amdouni → זכי אמדוני
+  [130/141] Alexander Bernhardsson (no Wikidata match)
+  [131/141] Alexander Isak → אלכסנדר איסק
+  [132/141] Emil Holm → אמיל הולם
+  [133/141] Jacob Widell Zetterström (no Wikidata match)
+  [134/141] Viktor Johansson → ויקטור יוהנסון
+  [135/141] Abdelmouhib Chamakh (no Wikidata match)
+  [136/141] Khalil Ayari → ח'ליל אל-עיארי
+  [137/141] Mohamed Hadj Mahmoud (no Wikidata match)
+  [138/141] Raed Chikhaoui → ראאד א-שיח'אוי
+  [139/141] Alejandro Zendejas (no Wikidata match)
+  [140/141] Miles Robinson → מילס רובינסון
+  [141/141] Tyler Adams → טיילר אדמס
+  filled 93, missed 48, errors 0.
+
+Phase A — translation: 48 candidate rows.
+  batch 1 (20 rows)… 20 ok
+  batch 2 (20 rows)… 20 ok
+  batch 3 (8 rows)… 8 ok
+
+Phase B — review: 141 candidate rows.
+  batch 1 (20 rows)… 20 ok
+  batch 2 (20 rows)… 20 ok
+  batch 3 (20 rows)… 20 ok
+  batch 4 (20 rows)… 20 ok
+  batch 5 (20 rows)… 20 ok
+  batch 6 (20 rows)… 20 ok
+  batch 7 (20 rows)… 20 ok
+  batch 8 (1 rows)… 1 ok
+
+Summary:
+  Wikidata:    93 filled, 48 missed, 0 errors.
+  Translation: 48 rows updated, 0 batch errors.
+  Review:      141 rows reviewed, 0 batch errors.

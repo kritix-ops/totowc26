@@ -63,14 +63,19 @@ async function resolveRecipients(target: NotifyTarget): Promise<string[]> {
     case "users":
       return target.userIds.filter((id) => typeof id === "string" && id.length > 0);
     case "all-opted-in": {
+      // Exclude bots: a monkey has no email and should never receive a
+      // broadcast feed/push. See _plans/2026-06-01-monkey-bot-and-random-fill.md.
       const rows = await db
         .select({ id: profiles.id })
         .from(profiles)
-        .where(eq(profiles.pushOptIn, true));
+        .where(and(eq(profiles.pushOptIn, true), eq(profiles.isBot, false)));
       return rows.map((r) => r.id);
     }
     case "all-players": {
-      const rows = await db.select({ id: profiles.id }).from(profiles);
+      const rows = await db
+        .select({ id: profiles.id })
+        .from(profiles)
+        .where(eq(profiles.isBot, false));
       return rows.map((r) => r.id);
     }
   }
