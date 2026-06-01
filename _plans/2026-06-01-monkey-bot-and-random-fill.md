@@ -215,20 +215,37 @@ Built in the council-recommended order. Each phase is independently shippable.
   `src/components/SurpriseMeButton.tsx`, wired into all four surfaces.
   Typecheck + lint clean. Needs manual in-app verification (run the app,
   tap on each surface, confirm only-empty + editable-after + mobile layout).
-- Phase 4 — DONE (code). Migration `0038_monkey_bot` adds `profiles.is_bot`.
-  `scripts/bootstrap-monkey.mjs` (+ `pnpm db:bootstrap-monkey`) creates the
-  bot. `src/lib/bets/monkey.ts` + `/api/cron/monkey` fill its picks via the
-  `bot` principal. `.github/workflows/monkey-cron.yml` fires hourly. The
-  leaderboard renders a separate "🐒 The Monkey" benchmark line
-  (`getMonkeyBenchmark`) and excludes bots from the ranked list; bots are also
-  excluded from broadcast recipients and the admin player listing/counts.
+- Phase 4 — DONE + SHIPPED. Migration `0038_monkey_bot` adds `profiles.is_bot`
+  (auto-applied by the `prebuild` hook on every Vercel build). The leaderboard
+  renders a separate "🐒 The Monkey" benchmark line (`getMonkeyBenchmark`) and
+  excludes bots from the ranked list; bots are also excluded from broadcast
+  recipients and the admin player listing/counts.
 
-## Deploy / activation steps (run on the target environment)
+### Cron mechanism (final, differs from the original design)
 
-1. Apply migrations: `pnpm db:migrate` (adds `profiles.is_bot`).
-2. Create the bot once: `pnpm db:bootstrap-monkey` (needs `.env.local` with the
-   Supabase service-role key + `DIRECT_URL`). Optional args: email, display name.
-3. Add the GitHub Actions workflow secrets if not already present for the news
-   cron: `APP_URL`, `CRON_SECRET` (same `CRON_SECRET` as Vercel). The hourly
-   "Monkey cron" then fills picks; trigger once manually via the Actions tab to
-   seed immediately.
+The original plan used a dedicated hourly GitHub Actions workflow
+(`.github/workflows/monkey-cron.yml`). That could not be used in practice:
+the available git tokens lack the `workflow` OAuth scope (so the file can't be
+pushed), and a GitHub Actions cron targets the fixed production `APP_URL`, not
+a sandbox preview. Instead:
+
+- `/api/cron/monkey` still exists for manual triggering (CRON_SECRET).
+- The recurring fill rides the EXISTING `/api/cron/news` route (the news cron
+  already fires every 30 min via `.github/workflows/news-cron.yml`). The news
+  route calls `fillMonkeyPicks()` best-effort, fully isolated from the news
+  sync. No new workflow file, no new secret.
+- `fillMonkeyPicks()` SELF-PROVISIONS the bot on first run via the deploy's
+  service-role env (`getSupabaseAdmin()` + `NEXT_PUBLIC_SUPABASE_URL`), so no
+  manual bootstrap step is needed in production. `scripts/bootstrap-monkey.mjs`
+  remains for local/manual creation but is not required.
+- The standalone `.github/workflows/monkey-cron.yml` is kept on disk (untracked)
+  as documentation only; add it via the GitHub web UI if a dedicated schedule
+  is ever wanted.
+
+### Activation (fully automatic on deploy)
+
+1. Vercel build runs `prebuild` → `db:migrate` (adds `profiles.is_bot`).
+2. The 30-min news cron hits production `/api/cron/news`, which self-provisions
+   the monkey and fills its picks. Shared DB → it shows on every frontend.
+3. Optional override: set `MONKEY_EMAIL` in Vercel env if Supabase rejects the
+   default `monkey@toto.local` address.
