@@ -35,15 +35,18 @@ import {
 //      unique index for match picks. This closes the read-then-settle race:
 //      enumeration can be stale, the write still refuses a now-locked bet.
 //
-// `self` enforces access + bank + deadline + status. `bot` skips only the
-// human access gate — it still plays by the bank/deadline/status rules so the
-// benchmark stays honest and the leaderboard isn't distorted.
+// `self` enforces access + bank + deadline + status. `system` is a trusted
+// server-side write on a user's behalf (the monkey bot's self-fill, and the
+// deadline auto-fill for paid players who forgot) — it skips only the human
+// session-access gate (the caller has established eligibility out of band),
+// and still plays by the bank/deadline/status rules so banks and the
+// leaderboard aren't distorted.
 
 export type WritePrincipal =
   // The access object carries only what the gate needs; the full
   // getUserAccess() result satisfies it structurally.
   | { kind: "self"; userId: string; access: { canEdit: boolean } }
-  | { kind: "bot"; userId: string };
+  | { kind: "system"; userId: string };
 
 export type SkipReason =
   | "already_filled"
@@ -57,10 +60,19 @@ export type WriteOutcome =
   | { status: "skipped"; reason: SkipReason; needed?: number }
   | { status: "error"; error: "db" | "not_found" | "invalid" | "bet_not_found" | "invalid_answer" };
 
+// `overwrite` lets the write replace an existing pick (interactive saves);
+// false makes it never-overwrite (random / monkey / auto-fill).
+// `allowAfterDeadline` is the controlled grace path used ONLY by the deadline
+// auto-fill: it skips the "deadline passed" rejection so a forgetful paid
+// player still gets a pick after their deadline, while every other guard
+// (bet not graded, match not yet kicked off, never-overwrite, bank) still
+// holds. Defaults to false everywhere else.
+export type WriteOpts = { overwrite: boolean; allowAfterDeadline?: boolean };
+
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 function gateAccess(principal: WritePrincipal): boolean {
-  return principal.kind === "bot" || principal.access.canEdit;
+  return principal.kind === "system" || principal.access.canEdit;
 }
 
 // ---- match score (1/X/2) ----
@@ -70,7 +82,7 @@ export type MatchPickInput = { matchId: string; home: number; away: number };
 export async function writeMatchPick(
   principal: WritePrincipal,
   input: MatchPickInput,
-  opts: { overwrite: boolean },
+  opts: WriteOpts,
 ): Promise<WriteOutcome> {
   if (!gateAccess(principal)) return { status: "skipped", reason: "not_allowed" };
   if (!Number.isFinite(input.home) || !Number.isFinite(input.away)) {
@@ -107,6 +119,11 @@ export async function writeMatchPick(
   `);
   if (!r) return { status: "error", error: "not_found" };
   if (r.status !== "scheduled") return { status: "skipped", reason: "closed" };
+  // Grace auto-fill never writes a score for a match that has already kicked
+  // off, even if its status row hasn't flipped yet.
+  if (opts.allowAfterDeadline && new Date(r.kickoff_at).getTime() <= Date.now()) {
+    return { status: "skipped", reason: "closed" };
+  }
 
   const context = await getDeadlineContext();
   const resolved = resolveMatchScoreLock(
@@ -119,7 +136,7 @@ export async function writeMatchPick(
     },
     context,
   );
-  if (resolved.effectiveLockAt.getTime() <= Date.now()) {
+  if (!opts.allowAfterDeadline && resolved.effectiveLockAt.getTime() <= Date.now()) {
     return { status: "skipped", reason: "locked" };
   }
   const stakeSnapshot = r.risk_enabled ? r.risk_penalty : null;
@@ -178,7 +195,7 @@ async function writeCustomPickTx(
   tx: Tx,
   principal: WritePrincipal,
   input: CustomPickInput,
-  opts: { overwrite: boolean },
+  opts: WriteOpts,
 ): Promise<WriteOutcome> {
   const [bet] = await tx
     .select({
@@ -196,14 +213,21 @@ async function writeCustomPickTx(
     .limit(1);
 
   if (!bet) return { status: "error", error: "bet_not_found" };
-  if (bet.status !== "open") return { status: "skipped", reason: "closed" };
+  // Normally only an 'open' bet is pickable. The grace auto-fill also accepts a
+  // bet that has formally locked but is not yet graded, so a forgetful player
+  // still gets a pick the grading pass will pick up. A graded/cancelled bet is
+  // never touched.
+  const statusOk =
+    bet.status === "open" ||
+    (opts.allowAfterDeadline && bet.status === "locked");
+  if (!statusOk) return { status: "skipped", reason: "closed" };
 
   const resolved = resolveCustomBetLock({
     id: bet.id,
     scope: bet.scope,
     lockAt: bet.lockAt,
   });
-  if (resolved.effectiveLockAt.getTime() <= Date.now()) {
+  if (!opts.allowAfterDeadline && resolved.effectiveLockAt.getTime() <= Date.now()) {
     return { status: "skipped", reason: "locked" };
   }
   if (!validateAnswer(bet.answerType, bet.answerConfig as unknown, input.answer)) {
@@ -282,7 +306,7 @@ async function writeCustomPickTx(
 export async function writeCustomPick(
   principal: WritePrincipal,
   input: CustomPickInput,
-  opts: { overwrite: boolean },
+  opts: WriteOpts,
 ): Promise<WriteOutcome> {
   if (!gateAccess(principal)) return { status: "skipped", reason: "not_allowed" };
   try {
@@ -303,7 +327,7 @@ export async function writeCustomPick(
 export async function writeCustomPicksBulk(
   principal: WritePrincipal,
   items: CustomPickInput[],
-  opts: { overwrite: boolean },
+  opts: WriteOpts,
 ): Promise<WriteOutcome[]> {
   if (!gateAccess(principal)) {
     return items.map(() => ({ status: "skipped", reason: "not_allowed" }));

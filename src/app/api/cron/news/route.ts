@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { syncNews } from "@/lib/news-sync";
 import { fillMonkeyPicks } from "@/lib/bets/monkey";
+import { autoFillPastDeadline } from "@/lib/bets/auto-fill";
 import { isAuthorizedCron } from "@/lib/cron-auth";
 
 // News archive sync. Pulls Walla / Ynet / BBC into `news_items` every
@@ -43,10 +44,20 @@ export async function GET(request: NextRequest) {
       console.error("[news cron] monkey fill failed", err);
     }
 
+    // Deadline auto-fill for paid players who forgot to pick (match scores +
+    // tournament/stage/group). Same best-effort, isolated treatment as the
+    // monkey: a failure here must never fail the news sync.
+    let autoFill: Awaited<ReturnType<typeof autoFillPastDeadline>> | null = null;
+    try {
+      autoFill = await autoFillPastDeadline();
+    } catch (err) {
+      console.error("[news cron] deadline auto-fill failed", err);
+    }
+
     // 200 even when one upstream is sick — the report carries per-source
     // ok flags so the cron retry loop doesn't pile up against an
     // unavailable feed. Only a thrown exception below counts as 500.
-    return NextResponse.json({ ok: true, report, monkey });
+    return NextResponse.json({ ok: true, report, monkey, autoFill });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error("[news sync] failed", { error: msg });

@@ -242,6 +242,24 @@ a sandbox preview. Instead:
   as documentation only; add it via the GitHub web UI if a dedicated schedule
   is ever wanted.
 
+## Deadline auto-fill (added after Phase 4)
+
+Safety net so a paid player who forgets to pick is not left with a dead bet.
+`src/lib/bets/auto-fill.ts` `autoFillPastDeadline()` runs on the same 30-minute
+news cron and, for every paid participant (approved payment, not the bot),
+fills an odds-weighted random pick on any bet whose deadline has passed and
+which is not yet graded:
+
+- Covers match scores (games) + `tournament` / `stage` / `group` custom bets.
+- Excludes live bets (the `day` / `match` custom scopes) and duels, by design.
+- Uses the write-core's `allowAfterDeadline` grace path: it writes after the
+  pick deadline but the in-write guards still hold — a match that already
+  kicked off is skipped, a graded/cancelled bet is skipped, existing picks are
+  never overwritten, and the bank is still respected.
+
+The `bot` write principal was generalised to `system` (a trusted server-side
+write on a user's behalf): the monkey self-fill and this auto-fill both use it.
+
 ### Activation (fully automatic on deploy)
 
 1. Vercel build runs `prebuild` → `db:migrate` (adds `profiles.is_bot`).
