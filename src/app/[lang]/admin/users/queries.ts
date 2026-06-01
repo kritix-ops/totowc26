@@ -71,6 +71,7 @@ export async function fetchAdminUsers(): Promise<AdminUserRow[]> {
       from public.match_bets
       where user_id = p.id
     ) bet_stats on true
+    where p.is_bot = false
     order by p.created_at desc
   `);
 }
@@ -138,11 +139,12 @@ export async function fetchAdminStats(entryFee: number): Promise<AdminUserStats>
       order by user_id, submitted_at desc
     )
     select
-      (select count(*) from public.profiles)::int as total_users,
+      (select count(*) from public.profiles where is_bot = false)::int as total_users,
       (select count(*) from latest where status = 'approved')::int as approved_count,
       (select count(*) from latest where status = 'pending')::int as pending_count,
       (select count(*) from public.profiles p
-         where not exists (select 1 from latest l where l.user_id = p.id))::int as unpaid_count,
+         where p.is_bot = false
+           and not exists (select 1 from latest l where l.user_id = p.id))::int as unpaid_count,
       (select count(*) from public.profiles where role = 'admin')::int as admin_count
   `);
 

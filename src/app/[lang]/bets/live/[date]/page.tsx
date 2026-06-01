@@ -4,6 +4,7 @@ import { ChevronLeft, ChevronRight, Stamp } from "lucide-react";
 import { getDictionary, hasLocale, type Locale } from "../../../dictionaries";
 import { Card, LabelCaps, ScoreLine } from "@/components/ui";
 import { BetsTabs } from "@/components/BetsTabs";
+import { SurpriseMeButton } from "@/components/SurpriseMeButton";
 import { Flag } from "@/components/Flag";
 import { PayGateBanner } from "@/components/PayGateBanner";
 import {
@@ -96,6 +97,10 @@ export default async function BetsLiveDayPage({
       </header>
 
       {!access.canEdit && <PayGateBanner locale={locale} dict={dict} />}
+
+      {access.canEdit && detail.bets.length > 0 && (
+        <SurpriseMeButton locale={locale} target={{ surface: "live", date }} />
+      )}
 
       {/* Section 1: Fixtures with link to 1/X/2 form */}
       {detail.fixtures.length > 0 && (

@@ -267,6 +267,13 @@
       "when": 1782087000000,
       "tag": "0037_free_tournament_bets",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1782090000000,
+      "tag": "0038_monkey_bot",
+      "breakpoints": true
     }
   ]
 }

@@ -18,6 +18,7 @@
     "db:migrate": "node --env-file=.env.local scripts/migrate.mjs",
     "db:seed": "node --env-file=.env.local scripts/seed.mjs",
     "db:bootstrap-admin": "node --env-file=.env.local scripts/bootstrap-admin.mjs",
+    "db:bootstrap-monkey": "node --env-file=.env.local scripts/bootstrap-monkey.mjs",
     "logo:strip": "node scripts/strip-logo-bg.mjs",
     "icons:build": "node scripts/build-icons.mjs",
     "splashes:build": "node scripts/build-splashes.mjs",

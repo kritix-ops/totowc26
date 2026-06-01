@@ -118,6 +118,14 @@ export const profiles = pgTable("profiles", {
   smartHubEnabled: boolean("smart_hub_enabled").notNull().default(true),
   pushLockReminders: boolean("push_lock_reminders").notNull().default(true),
   pushDuelReceived: boolean("push_duel_received").notNull().default(true),
+  // Marks the non-human "monkey" baseline player. Bots are filled by a cron
+  // (see /api/cron/monkey) and rendered as a separate benchmark line in the
+  // standings, never ranked inline among humans. They are excluded from email
+  // / in-app broadcast fan-outs and the admin player listing. Payment-gated
+  // surfaces (pot, reminders, duel notifications) already skip them since a
+  // bot has no approved payment. See
+  // _plans/2026-06-01-monkey-bot-and-random-fill.md §Phase 4.
+  isBot: boolean("is_bot").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),

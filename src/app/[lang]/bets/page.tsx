@@ -15,6 +15,7 @@ import { getBetLockMinutes } from "@/db/queries";
 import { formatDateTime } from "@/lib/format";
 import { localePath } from "@/lib/paths";
 import { BetsTabs } from "@/components/BetsTabs";
+import { SurpriseMeButton } from "@/components/SurpriseMeButton";
 import { QuickPickRow, type QuickPickRowData } from "./QuickPickRow";
 
 // /bets is the quick-fill picks page. One scrollable list of every
@@ -140,6 +141,10 @@ export default async function QuickBetsPage({
       </header>
 
       {!access.canEdit && <PayGateBanner locale={locale} dict={dict} />}
+
+      {access.canEdit && matches.length > 0 && (
+        <SurpriseMeButton locale={locale} target={{ surface: "matches" }} />
+      )}
 
       {matches.length === 0 ? (
         <Card className="p-6 text-center text-on-surface-variant">

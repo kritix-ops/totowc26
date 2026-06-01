@@ -9,6 +9,7 @@ import {
   type CustomBetCardData,
 } from "@/components/CustomBetCard";
 import { BetsTabs } from "@/components/BetsTabs";
+import { SurpriseMeButton } from "@/components/SurpriseMeButton";
 import { getUser } from "@/lib/supabase/auth";
 import { getUserAccess } from "@/lib/access";
 import { getBankBalance } from "@/lib/bank";
@@ -115,6 +116,10 @@ export default async function BetsGroupsPage({
             : "Predictions per group. Each bet locks at the schedule the admin set."}
         </p>
       </header>
+
+      {access.canEdit && totalBets > 0 && (
+        <SurpriseMeButton locale={locale} target={{ surface: "groups" }} />
+      )}
 
       {totalBets === 0 ? (
         <Card className="p-6 text-center text-on-surface-variant">

@@ -7,6 +7,7 @@ import { getRequestUser } from "@/lib/request-user";
 import {
   getCategoryPrizeBreakdown,
   getLeaderboard,
+  getMonkeyBenchmark,
   type LeaderboardTab,
 } from "@/db/queries";
 import { Card, LabelCaps } from "@/components/ui";
@@ -44,10 +45,17 @@ export default async function LeaderboardPage({
       ? (rawTab as LeaderboardTab)
       : "overall";
 
-  const [rows, categoryPrize] = await Promise.all([
+  const [rows, categoryPrize, monkey] = await Promise.all([
     getLeaderboard(user.id, tab),
     getCategoryPrizeBreakdown(),
+    getMonkeyBenchmark(tab),
   ]);
+
+  // The monkey is a benchmark, not a ranked competitor: show how many humans
+  // are currently ahead of its odds-weighted-random score.
+  const beatingMonkey = monkey
+    ? rows.filter((r) => r.points > monkey.points).length
+    : 0;
 
   // Per-rank prize ILS amounts only render alongside the overall tab,
   // and they come from the category split (king 1/2/3) so the chip
@@ -116,6 +124,30 @@ export default async function LeaderboardPage({
               {categoryPrizeIls.toLocaleString()} {isHebrew ? "ש\"ח" : "ILS"}
             </bdi>
           </span>
+        </Card>
+      )}
+
+      {monkey && (
+        <Card className="p-4 md:p-5 flex items-center gap-3 md:gap-4 bg-tertiary-fixed text-on-tertiary-fixed-variant border border-dashed border-tertiary-fixed-dim">
+          <span className="text-2xl md:text-3xl leading-none shrink-0" aria-hidden>
+            🐒
+          </span>
+          <div className="flex-1 min-w-0 flex flex-col gap-0.5">
+            <span className="text-sm md:text-base font-bold truncate">
+              {isHebrew ? "הקוף" : "The Monkey"}
+            </span>
+            <span className="text-xs">
+              {isHebrew
+                ? `יעד להכות · ${beatingMonkey} מתוך ${rows.length} מובילים עליו`
+                : `Beat-the-monkey baseline · ${beatingMonkey} of ${rows.length} ahead`}
+            </span>
+          </div>
+          <div className="text-end shrink-0 flex flex-col items-end gap-0.5">
+            <span className="font-[family-name:var(--font-display)] text-xl md:text-2xl leading-none font-bold">
+              <span className="bidi-ltr">{monkey.points}</span>
+            </span>
+            <LabelCaps as="div">{dict.common.points}</LabelCaps>
+          </div>
         </Card>
       )}
 
