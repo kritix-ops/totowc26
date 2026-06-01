@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { syncNews } from "@/lib/news-sync";
+import { fillMonkeyPicks } from "@/lib/bets/monkey";
 import { isAuthorizedCron } from "@/lib/cron-auth";
 
 // News archive sync. Pulls Walla / Ynet / BBC into `news_items` every
@@ -28,10 +29,24 @@ export async function GET(request: NextRequest) {
 
   try {
     const report = await syncNews({ jitterMs });
+
+    // Piggyback the monkey bot's fill on this 30-minute cron. The Hobby plan
+    // can't add another scheduled trigger and a separate GitHub Actions
+    // workflow file can't be pushed with the available token scopes, so the
+    // monkey rides the news cadence instead. Best-effort and fully isolated:
+    // a monkey failure must never fail the news sync. Self-provisions the bot
+    // on first run. See _plans/2026-06-01-monkey-bot-and-random-fill.md.
+    let monkey: Awaited<ReturnType<typeof fillMonkeyPicks>> | null = null;
+    try {
+      monkey = await fillMonkeyPicks();
+    } catch (err) {
+      console.error("[news cron] monkey fill failed", err);
+    }
+
     // 200 even when one upstream is sick — the report carries per-source
     // ok flags so the cron retry loop doesn't pile up against an
     // unavailable feed. Only a thrown exception below counts as 500.
-    return NextResponse.json({ ok: true, report });
+    return NextResponse.json({ ok: true, report, monkey });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error("[news sync] failed", { error: msg });
