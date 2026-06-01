@@ -43,17 +43,17 @@ type AutoStat =
 type Comparator = "<" | "<=" | "=" | ">=" | ">";
 
 const STAT_LABELS: Record<AutoStat, { he: string; en: string }> = {
-  corners:           { he: "׳§׳¨׳ ׳•׳×", en: "Corners" },
-  yellow_cards:      { he: "׳›׳¨׳˜׳™׳¡׳™׳ ׳¦׳”׳•׳‘׳™׳", en: "Yellow cards" },
-  red_cards:         { he: "׳›׳¨׳˜׳™׳¡׳™׳ ׳׳“׳•׳׳™׳", en: "Red cards" },
-  shots:             { he: "׳‘׳¢׳™׳˜׳•׳× ׳¡׳”\"׳›", en: "Total shots" },
-  shots_on_goal:     { he: "׳‘׳¢׳™׳˜׳•׳× ׳׳׳¡׳’׳¨׳×", en: "Shots on goal" },
-  shots_inside_box:  { he: "׳‘׳¢׳™׳˜׳•׳× ׳׳×׳•׳ ׳”׳¨׳—׳‘׳”", en: "Shots inside box" },
-  shots_outside_box: { he: "׳‘׳¢׳™׳˜׳•׳× ׳׳—׳•׳¥ ׳׳¨׳—׳‘׳”", en: "Shots outside box" },
-  fouls:             { he: "׳¢׳‘׳™׳¨׳•׳×", en: "Fouls" },
-  offsides:          { he: "׳ ׳‘׳“׳׳™׳", en: "Offsides" },
-  saves:             { he: "׳”׳¦׳׳•׳× ׳©׳•׳¢׳¨׳™׳", en: "Goalkeeper saves" },
-  total_passes:      { he: "׳׳¡׳™׳¨׳•׳× ׳¡׳”\"׳›", en: "Total passes" },
+  corners:           { he: "קרנות", en: "Corners" },
+  yellow_cards:      { he: "כרטיסים צהובים", en: "Yellow cards" },
+  red_cards:         { he: "כרטיסים אדומים", en: "Red cards" },
+  shots:             { he: "בעיטות סה\"כ", en: "Total shots" },
+  shots_on_goal:     { he: "בעיטות למסגרת", en: "Shots on goal" },
+  shots_inside_box:  { he: "בעיטות מתוך הרחבה", en: "Shots inside box" },
+  shots_outside_box: { he: "בעיטות מחוץ לרחבה", en: "Shots outside box" },
+  fouls:             { he: "עבירות", en: "Fouls" },
+  offsides:          { he: "נבדלים", en: "Offsides" },
+  saves:             { he: "הצלות שוערים", en: "Goalkeeper saves" },
+  total_passes:      { he: "מסירות סה\"כ", en: "Total passes" },
 };
 
 export function NewDuelForm({
@@ -102,36 +102,36 @@ export function NewDuelForm({
   const [autoGradeThreshold, setAutoGradeThreshold] = useState<number>(2);
 
   const labels = {
-    title: isHebrew ? "׳“׳•-׳§׳¨׳‘ ׳—׳“׳©" : "New duel",
-    scopeQ: isHebrew ? "׳¢׳ ׳׳” ׳”׳“׳•-׳§׳¨׳‘?" : "What does this duel hinge on?",
-    scopeMatch: isHebrew ? "׳׳©׳—׳§" : "Match",
-    scopeDay: isHebrew ? "׳™׳•׳ ׳׳©׳—׳§׳™׳" : "Match day",
-    scopeTournament: isHebrew ? "׳˜׳•׳¨׳ ׳™׳¨" : "Tournament",
-    matchPicker: isHebrew ? "׳‘׳—׳¨ ׳׳©׳—׳§" : "Pick a match",
-    matchdayDate: isHebrew ? "׳‘׳—׳¨ ׳×׳׳¨׳™׳ ׳™׳•׳ ׳׳©׳—׳§׳™׳" : "Pick a match-day date",
-    answerQ: isHebrew ? "׳”׳×׳©׳•׳‘׳” ׳©׳׳" : "Your answer",
-    yes: isHebrew ? "׳›׳" : "Yes",
-    no: isHebrew ? "׳׳" : "No",
+    title: isHebrew ? "דו-קרב חדש" : "New duel",
+    scopeQ: isHebrew ? "על מה הדו-קרב?" : "What does this duel hinge on?",
+    scopeMatch: isHebrew ? "משחק" : "Match",
+    scopeDay: isHebrew ? "יום משחקים" : "Match day",
+    scopeTournament: isHebrew ? "טורניר" : "Tournament",
+    matchPicker: isHebrew ? "בחר משחק" : "Pick a match",
+    matchdayDate: isHebrew ? "בחר תאריך יום משחקים" : "Pick a match-day date",
+    answerQ: isHebrew ? "התשובה שלך" : "Your answer",
+    yes: isHebrew ? "כן" : "Yes",
+    no: isHebrew ? "לא" : "No",
     stakeQ: isHebrew
-      ? `׳”׳©׳§׳¢׳” (׳¢׳“ ${maxStake})`
+      ? `השקעה (עד ${maxStake})`
       : `Stake (up to ${maxStake})`,
-    questionHe: isHebrew ? "׳”׳©׳׳׳” (׳¢׳‘׳¨׳™׳×)" : "Question (Hebrew)",
-    questionEn: isHebrew ? "׳”׳©׳׳׳” (׳׳ ׳’׳׳™׳×)" : "Question (English)",
-    ruleHe: isHebrew ? "׳›׳׳ ׳”׳›׳¨׳¢׳” (׳¢׳‘׳¨׳™׳×)" : "Grading rule (Hebrew)",
-    ruleEn: isHebrew ? "׳›׳׳ ׳”׳›׳¨׳¢׳” (׳׳ ׳’׳׳™׳×)" : "Grading rule (English)",
+    questionHe: isHebrew ? "השאלה (עברית)" : "Question (Hebrew)",
+    questionEn: isHebrew ? "השאלה (אנגלית)" : "Question (English)",
+    ruleHe: isHebrew ? "כלל הכרעה (עברית)" : "Grading rule (Hebrew)",
+    ruleEn: isHebrew ? "כלל הכרעה (אנגלית)" : "Grading rule (English)",
     questionHint: isHebrew
-      ? "׳׳©׳₪׳˜ ׳׳—׳“ ׳©׳’׳ ׳׳©׳×׳׳© ׳׳—׳¨ ׳™׳‘׳™׳ ׳‘׳׳™ ׳׳§׳¨׳•׳ ׳×׳§׳ ׳•׳."
+      ? "משפט אחד שגם משתמש אחר יבין בלי לקרוא תקנון."
       : "One sentence another player can read without consulting a rulebook.",
     ruleHint: isHebrew
-      ? "׳׳” ׳‘׳“׳™׳•׳§ ׳™׳™׳¡׳₪׳¨? ׳׳©׳₪׳˜ ׳©׳׳™ ׳׳₪׳©׳¨ ׳׳₪׳¨׳© ׳׳¨׳¢׳”."
+      ? "מה בדיוק ייספר? משפט שאי אפשר לפרש לרעה."
       : "Exactly what counts? Phrase it so it can't be argued.",
-    submit: isHebrew ? "׳₪׳×׳— ׳“׳•-׳§׳¨׳‘" : "Open duel",
-    submitPending: isHebrew ? "׳₪׳•׳×׳—..." : "Opening...",
+    submit: isHebrew ? "פתח דו-קרב" : "Open duel",
+    submitPending: isHebrew ? "פותח..." : "Opening...",
     deadlineHint: isHebrew
-      ? `׳”׳“׳“׳׳™׳™׳ ׳׳”׳¦׳˜׳¨׳₪׳•׳× ׳ ׳§׳‘׳¢ ׳-${defaultJoinWindow} ׳©׳¢׳•׳× (׳׳• ׳“׳§׳•׳× ׳׳₪׳ ׳™ ׳”׳׳©׳—׳§ - ׳”׳׳•׳§׳“׳ ׳׳‘׳™׳ ׳™׳”׳).`
+      ? `הדדליין להצטרפות נקבע ל-${defaultJoinWindow} שעות (או דקות לפני המשחק - המוקדם מביניהם).`
       : `Join deadline defaults to ${defaultJoinWindow}h from now or the kickoff - whichever is earlier.`,
     bankWarning: isHebrew
-      ? `׳”׳”׳©׳§׳¢׳” ׳×׳™׳ ׳¢׳ ׳‘׳‘׳ ׳§ ׳¢׳“ ׳©׳”׳“׳•-׳§׳¨׳‘ ׳™׳•׳›׳¨׳¢ ׳׳• ׳™׳‘׳•׳˜׳. ׳™׳×׳¨׳” ׳ ׳•׳›׳—׳™׳×: ${balance}.`
+      ? `ההשקעה תינעל בבנק עד שהדו-קרב יוכרע או יבוטל. יתרה נוכחית: ${balance}.`
       : `Your stake is locked in the bank until the duel resolves or cancels. Current balance: ${balance}.`,
   };
 
@@ -240,7 +240,7 @@ export function NewDuelForm({
               <option value="">-</option>
               {upcomingMatchdays.map((d) => (
                 <option key={d.date} value={d.date}>
-                  {d.label} ֲ· {d.fixtureCount}
+                  {d.label} · {d.fixtureCount}
                 </option>
               ))}
             </select>
@@ -396,12 +396,12 @@ export function NewDuelForm({
             <div className="flex flex-col gap-1 min-w-0">
               <SectionHeading underline="thin" as="h2">
                 {isHebrew
-                  ? "׳”׳›׳¨׳¢׳” ׳׳•׳˜׳•׳׳˜׳™׳× ׳׳¡׳˜׳˜׳™׳¡׳˜׳™׳§׳•׳×"
+                  ? "הכרעה אוטומטית מסטטיסטיקות"
                   : "Auto-settle from match stats"}
               </SectionHeading>
               <p className="text-xs text-on-surface-variant">
                 {isHebrew
-                  ? "׳‘׳׳§׳•׳ ׳©׳׳“׳׳™׳ ׳™׳›׳¨׳™׳¢ ׳™׳“׳ ׳™׳×, ׳”׳“׳•-׳§׳¨׳‘ ׳™׳•׳›׳¨׳¢ ׳׳•׳˜׳•׳׳˜׳™׳× ׳׳”׳¡׳˜׳˜׳™׳¡׳˜׳™׳§׳•׳× ׳©׳ API-Football ׳׳—׳¨׳™ ׳©׳”׳׳©׳—׳§ ׳™׳¡׳×׳™׳™׳. ׳¨׳§ ׳׳“׳•-׳§׳¨׳‘ ׳¢׳ ׳׳©׳—׳§ ׳™׳—׳™׳“."
+                  ? "במקום שאדמין יכריע ידנית, הדו-קרב יוכרע אוטומטית מהסטטיסטיקות של API-Football אחרי שהמשחק יסתיים. רק לדו-קרב על משחק יחיד."
                   : "Instead of an admin settling manually, the duel resolves automatically from the fixture's API-Football stats once the match ends. Match-scope only."}
               </p>
             </div>
@@ -418,15 +418,15 @@ export function NewDuelForm({
               )}
             >
               {autoGradeOn
-                ? isHebrew ? "׳₪׳¢׳™׳" : "On"
-                : isHebrew ? "׳›׳‘׳•׳™" : "Off"}
+                ? isHebrew ? "פעיל" : "On"
+                : isHebrew ? "כבוי" : "Off"}
             </button>
           </div>
 
           {autoGradeOn && (
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <label className="flex flex-col gap-1.5 text-xs font-bold text-on-surface">
-                {isHebrew ? "׳¡׳˜׳˜׳™׳¡׳˜׳™׳§׳”" : "Stat"}
+                {isHebrew ? "סטטיסטיקה" : "Stat"}
                 <select
                   value={autoGradeStat}
                   onChange={(e) => setAutoGradeStat(e.target.value as AutoStat)}
@@ -441,7 +441,7 @@ export function NewDuelForm({
                 </select>
               </label>
               <label className="flex flex-col gap-1.5 text-xs font-bold text-on-surface">
-                {isHebrew ? "׳”׳©׳•׳•׳׳”" : "Comparator"}
+                {isHebrew ? "השוואה" : "Comparator"}
                 <select
                   value={autoGradeComparator}
                   onChange={(e) =>
@@ -458,7 +458,7 @@ export function NewDuelForm({
                 </select>
               </label>
               <label className="flex flex-col gap-1.5 text-xs font-bold text-on-surface">
-                {isHebrew ? "׳¡׳£" : "Threshold"}
+                {isHebrew ? "סף" : "Threshold"}
                 <input
                   type="number"
                   min={0}
@@ -479,7 +479,7 @@ export function NewDuelForm({
               </label>
               <p className="sm:col-span-3 text-xs text-on-surface-variant">
                 {isHebrew
-                  ? "׳›׳ ׳™׳–׳›׳” ׳׳ ׳”׳¢׳¨׳ ׳©׳ ׳”׳¡׳˜׳˜׳™׳¡׳˜׳™׳§׳” (׳¡׳›׳•׳ ׳©׳ ׳™ ׳”׳¦׳“׳“׳™׳) ׳׳§׳™׳™׳ ׳׳× ׳”׳”׳©׳•׳•׳׳”."
+                  ? "כן יזכה אם הערך של הסטטיסטיקה (סכום שני הצדדים) מקיים את ההשוואה."
                   : "Yes wins if the combined stat across both teams satisfies the comparator."}
               </p>
             </div>
