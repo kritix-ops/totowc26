@@ -356,6 +356,21 @@ const REFRESH_TABLES = [
   { name: "content_overrides", schema: contentOverrides },
 ] as const;
 
+// Columns in the copied tables that FK into `profiles` — a table the
+// refresh excludes by design (real user data). A copied row carrying a
+// prod user/admin id would violate that FK against the sandbox profiles
+// table (e.g. sync_runs_triggered_by_fkey), so we null these on copy.
+// Every one is nullable with onDelete "set null", so null is exactly
+// what the constraint would resolve the value to anyway. Keys here are
+// JS property names (drizzle row keys), not DB column names, and must
+// match a `name` in REFRESH_TABLES above.
+const PROFILE_REF_COLUMNS: Record<string, readonly string[]> = {
+  sync_runs: ["triggeredBy"],
+  bet_lock_defaults: ["updatedBy"],
+  stage_lock_defaults: ["updatedBy"],
+  content_overrides: ["updatedBy"],
+};
+
 export type RefreshTableStep = {
   table: string;
   rowsCopied: number;
@@ -409,7 +424,13 @@ export async function refreshSandboxFromProd(): Promise<RefreshResult> {
       );
       truncateMs = Date.now() - truncateStart;
       for (const t of REFRESH_TABLES) {
-        const rows = prodRows[t.name]!;
+        const clearCols = PROFILE_REF_COLUMNS[t.name];
+        const rows = clearCols
+          ? prodRows[t.name]!.map((r) => ({
+              ...(r as Record<string, unknown>),
+              ...Object.fromEntries(clearCols.map((c) => [c, null])),
+            }))
+          : prodRows[t.name]!;
         const insertStart = Date.now();
         if (rows.length > 0) {
           await tx
