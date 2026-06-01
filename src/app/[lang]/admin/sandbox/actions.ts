@@ -343,6 +343,14 @@ function formatIlNow(): string {
 // Rationale: those tables hold real users' real bets/money and must
 // never be overwritten by sandbox test data. See
 // _plans/2026-05-29-sandbox-environment.md §5.3.
+//
+// Caveat: "excluded" means not copied. The TRUNCATE ... CASCADE below
+// still EMPTIES any excluded table that has a foreign key into a
+// refreshed one (match_bets, custom_bets, user_custom_bet_picks, duels,
+// live_odds_snapshot, bet_grading_audit, bet_reminder_sent). On the
+// sandbox DB that is acceptable — it is test data — and the refresh UI
+// states it plainly. profiles, payments, signup_requests,
+// point_adjustments and user_notifications have no such FK and survive.
 const REFRESH_TABLES = [
   { name: "groups", schema: groups },
   { name: "teams", schema: teams },

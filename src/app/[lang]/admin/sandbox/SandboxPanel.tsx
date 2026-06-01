@@ -656,15 +656,26 @@ function RefreshDataCard({
     "stage_lock_defaults",
     "content_overrides",
   ];
-  const excludedTables = [
+  // Genuinely untouched: no foreign key into the truncated tables, so
+  // the TRUNCATE ... CASCADE does not reach them.
+  const preservedTables = [
     "profiles",
-    "match_bets",
-    "custom_bets",
     "payments",
-    "duels",
     "signup_requests",
     "point_adjustments",
     "user_notifications",
+  ];
+  // Emptied as a side effect: these FK into the refreshed tables, so the
+  // TRUNCATE CASCADE wipes them and nothing reloads them. The operator
+  // must know their sandbox bets/test data are reset, not preserved.
+  const wipedTables = [
+    "match_bets",
+    "custom_bets",
+    "user_custom_bet_picks",
+    "duels",
+    "live_odds_snapshot",
+    "bet_grading_audit",
+    "bet_reminder_sent",
   ];
 
   return (
@@ -674,8 +685,8 @@ function RefreshDataCard({
         title={isHebrew ? "רענון נתוני סאנדבוקס מפרוד" : "Refresh sandbox data from prod"}
         subtitle={
           isHebrew
-            ? "מוחק נתוני בדיקה בסאנדבוקס ומעתיק במקומם את הנתונים האמיתיים מהפרוד. רק נתונים תפעוליים - לא משתמשים והימורים."
-            : "Wipes sandbox test data and copies real operational data from prod. User/bet tables are excluded."
+            ? "מעתיק את הנתונים התפעוליים מהפרוד אל הסאנדבוקס. שים לב: בדרך גם הימורי ונתוני הבדיקה בסאנדבוקס מתאפסים. חשבונות, תשלומים ובקשות הרשמה נשמרים."
+            : "Copies operational data from prod into the sandbox. Note: sandbox bets and test data are reset in the process. Accounts, payments and signup requests are preserved."
         }
       />
 
@@ -697,15 +708,34 @@ function RefreshDataCard({
           <LabelCaps>
             <span className="inline-flex items-center gap-1">
               <X className="h-3.5 w-3.5" strokeWidth={2} />
-              {isHebrew ? "לא נוגע" : "Not touched"}
+              {isHebrew ? "נשמר" : "Preserved"}
             </span>
           </LabelCaps>
           <ul className="text-xs text-on-surface-variant flex flex-col gap-0.5 font-mono" dir="ltr">
-            {excludedTables.map((t) => (
+            {preservedTables.map((t) => (
               <li key={t}>· {t}</li>
             ))}
           </ul>
         </div>
+      </div>
+
+      <div className="flex flex-col gap-2 p-3 rounded-lg bg-error-container/50 border border-error/30">
+        <LabelCaps>
+          <span className="inline-flex items-center gap-1 text-error">
+            <AlertTriangle className="h-3.5 w-3.5" strokeWidth={2} />
+            {isHebrew ? "יימחק (איפוס נתוני בדיקה)" : "Wiped (test data reset)"}
+          </span>
+        </LabelCaps>
+        <p className="text-xs text-on-surface-variant">
+          {isHebrew
+            ? "הטבלאות האלה מצביעות על הנתונים התפעוליים, אז ה-TRUNCATE מוחק אותן ושום דבר לא טוען אותן מחדש. כל הימורי הבדיקה בסאנדבוקס יילכו לאיבוד."
+            : "These tables point at the operational data, so the TRUNCATE empties them and nothing reloads them. All sandbox test bets are lost."}
+        </p>
+        <ul className="text-xs text-on-surface-variant flex flex-col gap-0.5 font-mono" dir="ltr">
+          {wipedTables.map((t) => (
+            <li key={t}>· {t}</li>
+          ))}
+        </ul>
       </div>
 
       <ActionRow>
@@ -747,8 +777,8 @@ function RefreshDataCard({
         >
           <p className="text-sm text-on-surface">
             {isHebrew
-              ? "כל נתוני הבדיקה בטבלאות שמתחת יימחקו וייבנו מחדש מהפרוד. משתמשים והימורים בסאנדבוקס לא יישנו."
-              : "All test data in the tables below will be wiped and reloaded from prod. Sandbox users and bets are untouched."}
+              ? "הנתונים התפעוליים ייבנו מחדש מהפרוד. שים לב: כל הימורי ונתוני הבדיקה בסאנדבוקס (match_bets, custom_bets, duels ועוד) יימחקו בתהליך. חשבונות (profiles), תשלומים ובקשות הרשמה נשמרים."
+              : "Operational data will be rebuilt from prod. Note: all sandbox bets and test data (match_bets, custom_bets, duels and more) are deleted in the process. Accounts (profiles), payments and signup requests are preserved."}
           </p>
         </ConfirmModal>
       )}
