@@ -14,6 +14,10 @@ import {
   betLockDefaults,
   stageLockDefaults,
   contentOverrides,
+  liveOddsSnapshot,
+  outrightOddsSnapshot,
+  newsItems,
+  newsSyncCursors,
 } from "@/db/schema";
 import { prodDb } from "@/db/prod-db";
 import { getUser } from "@/lib/supabase/auth";
@@ -339,18 +343,22 @@ function formatIlNow(): string {
 // Operational tables only. Excluded by design: profiles, payments,
 // match_bets, custom_bets, user_custom_bet_picks, duels, signup_requests,
 // point_adjustments, bet_grading_audit, bet_reminder_sent,
-// user_notifications, push_subscriptions, content_override_history.
-// Rationale: those tables hold real users' real bets/money and must
-// never be overwritten by sandbox test data. See
-// _plans/2026-05-29-sandbox-environment.md §5.3.
+// user_notifications, push_subscriptions, content_override_history,
+// user_moment_dismissals. Rationale: those tables hold real users' real
+// bets/money/state and must never be overwritten by sandbox test data.
+// See _plans/2026-05-29-sandbox-environment.md §5.3.
 //
 // Caveat: "excluded" means not copied. The TRUNCATE ... CASCADE below
 // still EMPTIES any excluded table that has a foreign key into a
 // refreshed one (match_bets, custom_bets, user_custom_bet_picks, duels,
-// live_odds_snapshot, bet_grading_audit, bet_reminder_sent). On the
-// sandbox DB that is acceptable — it is test data — and the refresh UI
-// states it plainly. profiles, payments, signup_requests,
-// point_adjustments and user_notifications have no such FK and survive.
+// bet_grading_audit, bet_reminder_sent). On the sandbox DB that is
+// acceptable — it is test data — and the refresh UI states it plainly.
+// profiles, payments, signup_requests, point_adjustments and
+// user_notifications have no such FK and survive.
+//
+// live_odds_snapshot has a FK into matches and must be inserted AFTER
+// matches (its insert order in this array enforces that, since the
+// transaction inserts table-by-table top-to-bottom).
 const REFRESH_TABLES = [
   { name: "groups", schema: groups },
   { name: "teams", schema: teams },
@@ -362,6 +370,10 @@ const REFRESH_TABLES = [
   { name: "bet_lock_defaults", schema: betLockDefaults },
   { name: "stage_lock_defaults", schema: stageLockDefaults },
   { name: "content_overrides", schema: contentOverrides },
+  { name: "live_odds_snapshot", schema: liveOddsSnapshot },
+  { name: "outright_odds_snapshot", schema: outrightOddsSnapshot },
+  { name: "news_items", schema: newsItems },
+  { name: "news_sync_cursors", schema: newsSyncCursors },
 ] as const;
 
 // Columns in the copied tables that FK into `profiles` — a table the

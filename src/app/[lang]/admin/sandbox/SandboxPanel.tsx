@@ -655,6 +655,10 @@ function RefreshDataCard({
     "bet_lock_defaults",
     "stage_lock_defaults",
     "content_overrides",
+    "live_odds_snapshot",
+    "outright_odds_snapshot",
+    "news_items",
+    "news_sync_cursors",
   ];
   // Genuinely untouched: no foreign key into the truncated tables, so
   // the TRUNCATE ... CASCADE does not reach them.
@@ -673,7 +677,6 @@ function RefreshDataCard({
     "custom_bets",
     "user_custom_bet_picks",
     "duels",
-    "live_odds_snapshot",
     "bet_grading_audit",
     "bet_reminder_sent",
   ];
