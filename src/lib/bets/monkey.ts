@@ -142,7 +142,7 @@ export async function fillMonkeyPicks(): Promise<MonkeyFillReport> {
       customSkipped: 0,
     };
   }
-  const principal: WritePrincipal = { kind: "bot", userId };
+  const principal: WritePrincipal = { kind: "system", userId };
 
   // Match scores (1/X/2). One upsert each; onConflictDoNothing makes reruns
   // no-ops.

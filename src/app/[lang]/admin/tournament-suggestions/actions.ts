@@ -6,6 +6,8 @@ import { db } from "@/db";
 import { customBets } from "@/db/schema";
 import { getUser } from "@/lib/supabase/auth";
 import { isAdmin } from "@/lib/admin";
+import { outrightSurfaceForQuestion } from "@/lib/bets/outright-surfaces";
+import { publishSurfaceToBet } from "@/app/[lang]/admin/tournament-odds/actions";
 import type { AnswerConfig } from "@/lib/bets/types";
 
 // Server action for the admin "Tournament suggestions" page. Publishes
@@ -142,6 +144,33 @@ export async function publishTournamentTemplate(
       payout: input.payout,
       lockAt: lockAt.toISOString(),
     });
+
+    // Auto-publish the odds curve so the bet is born with per-option
+    // payouts instead of the flat template payout. This closes the bug
+    // where re-creating a tournament bet (cancel old + create new) left
+    // it on a flat payout and wiped the live odds until someone re-ran
+    // the publish step. Best-effort: a missing snapshot or publish error
+    // must not fail bet creation — the bet keeps the template payout and
+    // an admin can publish odds manually. See
+    // _plans/2026-06-01-tournament-bet-recreate-wipes-odds.md.
+    const surface = outrightSurfaceForQuestion(input.questionHe.trim());
+    if (surface) {
+      try {
+        const pub = await publishSurfaceToBet({ surface, customBetId: row.id });
+        console.info("[tournament publish: auto-odds]", {
+          surface,
+          customBetId: row.id,
+          result: pub.ok ? pub.data : pub.error,
+        });
+      } catch (err) {
+        console.error("[tournament publish: auto-odds failed]", {
+          surface,
+          customBetId: row.id,
+          err,
+        });
+      }
+    }
+
     revalidatePath("/[lang]/admin/tournament-suggestions", "page");
     revalidatePath("/[lang]/bets/tournament", "page");
     return { ok: true, id: row.id };
