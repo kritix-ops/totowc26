@@ -35,3 +35,22 @@ export function isFreePickScope(scope: string): scope is FreePickScope {
 export const OUTRIGHT_NOTIONAL_STAKE = 1;
 export const OUTRIGHT_MAX_PAYOUT = 25;
 export const OUTRIGHT_HOUSE_EDGE_PCT = 5;
+
+// Continuous odds-curve scale (see buildOutrightCurve in
+// src/lib/odds-normalize.ts). The favourite of a surface earns the
+// floor, the longest priced shot earns the ceiling, interpolated on a
+// log-odds scale. Player + tournament-wide team surfaces (top scorer,
+// golden ball, champion, runner-up, third) span the wide 20→100 band;
+// group winners span 20→50 normalised within each group. See
+// _plans/2026-06-01-tournament-payout-curve.md.
+export const OUTRIGHT_CURVE_FLOOR = 20;
+export const OUTRIGHT_PLAYER_CEILING = 100;
+export const OUTRIGHT_GROUP_CEILING = 50;
+
+// Ceiling for a surface's payout curve. Group surfaces (group_A..group_L)
+// use the tighter 50-point ceiling; every other outright surface uses 100.
+export function outrightCurveCeiling(surface: string): number {
+  return surface.startsWith("group_")
+    ? OUTRIGHT_GROUP_CEILING
+    : OUTRIGHT_PLAYER_CEILING;
+}
