@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { normalizeOdds, normalizeOutrightOdds } from "./odds-normalize";
+import {
+  buildOutrightCurve,
+  normalizeOdds,
+  normalizeOutrightOdds,
+} from "./odds-normalize";
 
 // Pure-function tests for the two odds-to-payout transforms.
 //
@@ -74,5 +78,76 @@ describe("normalizeOutrightOdds (free tournament picks)", () => {
     // 1 × 6 × 1.0 = 6 → 6 (no edge change at this odds level).
     const r = normalizeOutrightOdds(6, { ...config, houseEdgePct: 0 });
     expect(r.payout).toBe(6);
+  });
+});
+
+describe("buildOutrightCurve (continuous log-odds payout)", () => {
+  // The favourite (lowest odds) earns the floor, the longest priced shot
+  // earns the ceiling, interpolated on ln(odds). Player/team surfaces use
+  // [20,100]; group winners use [20,50]. See
+  // _plans/2026-06-01-tournament-payout-curve.md.
+
+  it("maps the favourite to the floor and the longest shot to the ceiling", () => {
+    const curve = buildOutrightCurve([10, 100, 1000], { floor: 20, ceiling: 100 });
+    expect(curve(10)).toBe(20);
+    expect(curve(1000)).toBe(100);
+  });
+
+  it("places the geometric-mean odds at the band midpoint", () => {
+    // ln(100) is exactly halfway between ln(10) and ln(1000), so t = 0.5
+    // → 20 + (100-20) × 0.5 = 60.
+    const curve = buildOutrightCurve([10, 100, 1000], { floor: 20, ceiling: 100 });
+    expect(curve(100)).toBe(60);
+  });
+
+  it("is monotonic non-decreasing across rising odds", () => {
+    const curve = buildOutrightCurve([7, 501], { floor: 20, ceiling: 100 });
+    const sample = [7, 13, 19, 36, 51, 81, 151, 501];
+    for (let i = 1; i < sample.length; i += 1) {
+      expect(curve(sample[i])).toBeGreaterThanOrEqual(curve(sample[i - 1]));
+    }
+  });
+
+  it("matches the published top_scorer anchors (7..501)", () => {
+    // Real snapshot range. Mbappé 7 → 20, Yamal 19 → 39, Foster 501 → 100.
+    const curve = buildOutrightCurve([7, 19, 501], { floor: 20, ceiling: 100 });
+    expect(curve(7)).toBe(20);
+    expect(curve(19)).toBe(39);
+    expect(curve(501)).toBe(100);
+  });
+
+  it("honours the tighter group band (20→50)", () => {
+    // Group C real odds: Brazil 1.2 → 20, Scotland 25.253 → 50.
+    const curve = buildOutrightCurve([1.2, 7.258, 23.993, 25.253], {
+      floor: 20,
+      ceiling: 50,
+    });
+    expect(curve(1.2)).toBe(20);
+    expect(curve(25.253)).toBe(50);
+    expect(curve(7.258)).toBeGreaterThan(20);
+    expect(curve(7.258)).toBeLessThan(50);
+  });
+
+  it("collapses to the floor when there is a single distinct odds", () => {
+    const curve = buildOutrightCurve([5], { floor: 20, ceiling: 100 });
+    expect(curve(5)).toBe(20);
+    expect(curve(999)).toBe(20);
+  });
+
+  it("collapses to the floor for an empty odds set", () => {
+    const curve = buildOutrightCurve([], { floor: 20, ceiling: 100 });
+    expect(curve(50)).toBe(20);
+  });
+
+  it("clamps odds outside the priced range to the band edges", () => {
+    const curve = buildOutrightCurve([10, 1000], { floor: 20, ceiling: 100 });
+    expect(curve(5)).toBe(20); // below min → floor
+    expect(curve(5000)).toBe(100); // above max → ceiling
+  });
+
+  it("returns the floor for degenerate sub-1 odds", () => {
+    const curve = buildOutrightCurve([10, 1000], { floor: 20, ceiling: 100 });
+    expect(curve(1)).toBe(20);
+    expect(curve(0.5)).toBe(20);
   });
 });

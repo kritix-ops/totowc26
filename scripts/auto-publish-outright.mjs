@@ -10,8 +10,9 @@
 //        - player surfaces (top_scorer/golden_ball) keyed by
 //          api_football_id as string.
 //   3. Apply to custom_bets.answer_config in a single UPDATE.
-//   4. For unmatched options (long tail), fall back to
-//      settings.live_odds_max_payout (default 25) per the plan.
+//   4. For unmatched options (long tail), fall back to the curve
+//      ceiling (100 for players/teams, 50 for groups) — the deepest
+//      longshots pay the max.
 //   5. For groups (group_A..L) where no bet exists, INSERT a new
 //      scope='group' draft bet with the four teams as options.
 //   6. Audit + report.
@@ -32,17 +33,17 @@ if (!url) {
 
 const sql = postgres(url, { prepare: false });
 
-// Outright (tournament/stage/group) payout scale. Mirrors the
-// OUTRIGHT_* constants in src/lib/bets/free-pick-scopes.ts. The
-// numbers are intentionally NOT read from settings.live_odds_* because
-// outright markets are free picks on a tighter scale than live bets;
-// reading live-odds settings would re-introduce the 43/60-point
-// payouts the new system fixed. See
-// _plans/2026-05-31-free-tournament-bets-and-rescaled-payouts.md.
-//
-// `baseStake` here is the NOTIONAL stake used only in the odds math.
-// Custom bets in these scopes charge 0 at submit time regardless.
-const oddsConfig = { baseStake: 1, maxPayout: 25, houseEdgePct: 5 };
+// Continuous log-odds payout curve. Mirrors buildOutrightCurve in
+// src/lib/odds-normalize.ts and the OUTRIGHT_* curve constants in
+// src/lib/bets/free-pick-scopes.ts. The favourite of a surface earns the
+// floor, the longest priced shot earns the ceiling, interpolated on
+// ln(odds). Player + champion/runner-up/third surfaces span 20→100;
+// group winners span 20→50 normalised within each group. Free picks:
+// stake is always 0 at submit. See
+// _plans/2026-06-01-tournament-payout-curve.md.
+const CURVE_FLOOR = 20;
+const PLAYER_CEILING = 100;
+const GROUP_CEILING = 50;
 
 const SURFACE_TO_QUESTION_PATTERN = {
   champion: /מי תזכה במונדיאל/,
@@ -70,59 +71,82 @@ try {
     }
   }
 
-  // ---------- normalize odds → payout (mirrors src/lib/odds-normalize.ts) ----------
-  function normalizePayout(decimalOdds) {
-    const stake = Math.max(1, Math.floor(oddsConfig.baseStake));
-    const safeOdds = decimalOdds > 1 ? decimalOdds : 1.01;
-    const houseFactor = (100 - Math.max(0, Math.min(50, oddsConfig.houseEdgePct))) / 100;
-    let payout = Math.floor(stake * safeOdds * houseFactor + 0.5);
-    const cap = Math.max(stake + 1, Math.floor(oddsConfig.maxPayout));
-    if (payout > cap) payout = cap;
-    if (payout < stake + 1) payout = stake + 1;
-    return payout;
+  // ---------- odds → payout curve (mirrors buildOutrightCurve) ----------
+  // Build one curve per surface from its full set of priced odds so the
+  // favourite lands on the floor and the longest shot on the ceiling.
+  function buildCurve(allDecimalOdds, floor, ceiling) {
+    const valid = allDecimalOdds.filter((o) => Number.isFinite(o) && o > 1);
+    const minOdds = valid.length > 0 ? Math.min(...valid) : 0;
+    const maxOdds = valid.length > 0 ? Math.max(...valid) : 0;
+    const lnMin = Math.log(minOdds);
+    const lnSpan = Math.log(maxOdds) - lnMin;
+    return (decimalOdds) => {
+      // `!(lnSpan > 0)` catches NaN (empty odds → log(0)), 0 (single
+      // distinct odds) and negatives; sub-1 odds collapse to the floor.
+      if (!(lnSpan > 0) || !Number.isFinite(decimalOdds) || decimalOdds <= 1) {
+        return floor;
+      }
+      const t = (Math.log(decimalOdds) - lnMin) / lnSpan;
+      const clamped = t < 0 ? 0 : t > 1 ? 1 : t;
+      return Math.round(floor + (ceiling - floor) * clamped);
+    };
   }
 
   // ---------- iterate every surface ----------
   const summary = {};
 
-  // 1) Player surfaces — top_scorer, golden_ball.
+  // 1) Player surfaces — top_scorer, golden_ball. Curve 20→100; unpriced
+  //    players fall back to the ceiling via the bet-level payout_snapshot.
   for (const surface of ["top_scorer", "golden_ball"]) {
     const snapshot = await sql`
       select option_id, decimal_odds
       from outright_odds_snapshot
       where surface = ${surface} and option_kind = 'player'
     `;
+    const curve = buildCurve(
+      snapshot.map((r) => Number(r.decimal_odds)),
+      CURVE_FLOOR,
+      PLAYER_CEILING,
+    );
     const overrides = {};
     for (const row of snapshot) {
-      overrides[String(row.option_id)] = normalizePayout(Number(row.decimal_odds));
+      overrides[String(row.option_id)] = curve(Number(row.decimal_odds));
     }
     const result = await applyOverridesToBet({
       pattern: SURFACE_TO_QUESTION_PATTERN[surface],
       overrides,
       surface,
       keepDynamic: true,
+      fallbackPayout: PLAYER_CEILING,
     });
     summary[surface] = result;
   }
 
   // 2) Tournament-wide team surfaces — champion, runner_up, third.
+  //    Same 20→100 curve as the player surfaces, for consistency.
   for (const surface of ["champion", "runner_up", "third"]) {
     const snapshot = await sql`
       select option_id, decimal_odds
       from outright_odds_snapshot
       where surface = ${surface} and option_kind = 'team'
     `;
+    const curve = buildCurve(
+      snapshot.map((r) => Number(r.decimal_odds)),
+      CURVE_FLOOR,
+      PLAYER_CEILING,
+    );
     const overrides = {};
     for (const row of snapshot) {
       const team = teamByApiId.get(Number(row.option_id));
       if (!team) continue;
-      overrides[team.code] = normalizePayout(Number(row.decimal_odds));
+      overrides[team.code] = curve(Number(row.decimal_odds));
     }
     const result = await applyOverridesToBet({
       pattern: SURFACE_TO_QUESTION_PATTERN[surface],
       overrides,
       surface,
       keepDynamic: false,
+      fallbackPayout: PLAYER_CEILING,
     });
     summary[surface] = result;
   }
@@ -145,40 +169,38 @@ try {
       const team = teamByApiId.get(Number(row.option_id));
       if (team) oddsByCode.set(team.code, Number(row.decimal_odds));
     }
-    // Per-group flat payout: every team in the group pays the same
-    // amount. Computed as the rounded average of each team's
-    // odds-derived payout, clamped to [2, OUTRIGHT_MAX_PAYOUT]. This
-    // intentionally collapses favourite/longshot differentiation
-    // within a group — picking the strong team rewards the same as
-    // picking the weak one — while still tuning between groups so a
-    // "competitive" group (Group C: BRA/MAR/SCO/HAI) pays more than
-    // a one-horse group (Group D: USA/PAR/AUS/TUR). See the design
-    // discussion in conversation 2026-05-31.
-    const perTeamPayouts = [];
-    for (const t of groupTeams) {
-      const dec = oddsByCode.get(t.code) ?? null;
-      perTeamPayouts.push(dec != null ? normalizePayout(dec) : oddsConfig.maxPayout);
-    }
-    const avg = perTeamPayouts.reduce((s, p) => s + p, 0) / perTeamPayouts.length;
-    const flatPayout = Math.max(2, Math.min(oddsConfig.maxPayout, Math.round(avg)));
+    // Per-team payout by odds WITHIN the group: the group favourite earns
+    // the floor (20), the longest shot in that group earns the ceiling
+    // (50), interpolated on the log-odds curve. The curve is built from
+    // this group's four odds only, so it normalises per group — every
+    // group's favourite is 20 and its longest shot is 50, ranked by odds
+    // in between. Reverses the prior flat per-group payout. See
+    // _plans/2026-06-01-tournament-payout-curve.md.
+    const curve = buildCurve(
+      groupTeams.map((t) => oddsByCode.get(t.code)).filter((d) => d != null),
+      CURVE_FLOOR,
+      GROUP_CEILING,
+    );
 
     const overrides = {};
     const options = [];
     for (const t of groupTeams.sort((a,b) => a.code.localeCompare(b.code))) {
-      overrides[t.code] = flatPayout;
+      const dec = oddsByCode.get(t.code) ?? null;
+      const payout = dec != null ? curve(dec) : GROUP_CEILING;
+      overrides[t.code] = payout;
       options.push({
         value: t.code,
         labelHe: t.name_he,
         labelEn: t.name_en,
         icon: t.flag,
-        payoutOverride: flatPayout,
+        payoutOverride: payout,
       });
     }
     const result = await upsertGroupBet({
       groupLetter,
       options,
       overrides,
-      flatPayout,
+      fallbackPayout: GROUP_CEILING,
     });
     summary[surface] = result;
   }
@@ -191,7 +213,7 @@ try {
 
 // ---------- helpers ----------
 
-async function applyOverridesToBet({ pattern, overrides, surface, keepDynamic }) {
+async function applyOverridesToBet({ pattern, overrides, surface, keepDynamic, fallbackPayout }) {
   const bets = await sql`
     select id, question_he, answer_config
     from custom_bets
@@ -210,7 +232,7 @@ async function applyOverridesToBet({ pattern, overrides, surface, keepDynamic })
   let updatedOptions = cfg.options;
   if (!isDynamic && Array.isArray(updatedOptions)) {
     updatedOptions = updatedOptions.map((o) => {
-      const payout = overrides[o.value] ?? oddsConfig.maxPayout;
+      const payout = overrides[o.value] ?? fallbackPayout;
       return { ...o, payoutOverride: payout };
     });
   }
@@ -222,26 +244,18 @@ async function applyOverridesToBet({ pattern, overrides, surface, keepDynamic })
     options: updatedOptions ?? [],
     payoutOverridesByValue: overrides,
   };
-  // For dynamic-source bets (top_scorer / golden_ball), set the
-  // bet-level payoutSnapshot to the longshot cap (25) so a pick on
-  // a player NOT in payoutOverridesByValue falls back to the
-  // longshot default — same as what publishSurfaceToBet writes for
-  // unmatched static options. Static surfaces always populate every
-  // option in the map, so the fallback is never hit there.
-  if (isDynamic) {
-    await sql`
-      update custom_bets
-      set answer_config = ${sql.json(newConfig)},
-          payout_snapshot = ${oddsConfig.maxPayout}
-      where id = ${bet.id}
-    `;
-  } else {
-    await sql`
-      update custom_bets
-      set answer_config = ${sql.json(newConfig)}
-      where id = ${bet.id}
-    `;
-  }
+  // Bet-level payout_snapshot = the curve ceiling for every outright
+  // surface. For dynamic bets (top_scorer / golden_ball) it is the
+  // genuine fallback an unpriced long-tail player resolves to. For static
+  // bets every option carries its own payoutOverride so the fallback never
+  // fires, but the card headline ("זכייה") reads this value — the ceiling
+  // makes it an honest "up to X" rather than a stale flat number.
+  await sql`
+    update custom_bets
+    set answer_config   = ${sql.json(newConfig)},
+        payout_snapshot = ${fallbackPayout}
+    where id = ${bet.id}
+  `;
   return {
     bet_id: bet.id,
     priced: Object.keys(overrides).length,
@@ -249,7 +263,7 @@ async function applyOverridesToBet({ pattern, overrides, surface, keepDynamic })
   };
 }
 
-async function upsertGroupBet({ groupLetter, options, overrides, flatPayout }) {
+async function upsertGroupBet({ groupLetter, options, overrides, fallbackPayout }) {
   const existing = await sql`
     select id, answer_config
     from custom_bets
@@ -266,17 +280,18 @@ async function upsertGroupBet({ groupLetter, options, overrides, flatPayout }) {
   };
   if (existing.length > 0) {
     const bet = existing[0];
-    // payout_snapshot mirrors the flat per-group payout so the card's
-    // bet-level chip ("זכייה: X") matches every per-option override.
+    // payout_snapshot is only a fallback for a pick not in the map; all
+    // four teams are enumerated with their own payoutOverride, so it
+    // never fires. Set it to the group ceiling as a safe default.
     await sql`
       update custom_bets
       set answer_config   = ${sql.json(cfg)},
           stake_snapshot  = 0,
-          payout_snapshot = ${flatPayout},
+          payout_snapshot = ${fallbackPayout},
           status          = 'open'
       where id = ${bet.id}
     `;
-    return { bet_id: bet.id, action: "updated", priced: Object.keys(overrides).length, flatPayout };
+    return { bet_id: bet.id, action: "updated", priced: Object.keys(overrides).length, fallbackPayout };
   }
   // Compute lock_at = 60 min before first kickoff of this group's
   // first match. Falls back to 2026-06-11 18:00 UTC if no match exists.
@@ -288,11 +303,10 @@ async function upsertGroupBet({ groupLetter, options, overrides, flatPayout }) {
   const lockAt = firstKickoff[0]?.ko
     ? new Date(new Date(firstKickoff[0].ko).getTime() - 60 * 60_000)
     : new Date("2026-06-11T17:00:00Z");
-  // Free-pick scope: charge nothing at submit. Bet-level payout
-  // mirrors the flat per-group payout so picking ANY team in the
-  // group pays the same as the card's "זכייה" chip.
+  // Free-pick scope: charge nothing at submit. Bet-level payout is only
+  // the fallback for a pick not in the map (never fires — all four teams
+  // are enumerated with their own payoutOverride).
   const stakeSnapshot = 0;
-  const fallbackPayout = flatPayout;
   const questionHe = `מי תנצח בקבוצה ${groupLetter}?`;
   const questionEn = `Who wins Group ${groupLetter}?`;
   const ruleHe = `הקבוצה שתסיים במקום הראשון של קבוצה ${groupLetter} בתום שלב הבתים.`;

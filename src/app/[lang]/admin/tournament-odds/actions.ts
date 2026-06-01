@@ -11,11 +11,10 @@ import {
 } from "@/db/schema";
 import { getUser } from "@/lib/supabase/auth";
 import { isAdmin } from "@/lib/admin";
-import { normalizeOutrightOdds } from "@/lib/odds-normalize";
+import { buildOutrightCurve } from "@/lib/odds-normalize";
 import {
-  OUTRIGHT_HOUSE_EDGE_PCT,
-  OUTRIGHT_MAX_PAYOUT,
-  OUTRIGHT_NOTIONAL_STAKE,
+  OUTRIGHT_CURVE_FLOOR,
+  outrightCurveCeiling,
 } from "@/lib/bets/free-pick-scopes";
 import type {
   AnswerConfig,
@@ -138,15 +137,15 @@ export async function publishSurfaceToBet(input: {
   if (!auth.ok) return auth;
 
   try {
-    // Outright surfaces (champion, top scorer, group winners, …) use the
-    // free-pick payout scale — notional unit 1, cap 25, 5% edge — instead
-    // of the live-odds settings. See
-    // _plans/2026-05-31-free-tournament-bets-and-rescaled-payouts.md.
-    const oddsConfig = {
-      notionalStake: OUTRIGHT_NOTIONAL_STAKE,
-      maxPayout: OUTRIGHT_MAX_PAYOUT,
-      houseEdgePct: OUTRIGHT_HOUSE_EDGE_PCT,
-    };
+    // Outright surfaces price each option on a continuous log-odds curve:
+    // the surface favourite earns OUTRIGHT_CURVE_FLOOR (20), the longest
+    // priced shot earns the surface ceiling (100 for players + champion /
+    // runner-up / third, 50 for group winners), interpolated between.
+    // Group surfaces publish one at a time, so the curve normalises per
+    // group automatically. See
+    // _plans/2026-06-01-tournament-payout-curve.md.
+    const curveFloor = OUTRIGHT_CURVE_FLOOR;
+    const curveCeiling = outrightCurveCeiling(input.surface);
 
     const [bet] = await db
       .select({
@@ -219,11 +218,21 @@ export async function publishSurfaceToBet(input: {
       }
     }
 
+    // One curve per surface, fed every priced option's odds so the
+    // favourite lands on the floor and the longest shot on the ceiling.
+    const allDecimalOdds = snapshotRows
+      .map((r) => Number(r.decimalOdds))
+      .filter((d) => Number.isFinite(d) && d > 1.0);
+    const curve = buildOutrightCurve(allDecimalOdds, {
+      floor: curveFloor,
+      ceiling: curveCeiling,
+    });
+
     const priceByValue = new Map<string, number>();
     for (const r of snapshotRows) {
       const dec = Number(r.decimalOdds);
       if (!Number.isFinite(dec) || dec <= 1.0) continue;
-      const { payout } = normalizeOutrightOdds(dec, oddsConfig);
+      const payout = curve(dec);
       if (r.optionKind === "team") {
         const code = teamCodeByApiId.get(Number(r.optionId));
         if (code) priceByValue.set(code, payout);
@@ -240,9 +249,9 @@ export async function publishSurfaceToBet(input: {
     if (isDynamic) {
       // Dynamic source: cannot enumerate every option here (1,357
       // players don't fit in JSONB), so we only record the priced
-      // options in the map. Anything not in the map will fall back to
-      // bet.payoutSnapshot at pick time (the long-tail / longshot
-      // default already lives in that field).
+      // options in the map. Anything not in the map (the unpriced long
+      // tail) falls back to bet.payoutSnapshot at pick time, which we set
+      // to the curve ceiling below — the deepest longshots pay the max.
       for (const [value, payout] of priceByValue) {
         overridesByValue[value] = payout;
         updated += 1;
@@ -259,8 +268,8 @@ export async function publishSurfaceToBet(input: {
           return { ...opt, payoutOverride: priced };
         }
         longshot += 1;
-        overridesByValue[opt.value] = oddsConfig.maxPayout;
-        return { ...opt, payoutOverride: oddsConfig.maxPayout };
+        overridesByValue[opt.value] = curveCeiling;
+        return { ...opt, payoutOverride: curveCeiling };
       });
     }
 
@@ -270,9 +279,16 @@ export async function publishSurfaceToBet(input: {
       payoutOverridesByValue: overridesByValue,
     };
 
+    // Bet-level payoutSnapshot is set to the curve ceiling for every
+    // outright surface. For dynamic surfaces it is the genuine fallback
+    // an unpriced player resolves to; for static surfaces every option
+    // carries its own payoutOverride so the fallback never fires, but the
+    // card headline ("זכייה / Payout") reads this value — setting it to
+    // the ceiling makes the headline an honest "up to X" instead of a
+    // stale flat number.
     await db
       .update(customBets)
-      .set({ answerConfig: newConfig })
+      .set({ answerConfig: newConfig, payoutSnapshot: curveCeiling })
       .where(eq(customBets.id, input.customBetId));
 
     console.info("[tournament-odds publish]", {
@@ -281,10 +297,9 @@ export async function publishSurfaceToBet(input: {
       kind: isDynamic ? "dynamic" : "static",
       optionsTotal: isDynamic ? "dynamic" : options.length,
       withOverrideFromSnapshot: updated,
-      longshotDefault: longshot,
-      notionalStake: oddsConfig.notionalStake,
-      maxPayout: oddsConfig.maxPayout,
-      houseEdgePct: oddsConfig.houseEdgePct,
+      longshotDefault: isDynamic ? "ceiling" : longshot,
+      curveFloor,
+      curveCeiling,
     });
     revalidatePath("/[lang]/admin/tournament-odds", "page");
     revalidatePath("/[lang]/admin/bets", "page");

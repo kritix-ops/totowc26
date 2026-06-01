@@ -67,6 +67,56 @@ export function normalizeOutrightOdds(
   return { payout: computeOddsPayout(decimalOdds, config) };
 }
 
+// Surface-level payout curve for free-pick outright bets (top scorer,
+// golden ball, champion, runner-up, third, group winners). Unlike
+// normalizeOutrightOdds — a per-option multiplicative price — this maps
+// every option's decimal odds onto a [floor, ceiling] band by its
+// position on a LOGARITHMIC odds scale spanning the surface's own
+// min..max priced odds. The favourite (lowest odds) earns `floor`, the
+// longest priced shot earns `ceiling`, and everything between is
+// interpolated on ln(odds) so the heavy skew of outright markets (a 7.0
+// favourite next to a 500.0 longshot) spreads smoothly instead of
+// bunching every realistic pick near the floor.
+//
+// Players absent from the snapshot (the long tail with no odds) are the
+// deepest longshots; they are not passed here and resolve to the
+// bet-level fallback, which callers set to `ceiling`.
+//
+// Returns a closure so a caller prices a whole surface against one
+// shared min/max. See _plans/2026-06-01-tournament-payout-curve.md.
+export type OutrightCurveConfig = {
+  // Payout for the surface favourite (lowest odds). E.g. 20.
+  floor: number;
+  // Payout for the longest priced shot (highest odds). E.g. 100 for
+  // player/tournament surfaces, 50 for group winners.
+  ceiling: number;
+};
+
+export function buildOutrightCurve(
+  allDecimalOdds: number[],
+  config: OutrightCurveConfig,
+): (decimalOdds: number) => number {
+  const floor = Math.round(config.floor);
+  const ceiling = Math.round(config.ceiling);
+  const valid = allDecimalOdds.filter((o) => Number.isFinite(o) && o > 1);
+  const minOdds = valid.length > 0 ? Math.min(...valid) : 0;
+  const maxOdds = valid.length > 0 ? Math.max(...valid) : 0;
+  const lnMin = Math.log(minOdds);
+  const lnSpan = Math.log(maxOdds) - lnMin;
+
+  return (decimalOdds: number): number => {
+    // Degenerate surfaces (no valid odds → lnSpan is NaN, or a single
+    // distinct value → lnSpan is 0) and any sub-1 odds collapse to the
+    // favourite price. `!(lnSpan > 0)` catches NaN, 0 and negatives.
+    if (!(lnSpan > 0) || !Number.isFinite(decimalOdds) || decimalOdds <= 1) {
+      return floor;
+    }
+    const t = (Math.log(decimalOdds) - lnMin) / lnSpan;
+    const clamped = t < 0 ? 0 : t > 1 ? 1 : t;
+    return Math.round(floor + (ceiling - floor) * clamped);
+  };
+}
+
 // Shared payout math. Pulled out so normalizeOdds (live, charges stake)
 // and normalizeOutrightOdds (free-pick, charges nothing) cannot drift in
 // their floor/cap/edge handling.
