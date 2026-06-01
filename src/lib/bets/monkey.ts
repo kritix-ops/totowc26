@@ -1,5 +1,8 @@
 import "server-only";
+import { db } from "@/db";
+import { profiles } from "@/db/schema";
 import { execFirstRow, sql } from "@/db/helpers";
+import { getSupabaseAdmin } from "@/lib/supabase/server";
 import {
   ALL_CUSTOM_SCOPES,
   listFillableCustomBets,
@@ -12,6 +15,8 @@ import {
   type CustomPickInput,
   type WritePrincipal,
 } from "@/lib/bets/write-core";
+
+const MONKEY_DISPLAY_NAME = "הקוף";
 
 // The monkey bot's fill pass. Driven by /api/cron/monkey (GitHub Actions,
 // hourly). Sweeps EVERY open bet the monkey has not picked yet and fills an
@@ -43,8 +48,90 @@ export async function getMonkeyUserId(): Promise<string | null> {
   return row?.id ?? null;
 }
 
+// Return the monkey's user id, self-provisioning it on first run if absent.
+// profiles.id is a hard FK to auth.users, so we create the Supabase auth user
+// (service-role, server-only) and let the on_auth_user_created trigger
+// materialise the profile, then flag is_bot. Only the cron calls this; the
+// leaderboard's read-only lookup never provisions. Returns null if the deploy
+// lacks the service-role env or auth creation fails.
+async function ensureMonkeyUserId(): Promise<string | null> {
+  const existing = await getMonkeyUserId();
+  if (existing) return existing;
+
+  const email = (process.env.MONKEY_EMAIL ?? "monkey@toto.local").toLowerCase();
+  let admin: ReturnType<typeof getSupabaseAdmin>;
+  try {
+    admin = getSupabaseAdmin();
+  } catch (err) {
+    console.error("[monkey] cannot self-provision: missing service-role env", err);
+    return null;
+  }
+
+  let userId: string | null = null;
+  const created = await admin.auth.admin.createUser({
+    email,
+    email_confirm: true,
+    user_metadata: { display_name: MONKEY_DISPLAY_NAME },
+  });
+  if (created.error) {
+    const msg = created.error.message.toLowerCase();
+    // Adopt an existing auth user if the email is already taken.
+    if (msg.includes("already") || msg.includes("exist") || msg.includes("registered")) {
+      userId = (await findAuthUserByEmail(admin, email))?.id ?? null;
+    } else {
+      console.error("[monkey] createUser failed", created.error);
+      return null;
+    }
+  } else {
+    userId = created.data.user?.id ?? null;
+  }
+  if (!userId) {
+    console.error("[monkey] provisioning produced no user id");
+    return null;
+  }
+
+  // The trigger inserts the profile on auth-user creation; upsert guards the
+  // race and flags is_bot either way.
+  await db
+    .insert(profiles)
+    .values({
+      id: userId,
+      displayName: MONKEY_DISPLAY_NAME,
+      phone: "",
+      role: "player",
+      isBot: true,
+    })
+    .onConflictDoUpdate({
+      target: profiles.id,
+      set: { isBot: true, displayName: MONKEY_DISPLAY_NAME },
+    });
+
+  console.info("[monkey] self-provisioned", { userId, email });
+  return userId;
+}
+
+async function findAuthUserByEmail(
+  admin: ReturnType<typeof getSupabaseAdmin>,
+  emailLc: string,
+) {
+  let page = 1;
+  // Bounded scan; the pool is small (friends-group scale).
+  for (let i = 0; i < 50; i++) {
+    const { data, error } = await admin.auth.admin.listUsers({ page, perPage: 200 });
+    if (error) {
+      console.error("[monkey] listUsers failed", error);
+      return null;
+    }
+    const hit = data.users.find((u) => u.email?.toLowerCase() === emailLc);
+    if (hit) return hit;
+    if (data.users.length < 200) return null;
+    page += 1;
+  }
+  return null;
+}
+
 export async function fillMonkeyPicks(): Promise<MonkeyFillReport> {
-  const userId = await getMonkeyUserId();
+  const userId = await ensureMonkeyUserId();
   if (!userId) {
     return {
       ok: false,
