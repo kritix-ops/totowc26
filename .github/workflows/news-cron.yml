@@ -4,15 +4,31 @@ name: News cron
 # Walla / Ynet / BBC sync can run at the cadence we agreed (see
 # _plans/2026-05-29-news-archive-and-lazy-load.md).
 #
+# The same route also runs the monkey-bot fill and the deadline
+# auto-fill (best-effort, isolated from the news sync — see
+# _plans/2026-06-01-monkey-bot-and-random-fill.md §"Cron mechanism"),
+# so without this workflow the monkey never self-provisions and no
+# deadline auto-fill ever runs.
+#
 # Why GitHub Actions and not vercel.json: Hobby plan rejects cron
 # expressions more frequent than once-per-day with a deploy-time error.
 # Per-minute schedules require Pro ($20/mo). GitHub Actions runs the
 # same request for free.
 #
 # Required repo secrets (Settings → Secrets and variables → Actions):
-# - APP_URL: the deployed origin, no trailing slash, e.g.
+# - APP_URL: the prod deployed origin, no trailing slash, e.g.
 #   https://toto-mundial-2026.vercel.app
-# - CRON_SECRET: same value as the CRON_SECRET env var on Vercel.
+# - CRON_SECRET: same value as the CRON_SECRET env var on the prod
+#   Vercel project.
+#
+# Optional repo secrets (fan-out to the sandbox deploy too):
+# - SANDBOX_APP_URL: the sandbox deployed origin, no trailing slash,
+#   e.g. https://toto-mundial-sandbox.vercel.app. If set, the workflow
+#   pings the sandbox /api/cron/news the same way it pings prod.
+# - SANDBOX_CRON_SECRET: same value as the CRON_SECRET env var on the
+#   sandbox Vercel project. Only set this if the sandbox project uses a
+#   different CRON_SECRET than prod; otherwise the workflow falls back
+#   to CRON_SECRET. A sandbox ping failure never fails the prod ping.
 #
 # Manual run: Actions tab → "News cron" → "Run workflow".
 
@@ -45,7 +61,7 @@ jobs:
             exit 1
           fi
 
-      - name: POST /api/cron/news
+      - name: POST /api/cron/news (prod)
         env:
           APP_URL: ${{ secrets.APP_URL }}
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
@@ -64,3 +80,35 @@ jobs:
             -o /dev/null \
             -w "status=%{http_code} duration=%{time_total}s\n" \
             "$APP_URL/api/cron/news"
+
+      - name: POST /api/cron/news (sandbox)
+        # Only fan out to the sandbox deploy when SANDBOX_APP_URL is
+        # configured. Without this step the sandbox Supabase never gets
+        # the monkey profile self-provisioned and the deadline auto-fill
+        # never runs there (see header comment).
+        if: ${{ secrets.SANDBOX_APP_URL != '' }}
+        # A sandbox outage or expired secret must NEVER fail the prod
+        # ping that already succeeded above. The Actions tab still shows
+        # the per-step status so a regression is visible.
+        continue-on-error: true
+        env:
+          SANDBOX_APP_URL: ${{ secrets.SANDBOX_APP_URL }}
+          SANDBOX_CRON_SECRET: ${{ secrets.SANDBOX_CRON_SECRET }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        # Prefer SANDBOX_CRON_SECRET when the sandbox project uses its
+        # own; otherwise fall back to the shared CRON_SECRET. Same
+        # belt-and-braces curl flags as the prod step.
+        run: |
+          set -euo pipefail
+          SECRET="${SANDBOX_CRON_SECRET:-$CRON_SECRET}"
+          if [ -z "$SECRET" ]; then
+            echo "::warning::SANDBOX_APP_URL is set but neither SANDBOX_CRON_SECRET nor CRON_SECRET is available. Skipping sandbox ping."
+            exit 0
+          fi
+          curl -fsS -X POST \
+            --max-time 90 \
+            -H "Authorization: Bearer $SECRET" \
+            -H "Accept: application/json" \
+            -o /dev/null \
+            -w "status=%{http_code} duration=%{time_total}s\n" \
+            "$SANDBOX_APP_URL/api/cron/news"
