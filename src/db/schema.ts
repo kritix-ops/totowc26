@@ -389,7 +389,9 @@ export const settings = pgTable("settings", {
   // tournament. When set, resolveMatchScoreLock returns this value for
   // any match that doesn't have its own per-bet override - per-day and
   // type-default offsets are skipped. Null = fall back to the cascade.
-  // Seeded by migration 0029 to 2026-06-10 23:59 Asia/Jerusalem.
+  // Seeded by migration 0029, then cleared by migration 0039 when the
+  // pool switched to per-match deadlines; admin can re-set it from
+  // /admin/deadlines.
   matchPicksGlobalLockAt: timestamp("match_picks_global_lock_at", {
     withTimezone: true,
   }),

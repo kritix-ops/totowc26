@@ -68,6 +68,7 @@ export default async function AdminDeadlinesPage({
       db
         .select({
           tournamentStartAt: settings.tournamentStartAt,
+          matchPicksGlobalLockAt: settings.matchPicksGlobalLockAt,
           reminderOffsetMinutes: settings.reminderOffsetMinutes,
         })
         .from(settings)
@@ -137,6 +138,7 @@ export default async function AdminDeadlinesPage({
   }
 
   const tournamentStartAt = settingsRow[0]?.tournamentStartAt ?? null;
+  const matchPicksGlobalLockAt = settingsRow[0]?.matchPicksGlobalLockAt ?? null;
   const derivedRaw = derivedRow?.kickoff_at ?? null;
   const matchdays = matchdayRows;
   const matchesList = matchRows.map((m) => ({
@@ -186,6 +188,9 @@ export default async function AdminDeadlinesPage({
         initialStageDefaults={stageDefaultsMap}
         initialTournamentStartAt={
           tournamentStartAt ? tournamentStartAt.toISOString() : null
+        }
+        initialMatchPicksGlobalLockAt={
+          matchPicksGlobalLockAt ? matchPicksGlobalLockAt.toISOString() : null
         }
         derivedTournamentStartAt={derivedRaw}
         initialReminderOffsetMinutes={

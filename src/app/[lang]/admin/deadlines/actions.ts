@@ -69,6 +69,47 @@ export async function saveTournamentStart(
   }
 }
 
+// Section 1b - global match-picks cutoff. When set, every 1/X/2 score
+// pick across the whole tournament locks at this single absolute moment
+// (resolveMatchScoreLock returns it for any match without a per-bet
+// override, skipping the per-day / per-stage / type-default cascade).
+// null = each match pick locks per its own kickoff via that cascade.
+// See src/lib/deadlines.ts and migration 0039.
+export async function saveMatchPicksGlobalLock(
+  isoOrNull: string | null,
+): Promise<SaveResult> {
+  const adminId = await requireAdminId();
+  if (!adminId) return { ok: false, error: "forbidden" };
+
+  let value: Date | null = null;
+  if (isoOrNull !== null) {
+    const d = new Date(isoOrNull);
+    if (Number.isNaN(d.getTime())) return { ok: false, error: "invalid" };
+    value = d;
+  }
+  try {
+    const [oldRow] = await db
+      .select({ matchPicksGlobalLockAt: settings.matchPicksGlobalLockAt })
+      .from(settings)
+      .where(eq(settings.id, 1))
+      .limit(1);
+    await db
+      .update(settings)
+      .set({ matchPicksGlobalLockAt: value, updatedAt: new Date() })
+      .where(eq(settings.id, 1));
+    console.info("[admin deadlines match-picks-global-lock]", {
+      adminId,
+      oldValue: oldRow?.matchPicksGlobalLockAt?.toISOString() ?? null,
+      newValue: value?.toISOString() ?? null,
+    });
+    revalidatePath("/", "layout");
+    return { ok: true };
+  } catch (err) {
+    console.error("[admin deadlines match-picks-global-lock] failed:", err);
+    return { ok: false, error: "db" };
+  }
+}
+
 // Section 2 - per-type defaults. Validate the keys match the catalog
 // and each offset is a non-negative integer (matches the CHECK in
 // migration 0021).

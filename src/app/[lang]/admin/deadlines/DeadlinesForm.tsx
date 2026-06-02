@@ -18,6 +18,7 @@ import {
 } from "@/db/schema";
 import {
   saveMatchLockOverride,
+  saveMatchPicksGlobalLock,
   saveMatchdayOverride,
   saveReminderOffset,
   saveStageDefaults,
@@ -139,6 +140,7 @@ type Props = {
   initialDefaults: Record<BetTypeKey, number>;
   initialStageDefaults: Partial<Record<StageKey, number>>;
   initialTournamentStartAt: string | null;
+  initialMatchPicksGlobalLockAt: string | null;
   derivedTournamentStartAt: string | null;
   initialReminderOffsetMinutes: number;
   matchdays: MatchdayRow[];
@@ -150,6 +152,7 @@ export function DeadlinesForm({
   initialDefaults,
   initialStageDefaults,
   initialTournamentStartAt,
+  initialMatchPicksGlobalLockAt,
   derivedTournamentStartAt,
   initialReminderOffsetMinutes,
   matchdays,
@@ -158,6 +161,12 @@ export function DeadlinesForm({
   const isHebrew = locale === "he";
   return (
     <div className="flex flex-col gap-6">
+      <MatchPicksGlobalLockCard
+        locale={locale}
+        isHebrew={isHebrew}
+        initial={initialMatchPicksGlobalLockAt}
+        matchScoreDefault={initialDefaults.match_score}
+      />
       <TournamentStartCard
         locale={locale}
         isHebrew={isHebrew}
@@ -187,6 +196,149 @@ export function DeadlinesForm({
         matches={matches}
       />
     </div>
+  );
+}
+
+// Master switch for 1/X/2 score picks. Empty (the default since
+// migration 0039) = each match locks individually via the per-type
+// default cascade. Set a datetime = every score pick across the whole
+// tournament freezes at that one moment instead. This card sits first
+// because it answers the highest-level question an admin has about score
+// bets: "do picks close per match, or all at once?"
+function MatchPicksGlobalLockCard({
+  locale,
+  isHebrew,
+  initial,
+  matchScoreDefault,
+}: {
+  locale: Locale;
+  isHebrew: boolean;
+  initial: string | null;
+  // The match_score per-type default (minutes before kickoff). Shown in
+  // the "per-match mode" caption so the admin sees exactly when each
+  // match will lock while the global cap is off.
+  matchScoreDefault: number;
+}) {
+  const router = useRouter();
+  const [value, setValue] = useState<string>(isoToLocalInputValue(initial));
+  const { pending, run } = usePendingAction();
+  const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+
+  function onSave() {
+    setError(null);
+    setSaved(false);
+    void run(async () => {
+      const iso = value ? localInputValueToIso(value) : null;
+      const res = await saveMatchPicksGlobalLock(iso);
+      if (!res.ok) setError(res.error);
+      else {
+        setSaved(true);
+        router.refresh();
+      }
+    });
+  }
+  function onClear() {
+    setValue("");
+    setError(null);
+    setSaved(false);
+    void run(async () => {
+      const res = await saveMatchPicksGlobalLock(null);
+      if (!res.ok) setError(res.error);
+      else {
+        setSaved(true);
+        router.refresh();
+      }
+    });
+  }
+
+  // Live preview of the chosen cutoff so the admin sees the resolved
+  // Asia/Jerusalem time before saving.
+  const previewIso = value ? localInputValueToIso(value) : null;
+  const isGlobal = previewIso !== null;
+  const previewLabel = previewIso
+    ? formatDateTime(previewIso, locale, {
+        weekday: "long",
+        day: "numeric",
+        month: "long",
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+    : null;
+
+  return (
+    <Card className="p-5 md:p-6 flex flex-col gap-4">
+      <SectionHeading underline="thin" as="h2">
+        {isHebrew ? "נעילה גלובלית לניחושי תוצאה" : "Global lock for score picks"}
+      </SectionHeading>
+      <p className="text-sm text-on-surface-variant">
+        {isHebrew
+          ? "קובע איך נסגרים ניחושי התוצאה (1/X/2). ריק = כל משחק נסגר בנפרד, לפני הבעיטה שלו (מצב מומלץ). הגדרת תאריך ושעה = כל הניחושים בכל הטורניר ננעלים יחד באותו רגע."
+          : "Controls how score (1/X/2) picks close. Empty = each match closes individually, before its own kickoff (recommended). Set a datetime = every pick across the whole tournament locks together at that one moment."}
+      </p>
+      <label className="flex flex-col gap-1.5">
+        <span className="font-bold text-sm text-on-surface">
+          {isHebrew
+            ? "מועד נעילה גלובלי (Asia/Jerusalem)"
+            : "Global lock time (Asia/Jerusalem)"}
+        </span>
+        <input
+          type="datetime-local"
+          value={value}
+          onChange={(e) => {
+            setValue(e.target.value);
+            setError(null);
+            setSaved(false);
+          }}
+          className="h-12 px-3 bg-surface-container-lowest border border-outline rounded-lg text-on-surface text-base font-bold focus:outline-none focus:border-primary"
+          dir="ltr"
+        />
+      </label>
+      <div
+        className={`rounded-lg px-3 py-2.5 text-sm border ${
+          isGlobal
+            ? "bg-tertiary-fixed text-on-tertiary-fixed-variant border-tertiary-fixed-dim"
+            : "bg-secondary-container text-on-secondary-container border-transparent"
+        }`}
+      >
+        {isGlobal
+          ? isHebrew
+            ? `מצב נעילה גלובלית: כל ניחושי התוצאה ייסגרו יחד ב-${previewLabel}.`
+            : `Global lock mode: every score pick closes together at ${previewLabel}.`
+          : isHebrew
+            ? `מצב לפי משחק: כל משחק נסגר ${matchScoreDefault} דקות לפני בעיטת הפתיחה שלו.`
+            : `Per-match mode: each match closes ${matchScoreDefault} minutes before its own kickoff.`}
+      </div>
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="min-h-[24px]">
+          {error && (
+            <p className="inline-flex items-center gap-1.5 text-sm text-error">
+              <AlertCircle className="h-4 w-4" strokeWidth={2} />
+              {translateError(error, isHebrew)}
+            </p>
+          )}
+          {saved && !error && (
+            <p className="inline-flex items-center gap-1.5 text-sm text-secondary">
+              <Check className="h-4 w-4" strokeWidth={2.5} />
+              {isHebrew ? "נשמר" : "Saved"}
+            </p>
+          )}
+        </div>
+        <div className="flex gap-2">
+          <PillButton
+            variant="ghost"
+            type="button"
+            disabled={pending || value === ""}
+            onClick={onClear}
+          >
+            {isHebrew ? "כבה נעילה גלובלית" : "Turn off global lock"}
+          </PillButton>
+          <PillButton type="button" disabled={pending} onClick={onSave}>
+            {pending ? (isHebrew ? "שומר..." : "Saving...") : isHebrew ? "שמור" : "Save"}
+          </PillButton>
+        </div>
+      </div>
+    </Card>
   );
 }
 
