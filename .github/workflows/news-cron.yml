@@ -82,24 +82,32 @@ jobs:
             "$APP_URL/api/cron/news"
 
       - name: POST /api/cron/news (sandbox)
-        # Only fan out to the sandbox deploy when SANDBOX_APP_URL is
+        # Fan out to the sandbox deploy when SANDBOX_APP_URL is
         # configured. Without this step the sandbox Supabase never gets
         # the monkey profile self-provisioned and the deadline auto-fill
         # never runs there (see header comment).
-        if: ${{ secrets.SANDBOX_APP_URL != '' }}
-        # A sandbox outage or expired secret must NEVER fail the prod
-        # ping that already succeeded above. The Actions tab still shows
-        # the per-step status so a regression is visible.
-        continue-on-error: true
+        #
+        # GitHub Actions disallows `secrets.*` inside step-level `if:`,
+        # so we surface the secret as an env var first and gate on it.
+        # An empty env var means the secret was not set (or evaluated
+        # to empty), so we skip the curl entirely.
         env:
           SANDBOX_APP_URL: ${{ secrets.SANDBOX_APP_URL }}
           SANDBOX_CRON_SECRET: ${{ secrets.SANDBOX_CRON_SECRET }}
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        # A sandbox outage or expired secret must NEVER fail the prod
+        # ping that already succeeded above. The Actions tab still shows
+        # the per-step status so a regression is visible.
+        continue-on-error: true
         # Prefer SANDBOX_CRON_SECRET when the sandbox project uses its
         # own; otherwise fall back to the shared CRON_SECRET. Same
         # belt-and-braces curl flags as the prod step.
         run: |
           set -euo pipefail
+          if [ -z "${SANDBOX_APP_URL:-}" ]; then
+            echo "SANDBOX_APP_URL not configured — skipping sandbox ping."
+            exit 0
+          fi
           SECRET="${SANDBOX_CRON_SECRET:-$CRON_SECRET}"
           if [ -z "$SECRET" ]; then
             echo "::warning::SANDBOX_APP_URL is set but neither SANDBOX_CRON_SECRET nor CRON_SECRET is available. Skipping sandbox ping."
