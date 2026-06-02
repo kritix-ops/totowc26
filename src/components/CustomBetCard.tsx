@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AlertCircle, Check, Info, Lock, Minus, Plus } from "lucide-react";
 import { clsx } from "clsx";
 import { Card, Chip, LabelCaps, MatchupLabel } from "@/components/ui";
@@ -82,6 +82,24 @@ export function CustomBetCard({
   const [savedFlash, setSavedFlash] = useState(false);
   const { pending, run } = usePendingAction();
 
+  // Sync the draft from the server when fresh props arrive (e.g. after
+  // the "Surprise me" / deadline auto-fill / monkey-bot fill updated the
+  // pick out-of-band and the parent re-fetched). useState only seeds on
+  // first mount, so without this the widget would still show "no answer"
+  // even though the DB now holds an answer. We track local edits via a
+  // ref so that a user mid-tap on the widget isn't clobbered by a stray
+  // re-render. The ref is reset after every successful save, so the next
+  // server update flows through.
+  const userEditedRef = useRef(false);
+  useEffect(() => {
+    if (userEditedRef.current) return;
+    setDraft(bet.myAnswer);
+  }, [bet.myAnswer]);
+  const editDraft = (next: PickAnswer | null) => {
+    userEditedRef.current = true;
+    setDraft(next);
+  };
+
   // Tournament/stage/group bets are free picks: stake is forced to 0
   // regardless of what bet.stakeSnapshot says, in case a legacy record
   // slipped through with a non-zero value.
@@ -112,6 +130,9 @@ export function CustomBetCard({
         setError(translateError(res.error, isHebrew, res));
         return;
       }
+      // Drop the "user has unsaved edits" guard so the next server-side
+      // change (Surprise me / auto-fill / monkey) flows back into draft.
+      userEditedRef.current = false;
       setSavedFlash(true);
     });
   };
@@ -181,7 +202,7 @@ export function CustomBetCard({
         locale={locale}
         bet={bet}
         value={draft}
-        onChange={setDraft}
+        onChange={editDraft}
         disabled={!editable || pending}
       />
 

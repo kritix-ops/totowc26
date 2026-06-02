@@ -63,6 +63,22 @@ export function QuickPickRow({
   const [error, setError] = useState<string | null>(null);
   const { pending, run } = usePendingAction();
 
+  // Sync the local stepper state from the server when fresh props arrive
+  // (e.g. after the "Surprise me" action + router.refresh()). useState
+  // only seeds on first mount, so without this the stepper would still
+  // show 0:0 even though the DB now holds 2:1.
+  // Guarded by `dirty`: if the user is mid-edit we don't clobber their
+  // in-flight input. Resets `dirty` after sync so the Save button
+  // doesn't keep claiming there's unsaved work.
+  useEffect(() => {
+    if (dirty) return;
+    setHome(match.myHomeScore ?? 0);
+    setAway(match.myAwayScore ?? 0);
+    if (match.myHomeScore !== null && match.myAwayScore !== null) {
+      setSaved(true);
+    }
+  }, [match.myHomeScore, match.myAwayScore, dirty]);
+
   useEffect(() => {
     if (!saved || dirty) return;
     const t = setTimeout(() => setSaved(false), 2500);
