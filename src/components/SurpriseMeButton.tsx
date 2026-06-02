@@ -113,7 +113,7 @@ export function SurpriseMeButton({
       onClick={() => setConfirming(true)}
     >
       <Dices className="h-5 w-5" strokeWidth={1.75} />
-      {isHebrew ? "הפתע אותי" : "Surprise me"}
+      {isHebrew ? "תפתיע אותי" : "Surprise me"}
     </PillButton>
   );
 }
