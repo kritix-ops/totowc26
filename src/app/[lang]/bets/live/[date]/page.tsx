@@ -38,12 +38,22 @@ export default async function BetsLiveDayPage({
   const isHebrew = locale === "he";
   const Chev = isHebrew ? ChevronLeft : ChevronRight;
 
+  // Malformed dates 404. Valid-but-empty dates fall through to the empty-
+  // state card a bit further down instead - the agent run on 2026-06-05
+  // surfaced that clicking a date with no published custom bets bounced
+  // users to a generic "page not found" instead of a friendly message.
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) notFound();
+
   const user = await getRequestUser();
   if (!user) redirect(localePath(locale, "login"));
   const access = await getUserAccess(user.id);
 
-  const detail = await getPlayDayDetail(date, user.id);
-  if (!detail) notFound();
+  const detail = (await getPlayDayDetail(date, user.id)) ?? {
+    date,
+    matchdayId: null,
+    fixtures: [],
+    bets: [],
+  };
 
   const bankBalance = await getBankBalance(user.id);
   // Compute "is this bet still editable?" once on the server so the

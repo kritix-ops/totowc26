@@ -1641,7 +1641,8 @@ export type PlayDayDetail = {
 } | null;
 
 // Returns everything `/play/[date]` needs in one trip. Returns null when
-// the date has no fixtures AND no bets (so the page can render notFound).
+// the date is malformed OR has no fixtures AND no bets — the page treats
+// "malformed" as notFound and "empty" as a friendly empty-day card.
 export async function getPlayDayDetail(
   date: string,
   userId: string,

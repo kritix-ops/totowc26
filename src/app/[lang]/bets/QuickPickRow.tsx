@@ -104,7 +104,11 @@ export function QuickPickRow({
 
   useEffect(() => {
     if (!saved || dirty) return;
-    const t = setTimeout(() => setSaved(false), 2500);
+    // 6s instead of 2.5s. The previous timing meant a user who saved
+    // and looked away (to read the next match) lost the confirmation
+    // before they looked back. 6s lines up with how long it takes a
+    // user to scroll one screen on mobile and notice the green chip.
+    const t = setTimeout(() => setSaved(false), 6000);
     return () => clearTimeout(t);
   }, [saved, dirty]);
 
@@ -151,13 +155,33 @@ export function QuickPickRow({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ matchId: match.id, home, away }),
         });
+        // Surface the raw response on non-2xx so the next debug pass
+        // (incl. the QA agent rerun) sees status + body text and can
+        // tell a 500 HTML error apart from a server-returned db code.
+        if (!r.ok) {
+          const bodyText = await r.text().catch(() => "<unreadable>");
+          console.error("[match-bet save http]", {
+            matchId: match.id,
+            status: r.status,
+            statusText: r.statusText,
+            body: bodyText.slice(0, 400),
+          });
+          setError("db");
+          return;
+        }
         res = (await r.json()) as SaveBetResult;
       } catch (err) {
-        console.error("[match-bet save fetch]", err);
+        console.error("[match-bet save fetch]", { matchId: match.id, err });
         setError("db");
         return;
       }
       if (!res.ok) {
+        console.error("[match-bet save error code]", {
+          matchId: match.id,
+          home,
+          away,
+          error: res.error,
+        });
         setError(res.error);
         return;
       }
@@ -254,7 +278,20 @@ export function QuickPickRow({
                 : "bg-surface-container-low text-on-surface-variant border border-outline-variant",
             (disabled || pending || !dirty) && "cursor-not-allowed",
           )}
-          aria-label={isHebrew ? "שמור הימור" : "Save bet"}
+          aria-label={
+            pending
+              ? isHebrew
+                ? "שומר הימור"
+                : "Saving bet"
+              : saved && !dirty
+                ? isHebrew
+                  ? "הימור נשמר"
+                  : "Bet saved"
+                : isHebrew
+                  ? "שמור הימור"
+                  : "Save bet"
+          }
+          aria-live="polite"
         >
           {pending ? (
             isHebrew ? "שומר..." : "Saving..."
