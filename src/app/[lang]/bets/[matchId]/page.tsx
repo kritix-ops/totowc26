@@ -31,6 +31,15 @@ export default async function MatchBetPage({
   const locale = lang as Locale;
   const dict = await getDictionary(locale);
 
+  // matchId is cast to uuid in the SQL below, and Postgres throws
+  // invalid_text_representation when given a non-UUID. The QA agent
+  // navigating to /he/bets/matches matched [matchId]=matches and
+  // surfaced a 500. Guard up front so a malformed segment 404s
+  // cleanly instead of crashing the route.
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(matchId)) {
+    notFound();
+  }
+
   const user = await getRequestUser();
   if (!user) redirect(localePath(locale, "login"));
 

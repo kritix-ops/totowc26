@@ -48,14 +48,31 @@ export default async function BetsLiveDayPage({
   if (!user) redirect(localePath(locale, "login"));
   const access = await getUserAccess(user.id);
 
-  const detail = (await getPlayDayDetail(date, user.id)) ?? {
-    date,
-    matchdayId: null,
-    fixtures: [],
-    bets: [],
-  };
-
-  const bankBalance = await getBankBalance(user.id);
+  // Defensive: if the day-detail or bank query throws (e.g. a malformed
+  // custom_bet row, a teams join missing a flag, a date where the SQL
+  // hits an edge case), we still render the page chrome + an empty
+  // card instead of blanking the entire page. The 2026-06-05 agent
+  // run surfaced /he/bets/live/2026-06-11 rendering completely empty
+  // while June 12/14 worked - same code path, different data, almost
+  // certainly a query throw on that specific date.
+  let detail: NonNullable<Awaited<ReturnType<typeof getPlayDayDetail>>>;
+  let bankBalance = 0;
+  try {
+    detail = (await getPlayDayDetail(date, user.id)) ?? {
+      date,
+      matchdayId: null,
+      fixtures: [],
+      bets: [],
+    };
+  } catch (err) {
+    console.error("[bets/live/date] getPlayDayDetail threw", { date, err });
+    detail = { date, matchdayId: null, fixtures: [], bets: [] };
+  }
+  try {
+    bankBalance = await getBankBalance(user.id);
+  } catch (err) {
+    console.error("[bets/live/date] getBankBalance threw", { date, err });
+  }
   // Compute "is this bet still editable?" once on the server so the
   // CustomBetCard client component doesn't have to call Date.now()
   // during its render.
