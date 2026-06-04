@@ -22,6 +22,14 @@ sections:
   when looking for information the page displays but does not wrap
   in a button or labelled control. Match cards, for example, often
   put kickoff times in a small `<div>` here.
+- `--- console (since last snapshot) ---` lists browser console
+  errors and warnings emitted between this snapshot and the
+  previous one. **This is your direct window into client-side bugs
+  and server error responses.** When you record a save/load failure
+  finding, ALWAYS check this section first — the page's own debug
+  logs (e.g. `[match-bet save http]`) reveal status codes and
+  response bodies that the screenshot alone cannot show. Include
+  the raw line in the `actual` field of your finding.
 
 **Refs are valid only for the most recent snapshot.** If you click
 or navigate, take a new snapshot before referring to elements again.

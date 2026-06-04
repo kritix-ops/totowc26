@@ -165,6 +165,31 @@ describe("browser-tools (integration)", () => {
     await tools.context.close();
   });
 
+  it("snapshot tails recent console errors emitted by the page", async () => {
+    const tools = await makeBrowserTools({
+      browser,
+      reportDir: tmp,
+      baseUrl: "https://toto-mundial-sandbox.vercel.app",
+      startViewport: { width: 360, height: 800 },
+      locale: "he-IL",
+      log: () => {},
+    });
+    await tools.page.setContent(TEST_HTML);
+    // Take a baseline snapshot so the cursor advances past any boot
+    // chatter, then emit a known error and take a second snapshot.
+    await tools.run("browser_snapshot", {});
+    await tools.page.evaluate(() => {
+      console.error("[match-bet save http]", { status: 500, body: "<html>oops</html>" });
+    });
+    // Console events arrive on the next microtask; give them a beat.
+    await new Promise((r) => setTimeout(r, 50));
+    const snap = await tools.run("browser_snapshot", {});
+    expect(snap).toContain("--- console (since last snapshot) ---");
+    expect(snap).toContain("[error]");
+    expect(snap).toContain("match-bet save http");
+    await tools.context.close();
+  });
+
   it("screenshot saves under reportDir/screenshots and returns the relative path", async () => {
     const tools = await makeBrowserTools({
       browser,

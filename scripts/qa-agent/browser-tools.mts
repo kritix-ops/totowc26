@@ -75,6 +75,33 @@ export async function makeBrowserTools(opts: {
   let refCounter = 0;
   let screenshotCounter = 0;
 
+  // Rolling buffer of recent browser-side console events. Each
+  // post-action snapshot tails this list and appends any new entries
+  // since the previous snapshot so the agent sees client-side errors
+  // (e.g. the [match-bet save http] log QuickPickRow emits when a
+  // save fails) in the same turn as the failing action. Kept short
+  // so a chatty page does not blow snapshot size out of proportion.
+  type ConsoleEntry = { ts: number; type: string; text: string };
+  const consoleLog: ConsoleEntry[] = [];
+  let consoleCursor = 0;
+  const MAX_CONSOLE_ENTRIES = 200;
+  page.on("console", (msg) => {
+    const text = msg.text().slice(0, 600);
+    consoleLog.push({ ts: Date.now(), type: msg.type(), text });
+    if (consoleLog.length > MAX_CONSOLE_ENTRIES) {
+      const drop = consoleLog.length - MAX_CONSOLE_ENTRIES;
+      consoleLog.splice(0, drop);
+      consoleCursor = Math.max(0, consoleCursor - drop);
+    }
+  });
+  page.on("pageerror", (err) => {
+    consoleLog.push({
+      ts: Date.now(),
+      type: "pageerror",
+      text: `${err.name}: ${err.message}`.slice(0, 600),
+    });
+  });
+
   await mkdir(path.join(opts.reportDir, SCREENSHOT_SUBDIR), { recursive: true });
 
   async function nextRef(handle: ElementHandle<HTMLElement | SVGElement>): Promise<number> {
@@ -218,6 +245,21 @@ export async function makeBrowserTools(opts: {
     if (textBlocks.length > 0) {
       lines.push("--- text content ---");
       for (const t of textBlocks) lines.push(`• ${t.replace(/"/g, "'")}`);
+    }
+    // Tail of new console entries since the previous snapshot. We
+    // surface only error/warning/pageerror because every page logs
+    // chatty debug info during normal navigation and including all
+    // of it would drown out the signal.
+    const newEntries = consoleLog.slice(consoleCursor);
+    consoleCursor = consoleLog.length;
+    const interesting = newEntries.filter(
+      (e) => e.type === "error" || e.type === "warning" || e.type === "pageerror",
+    );
+    if (interesting.length > 0) {
+      lines.push("--- console (since last snapshot) ---");
+      for (const e of interesting) {
+        lines.push(`[${e.type}] ${e.text}`);
+      }
     }
     return lines.join("\n");
   }
@@ -458,10 +500,14 @@ export async function makeBrowserTools(opts: {
           // intentionally scrollable; its off-screen children are a
           // legit pattern (snap carousels, tab bars), not the
           // page-level horizontal-scroll bug we are hunting for.
-          function isPageRoot(el: Element): boolean {
-            return el === document.documentElement || el === document.body;
-          }
-          function hasScrollableAncestor(el: Element): boolean {
+          //
+          // Helpers use const-arrow form (not `function`) because tsx/
+          // esbuild wraps named function declarations with __name() at
+          // transpile time for stack traces, and the browser context
+          // page.evaluate ships into does not have __name in scope.
+          const isPageRoot = (el: Element): boolean =>
+            el === document.documentElement || el === document.body;
+          const hasScrollableAncestor = (el: Element): boolean => {
             let cur: Element | null = el.parentElement;
             while (cur && !isPageRoot(cur)) {
               const cs = getComputedStyle(cur);
@@ -475,7 +521,7 @@ export async function makeBrowserTools(opts: {
               cur = cur.parentElement;
             }
             return false;
-          }
+          };
           const offenders: Array<{
             tag: string;
             cls: string;
@@ -519,7 +565,12 @@ export async function makeBrowserTools(opts: {
           // rule: an <a> is exempt if its nearest text-containing
           // ancestor is a <p> or <li> AND the link is the same height
           // as a normal line of text (under 32px tall).
-          function isInlineTextLink(el: Element): boolean {
+          //
+          // Const-arrow form (not `function`) because tsx/esbuild wraps
+          // named declarations with __name() for stack traces, and the
+          // browser context page.evaluate ships into does not have
+          // __name in scope.
+          const isInlineTextLink = (el: Element): boolean => {
             if (el.tagName !== "A") return false;
             const r = el.getBoundingClientRect();
             if (r.height >= 32) return false;
@@ -530,7 +581,7 @@ export async function makeBrowserTools(opts: {
               cur = cur.parentElement;
             }
             return false;
-          }
+          };
           const tooSmall: Array<{ tag: string; cls: string; w: number; h: number; text: string }> = [];
           document
             .querySelectorAll("a, button, [role=button], input[type=button], input[type=submit]")
