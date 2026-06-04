@@ -46,15 +46,25 @@ export default async function BetsLiveDayPage({
 
   const user = await getRequestUser();
   if (!user) redirect(localePath(locale, "login"));
-  const access = await getUserAccess(user.id);
 
-  // Defensive: if the day-detail or bank query throws (e.g. a malformed
-  // custom_bet row, a teams join missing a flag, a date where the SQL
-  // hits an edge case), we still render the page chrome + an empty
-  // card instead of blanking the entire page. The 2026-06-05 agent
-  // run surfaced /he/bets/live/2026-06-11 rendering completely empty
+  // Defensive: every data dependency gets its own try/catch with a
+  // logged error and a safe default. The 2026-06-05 agent run kept
+  // surfacing /he/bets/live/2026-06-11 rendering completely empty
   // while June 12/14 worked - same code path, different data, almost
-  // certainly a query throw on that specific date.
+  // certainly a query throw on that specific date. Adding the wrap
+  // around getUserAccess too because if it throws here (it queries
+  // profiles + payments) the previous wrap missed it.
+  let access: Awaited<ReturnType<typeof getUserAccess>> = {
+    isAdmin: false,
+    isPaid: false,
+    canEdit: false,
+    viewingAs: null,
+  };
+  try {
+    access = await getUserAccess(user.id);
+  } catch (err) {
+    console.error("[bets/live/date] getUserAccess threw", { date, err });
+  }
   let detail: NonNullable<Awaited<ReturnType<typeof getPlayDayDetail>>>;
   let bankBalance = 0;
   try {
