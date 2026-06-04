@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Check, AlertCircle, Minus, Plus } from "lucide-react";
 import { clsx } from "clsx";
 import { Card } from "@/components/ui";
@@ -63,15 +63,38 @@ export function QuickPickRow({
   const [error, setError] = useState<string | null>(null);
   const { pending, run } = usePendingAction();
 
+  // Holds the home/away the user just successfully saved. Stays set
+  // until the next prop refresh arrives carrying those same values —
+  // at which point the server has caught up and we can let the normal
+  // prop sync run again. Why this exists: the /api/bets/save fetch
+  // does not trigger an automatic client refresh the way the old
+  // server action did, so when `dirty` flips to false on save the
+  // useEffect below would otherwise pull match.myHomeScore (still the
+  // pre-save value, often null) and flash the stepper back to 0:0
+  // even though the DB now holds the right pick — the 2026-06-04
+  // "מחק לי תוצאות 0-0" report.
+  const justSavedRef = useRef<{ home: number; away: number } | null>(null);
+
   // Sync the local stepper state from the server when fresh props arrive
   // (e.g. after the "Surprise me" action + router.refresh()). useState
   // only seeds on first mount, so without this the stepper would still
   // show 0:0 even though the DB now holds 2:1.
   // Guarded by `dirty`: if the user is mid-edit we don't clobber their
-  // in-flight input. Resets `dirty` after sync so the Save button
-  // doesn't keep claiming there's unsaved work.
+  // in-flight input. Also guarded by justSavedRef so a save's own props
+  // race can't repaint our own write as 0:0.
   useEffect(() => {
     if (dirty) return;
+    if (justSavedRef.current) {
+      const j = justSavedRef.current;
+      if (match.myHomeScore === j.home && match.myAwayScore === j.away) {
+        // Server caught up — drop the guard, fall through to the sync.
+        justSavedRef.current = null;
+      } else {
+        // Stale props (revalidatePath hasn't reached this client yet).
+        // Keep showing what the user actually saved.
+        return;
+      }
+    }
     setHome(match.myHomeScore ?? 0);
     setAway(match.myAwayScore ?? 0);
     if (match.myHomeScore !== null && match.myAwayScore !== null) {
@@ -138,6 +161,10 @@ export function QuickPickRow({
         setError(res.error);
         return;
       }
+      // Stamp what we wrote BEFORE flipping dirty, so the post-save
+      // useEffect sees the guard and does not paint stale props over
+      // the value the user just saved.
+      justSavedRef.current = { home, away };
       setSaved(true);
       setDirty(false);
     });
