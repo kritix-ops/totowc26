@@ -1,5 +1,5 @@
 import "server-only";
-import { revalidatePath, updateTag } from "next/cache";
+import { revalidatePath, revalidateTag } from "next/cache";
 import { getUserAccess } from "@/lib/access";
 import { bankCacheTag } from "@/lib/bank";
 import { writeMatchPick, type WriteOutcome } from "@/lib/bets/write-core";
@@ -12,6 +12,16 @@ import { writeMatchPick, type WriteOutcome } from "@/lib/bets/write-core";
 // can return { ok: false, error: "unauth" } in their own shape) and
 // the write + cache busts + error mapping down here means the two
 // paths can never drift in what they actually do.
+//
+// Cache invalidation uses revalidateTag, NOT updateTag. Per
+// node_modules/next/dist/docs/.../updateTag.md, updateTag is
+// Server-Action-only and THROWS when invoked from a Route Handler
+// context. We had to find this out the hard way (QA agent run
+// 2026-06-05 caught it: every save through /api/bets/save returned
+// HTTP 500 after the write had already succeeded). revalidateTag
+// works in both contexts. We pass { expire: 0 } so the bank pill the
+// user just refilled never shows a stale value - this matches the
+// blocking-revalidate semantics the old updateTag call provided.
 
 export type SaveBetResult =
   | { ok: true }
@@ -46,7 +56,7 @@ export async function performSaveMatchPick(input: {
       home: input.home,
       away: input.away,
     });
-    updateTag(bankCacheTag(input.userId));
+    revalidateTag(bankCacheTag(input.userId), { expire: 0 });
     revalidatePath("/[lang]", "page");
     revalidatePath("/[lang]/bets", "page");
     revalidatePath("/[lang]/bets/[matchId]", "page");

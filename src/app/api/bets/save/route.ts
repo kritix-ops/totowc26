@@ -61,11 +61,26 @@ export async function POST(
     );
   }
 
-  const result = await performSaveMatchPick({
-    userId: user.id,
-    matchId: payload.matchId,
-    home: payload.home,
-    away: payload.away,
-  });
-  return NextResponse.json(result);
+  try {
+    const result = await performSaveMatchPick({
+      userId: user.id,
+      matchId: payload.matchId,
+      home: payload.home,
+      away: payload.away,
+    });
+    return NextResponse.json(result);
+  } catch (err) {
+    // Defensive net for anything performSaveMatchPick throws that the
+    // inner writeMatchPick try/catch did not cover. Without this the
+    // client gets an HTML 500 page that JSON.parse cannot decode, and
+    // the user sees "שגיאת שמירה" with no diagnostic trail (the 2026-
+    // 06-05 updateTag-in-route-handler incident). Logging here means
+    // Vercel function logs hold the stack while the client still gets
+    // a clean JSON error to display.
+    console.error("[api/bets/save] uncaught:", err);
+    return NextResponse.json(
+      { ok: false, error: "db" },
+      { status: 500 },
+    );
+  }
 }
