@@ -46,11 +46,28 @@ const AUTOMATED_WRITERS = [
   { name: "Deadline grace auto-fill", path: "src/lib/bets/auto-fill.ts" },
 ] as const;
 
+// Interactive transports = the entry points that a real human's tap
+// reaches. Some build the principal inline (`buildsPrincipal: true`);
+// others delegate the actual write to a shared core
+// (`buildsPrincipal: false`) and only need to forward the session
+// user's id into it. Either way the rule is the same: the userId that
+// ends up in the principal must come from getUser(), never from a
+// request body or a hardcoded value.
 const INTERACTIVE_WRITERS = [
-  { name: "saveBet (1/X/2)", path: "src/app/[lang]/bets/[matchId]/actions.ts" },
   {
-    name: "submitCustomBetPick",
+    name: "saveBet server action (1/X/2)",
+    path: "src/app/[lang]/bets/[matchId]/actions.ts",
+    buildsPrincipal: false,
+  },
+  {
+    name: "saveBet route handler (1/X/2)",
+    path: "src/app/api/bets/save/route.ts",
+    buildsPrincipal: false,
+  },
+  {
+    name: "submitCustomBetPick server action",
     path: "src/app/[lang]/play/[date]/actions.ts",
+    buildsPrincipal: true,
   },
 ] as const;
 
@@ -80,23 +97,44 @@ describe.each(AUTOMATED_WRITERS)(
 
 describe.each(INTERACTIVE_WRITERS)(
   "interactive bet writer: $name",
-  ({ path: relPath }) => {
+  ({ path: relPath, buildsPrincipal }) => {
     const code = stripComments(read(relPath));
 
     it("sources the userId from the live session via getUser()", () => {
       expect(code).toMatch(/const\s+user\s*=\s*await\s+getUser\s*\(\s*\)/);
     });
 
-    it("builds a self principal, never a system principal", () => {
-      expect(code).toMatch(/kind\s*:\s*["']self["']/);
-      expect(code).not.toMatch(/kind\s*:\s*["']system["']/);
-    });
-
-    it("keys the principal on the session user's own id", () => {
+    it("forwards the session user's own id (user.id), not a body-supplied or hardcoded one", () => {
       expect(code).toMatch(/userId\s*:\s*user\.id/);
     });
+
+    if (buildsPrincipal) {
+      it("builds a self principal, never a system principal", () => {
+        expect(code).toMatch(/kind\s*:\s*["']self["']/);
+        expect(code).not.toMatch(/kind\s*:\s*["']system["']/);
+      });
+    } else {
+      // Delegates the actual write to save-match-pick-core. The
+      // principal is built there, asserted in its own block below.
+      it("delegates the write to performSaveMatchPick (shared core)", () => {
+        expect(code).toMatch(/performSaveMatchPick/);
+      });
+    }
   },
 );
+
+describe("save-match-pick-core: shared interactive write helper", () => {
+  const code = stripComments(read("src/lib/bets/save-match-pick-core.ts"));
+
+  it("builds a self principal, never a system principal", () => {
+    expect(code).toMatch(/kind\s*:\s*["']self["']/);
+    expect(code).not.toMatch(/kind\s*:\s*["']system["']/);
+  });
+
+  it("keys the principal on the input.userId the transport forwarded", () => {
+    expect(code).toMatch(/userId\s*:\s*input\.userId/);
+  });
+});
 
 describe("write-core: never-overwrite gates", () => {
   const code = stripComments(read("src/lib/bets/write-core.ts"));

@@ -13,7 +13,7 @@ import {
   translateError as translateErrorCode,
   type LocalizedTuple,
 } from "@/lib/error-i18n";
-import { saveBet, type SaveBetResult } from "@/app/[lang]/bets/[matchId]/actions";
+import type { SaveBetResult } from "@/app/[lang]/bets/[matchId]/actions";
 
 // Vertical pick card for the dashboard "Your upcoming matches" section.
 // Behaves like a single QuickPickRow but laid out top to bottom so it
@@ -106,11 +106,24 @@ export function DashboardPickCard({
   const submit = () => {
     if (disabled || pending || !dirty) return;
     setError(null);
-    // See QuickPickRow: usePendingAction releases the button on the
-    // action response, not on the revalidation re-render, so the card
-    // never sticks on "שומר…".
+    // POST through /api/bets/save (parallel via fetch) instead of the
+    // saveBet server action — Next dispatches Server Functions one at
+    // a time, which queued rapid dashboard saves behind each other and
+    // showed no "נשמר" after the 3rd or 4th tap (2026-06-04 incident).
     void run(async () => {
-      const res: SaveBetResult = await saveBet(match.id, home, away);
+      let res: SaveBetResult;
+      try {
+        const r = await fetch("/api/bets/save", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ matchId: match.id, home, away }),
+        });
+        res = (await r.json()) as SaveBetResult;
+      } catch (err) {
+        console.error("[dashboard pick save fetch]", err);
+        setError("db");
+        return;
+      }
       if (!res.ok) {
         setError(res.error);
         return;

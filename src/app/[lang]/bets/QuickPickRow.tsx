@@ -8,7 +8,7 @@ import { Flag } from "@/components/Flag";
 import type { Dictionary, Locale } from "../dictionaries";
 import { formatDateTime } from "@/lib/format";
 import { usePendingAction } from "@/lib/use-pending-action";
-import { saveBet, type SaveBetResult } from "./[matchId]/actions";
+import type { SaveBetResult } from "./[matchId]/actions";
 
 // One match row on the quick-picks /bets page. Self-contained: pre-
 // fills from the existing pick if any, runs the same saveBet server
@@ -114,12 +114,26 @@ export function QuickPickRow({
   const submit = () => {
     if (disabled || pending || !dirty) return;
     setError(null);
-    // usePendingAction awaits the action's RESPONSE and clears `pending`
-    // in a finally — it never waits on saveBet's revalidatePath to
-    // re-render the (Suspense-less, 200-row) bets page. That coupling is
-    // what made every save after the first hang on "שומר…".
+    // POST through a Route Handler (parallel via fetch) instead of the
+    // saveBet server action — Next dispatches Server Functions ONE AT
+    // A TIME per browser tab, so rapid-fire row saves queued behind
+    // each other's revalidatePath and lost picks when the user
+    // navigated away (2026-06-04 incident). usePendingAction still
+    // gates re-entrant clicks and clears the button in `finally`.
     void run(async () => {
-      const res: SaveBetResult = await saveBet(match.id, home, away);
+      let res: SaveBetResult;
+      try {
+        const r = await fetch("/api/bets/save", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ matchId: match.id, home, away }),
+        });
+        res = (await r.json()) as SaveBetResult;
+      } catch (err) {
+        console.error("[match-bet save fetch]", err);
+        setError("db");
+        return;
+      }
       if (!res.ok) {
         setError(res.error);
         return;

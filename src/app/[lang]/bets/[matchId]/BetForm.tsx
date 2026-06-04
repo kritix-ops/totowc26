@@ -8,7 +8,7 @@ import { Flag } from "@/components/Flag";
 import { PickScenarios } from "@/components/PickScenarios";
 import type { Dictionary, Locale } from "../../dictionaries";
 import { usePendingAction } from "@/lib/use-pending-action";
-import { saveBet, type SaveBetResult } from "./actions";
+import type { SaveBetResult } from "./actions";
 
 // 1/X/2 score predictor for a single match. The "extra bets" (BTTS / Over
 // 2.5 / halftime) used to live here behind an "Advanced" section; those
@@ -87,10 +87,26 @@ export function BetForm({
     e.preventDefault();
     setError(null);
     setSaved(false);
-    // usePendingAction clears `pending` on the action response, not on
-    // the revalidation re-render, so the save button can't get stuck.
+    // POST through /api/bets/save (parallel via fetch) — same reason
+    // as QuickPickRow/DashboardPickCard: Next dispatches Server
+    // Functions one at a time per browser tab, which caused queued
+    // rapid saves to lose picks on /bets. Single-form saves here are
+    // not under that pressure but using the same transport keeps the
+    // surface uniform and removes one server-action call site.
     void run(async () => {
-      const res = await saveBet(match.id, home, away);
+      let res: SaveBetResult;
+      try {
+        const r = await fetch("/api/bets/save", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ matchId: match.id, home, away }),
+        });
+        res = (await r.json()) as SaveBetResult;
+      } catch (err) {
+        console.error("[match-bet form save fetch]", err);
+        setError("db");
+        return;
+      }
       if (!res.ok) {
         setError(res.error);
         return;
