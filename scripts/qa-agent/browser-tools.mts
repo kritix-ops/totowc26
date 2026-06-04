@@ -50,6 +50,7 @@ type SnapshotNode = {
   role: string;
   name?: string;
   level?: number;
+  states?: string[];
   children: SnapshotNode[];
 };
 
@@ -181,11 +182,28 @@ export async function makeBrowserTools(opts: {
         if (ariaLabel && inner && inner !== ariaLabel && inner.length > 0) {
           name = `${ariaLabel} (text: "${inner}")`;
         }
+        // Selected/pressed state markers. Without these the agent
+        // cannot tell a highlighted 1X2 pill apart from an inactive
+        // one in the accessibility tree - the visual highlight lives
+        // in CSS but aria-pressed/selected/current/checked carry the
+        // semantic state. Append a compact suffix the agent can grep.
+        const pressed = e.getAttribute("aria-pressed");
+        const selected = e.getAttribute("aria-selected");
+        const current = e.getAttribute("aria-current");
+        const checked = e.getAttribute("aria-checked");
+        const states: string[] = [];
+        if (pressed === "true") states.push("pressed");
+        if (selected === "true") states.push("selected");
+        if (current && current !== "false") states.push(`current=${current}`);
+        if (checked === "true") states.push("checked");
+        if (e.hasAttribute("disabled") || e.getAttribute("aria-disabled") === "true") {
+          states.push("disabled");
+        }
         const level = e.tagName.startsWith("H")
           ? Number(e.tagName.slice(1))
           : undefined;
         const testid = e.getAttribute("data-testid") ?? undefined;
-        return { role, name, level, testid };
+        return { role, name, level, testid, states };
       });
       const ref = await nextRef(h as ElementHandle<HTMLElement | SVGElement>);
       tree.push({
@@ -193,6 +211,7 @@ export async function makeBrowserTools(opts: {
         role: node.role,
         name: node.name || (node.testid ? `[testid=${node.testid}]` : undefined),
         level: node.level,
+        states: node.states.length > 0 ? node.states : undefined,
         children: [],
       });
     }
@@ -240,7 +259,8 @@ export async function makeBrowserTools(opts: {
     for (const node of tree) {
       const heading = node.level ? `h${node.level}` : node.role;
       const label = node.name ? `"${node.name.replace(/"/g, "'").slice(0, 140)}"` : "(no label)";
-      lines.push(`[ref=${node.ref}] ${heading} ${label}`);
+      const statesSuffix = node.states && node.states.length > 0 ? ` [${node.states.join(",")}]` : "";
+      lines.push(`[ref=${node.ref}] ${heading} ${label}${statesSuffix}`);
     }
     if (textBlocks.length > 0) {
       lines.push("--- text content ---");
@@ -498,30 +518,14 @@ export async function makeBrowserTools(opts: {
           // We skip elements whose nearest scrollable ancestor is NOT
           // the page itself. A tab strip with `overflow-x-auto` is
           // intentionally scrollable; its off-screen children are a
-          // legit pattern (snap carousels, tab bars), not the
-          // page-level horizontal-scroll bug we are hunting for.
+          // legit pattern.
           //
-          // Helpers use const-arrow form (not `function`) because tsx/
-          // esbuild wraps named function declarations with __name() at
+          // The scrollable-ancestor walk is inlined inside the loop
+          // rather than extracted as a helper because tsx/esbuild
+          // wraps any named function or named arrow with __name() at
           // transpile time for stack traces, and the browser context
-          // page.evaluate ships into does not have __name in scope.
-          const isPageRoot = (el: Element): boolean =>
-            el === document.documentElement || el === document.body;
-          const hasScrollableAncestor = (el: Element): boolean => {
-            let cur: Element | null = el.parentElement;
-            while (cur && !isPageRoot(cur)) {
-              const cs = getComputedStyle(cur);
-              const overflowX = cs.overflowX;
-              if (
-                (overflowX === "auto" || overflowX === "scroll") &&
-                cur.scrollWidth > cur.clientWidth + 1
-              ) {
-                return true;
-              }
-              cur = cur.parentElement;
-            }
-            return false;
-          };
+          // page.evaluate ships into does not have __name in scope -
+          // which kept failing every previous attempt at a helper.
           const offenders: Array<{
             tag: string;
             cls: string;
@@ -535,7 +539,26 @@ export async function makeBrowserTools(opts: {
             const overflowsRight = r.right > window.innerWidth + 1;
             const overflowsLeft = r.left < -1;
             if (!overflowsRight && !overflowsLeft) return;
-            if (hasScrollableAncestor(el)) return;
+            // Inlined: walk up until we hit body/html, skip if any
+            // intermediate ancestor is a real horizontal scroll container.
+            let cur: Element | null = el.parentElement;
+            let insideScrollable = false;
+            while (
+              cur &&
+              cur !== document.documentElement &&
+              cur !== document.body
+            ) {
+              const overflowX = getComputedStyle(cur).overflowX;
+              if (
+                (overflowX === "auto" || overflowX === "scroll") &&
+                cur.scrollWidth > cur.clientWidth + 1
+              ) {
+                insideScrollable = true;
+                break;
+              }
+              cur = cur.parentElement;
+            }
+            if (insideScrollable) return;
             offenders.push({
               tag: el.tagName,
               cls: (el.className || "").toString().slice(0, 80),
@@ -560,28 +583,10 @@ export async function makeBrowserTools(opts: {
           // WCAG 2.5.5 / 2.5.8 carve out an exception for inline text
           // links: a link sitting inside a sentence is not held to the
           // 44x44 minimum because shrinking it would break the text
-          // flow. We mirror that exception so the QA agent does not
-          // flag every "click here" link inside a hint paragraph. The
-          // rule: an <a> is exempt if its nearest text-containing
-          // ancestor is a <p> or <li> AND the link is the same height
-          // as a normal line of text (under 32px tall).
-          //
-          // Const-arrow form (not `function`) because tsx/esbuild wraps
-          // named declarations with __name() for stack traces, and the
-          // browser context page.evaluate ships into does not have
-          // __name in scope.
-          const isInlineTextLink = (el: Element): boolean => {
-            if (el.tagName !== "A") return false;
-            const r = el.getBoundingClientRect();
-            if (r.height >= 32) return false;
-            let cur: Element | null = el.parentElement;
-            while (cur) {
-              if (cur.tagName === "P" || cur.tagName === "LI") return true;
-              if (cur.tagName === "BODY") return false;
-              cur = cur.parentElement;
-            }
-            return false;
-          };
+          // flow. The exception walk is inlined inside the loop (no
+          // helper function) because tsx/esbuild's __name decoration
+          // breaks page.evaluate as documented in the overflow check
+          // above.
           const tooSmall: Array<{ tag: string; cls: string; w: number; h: number; text: string }> = [];
           document
             .querySelectorAll("a, button, [role=button], input[type=button], input[type=submit]")
@@ -589,7 +594,21 @@ export async function makeBrowserTools(opts: {
               const r = el.getBoundingClientRect();
               const visible = r.width > 0 && r.height > 0;
               if (!visible) return;
-              if (isInlineTextLink(el)) return;
+              // Inlined inline-link exception: <a> shorter than a text
+              // line and nested under <p>/<li> is intentionally inline.
+              if (el.tagName === "A" && r.height < 32) {
+                let cur: Element | null = el.parentElement;
+                let isInline = false;
+                while (cur) {
+                  if (cur.tagName === "P" || cur.tagName === "LI") {
+                    isInline = true;
+                    break;
+                  }
+                  if (cur.tagName === "BODY") break;
+                  cur = cur.parentElement;
+                }
+                if (isInline) return;
+              }
               if (r.width < 44 || r.height < 44) {
                 tooSmall.push({
                   tag: el.tagName,

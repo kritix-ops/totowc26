@@ -17,6 +17,12 @@ sections:
   `"Save bet (text: \"Saved\")"`. Watch the parenthetical text - it
   reflects the live state and is how you confirm that an action
   succeeded.
+  Trailing `[pressed]`, `[selected]`, `[current=...]`, `[checked]`
+  or `[disabled]` markers reflect aria-* state. **Selected/pressed
+  state lives in those markers, not in the visual highlight a
+  screenshot would show** — a 1X2 pill marked `[pressed]` is the
+  one the user picked. Always check the marker before recording a
+  finding like "no direction is highlighted".
 - `--- text content ---` lists non-interactive visible text on the
   page (kickoff times, prices, captions, status chips). Use this
   when looking for information the page displays but does not wrap
