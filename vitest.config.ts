@@ -26,7 +26,10 @@ export default defineConfig({
     ],
   },
   test: {
-    include: ["src/**/*.test.ts"],
+    include: [
+      "src/**/*.test.ts",
+      "scripts/qa-agent/__tests__/**/*.test.mts",
+    ],
     environment: "node",
   },
 });
