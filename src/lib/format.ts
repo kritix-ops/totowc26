@@ -8,10 +8,21 @@ export function formatDateTime(
   locale: Locale,
   options: Intl.DateTimeFormatOptions,
 ): string {
-  return new Intl.DateTimeFormat(locale === "he" ? "he-IL" : "en-GB", {
+  const raw = new Intl.DateTimeFormat(locale === "he" ? "he-IL" : "en-GB", {
     ...options,
     timeZone: IL_TIMEZONE,
   }).format(value instanceof Date ? value : new Date(value));
+  // Intl returns weekday="שבת" while every other Hebrew weekday comes
+  // through as "יום X" — the only day without the "יום" prefix. The
+  // QA agent flagged the inconsistency. Prepend "יום" so all seven days
+  // start the same way visually. Only applied when a weekday is
+  // actually present in `options`, to avoid prepending to bare-date
+  // strings that happen to contain "שבת" by coincidence (extremely
+  // unlikely, but the guard is cheap).
+  if (locale === "he" && options.weekday) {
+    return raw.replace(/(^|[\s,])(שבת)(\b)/g, "$1יום $2$3");
+  }
+  return raw;
 }
 
 // Convert a UTC ISO string to the "YYYY-MM-DDTHH:mm" wall-clock string

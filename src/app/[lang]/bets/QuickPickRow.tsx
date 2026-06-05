@@ -102,15 +102,13 @@ export function QuickPickRow({
     }
   }, [match.myHomeScore, match.myAwayScore, dirty]);
 
-  useEffect(() => {
-    if (!saved || dirty) return;
-    // 6s instead of 2.5s. The previous timing meant a user who saved
-    // and looked away (to read the next match) lost the confirmation
-    // before they looked back. 6s lines up with how long it takes a
-    // user to scroll one screen on mobile and notice the green chip.
-    const t = setTimeout(() => setSaved(false), 6000);
-    return () => clearTimeout(t);
-  }, [saved, dirty]);
+  // No auto-clear: a saved bet stays saved. The earlier 2.5s/6s
+  // timeout flipped the button back to "שמור" while the bet was
+  // still persistently in the DB, which the QA agent caught and which
+  // a user would read as "my save was undone". The button now stays
+  // on the "נשמר" state until the user edits the score (onBump sets
+  // saved=false + dirty=true, which is the correct transition - they
+  // are about to overwrite their pick).
 
   const homeName = isHebrew ? match.homeNameHe : match.homeNameEn;
   const awayName = isHebrew ? match.awayNameHe : match.awayNameEn;
