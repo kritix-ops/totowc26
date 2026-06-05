@@ -76,7 +76,7 @@ export async function MobileBottomNavSection({
   return (
     <nav
       aria-label={isHebrew ? "ניווט תחתון" : "Bottom"}
-      className={`md:hidden fixed bottom-0 left-0 right-0 z-50 bg-surface-container rounded-t-xl border-t border-outline-variant shadow-[0_-4px_12px_rgba(28,20,15,0.05)] grid ${gridColsClass} items-stretch min-h-[64px] pb-[env(safe-area-inset-bottom)]`}
+      className={`lg:hidden fixed bottom-0 left-0 right-0 z-50 bg-surface-container rounded-t-xl border-t border-outline-variant shadow-[0_-4px_12px_rgba(28,20,15,0.05)] grid ${gridColsClass} items-stretch min-h-[64px] pb-[env(safe-area-inset-bottom)]`}
     >
       {bottom.map((key) => {
         const meta = MOBILE_NAV_CATALOG[key];

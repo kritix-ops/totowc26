@@ -244,8 +244,9 @@ function TabPill({
   return (
     <Link
       href={href}
+      aria-current={active ? "page" : undefined}
       className={clsx(
-        "snap-start press-down inline-flex items-center justify-center h-10 px-4 rounded-full border text-sm font-bold whitespace-nowrap",
+        "snap-start press-down inline-flex items-center justify-center h-11 px-4 rounded-full border text-sm font-bold whitespace-nowrap",
         active
           ? "bg-primary text-on-primary border-primary"
           : "bg-surface-container-lowest text-on-surface border-outline-variant hover:bg-surface-container",

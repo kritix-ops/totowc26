@@ -152,7 +152,13 @@ export async function AppShell({
         {signedIn ? (
           <nav
             aria-label={isHebrew ? "ניווט ראשי" : "Main"}
-            className="hidden md:flex items-center justify-center gap-3 lg:gap-6 h-full"
+            // Was `hidden md:flex` - but at 768px (tablet) the 7
+            // Hebrew nav items + brand + rules CTA + bank pill +
+            // user menu push the header left of the viewport
+            // (-83px in RTL). Bumped to lg so tablets get the
+            // mobile bottom nav instead, and the desktop nav only
+            // surfaces from 1024px where there is room.
+            className="hidden lg:flex items-center justify-center gap-3 lg:gap-6 h-full"
           >
             <NavLink locale={locale} path="" label={dict.nav.home} exact />
             {!hiddenPages.has("bets") && (
@@ -202,7 +208,7 @@ export async function AppShell({
         </div>
       </header>
 
-      <main className={`flex-grow ${mainTopPaddingClass} ${signedIn ? "pb-24 md:pb-8" : "pb-8"}`}>
+      <main className={`flex-grow ${mainTopPaddingClass} ${signedIn ? "pb-24 lg:pb-8" : "pb-8"}`}>
         {children}
       </main>
 
