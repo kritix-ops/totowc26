@@ -43,38 +43,89 @@ export default async function MatchBetPage({
   const user = await getRequestUser();
   if (!user) redirect(localePath(locale, "login"));
 
-  const match = await getFixtureWithBets(matchId);
+  // Defensive: every data dependency gets its own try/catch with a
+  // safe default and a logged error. The match row itself is the only
+  // hard requirement - if it is missing we still call notFound() so
+  // the dedicated not-found.tsx renders rather than crashing the
+  // route. Every other query (my bet, access, deadline context, lock
+  // overrides, scoring, bank balance) degrades gracefully so a
+  // single throw cannot blank the entire page. error.tsx catches
+  // anything that slips past this safety net.
+  let match: Awaited<ReturnType<typeof getFixtureWithBets>> = null;
+  try {
+    match = await getFixtureWithBets(matchId);
+  } catch (err) {
+    console.error("[bets/matchId] getFixtureWithBets threw", { matchId, err });
+  }
   if (!match) notFound();
-  const [myBet, access, context, a, scoringRow, bankBalance] = await Promise.all([
-    getMyBet(matchId, user.id),
-    getUserAccess(user.id),
-    getDeadlineContext(),
-    execFirstRow<{
-      lock_at_override: string | null;
-      matchday_offset: number | null;
-    }>(sql`
-      select
-        m.lock_at_override,
-        md.lock_offset_override_minutes as matchday_offset
-      from public.matches m
-      left join public.matchdays md
-        on md.date = (m.kickoff_at at time zone 'Asia/Jerusalem')::date
-      where m.id = ${matchId}::uuid
-      limit 1
-    `),
-    db
-      .select({
-        scoringExact: settingsTable.scoringExact,
-        scoringOutcome: settingsTable.scoringOutcome,
-        stakeMain: settingsTable.stakeMain,
-        matchRiskEnabled: settingsTable.matchRiskEnabled,
-        matchRiskPenalty: settingsTable.matchRiskPenalty,
-      })
-      .from(settingsTable)
-      .where(eq(settingsTable.id, 1))
-      .then((rows) => rows[0]),
-    getBankBalance(user.id),
-  ]);
+
+  let myBet: Awaited<ReturnType<typeof getMyBet>> = null;
+  let access: Awaited<ReturnType<typeof getUserAccess>> = {
+    isAdmin: false,
+    isPaid: false,
+    canEdit: false,
+    viewingAs: null,
+  };
+  let context: Awaited<ReturnType<typeof getDeadlineContext>>;
+  let a: { lock_at_override: string | null; matchday_offset: number | null } | null = null;
+  let scoringRow:
+    | {
+        scoringExact: number;
+        scoringOutcome: number;
+        stakeMain: number;
+        matchRiskEnabled: boolean;
+        matchRiskPenalty: number;
+      }
+    | undefined;
+  let bankBalance = 0;
+  try {
+    [myBet, access, context, a, scoringRow, bankBalance] = await Promise.all([
+      getMyBet(matchId, user.id),
+      getUserAccess(user.id),
+      getDeadlineContext(),
+      execFirstRow<{
+        lock_at_override: string | null;
+        matchday_offset: number | null;
+      }>(sql`
+        select
+          m.lock_at_override,
+          md.lock_offset_override_minutes as matchday_offset
+        from public.matches m
+        left join public.matchdays md
+          on md.date = (m.kickoff_at at time zone 'Asia/Jerusalem')::date
+        where m.id = ${matchId}::uuid
+        limit 1
+      `),
+      db
+        .select({
+          scoringExact: settingsTable.scoringExact,
+          scoringOutcome: settingsTable.scoringOutcome,
+          stakeMain: settingsTable.stakeMain,
+          matchRiskEnabled: settingsTable.matchRiskEnabled,
+          matchRiskPenalty: settingsTable.matchRiskPenalty,
+        })
+        .from(settingsTable)
+        .where(eq(settingsTable.id, 1))
+        .then((rows) => rows[0]),
+      getBankBalance(user.id),
+    ]);
+  } catch (err) {
+    console.error("[bets/matchId] Promise.all threw", { matchId, err });
+    // context still needs a default for resolveMatchScoreLock below.
+    // If the bulk fetch failed every other variable is already at its
+    // declared default; only context needs a fresh attempt or fallback.
+    try {
+      context = await getDeadlineContext();
+    } catch {
+      context = {
+        defaults: {} as Awaited<ReturnType<typeof getDeadlineContext>>["defaults"],
+        stageDefaults: {},
+        tournamentStartAt: null,
+        derivedTournamentStartAt: null,
+        matchPicksGlobalLockAt: null,
+      };
+    }
+  }
   const scoring = {
     exact: scoringRow?.scoringExact ?? 15,
     outcome: scoringRow?.scoringOutcome ?? 5,
