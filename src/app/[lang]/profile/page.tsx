@@ -320,7 +320,7 @@ export default async function ProfilePage({
           <SmartFlagToggle
             flag="smart_hub_enabled"
             initial={profile?.smartHubEnabled ?? true}
-            icon={Sparkles}
+            iconName="sparkles"
             label={isHebrew ? "הצג Smart Hub בדשבורד" : "Show Smart Hub on dashboard"}
             hint={
               isHebrew
@@ -332,7 +332,7 @@ export default async function ProfilePage({
           <SmartFlagToggle
             flag="push_lock_reminders"
             initial={profile?.pushLockReminders ?? true}
-            icon={Clock}
+            iconName="clock"
             label={isHebrew ? "Push כשהימור נסגר בקרוב" : "Push when a bet is about to lock"}
             hint={
               isHebrew
@@ -350,7 +350,7 @@ export default async function ProfilePage({
           <SmartFlagToggle
             flag="push_duel_received"
             initial={profile?.pushDuelReceived ?? true}
-            icon={Swords}
+            iconName="swords"
             label={isHebrew ? "Push כשנפתח דו-קרב חדש" : "Push when a new duel is opened"}
             hint={
               isHebrew
