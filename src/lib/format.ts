@@ -20,15 +20,21 @@ export function formatDateTime(
   // strings that happen to contain "שבת" by coincidence (extremely
   // unlikely, but the guard is cheap).
   if (locale === "he" && options.weekday) {
-    // The earlier version used `\b` after "שבת" - which does not work
-    // for Hebrew letters because `\b` is defined relative to `\w`
-    // (ASCII word chars only). So the replace silently no-op'd. The
-    // QA agent re-flagged "שבת, 13 ביוני" without the "יום" prefix.
-    // The lookahead form below uses an explicit "follow with comma /
-    // space / end-of-string" check that does not depend on `\w`, and
-    // the leading group still requires start-of-string or whitespace
-    // or comma so we do not prepend inside words like "שבתות".
-    return raw.replace(/(^|[\s,])שבת(?=[,\s]|$)/gu, "$1יום שבת");
+    // Intl's Hebrew weekday output depends on the option value:
+    //   weekday=long   →  "יום שבת" for Sat, "יום ראשון" for Sun, …
+    //                    (all days already carry the "יום" prefix)
+    //   weekday=short  →  "שבת" alone for Sat, "יום א׳" for Sun, …
+    //                    (only Sat misses the prefix)
+    //   weekday=narrow →  "ש׳"/"א׳"/… (no prefix on any day)
+    //
+    // So the fix only needs to fire on bare "שבת" that is NOT already
+    // preceded by "יום " - the negative lookbehind handles that. The
+    // leading group `(^|[\s,])` anchors "שבת" to a word boundary
+    // (since `\b` is ASCII-only and ineffective for Hebrew), and the
+    // lookahead `(?=[,\s]|$)` does the same for the trailing edge.
+    // Idempotent: running the function twice on the same output
+    // produces the same string.
+    return raw.replace(/(^|[\s,])(?<!יום )שבת(?=[,\s]|$)/gu, "$1יום שבת");
   }
   return raw;
 }

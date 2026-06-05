@@ -7,7 +7,7 @@ const SAT_IL = new Date("2026-06-13T01:00:00Z");
 const THU_IL = new Date("2026-06-11T19:00:00Z");
 
 describe("formatDateTime — Hebrew Saturday prefix", () => {
-  it("prepends יום to Saturday so all weekdays start the same way", () => {
+  it("yields exactly one יום שבת for Saturday with weekday=long", () => {
     const out = formatDateTime(SAT_IL, "he", {
       weekday: "long",
       day: "numeric",
@@ -15,6 +15,23 @@ describe("formatDateTime — Hebrew Saturday prefix", () => {
     });
     expect(out).toContain("יום שבת");
     expect(out).not.toMatch(/^שבת/);
+    // The 2026-06-05 13:05 QA run caught this exact regression
+    // because the regex previously fired on "יום שבת" too: ICU
+    // ships "יום שבת" for weekday=long, the old regex added
+    // another "יום ", producing "יום יום שבת". Guard against the
+    // double prefix explicitly.
+    expect(out).not.toContain("יום יום");
+  });
+
+  it("prepends יום to bare שבת produced by weekday=short", () => {
+    const out = formatDateTime(SAT_IL, "he", {
+      weekday: "short",
+      day: "numeric",
+      month: "short",
+    });
+    expect(out).toContain("יום שבת");
+    expect(out).not.toMatch(/^שבת/);
+    expect(out).not.toContain("יום יום");
   });
 
   it("leaves other weekdays alone (they already have יום)", () => {
@@ -24,7 +41,6 @@ describe("formatDateTime — Hebrew Saturday prefix", () => {
       month: "long",
     });
     expect(out).toContain("יום");
-    // No double-prepending: "יום יום חמישי" would be a bug.
     expect(out).not.toContain("יום יום");
   });
 
@@ -44,5 +60,19 @@ describe("formatDateTime — Hebrew Saturday prefix", () => {
       month: "long",
     });
     expect(out).not.toContain("יום שבת");
+  });
+
+  it("is idempotent on its own output", () => {
+    const once = formatDateTime(SAT_IL, "he", {
+      weekday: "long",
+      day: "numeric",
+      month: "long",
+    });
+    // Running the post-process step on already-fixed output must
+    // not add another "יום ". This protects against future ICU
+    // changes that might flip what bare "שבת" vs "יום שבת" looks
+    // like in different formats.
+    const twice = once.replace(/(^|[\s,])(?<!יום )שבת(?=[,\s]|$)/gu, "$1יום שבת");
+    expect(twice).toBe(once);
   });
 });
