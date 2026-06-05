@@ -37,20 +37,24 @@ export function BetsTabs({
       aria-label={isHebrew ? "סוגי הימורים" : "Bet surfaces"}
       className="flex gap-2 overflow-x-auto snap-x snap-mandatory -mx-1 px-1"
     >
-      {TABS.map((t) => (
-        <Link
-          key={t.key}
-          href={localePath(locale, t.path)}
-          className={clsx(
-            "snap-start press-down inline-flex items-center justify-center h-11 px-5 rounded-full border text-sm font-bold whitespace-nowrap",
-            t.key === active
-              ? "bg-primary text-on-primary border-primary"
-              : "bg-surface-container-lowest text-on-surface border-outline-variant hover:bg-surface-container",
-          )}
-        >
-          {isHebrew ? t.he : t.en}
-        </Link>
-      ))}
+      {TABS.map((t) => {
+        const isActive = t.key === active;
+        return (
+          <Link
+            key={t.key}
+            href={localePath(locale, t.path)}
+            aria-current={isActive ? "page" : undefined}
+            className={clsx(
+              "snap-start press-down inline-flex items-center justify-center h-11 px-5 rounded-full border text-sm font-bold whitespace-nowrap",
+              isActive
+                ? "bg-primary text-on-primary border-primary"
+                : "bg-surface-container-lowest text-on-surface border-outline-variant hover:bg-surface-container",
+            )}
+          >
+            {isHebrew ? t.he : t.en}
+          </Link>
+        );
+      })}
     </nav>
   );
 }

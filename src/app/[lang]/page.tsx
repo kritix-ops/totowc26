@@ -850,7 +850,7 @@ function UpcomingSection({
         </SectionHeading>
         <Link
           href={localePath(locale, "bets")}
-          className="font-[family-name:var(--font-label)] text-[12px] font-bold tracking-[0.05em] text-primary hover:underline inline-flex items-center gap-1 min-h-[40px]"
+          className="font-[family-name:var(--font-label)] text-[12px] font-bold tracking-[0.05em] text-primary hover:underline inline-flex items-center gap-1 min-h-[44px]"
         >
           {dict.dashboard.viewAll}
           <ArrowUpRight className="h-3.5 w-3.5" strokeWidth={2} />
@@ -1097,7 +1097,7 @@ function LatestNewsSection({
         </SectionHeading>
         <Link
           href={`${localePath(locale, "tournament")}?tab=news`}
-          className="font-[family-name:var(--font-label)] text-[12px] font-bold tracking-[0.05em] text-primary hover:underline inline-flex items-center gap-1 min-h-[40px]"
+          className="font-[family-name:var(--font-label)] text-[12px] font-bold tracking-[0.05em] text-primary hover:underline inline-flex items-center gap-1 min-h-[44px]"
         >
           {dict.dashboard.viewAll}
           <ArrowUpRight className="h-3.5 w-3.5" strokeWidth={2} />
@@ -1306,7 +1306,7 @@ function LeaderboardSection({
         </SectionHeading>
         <Link
           href={localePath(locale, "leaderboard")}
-          className="font-[family-name:var(--font-label)] text-[12px] font-bold tracking-[0.05em] text-primary hover:underline inline-flex items-center gap-1 min-h-[40px]"
+          className="font-[family-name:var(--font-label)] text-[12px] font-bold tracking-[0.05em] text-primary hover:underline inline-flex items-center gap-1 min-h-[44px]"
         >
           {isHebrew ? "טבלה מלאה" : "Full table"}
           <ArrowUpRight className="h-3.5 w-3.5" strokeWidth={2} />

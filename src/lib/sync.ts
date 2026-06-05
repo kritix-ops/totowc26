@@ -27,6 +27,7 @@ import {
   type ApiFootballStats,
 } from "./api-football";
 import type { AutoApiFootballStat } from "./bets/types";
+import { pickGroupWinner, type GroupStandingRow } from "./grade-group";
 import { sendEmail } from "./email/client";
 import { getEmailCopy, interpolate } from "./email/copy";
 import { BetLockReminderEmail } from "./email/templates/BetLockReminderEmail";
@@ -719,7 +720,8 @@ async function scoreFinalMatches(): Promise<{
 //   match scope → matches.status = 'final'
 //   day   scope → every match on that Asia/Jerusalem date is final
 //   stage scope → not auto-graded yet (manual)
-//   group scope → not auto-graded yet (manual)
+//   group scope → resolves to the group winner once every group-stage
+//                 match for that group is final (see resolveGroupScope).
 //   tournament  → not auto-graded here (manual)
 type AutoFootballField =
   | "home_score"
@@ -728,7 +730,8 @@ type AutoFootballField =
   | "ht_score"
   | "total_goals"
   | "ht_total"
-  | "went_to_penalties";
+  | "went_to_penalties"
+  | "group_winner";
 
 type CandidateBet = {
   id: string;
@@ -928,6 +931,9 @@ async function tryResolve(
     if (!field) return "skip";
     if (bet.scope === "match") return resolveMatchScope(bet, field);
     if (bet.scope === "day")   return resolveDayScope(bet, field);
+    if (bet.scope === "group" && field === "group_winner") {
+      return resolveGroupScope(bet);
+    }
     return "skip";
   }
   if (bet.gradingSource === "auto_api_football") {
@@ -1012,6 +1018,94 @@ async function resolveDayScope(
   const value =
     field === "total_goals" ? Number(r.sum_total_goals) : Number(r.sum_ht_total);
   return { type: "number", value };
+}
+
+// Group-winner bets. Reads the same standings the live tables on
+// /tournament use and returns the team at position #1 once all 6
+// group-stage matches in this group are final. Ambiguous ties at the
+// top (same points + goal diff + goals for) defer to manual grading
+// so no points are credited on a wrong guess. Bet sanctity beats FIFA
+// head-to-head completeness here; see
+// _plans/2026-06-05-auto-grade-group-bets.md.
+async function resolveGroupScope(
+  bet: CandidateBet,
+): Promise<Resolved | "not_ready" | "skip"> {
+  if (!bet.groupId) return "skip";
+  if (bet.answerType !== "multi_choice") return "skip";
+
+  const rows = await execRows<{
+    code: string;
+    played: number;
+    points: number;
+    goal_diff: number;
+    goals_for: number;
+  }>(drizzleSql`
+    with leg as (
+      select
+        m.group_id,
+        m.home_team as team_code,
+        m.home_score as gf,
+        m.away_score as ga,
+        case
+          when m.home_score > m.away_score then 3
+          when m.home_score = m.away_score then 1
+          else 0
+        end as pts
+      from public.matches m
+      where m.stage = 'group'
+        and m.group_id = ${bet.groupId}
+        and m.status = 'final'
+        and m.home_score is not null
+        and m.away_score is not null
+      union all
+      select
+        m.group_id,
+        m.away_team as team_code,
+        m.away_score as gf,
+        m.home_score as ga,
+        case
+          when m.away_score > m.home_score then 3
+          when m.away_score = m.home_score then 1
+          else 0
+        end as pts
+      from public.matches m
+      where m.stage = 'group'
+        and m.group_id = ${bet.groupId}
+        and m.status = 'final'
+        and m.home_score is not null
+        and m.away_score is not null
+    )
+    select
+      t.code                                                  as code,
+      coalesce(count(leg.*) filter (where leg.team_code is not null), 0)::int as played,
+      coalesce(sum(leg.pts), 0)::int                          as points,
+      coalesce(sum(leg.gf) - sum(leg.ga), 0)::int             as goal_diff,
+      coalesce(sum(leg.gf), 0)::int                           as goals_for
+    from public.teams t
+    left join leg on leg.team_code = t.code and leg.group_id = ${bet.groupId}
+    where t.group_id = ${bet.groupId}
+    group by t.code
+  `);
+
+  const standings: GroupStandingRow[] = rows.map((r) => ({
+    code: r.code,
+    played: Number(r.played),
+    points: Number(r.points),
+    goalDiff: Number(r.goal_diff),
+    goalsFor: Number(r.goals_for),
+  }));
+
+  const outcome = pickGroupWinner(standings);
+  if (outcome.kind === "not_ready") return "not_ready";
+  if (outcome.kind === "ambiguous") {
+    console.warn("[grading group ambiguous]", {
+      betId: bet.id,
+      groupId: bet.groupId,
+      tied: outcome.tied,
+    });
+    return "not_ready";
+  }
+  return { type: "multi_choice", value: outcome.code };
 }
 
 async function resolveMatchScopeApiFootball(
@@ -1147,6 +1241,11 @@ function coerceMatchField(
       return answerType === "yes_no"
         ? { type: "yes_no", value: m.wentToPenalties === true }
         : "skip";
+    case "group_winner":
+      // group_winner is a group-scope concept; it's routed to
+      // resolveGroupScope upstream and never reaches this match-scope
+      // coercer. Listed here only so the union is exhaustive.
+      return "skip";
   }
 }
 

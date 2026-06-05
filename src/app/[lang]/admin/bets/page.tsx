@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Plus, ChevronLeft, ChevronRight, Copy } from "lucide-react";
+import { Plus, ChevronLeft, ChevronRight, Copy, RefreshCw } from "lucide-react";
 import { hasLocale, type Locale } from "../../dictionaries";
 import { Card, Chip, LabelCaps, PillButton, SectionHeading } from "@/components/ui";
 import { localePath } from "@/lib/paths";
@@ -57,6 +57,23 @@ export default async function AdminBetsPage({
             </p>
           </div>
           <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap">
+            <Link
+              href={localePath(locale, "admin/system")}
+              title={
+                isHebrew
+                  ? "פותח את עמוד הסנכרון. הכפתור שם מושך תוצאות חדשות ומנקד את הימורי הבתים בלי לחכות ל-cron."
+                  : "Opens the sync page. The button there pulls fresh results and grades group bets without waiting for cron."
+              }
+            >
+              <PillButton
+                type="button"
+                variant="ghost"
+                className="min-h-[48px] inline-flex items-center gap-1.5"
+              >
+                <RefreshCw className="h-4 w-4" strokeWidth={2} />
+                {isHebrew ? "סנכרון ידני" : "Sync now"}
+              </PillButton>
+            </Link>
             <Link href={localePath(locale, "admin/live-bets/suggestions")}>
               <PillButton
                 type="button"

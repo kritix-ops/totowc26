@@ -312,6 +312,11 @@ async function upsertGroupBet({ groupLetter, options, overrides, fallbackPayout 
   const ruleHe = `הקבוצה שתסיים במקום הראשון של קבוצה ${groupLetter} בתום שלב הבתים.`;
   const ruleEn = `The team that finishes first in Group ${groupLetter} after the group stage.`;
   const [admin] = await sql`select id from profiles where role = 'admin' limit 1`;
+  // Group winners auto-grade from final match scores via resolveGroupScope
+  // in src/lib/sync.ts. The resolver recognises this exact grading_config
+  // shape; do not change the source/field strings without updating both
+  // sides. Backfill of pre-existing manual rows lives in migration 0040.
+  const gradingCfg = { source: "football_data", field: "group_winner" };
   const ins = await sql`
     insert into custom_bets
       (scope, group_id, question_he, question_en, grading_rule_he, grading_rule_en,
@@ -320,7 +325,7 @@ async function upsertGroupBet({ groupLetter, options, overrides, fallbackPayout 
     values
       ('group', ${groupLetter}, ${questionHe}, ${questionEn}, ${ruleHe}, ${ruleEn},
        'multi_choice', ${sql.json(cfg)}, ${stakeSnapshot}, ${fallbackPayout},
-       'manual', null, 'open', ${lockAt.toISOString()}, now(), ${admin?.id ?? null})
+       'auto_football_data', ${sql.json(gradingCfg)}, 'open', ${lockAt.toISOString()}, now(), ${admin?.id ?? null})
     returning id
   `;
   return { bet_id: ins[0].id, action: "created", priced: Object.keys(overrides).length };
