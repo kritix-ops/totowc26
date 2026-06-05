@@ -63,6 +63,41 @@ export default async function ProfilePage({
   const user = await getRequestUser();
   if (!user) redirect(localePath(locale, "login"));
 
+  // Defensive: each Promise.all leg gets its own try/catch with a
+  // sane default. The 2026-06-05 QA agent run caught the entire
+  // page crashing on a single throw - same pattern as /me/bank.
+  // The profile row + stats are the only must-have legs; missing
+  // pick buckets render as empty states instead of crashing.
+  const safe = async <T,>(p: Promise<T>, fallback: T, label: string): Promise<T> => {
+    try {
+      return await p;
+    } catch (err) {
+      console.error(`[profile] ${label} threw`, { userId: user.id, err });
+      return fallback;
+    }
+  };
+
+  const emptyStats: ProfileStats = {
+    totalPoints: 0,
+    availablePoints: 0,
+    startingBank: 0,
+    pointsFromMatches: 0,
+    pointsFromLiveBets: 0,
+    pointsFromTournamentBets: 0,
+    pointsFromDuels: 0,
+    pointsFromAdjustments: 0,
+    correctOutcomeCount: 0,
+    exactCount: 0,
+    totalFinalMatches: 0,
+    betsPlaced: 0,
+    betsFinal: 0,
+    outcomeCount: 0,
+    exactAccuracy: 0,
+    outcomeAccuracy: 0,
+    streak: 0,
+    memberSince: null,
+  };
+
   const [
     [profile],
     stats,
@@ -73,29 +108,52 @@ export default async function ProfilePage({
     unreadCount,
     [settingsRow],
   ] = await Promise.all([
-    db
-      .select({
-        displayName: profiles.displayName,
-        role: profiles.role,
-        pushOptIn: profiles.pushOptIn,
-        smartHubEnabled: profiles.smartHubEnabled,
-        pushLockReminders: profiles.pushLockReminders,
-        pushDuelReceived: profiles.pushDuelReceived,
-      })
-      .from(profiles)
-      .where(eq(profiles.id, user.id))
-      .limit(1),
-    getProfileStats(user.id),
-    getMyHistory(user.id, 5),
-    getMyCustomPicks(user.id, ["match", "day"], 5),
-    getMyCustomPicks(user.id, ["tournament", "stage", "group"], 5),
-    getMyDuels(user.id, 5),
-    countUnreadNotifications(user.id),
-    db
-      .select({ whatsappGroupUrl: settings.whatsappGroupUrl })
-      .from(settings)
-      .where(eq(settings.id, 1))
-      .limit(1),
+    safe(
+      db
+        .select({
+          displayName: profiles.displayName,
+          role: profiles.role,
+          pushOptIn: profiles.pushOptIn,
+          smartHubEnabled: profiles.smartHubEnabled,
+          pushLockReminders: profiles.pushLockReminders,
+          pushDuelReceived: profiles.pushDuelReceived,
+        })
+        .from(profiles)
+        .where(eq(profiles.id, user.id))
+        .limit(1),
+      [] as Array<{
+        displayName: string;
+        role: "player" | "admin";
+        pushOptIn: boolean;
+        smartHubEnabled: boolean;
+        pushLockReminders: boolean;
+        pushDuelReceived: boolean;
+      }>,
+      "profile row",
+    ),
+    safe(getProfileStats(user.id), emptyStats, "getProfileStats"),
+    safe(getMyHistory(user.id, 5), [] as HistoryRow[], "getMyHistory"),
+    safe(
+      getMyCustomPicks(user.id, ["match", "day"], 5),
+      [] as MyCustomPickRow[],
+      "getMyCustomPicks(live)",
+    ),
+    safe(
+      getMyCustomPicks(user.id, ["tournament", "stage", "group"], 5),
+      [] as MyCustomPickRow[],
+      "getMyCustomPicks(tournament)",
+    ),
+    safe(getMyDuels(user.id, 5), [] as MyDuelRow[], "getMyDuels"),
+    safe(countUnreadNotifications(user.id), 0, "countUnreadNotifications"),
+    safe(
+      db
+        .select({ whatsappGroupUrl: settings.whatsappGroupUrl })
+        .from(settings)
+        .where(eq(settings.id, 1))
+        .limit(1),
+      [] as Array<{ whatsappGroupUrl: string | null }>,
+      "settings row",
+    ),
   ]);
 
   const whatsappUrl = settingsRow?.whatsappGroupUrl ?? null;
