@@ -172,11 +172,16 @@ export default async function BetsLiveDayPage({
                       </div>
                       <div className="flex items-center gap-3 shrink-0">
                         {hasPick ? (
-                          <ScoreLine
-                            home={m.myHome!}
-                            away={m.myAway!}
-                            className="font-[family-name:var(--font-score)] text-base md:text-lg font-bold text-primary"
-                          />
+                          <div className="text-end">
+                            <LabelCaps as="div" className="mb-0.5">
+                              {isHebrew ? "תחזית" : "Prediction"}
+                            </LabelCaps>
+                            <ScoreLine
+                              home={m.myHome!}
+                              away={m.myAway!}
+                              className="font-[family-name:var(--font-score)] text-base md:text-lg font-bold text-primary"
+                            />
+                          </div>
                         ) : (
                           <div className="text-end">
                             <LabelCaps as="div" className="mb-0.5">

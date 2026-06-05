@@ -594,9 +594,13 @@ export async function makeBrowserTools(opts: {
               const r = el.getBoundingClientRect();
               const visible = r.width > 0 && r.height > 0;
               if (!visible) return;
-              // Inlined inline-link exception: <a> shorter than a text
-              // line and nested under <p>/<li> is intentionally inline.
-              if (el.tagName === "A" && r.height < 32) {
+              // Inlined inline-link exception: <a> nested under <p>/<li>
+              // and shorter than 44px - the standard WCAG threshold - is
+              // intentionally an inline text link, exempt from the tap-
+              // target rule. Threshold was 32px, raised to 44px because
+              // hint paragraphs in this app use ~38px line height (still
+              // textual, not button-y) and were getting flagged.
+              if (el.tagName === "A" && r.height < 44) {
                 let cur: Element | null = el.parentElement;
                 let isInline = false;
                 while (cur) {
