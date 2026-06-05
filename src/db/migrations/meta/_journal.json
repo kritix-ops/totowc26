@@ -295,6 +295,13 @@
       "when": 1782105000000,
       "tag": "0041_total_goals_cards_to_ranges",
       "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1782110000000,
+      "tag": "0042_tournament_per_option_payouts",
+      "breakpoints": true
     }
   ]
 }
