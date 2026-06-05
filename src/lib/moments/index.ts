@@ -6,6 +6,7 @@ import { profiles } from "@/db/schema";
 import type { Locale } from "@/app/[lang]/dictionaries";
 import { getActiveDismissals } from "./dismiss";
 import { rankAndPick } from "./score";
+import { GENERATOR_TIMEOUT_MS, withTimeout } from "./timeout";
 import type { Generator, Moment } from "./types";
 
 import { unpickedMatchImminent } from "./generators/unpicked-match-imminent";
@@ -65,16 +66,21 @@ export async function buildSmartHub({
 
   // Fan out every generator + the dismissal read in parallel; the
   // dashboard is the most-glanced surface so trimming sequential
-  // round-trips matters even at single-user scale. `Promise.allSettled`
-  // so one broken generator can never sink the whole Hub.
+  // round-trips matters even at single-user scale. Each call is
+  // wrapped in withTimeout so one slow generator (a DB plan
+  // regression, a saturated PgBouncer pool) can never trap the whole
+  // Hub in its skeleton state — the timed-out generator drops to its
+  // fallback and the rest of the Hub paints normally.
   const ctx = { userId, locale, now };
   const [dismissals, ...settled] = await Promise.all([
-    getActiveDismissals(userId),
+    withTimeout(
+      getActiveDismissals(userId),
+      GENERATOR_TIMEOUT_MS,
+      "dismissals",
+      new Set<string>(),
+    ),
     ...GENERATORS.map((gen) =>
-      gen(ctx).catch((err) => {
-        console.error("[moments generator failed]", { userId, err });
-        return null;
-      }),
+      withTimeout(gen(ctx), GENERATOR_TIMEOUT_MS, gen.name, null),
     ),
   ] as const);
 
