@@ -26,6 +26,13 @@ const nextConfig: NextConfig = {
       dynamic: 30,
       static: 300,
     },
+    // Our only root layout is at app/[lang]/layout.tsx (a dynamic
+    // segment). When a URL doesn't match ANY route - e.g. /foo or
+    // /he/this-route-does-not-exist - there is no layout to compose
+    // a 404 from, so Next.js falls back to its bare default. The
+    // experimental global-not-found flag lets us ship a branded
+    // global-not-found.tsx that includes its own <html>/<body> shell.
+    globalNotFound: true,
   },
   images: {
     // News thumbnails are pulled from RSS feeds whose CDN hostnames are

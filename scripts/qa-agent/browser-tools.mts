@@ -155,6 +155,36 @@ export async function makeBrowserTools(opts: {
       if (!isVisible) continue;
       const node = await h.evaluate((el) => {
         const e = el as HTMLElement;
+        // Map common input types to their implicit ARIA roles so the
+        // snapshot reads like a real a11y tree. The previous version
+        // dumped the raw HTML `type` attribute ("text", "tel"), which
+        // confused the QA agent into recording text inputs as "missing
+        // textbox role" findings on 2026-06-05.
+        const inputTypeToRole = (t: string): string => {
+          switch (t) {
+            case "text":
+            case "search":
+            case "tel":
+            case "url":
+            case "email":
+            case "password":
+              return "textbox";
+            case "number":
+              return "spinbutton";
+            case "checkbox":
+              return "checkbox";
+            case "radio":
+              return "radio";
+            case "range":
+              return "slider";
+            case "submit":
+            case "button":
+            case "reset":
+              return "button";
+            default:
+              return t || "input";
+          }
+        };
         const role =
           e.getAttribute("role") ??
           (e.tagName === "A"
@@ -162,11 +192,11 @@ export async function makeBrowserTools(opts: {
             : e.tagName === "BUTTON"
               ? "button"
               : e.tagName === "INPUT"
-                ? ((e as HTMLInputElement).type ?? "input")
+                ? inputTypeToRole((e as HTMLInputElement).type ?? "")
                 : e.tagName === "SELECT"
-                  ? "select"
+                  ? "combobox"
                   : e.tagName === "TEXTAREA"
-                    ? "textarea"
+                    ? "textbox"
                     : e.tagName.toLowerCase());
         // Normalise empties to null so the `??` precedence chain below
         // works correctly. The 2026-06-05 QA run kept flagging duels/new

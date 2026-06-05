@@ -341,6 +341,7 @@ export function NewDuelForm({
           </SectionHeading>
           <input
             type="number"
+            aria-label={labels.stakeQ}
             min={1}
             max={maxStake}
             step={1}
