@@ -3,10 +3,19 @@
 // Usage:
 //   pnpm qa-agent <scenario|all>
 //
-// Where scenario ∈ { live-bets | outrights | rtl-mobile }.
+// Scenarios:
+//   live-bets       — match picks: place, persist, lock UI
+//   outrights       — tournament / group bets (free, stake=0)
+//   rtl-mobile      — RTL + responsive sweep across viewports
+//   signup-flow     — public signup form integrity (read-only)
+//   auth-flow       — login / logout / session perimeter
+//   surprise-me     — bulk-fill via "תפתיע אותי" on each surface
+//   duels-flow      — duels list + new-duel form integrity
+//   error-pages     — 404 + error boundary surfaces
+//   dashboard-deep  — signed-in home / bank pill / CTA targets
 //
-// "all" runs the three scenarios in sequence, sharing a single
-// budget cap and a single report folder.
+// "all" runs every scenario in sequence, sharing a single budget
+// cap and a single report folder.
 
 import { readFile } from "node:fs/promises";
 import path from "node:path";
@@ -19,11 +28,26 @@ import { makeReportDir, writeReport, pruneOldReports } from "./reporter.mts";
 import { liveBetsScenario } from "./scenarios/live-bets.mts";
 import { outrightsScenario } from "./scenarios/outrights.mts";
 import { rtlMobileScenario } from "./scenarios/rtl-mobile.mts";
+import { signupFlowScenario } from "./scenarios/signup-flow.mts";
+import { authFlowScenario } from "./scenarios/auth-flow.mts";
+import { surpriseMeScenario } from "./scenarios/surprise-me.mts";
+import { duelsFlowScenario } from "./scenarios/duels-flow.mts";
+import { errorPagesScenario } from "./scenarios/error-pages.mts";
+import { dashboardDeepScenario } from "./scenarios/dashboard-deep.mts";
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = path.resolve(SCRIPT_DIR, "..", "..");
 
-type ScenarioKey = "live-bets" | "outrights" | "rtl-mobile";
+type ScenarioKey =
+  | "live-bets"
+  | "outrights"
+  | "rtl-mobile"
+  | "signup-flow"
+  | "auth-flow"
+  | "surprise-me"
+  | "duels-flow"
+  | "error-pages"
+  | "dashboard-deep";
 
 const SCENARIO_REGISTRY: Record<
   ScenarioKey,
@@ -32,10 +56,32 @@ const SCENARIO_REGISTRY: Record<
   "live-bets": liveBetsScenario,
   outrights: outrightsScenario,
   "rtl-mobile": rtlMobileScenario,
+  "signup-flow": signupFlowScenario,
+  "auth-flow": authFlowScenario,
+  "surprise-me": surpriseMeScenario,
+  "duels-flow": duelsFlowScenario,
+  "error-pages": errorPagesScenario,
+  "dashboard-deep": dashboardDeepScenario,
 };
 
+const ALL_SCENARIOS: ScenarioKey[] = [
+  // Auth gates first so a later scenario landing on a logged-out
+  // session is a real finding, not a leftover from the previous one.
+  "auth-flow",
+  "signup-flow",
+  "dashboard-deep",
+  "live-bets",
+  "outrights",
+  "surprise-me",
+  "duels-flow",
+  "rtl-mobile",
+  "error-pages",
+];
+
 function usage(): never {
-  console.error("Usage: pnpm qa-agent <live-bets|outrights|rtl-mobile|all>");
+  console.error(
+    `Usage: pnpm qa-agent <${[...Object.keys(SCENARIO_REGISTRY), "all"].join("|")}>`,
+  );
   process.exit(1);
 }
 
@@ -44,7 +90,7 @@ if (!arg) usage();
 
 let scenariosToRun: ScenarioKey[];
 if (arg === "all") {
-  scenariosToRun = ["live-bets", "outrights", "rtl-mobile"];
+  scenariosToRun = ALL_SCENARIOS;
 } else if (arg in SCENARIO_REGISTRY) {
   scenariosToRun = [arg as ScenarioKey];
 } else {
