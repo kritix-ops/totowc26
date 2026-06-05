@@ -157,7 +157,14 @@ export default async function ProfilePage({
   ]);
 
   const whatsappUrl = settingsRow?.whatsappGroupUrl ?? null;
-  const whatsappDismissed = await isWhatsAppCardDismissed(whatsappUrl);
+  // isWhatsAppCardDismissed reads a cookie via next/headers; if the
+  // helper ever throws (cookie parse error, etc.) we degrade to
+  // showing the card rather than crashing the whole page.
+  const whatsappDismissed = await safe(
+    isWhatsAppCardDismissed(whatsappUrl),
+    false,
+    "isWhatsAppCardDismissed",
+  );
   const isHebrew = locale === "he";
   const displayName = profile?.displayName ?? (user.email ?? "");
   const initials = displayName.charAt(0).toUpperCase();
