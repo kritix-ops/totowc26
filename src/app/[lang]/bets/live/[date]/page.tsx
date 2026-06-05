@@ -42,7 +42,7 @@ export default async function BetsLiveDayPage({
   // state card a bit further down instead - the agent run on 2026-06-05
   // surfaced that clicking a date with no published custom bets bounced
   // users to a generic "page not found" instead of a friendly message.
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) notFound();
+  if (!isValidIsoDate(date)) notFound();
 
   const user = await getRequestUser();
   if (!user) redirect(localePath(locale, "login"));
@@ -253,6 +253,21 @@ export default async function BetsLiveDayPage({
         </Card>
       )}
     </section>
+  );
+}
+
+// Accepts YYYY-MM-DD AND requires the values to round-trip through Date so
+// formatted-but-impossible dates like 2026-99-99 or 2026-02-31 get a clean
+// 404 instead of a server-component crash.
+function isValidIsoDate(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const [y, mo, d] = value.split("-").map(Number);
+  if (mo < 1 || mo > 12 || d < 1 || d > 31) return false;
+  const parsed = new Date(Date.UTC(y, mo - 1, d));
+  return (
+    parsed.getUTCFullYear() === y &&
+    parsed.getUTCMonth() === mo - 1 &&
+    parsed.getUTCDate() === d
   );
 }
 

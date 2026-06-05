@@ -168,10 +168,17 @@ export async function makeBrowserTools(opts: {
                   : e.tagName === "TEXTAREA"
                     ? "textarea"
                     : e.tagName.toLowerCase());
-        const ariaLabel = e.getAttribute("aria-label");
-        const title = e.getAttribute("title");
-        const placeholder = (e as HTMLInputElement).placeholder;
-        const inner = (e.innerText ?? "").trim().replace(/\s+/g, " ").slice(0, 120);
+        // Normalise empties to null so the `??` precedence chain below
+        // works correctly. The 2026-06-05 QA run kept flagging duels/new
+        // inputs as "(no label)" even though the resolver fired - root
+        // cause was placeholder defaulting to "" (string, not null),
+        // which short-circuits ?? before implicitLabel ever wins.
+        const ariaLabel = e.getAttribute("aria-label") || null;
+        const title = e.getAttribute("title") || null;
+        const placeholderRaw = (e as HTMLInputElement).placeholder;
+        const placeholder = placeholderRaw && placeholderRaw.length > 0 ? placeholderRaw : null;
+        const innerRaw = (e.innerText ?? "").trim().replace(/\s+/g, " ").slice(0, 120);
+        const inner = innerRaw.length > 0 ? innerRaw : null;
         // Implicit label resolution. An input wrapped in a <label> tag
         // (or referenced by `for=`/`htmlFor=`) IS labelled for screen
         // readers, even though the input itself has no aria-label or
@@ -220,7 +227,7 @@ export async function makeBrowserTools(opts: {
         // flips Save → Saving... → Saved while its aria-label stays
         // constant).
         let name = ariaLabel ?? title ?? placeholder ?? implicitLabel ?? inner ?? "";
-        if (ariaLabel && inner && inner !== ariaLabel && inner.length > 0) {
+        if (ariaLabel && inner && inner !== ariaLabel) {
           name = `${ariaLabel} (text: "${inner}")`;
         }
         // Selected/pressed state markers. Without these the agent
