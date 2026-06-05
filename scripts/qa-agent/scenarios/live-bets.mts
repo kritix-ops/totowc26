@@ -1,6 +1,16 @@
-// Scenario: live bets (per-match picks + matchday/day bets).
-// Acceptance criteria live in the user prompt - the agent has
-// them in context and reports a finding per criterion that fails.
+// Scenario: per-match score predictions and (when present) day-bets.
+//
+// The match-pick flow on /he/bets is the most exercised path in the
+// app. The route handler at /api/bets/save (rather than the legacy
+// server action) processes saves now, and the QuickPickRow client
+// component handles in-place +/- adjustments + a fetch save. Earlier
+// QA runs surfaced bugs that have since been fixed in the code:
+//   - updateTag-in-route-handler 500 (cab0d08)
+//   - aria-label not reflecting save state (016b024)
+//   - "נשמר" badge auto-clearing (016b024)
+//   - "שבת" weekday inconsistency (d643a48)
+// The agent should NOT re-file findings for those — if it sees the
+// post-fix behaviour, that is correct.
 
 export const liveBetsScenario = {
   name: "live-bets",
@@ -13,43 +23,81 @@ export const liveBetsScenario = {
     qaBotEmail: string;
     qaBotPassword: string;
   }): string => `
-Test the live-bets flow at ${baseUrl}.
+Test the match-pick + save flow at ${baseUrl}.
 
-Steps:
+# Setup
 1. Navigate to /he/login. Sign in as ${qaBotEmail} with password
-   ${qaBotPassword}. Take a screenshot if anything looks off.
+   ${qaBotPassword}.
+2. browser_wait for=ms value=2000 so the redirect + session
+   propagation completes.
 
-2. Navigate to /he/bets. Confirm:
-   - The page renders in Hebrew, RTL layout.
-   - Match cards show team names and kickoff times.
-   - Kickoff times are in IL local time (look for a sensible hour
-     in 24h format, e.g. "21:00" not "01:00 UTC").
-   - Record any match card that is missing a name, a time, or a
-     team flag.
+# Step 1 — bets list (/he/bets)
+3. Navigate to /he/bets.
+4. Confirm the list renders in Hebrew RTL with match cards.
+5. Spot-check ONE card from the snapshot:
+   - Team names in Hebrew (or fallback to codes if a name row is
+     missing — that IS a finding).
+   - A kickoff time in IL local time. WC2026 evening games in
+     North America land at 04:00–07:00 IL — those are CORRECT,
+     not bugs. Hours 20:00–23:00 are also normal for late-evening
+     IL kickoffs.
 
-3. Pick the first match whose kickoff is clearly in the future
-   (more than 60 minutes away - if all visible matches are within
-   60 minutes, just pick the latest one and note that). Open it.
-   Place a 1X2 pick (1, X, or 2 - your choice).
-   - Confirm you see a success indicator.
-   - Reload the page. Confirm your pick is still selected.
+# Step 2 — save a pick
+6. Find a future match (kickoff > 60 min from now). The current
+   sandbox runs before the tournament so ALL matches qualify.
+7. Click the home-stepper + button to bump the home score from
+   0 to 1.
+8. Click the save button ("שמור" / "שמור הימור").
+9. browser_wait for=ms value=2000.
+10. Re-snapshot. The save button should show "[disabled]" with
+    inner text "נשמר" (snapshot will render this as
+    "הימור נשמר (text: \\"נשמר\\") [disabled]"). If you see "שמור"
+    (active, not נשמר), that is a finding.
+11. Navigate away and back to /he/bets. Confirm the same row
+    still shows "נשמר" — persistence check.
 
-4. Find a match whose deadline has already passed (or is within
-   5 minutes of kickoff). If you can find one:
-   - Confirm the form is disabled.
-   - Confirm there is a clear Hebrew lock message explaining why.
-   - If neither is true, record a finding.
+# Step 3 — deadline lock check (optional, often unreachable)
+12. Look for any match in the snapshot whose card shows the row
+    as DISABLED with text other than "נשמר" (e.g. a generic lock
+    chip). If you find one AND it lacks a Hebrew lock message,
+    that is a MEDIUM finding.
+13. If no past-deadline match exists in the sandbox, **do not
+    record a finding for that**. The agent runs pre-tournament
+    by construction; "no locked matches to test" is the expected
+    state, not a bug.
 
-5. Navigate to /he/bets and try to place a day-bet (matchday
-   bet) on today's matchday. Confirm:
-   - Stake input accepts a reasonable value.
-   - The page shows "Total points" or equivalent, and the value
-     is the same as "Available to bet" (they are aliases in this
-     app - if they differ, that is a finding).
+# Step 4 — live/day-bets section (often empty in sandbox)
+14. Navigate to /he/bets/live. Click a matchday row to open
+    /he/bets/live/<date>.
+15. If the page shows "האדמין עוד לא פרסם הימורי לייב ליום הזה"
+    or the fixtures list with no day-bets attached, that is the
+    EXPECTED empty state. Do not record a finding for it.
+16. If the day page renders completely blank (no header, no
+    fixtures, no empty-state card), apply the 3-step triage
+    BEFORE recording: re-read main raw text, wait 1500ms +
+    re-snapshot, take a screenshot and describe it. Only file
+    a finding if all three confirm zero content.
 
-6. When done, return a one-paragraph summary of what you tested
-   and what you found.
+# Step 5 — bank page (/he/me/bank)
+17. Navigate to /he/me/bank.
+18. Should render header "היסטוריית בנק", balance breakdown card,
+    stats card, and transaction list. Apply the 3-step blank-
+    triage before recording any "blank" finding.
 
-You have at most 25 tool calls for this scenario. Be efficient.
+# Things that are NOT findings (calibrated from prior runs)
+- "Saturday is rendered 'יום שבת' (or any other 'יום X' pattern)"
+  — intended Hebrew format.
+- "Match card shows '4-0' next to תחזית" — that IS the user's
+  prediction, not a live score. The match has not started.
+- "No admin-published day-bets / no locked matches" — sandbox
+  default.
+- "Kickoff at 04:00 / 07:00 IL" — correct IL conversion of US
+  evening games. Not a timezone bug.
+- "Header brand link is 36px tall" — its click area is now 44px
+  via min-h-[44px].
+
+# Budget
+You have at most 30 tool calls. When done, return a one-paragraph
+summary.
 `,
 };
