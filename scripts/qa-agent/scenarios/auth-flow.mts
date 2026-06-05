@@ -4,8 +4,11 @@
 // protected routes, that login works, that logout works, and that
 // the session survives navigation across pages.
 //
-// This is the most "happy-path is the only path" scenario in the
-// catalog. A flaky finding here is almost always a real bug.
+// Each agent run starts with a fresh browser context (no cookies),
+// so the scenario must log in explicitly. Earlier version of this
+// prompt assumed "already logged in" - that was wrong, and the bot
+// spent the run guessing passwords. Fixed in commit that landed
+// with this comment.
 
 export const authFlowScenario = {
   name: "auth-flow",
@@ -20,50 +23,60 @@ export const authFlowScenario = {
   }): string => `
 Test the login / logout / session perimeter at ${baseUrl}.
 
-# Step 1 — already logged in (initial state)
-1. Navigate to /he. Confirm:
-   - The header carries the bank pill (e.g. "30/30") - signed-in
-     marker.
-   - A user-menu trigger is reachable (typically a circular avatar
-     in the header).
+The browser starts with NO cookies, so we begin from the logged-
+out state and work outward.
 
-# Step 2 — find + use logout
-2. Click the user-menu trigger. A menu sheet should open with at
-   least a "logout" / "התנתק" / "צא" option.
-3. If you cannot find a logout control after the menu opens, that
-   is a HIGH finding.
-4. Click logout. Wait 2000ms.
-5. Confirm the header now shows guest UI (no bank pill, login
-   button visible) and / or you have been redirected to /he or
-   /he/login.
+# Step 1 — protected route refuses anonymous
+1. Navigate directly to /he/bets (a protected route, no login yet).
+2. Expect a redirect to /he/login. The URL bar should change. If
+   /he/bets actually renders the bets list for a signed-out
+   request, that is a CRITICAL finding (strangers seeing bets).
+3. Same check: navigate to /he/me/bank. Must redirect to /he/login.
+4. Same check: navigate to /he/admin. Must redirect to /he/login
+   (or to a "not authorised" surface - either is acceptable, but
+   /he/admin rendering admin content unauthenticated is CRITICAL).
 
-# Step 3 — protected route refuses anonymous
-6. While signed out, navigate directly to /he/bets.
-7. Expect a redirect to /he/login (the URL bar should change). If
-   /he/bets actually renders with content for a signed-out user,
-   that IS a CRITICAL finding (means a strangers can see bets).
-8. Same check for /he/me/bank and /he/admin: both must redirect
-   when signed out.
+# Step 2 — successful login
+5. Navigate to /he/login.
+6. Type ${qaBotEmail} into the email field.
+7. Type the exact password ${qaBotPassword} (use it character for
+   character; do not invent a password).
+8. Click the submit / "התחבר" button.
+9. browser_wait for=ms value=2500.
+10. Confirm the redirect lands somewhere signed-in (e.g. /he or
+    /he/dashboard) and the header now shows a bank pill like
+    "30/30". If login fails ("מייל או סיסמה שגויים"), DO NOT
+    guess - that means the credentials block is wrong; record
+    it as a finding and stop.
 
-# Step 4 — login again
-9. From the login page, enter ${qaBotEmail} and the password.
-10. Click the submit / "התחבר" button.
-11. Wait 2000ms.
-12. Confirm the redirect lands on /he or /he/dashboard and the
-    bank pill returns to the header.
+# Step 3 — session survives navigation
+11. From the signed-in landing, navigate /he → /he/bets → /he/me/
+    bank → /he/profile.
+12. The bank pill should persist on every page. If you ever land
+    back on /he/login mid-flow, that is a HIGH finding (session
+    lost unexpectedly).
 
-# Step 5 — session survives navigation
-13. Navigate /he → /he/bets → /he/me/bank → /he/profile. The bank
-    pill should persist across each page. If you ever land back on
-    /he/login mid-flow, that is a HIGH finding (session lost
-    unexpectedly).
+# Step 4 — find + use logout
+13. Click the user-menu trigger in the header (typically a
+    circular avatar at the top corner, top-left in RTL flow).
+14. A menu sheet should open with at least a "logout" / "התנתק" /
+    "צא" option.
+15. If you cannot find a logout control after the menu opens,
+    that is a HIGH finding.
+16. Click logout. browser_wait for=ms value=2000.
+17. Confirm the header now shows the guest UI (no bank pill,
+    "התחבר" button visible) and / or you have been redirected.
 
 # Things that are NOT findings
-- "The user menu shows 'logout', 'profile', 'settings', and the
-  options are not in the order I expect" - layout choice, not a
-  bug.
-- "The redirect from a protected route adds a ?from=… query" - by
-  design, that is the return-after-login mechanism.
+- "The user menu also has 'profile', 'settings', and they are
+  not in the order I expect" - layout choice, not a bug.
+- "The redirect from a protected route adds a ?from=… query
+  param" - by design, that is the return-after-login mechanism.
+
+# Hard rules
+- NEVER invent or guess the password. The exact value to type is
+  given to you above. If login fails with that password, that is
+  the finding — stop the scenario, do not retry with variations.
 
 # Budget: 25 tool calls.
 Return a one-paragraph summary covering the auth perimeter
