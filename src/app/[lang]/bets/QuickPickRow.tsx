@@ -102,11 +102,13 @@ export function QuickPickRow({
     }
   }, [match.myHomeScore, match.myAwayScore, dirty]);
 
-  useEffect(() => {
-    if (!saved || dirty) return;
-    const t = setTimeout(() => setSaved(false), 2500);
-    return () => clearTimeout(t);
-  }, [saved, dirty]);
+  // No auto-clear: a saved bet stays saved. The earlier 2.5s/6s
+  // timeout flipped the button back to "שמור" while the bet was
+  // still persistently in the DB, which the QA agent caught and which
+  // a user would read as "my save was undone". The button now stays
+  // on the "נשמר" state until the user edits the score (onBump sets
+  // saved=false + dirty=true, which is the correct transition - they
+  // are about to overwrite their pick).
 
   const homeName = isHebrew ? match.homeNameHe : match.homeNameEn;
   const awayName = isHebrew ? match.awayNameHe : match.awayNameEn;
@@ -151,13 +153,33 @@ export function QuickPickRow({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ matchId: match.id, home, away }),
         });
+        // Surface the raw response on non-2xx so the next debug pass
+        // (incl. the QA agent rerun) sees status + body text and can
+        // tell a 500 HTML error apart from a server-returned db code.
+        if (!r.ok) {
+          const bodyText = await r.text().catch(() => "<unreadable>");
+          console.error("[match-bet save http]", {
+            matchId: match.id,
+            status: r.status,
+            statusText: r.statusText,
+            body: bodyText.slice(0, 400),
+          });
+          setError("db");
+          return;
+        }
         res = (await r.json()) as SaveBetResult;
       } catch (err) {
-        console.error("[match-bet save fetch]", err);
+        console.error("[match-bet save fetch]", { matchId: match.id, err });
         setError("db");
         return;
       }
       if (!res.ok) {
+        console.error("[match-bet save error code]", {
+          matchId: match.id,
+          home,
+          away,
+          error: res.error,
+        });
         setError(res.error);
         return;
       }
@@ -254,7 +276,20 @@ export function QuickPickRow({
                 : "bg-surface-container-low text-on-surface-variant border border-outline-variant",
             (disabled || pending || !dirty) && "cursor-not-allowed",
           )}
-          aria-label={isHebrew ? "שמור הימור" : "Save bet"}
+          aria-label={
+            pending
+              ? isHebrew
+                ? "שומר הימור"
+                : "Saving bet"
+              : saved && !dirty
+                ? isHebrew
+                  ? "הימור נשמר"
+                  : "Bet saved"
+                : isHebrew
+                  ? "שמור הימור"
+                  : "Save bet"
+          }
+          aria-live="polite"
         >
           {pending ? (
             isHebrew ? "שומר..." : "Saving..."

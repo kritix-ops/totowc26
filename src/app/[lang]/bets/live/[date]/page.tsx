@@ -38,14 +38,51 @@ export default async function BetsLiveDayPage({
   const isHebrew = locale === "he";
   const Chev = isHebrew ? ChevronLeft : ChevronRight;
 
+  // Malformed dates 404. Valid-but-empty dates fall through to the empty-
+  // state card a bit further down instead - the agent run on 2026-06-05
+  // surfaced that clicking a date with no published custom bets bounced
+  // users to a generic "page not found" instead of a friendly message.
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) notFound();
+
   const user = await getRequestUser();
   if (!user) redirect(localePath(locale, "login"));
-  const access = await getUserAccess(user.id);
 
-  const detail = await getPlayDayDetail(date, user.id);
-  if (!detail) notFound();
-
-  const bankBalance = await getBankBalance(user.id);
+  // Defensive: every data dependency gets its own try/catch with a
+  // logged error and a safe default. The 2026-06-05 agent run kept
+  // surfacing /he/bets/live/2026-06-11 rendering completely empty
+  // while June 12/14 worked - same code path, different data, almost
+  // certainly a query throw on that specific date. Adding the wrap
+  // around getUserAccess too because if it throws here (it queries
+  // profiles + payments) the previous wrap missed it.
+  let access: Awaited<ReturnType<typeof getUserAccess>> = {
+    isAdmin: false,
+    isPaid: false,
+    canEdit: false,
+    viewingAs: null,
+  };
+  try {
+    access = await getUserAccess(user.id);
+  } catch (err) {
+    console.error("[bets/live/date] getUserAccess threw", { date, err });
+  }
+  let detail: NonNullable<Awaited<ReturnType<typeof getPlayDayDetail>>>;
+  let bankBalance = 0;
+  try {
+    detail = (await getPlayDayDetail(date, user.id)) ?? {
+      date,
+      matchdayId: null,
+      fixtures: [],
+      bets: [],
+    };
+  } catch (err) {
+    console.error("[bets/live/date] getPlayDayDetail threw", { date, err });
+    detail = { date, matchdayId: null, fixtures: [], bets: [] };
+  }
+  try {
+    bankBalance = await getBankBalance(user.id);
+  } catch (err) {
+    console.error("[bets/live/date] getBankBalance threw", { date, err });
+  }
   // Compute "is this bet still editable?" once on the server so the
   // CustomBetCard client component doesn't have to call Date.now()
   // during its render.
@@ -135,11 +172,16 @@ export default async function BetsLiveDayPage({
                       </div>
                       <div className="flex items-center gap-3 shrink-0">
                         {hasPick ? (
-                          <ScoreLine
-                            home={m.myHome!}
-                            away={m.myAway!}
-                            className="font-[family-name:var(--font-score)] text-base md:text-lg font-bold text-primary"
-                          />
+                          <div className="text-end">
+                            <LabelCaps as="div" className="mb-0.5">
+                              {isHebrew ? "תחזית" : "Prediction"}
+                            </LabelCaps>
+                            <ScoreLine
+                              home={m.myHome!}
+                              away={m.myAway!}
+                              className="font-[family-name:var(--font-score)] text-base md:text-lg font-bold text-primary"
+                            />
+                          </div>
                         ) : (
                           <div className="text-end">
                             <LabelCaps as="div" className="mb-0.5">

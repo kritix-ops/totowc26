@@ -28,14 +28,32 @@ export default async function BankHistoryPage({
   const user = await getRequestUser();
   if (!user) redirect(localePath(locale, "login"));
 
-  const [breakdown, events, stats] = await Promise.all([
-    getBankBreakdown(user.id),
-    getBankHistory(user.id),
-    getBankStats(user.id),
-  ]);
+  // Defensive: the QA agent on 2026-06-05 reported this page rendering
+  // completely blank (only nav chrome visible). Each query gets its
+  // own try/catch with a console.error so the next failure surfaces
+  // the actual stack in Vercel function logs while the page still
+  // renders its chrome + an empty-state for any missing section.
+  let breakdown: Awaited<ReturnType<typeof getBankBreakdown>> | null = null;
+  let events: Awaited<ReturnType<typeof getBankHistory>> = [];
+  let stats: Awaited<ReturnType<typeof getBankStats>> | null = null;
+  try {
+    breakdown = await getBankBreakdown(user.id);
+  } catch (err) {
+    console.error("[me/bank] getBankBreakdown threw", { userId: user.id, err });
+  }
+  try {
+    events = await getBankHistory(user.id);
+  } catch (err) {
+    console.error("[me/bank] getBankHistory threw", { userId: user.id, err });
+  }
+  try {
+    stats = await getBankStats(user.id);
+  } catch (err) {
+    console.error("[me/bank] getBankStats threw", { userId: user.id, err });
+  }
 
   return (
-    <section className="px-4 md:px-16 py-6 md:py-12 flex flex-col gap-8 md:gap-10 max-w-3xl mx-auto w-full">
+    <section className="px-4 md:px-16 py-6 md:py-12 flex flex-col gap-8 md:gap-10 max-w-3xl mx-auto w-full pb-24 md:pb-12">
       <header className="flex flex-col gap-2">
         <h1 className="font-[family-name:var(--font-display)] text-[28px] leading-9 md:text-[40px] md:leading-[44px] font-bold text-on-surface inline-flex items-center gap-3">
           <Coins className="h-7 w-7 md:h-9 md:w-9 text-primary" strokeWidth={1.75} />
@@ -48,59 +66,67 @@ export default async function BankHistoryPage({
         </p>
       </header>
 
-      <Card className="p-5 md:p-6 flex flex-col gap-4">
-        <SectionHeading underline="thin" as="h2">
-          {dict.bank.balance}
-        </SectionHeading>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <BreakdownCell
-            label={dict.bank.starting}
-            value={breakdown.starting}
-          />
-          <BreakdownCell
-            label={dict.bank.payoutsEarned}
-            value={breakdown.payoutsEarned}
-            tone="positive"
-          />
-          <BreakdownCell
-            label={dict.bank.stakesPaid}
-            value={-breakdown.stakesPaid}
-            tone="negative"
-          />
-          <BreakdownCell
-            label={dict.bank.duels}
-            value={breakdown.duelDelta}
-            tone={
-              breakdown.duelDelta > 0
-                ? "positive"
-                : breakdown.duelDelta < 0
-                  ? "negative"
-                  : undefined
-            }
-          />
-          <BreakdownCell
-            label={dict.bank.adjustments}
-            value={breakdown.adjustments}
-            tone={breakdown.adjustments >= 0 ? "positive" : "negative"}
-          />
-        </div>
-        <div className="flex items-center justify-between gap-3 pt-3 border-t border-outline-variant">
-          <span className="inline-flex items-center gap-2 font-bold text-on-surface">
-            <Scale className="h-5 w-5" strokeWidth={1.75} />
+      {breakdown ? (
+        <Card className="p-5 md:p-6 flex flex-col gap-4">
+          <SectionHeading underline="thin" as="h2">
             {dict.bank.balance}
-          </span>
-          <span
-            className={clsx(
-              "font-[family-name:var(--font-score)] text-3xl md:text-4xl font-bold tabular-nums",
-              breakdown.balance < 0 ? "text-error" : "text-on-surface",
-            )}
-          >
-            <bdi>{breakdown.balance}</bdi>
-          </span>
-        </div>
-      </Card>
+          </SectionHeading>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <BreakdownCell
+              label={dict.bank.starting}
+              value={breakdown.starting}
+            />
+            <BreakdownCell
+              label={dict.bank.payoutsEarned}
+              value={breakdown.payoutsEarned}
+              tone="positive"
+            />
+            <BreakdownCell
+              label={dict.bank.stakesPaid}
+              value={-breakdown.stakesPaid}
+              tone="negative"
+            />
+            <BreakdownCell
+              label={dict.bank.duels}
+              value={breakdown.duelDelta}
+              tone={
+                breakdown.duelDelta > 0
+                  ? "positive"
+                  : breakdown.duelDelta < 0
+                    ? "negative"
+                    : undefined
+              }
+            />
+            <BreakdownCell
+              label={dict.bank.adjustments}
+              value={breakdown.adjustments}
+              tone={breakdown.adjustments >= 0 ? "positive" : "negative"}
+            />
+          </div>
+          <div className="flex items-center justify-between gap-3 pt-3 border-t border-outline-variant">
+            <span className="inline-flex items-center gap-2 font-bold text-on-surface">
+              <Scale className="h-5 w-5" strokeWidth={1.75} />
+              {dict.bank.balance}
+            </span>
+            <span
+              className={clsx(
+                "font-[family-name:var(--font-score)] text-3xl md:text-4xl font-bold tabular-nums",
+                breakdown.balance < 0 ? "text-error" : "text-on-surface",
+              )}
+            >
+              <bdi>{breakdown.balance}</bdi>
+            </span>
+          </div>
+        </Card>
+      ) : (
+        <Card className="p-5 md:p-6 text-center text-on-surface-variant">
+          {isHebrew
+            ? "פירוט הבנק לא זמין כרגע. נסה לרענן את הדף."
+            : "Balance breakdown unavailable. Try refreshing the page."}
+        </Card>
+      )}
 
-      <StatsCard stats={stats} isHebrew={isHebrew} />
+      {stats && <StatsCard stats={stats} isHebrew={isHebrew} />}
 
       <div className="flex flex-col gap-2">
         <SectionHeading underline="thin" as="h2">

@@ -8,10 +8,29 @@ export function formatDateTime(
   locale: Locale,
   options: Intl.DateTimeFormatOptions,
 ): string {
-  return new Intl.DateTimeFormat(locale === "he" ? "he-IL" : "en-GB", {
+  const raw = new Intl.DateTimeFormat(locale === "he" ? "he-IL" : "en-GB", {
     ...options,
     timeZone: IL_TIMEZONE,
   }).format(value instanceof Date ? value : new Date(value));
+  // Intl returns weekday="שבת" while every other Hebrew weekday comes
+  // through as "יום X" — the only day without the "יום" prefix. The
+  // QA agent flagged the inconsistency. Prepend "יום" so all seven days
+  // start the same way visually. Only applied when a weekday is
+  // actually present in `options`, to avoid prepending to bare-date
+  // strings that happen to contain "שבת" by coincidence (extremely
+  // unlikely, but the guard is cheap).
+  if (locale === "he" && options.weekday) {
+    // The earlier version used `\b` after "שבת" - which does not work
+    // for Hebrew letters because `\b` is defined relative to `\w`
+    // (ASCII word chars only). So the replace silently no-op'd. The
+    // QA agent re-flagged "שבת, 13 ביוני" without the "יום" prefix.
+    // The lookahead form below uses an explicit "follow with comma /
+    // space / end-of-string" check that does not depend on `\w`, and
+    // the leading group still requires start-of-string or whitespace
+    // or comma so we do not prepend inside words like "שבתות".
+    return raw.replace(/(^|[\s,])שבת(?=[,\s]|$)/gu, "$1יום שבת");
+  }
+  return raw;
 }
 
 // Convert a UTC ISO string to the "YYYY-MM-DDTHH:mm" wall-clock string

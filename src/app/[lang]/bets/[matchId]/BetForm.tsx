@@ -137,6 +137,7 @@ export function BetForm({
               onChange={(n) => setHome(clamp(n))}
               disabled={!editable || pending}
               isHebrew={isHebrew}
+              ariaLabel={`${match.homeName} ${isHebrew ? "שערים" : "goals"}`}
             />
           </div>
           <div className="flex items-center justify-center">
@@ -154,6 +155,7 @@ export function BetForm({
               onChange={(n) => setAway(clamp(n))}
               disabled={!editable || pending}
               isHebrew={isHebrew}
+              ariaLabel={`${match.awayName} ${isHebrew ? "שערים" : "goals"}`}
             />
           </div>
         </div>
@@ -271,17 +273,19 @@ function ScoreStepper({
   onChange,
   disabled,
   isHebrew,
+  ariaLabel,
 }: {
   value: number;
   onChange: (n: number) => void;
   disabled?: boolean;
   isHebrew: boolean;
+  ariaLabel: string;
 }) {
   return (
     <div className="flex items-center gap-2">
       <button
         type="button"
-        aria-label={isHebrew ? "פחות" : "Less"}
+        aria-label={`${ariaLabel} ${isHebrew ? "פחות" : "less"}`}
         onClick={() => onChange(Math.max(0, value - 1))}
         disabled={disabled || value === 0}
         className="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-full bg-surface-container-lowest border border-outline text-on-surface hover:bg-surface-container disabled:opacity-40"
@@ -299,13 +303,14 @@ function ScoreStepper({
             onChange(isNaN(v) ? 0 : v);
           }}
           disabled={disabled}
+          aria-label={ariaLabel}
           className="w-14 md:w-20 h-16 md:h-24 bg-transparent text-center font-[family-name:var(--font-score)] text-[28px] md:text-[40px] leading-none tracking-[0.1em] font-bold text-[#FBF6EB] focus:outline-none border-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none disabled:opacity-60"
           dir="ltr"
         />
       </div>
       <button
         type="button"
-        aria-label={isHebrew ? "יותר" : "More"}
+        aria-label={`${ariaLabel} ${isHebrew ? "יותר" : "more"}`}
         onClick={() => onChange(Math.min(99, value + 1))}
         disabled={disabled || value === 99}
         className="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-full bg-surface-container-lowest border border-outline text-on-surface hover:bg-surface-container disabled:opacity-40"

@@ -85,12 +85,25 @@ export default async function BetsLiveIndexPage({
                       </span>
                       <div className="flex gap-2 items-center mt-1 flex-wrap">
                         <Chip>
-                          {d.matchCount} {isHebrew ? "משחקים" : "matches"}
+                          {d.matchCount}{" "}
+                          {isHebrew
+                            ? d.matchCount === 1
+                              ? "משחק"
+                              : "משחקים"
+                            : d.matchCount === 1
+                              ? "match"
+                              : "matches"}
                         </Chip>
                         {d.openBetCount > 0 && (
                           <Chip tone="primary">
                             {d.openBetCount}{" "}
-                            {isHebrew ? "הימורים פתוחים" : "open bets"}
+                            {isHebrew
+                              ? d.openBetCount === 1
+                                ? "הימור פתוח"
+                                : "הימורים פתוחים"
+                              : d.openBetCount === 1
+                                ? "open bet"
+                                : "open bets"}
                           </Chip>
                         )}
                       </div>

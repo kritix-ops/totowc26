@@ -123,7 +123,7 @@ export async function AppShell({
           <Link
             href={home}
             aria-label={isHebrew ? "טוטו מונדיאל" : "Toto Mundial"}
-            className="flex items-center min-w-0 shrink-0"
+            className="flex items-center min-w-0 shrink-0 min-h-[44px]"
           >
             <BrandLogo locale={locale} size="header" />
           </Link>
