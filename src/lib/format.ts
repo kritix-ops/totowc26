@@ -20,7 +20,15 @@ export function formatDateTime(
   // strings that happen to contain "שבת" by coincidence (extremely
   // unlikely, but the guard is cheap).
   if (locale === "he" && options.weekday) {
-    return raw.replace(/(^|[\s,])(שבת)(\b)/g, "$1יום $2$3");
+    // The earlier version used `\b` after "שבת" - which does not work
+    // for Hebrew letters because `\b` is defined relative to `\w`
+    // (ASCII word chars only). So the replace silently no-op'd. The
+    // QA agent re-flagged "שבת, 13 ביוני" without the "יום" prefix.
+    // The lookahead form below uses an explicit "follow with comma /
+    // space / end-of-string" check that does not depend on `\w`, and
+    // the leading group still requires start-of-string or whitespace
+    // or comma so we do not prepend inside words like "שבתות".
+    return raw.replace(/(^|[\s,])שבת(?=[,\s]|$)/gu, "$1יום שבת");
   }
   return raw;
 }
