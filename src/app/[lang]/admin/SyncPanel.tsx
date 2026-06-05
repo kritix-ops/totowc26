@@ -69,8 +69,8 @@ export function SyncPanel({
           </h3>
           <p className="text-sm text-on-surface-variant">
             {isHebrew
-              ? "מושך משחקים, תוצאות וניקוד אוטומטי. רץ פעם ביום ב-6:00 UTC, או הפעל כאן ידנית."
-              : "Pulls fixtures, results and auto-scores bets. Runs once daily at 06:00 UTC, or fire it manually."}
+              ? "מושך משחקים ותוצאות, מנקד הימורי 1/X/2, וקובע מנצחי בתים אוטומטית אחרי שכל 6 משחקי הבית נגמרו. רץ פעם ביום ב-6:00 UTC, או לחץ כאן כדי לא לחכות."
+              : "Pulls fixtures and results, scores match bets, and grades group winners automatically once every group's 6 matches are final. Runs daily at 06:00 UTC. Fire it here to skip the wait."}
           </p>
         </div>
         <PillButton

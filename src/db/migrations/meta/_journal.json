@@ -281,6 +281,13 @@
       "when": 1782095000000,
       "tag": "0039_per_match_pick_deadlines",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1782100000000,
+      "tag": "0040_auto_grade_group_bets",
+      "breakpoints": true
     }
   ]
 }
