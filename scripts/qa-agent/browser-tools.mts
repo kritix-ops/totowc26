@@ -172,13 +172,54 @@ export async function makeBrowserTools(opts: {
         const title = e.getAttribute("title");
         const placeholder = (e as HTMLInputElement).placeholder;
         const inner = (e.innerText ?? "").trim().replace(/\s+/g, " ").slice(0, 120);
+        // Implicit label resolution. An input wrapped in a <label> tag
+        // (or referenced by `for=`/`htmlFor=`) IS labelled for screen
+        // readers, even though the input itself has no aria-label or
+        // title or inner text. The QA agent used to file false-positive
+        // "input missing label" findings because the snapshot only
+        // looked at the input's own attributes. We now walk the parent
+        // chain looking for a wrapping <label>, and check for an
+        // associated label-by-id if the input has an id.
+        let implicitLabel: string | null = null;
+        if (
+          (e.tagName === "INPUT" ||
+            e.tagName === "TEXTAREA" ||
+            e.tagName === "SELECT") &&
+          !ariaLabel &&
+          !title &&
+          !placeholder
+        ) {
+          // Walk up looking for a wrapping <label> element.
+          let cur: HTMLElement | null = e.parentElement;
+          while (cur && cur.tagName !== "BODY") {
+            if (cur.tagName === "LABEL") {
+              implicitLabel = (cur.innerText ?? "")
+                .trim()
+                .replace(/\s+/g, " ")
+                .slice(0, 120);
+              break;
+            }
+            cur = cur.parentElement;
+          }
+          // <label for="id"> style if no wrapping <label> found.
+          if (!implicitLabel && e.id) {
+            const lbl = document.querySelector(`label[for="${CSS.escape(e.id)}"]`);
+            if (lbl) {
+              implicitLabel = ((lbl as HTMLElement).innerText ?? "")
+                .trim()
+                .replace(/\s+/g, " ")
+                .slice(0, 120);
+            }
+          }
+        }
         // Headline label preference: aria-label > title > placeholder >
-        // inner text. When aria-label is set but inner text differs, we
-        // append the inner text as a secondary signal so the agent can
-        // see state changes inside an aria-labelled button (e.g. a Save
-        // button whose visible label flips Save → Saving... → Saved
-        // while its aria-label stays constant).
-        let name = ariaLabel ?? title ?? placeholder ?? inner ?? "";
+        // implicit <label> > inner text. When aria-label is set but
+        // inner text differs, we append the inner text as a secondary
+        // signal so the agent can see state changes inside an aria-
+        // labelled button (e.g. a Save button whose visible label
+        // flips Save → Saving... → Saved while its aria-label stays
+        // constant).
+        let name = ariaLabel ?? title ?? placeholder ?? implicitLabel ?? inner ?? "";
         if (ariaLabel && inner && inner !== ariaLabel && inner.length > 0) {
           name = `${ariaLabel} (text: "${inner}")`;
         }

@@ -193,6 +193,7 @@ export function NewDuelForm({
               key={s}
               type="button"
               onClick={() => setScope(s)}
+              aria-pressed={scope === s}
               className={clsx(
                 "press-down min-h-[48px] rounded-lg border text-sm font-bold",
                 scope === s

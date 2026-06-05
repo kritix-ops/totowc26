@@ -79,6 +79,10 @@ Deep-dive the signed-in landing at ${baseUrl}/he.
   even when X equals Y.
 - "The dashboard layout differs between mobile and desktop" -
   responsive layout is the design.
+- A match-card save button reading "שמור הימור" with [disabled]
+  state - that is the idle pre-edit state on a card the user has
+  not touched yet. The button enables once they bump a score
+  (dirty=true) and flips to "נשמר" after save.
 
 # Budget: 25 tool calls.
 Return a one-paragraph summary covering bank pill consistency,

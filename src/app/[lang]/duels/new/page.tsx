@@ -69,7 +69,7 @@ export default async function NewDuelPage({ params }: PageParams) {
       <header className="flex flex-col gap-2">
         <Link
           href={localePath(locale, "duels")}
-          className="inline-flex items-center gap-1 text-sm text-on-surface-variant hover:text-on-surface w-fit"
+          className="inline-flex items-center gap-1 text-sm text-on-surface-variant hover:text-on-surface w-fit min-h-[44px]"
         >
           <Chev className="h-4 w-4" strokeWidth={2} />
           {dict.duels.title}
