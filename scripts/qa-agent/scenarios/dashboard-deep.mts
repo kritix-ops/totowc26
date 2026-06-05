@@ -38,10 +38,11 @@ Deep-dive the signed-in landing at ${baseUrl}/he.
 # Step 2 — section anatomy
 5. Snapshot the landing main area. Confirm the page has:
    - A welcome / heading row.
-   - A "ניחושי משחקים" / match picks teaser section.
-   - A "מובילים" / leaders section with a "טבלה מלאה" CTA.
-   - A "הימורי לייב" / live bets teaser section with a "הצג הכל"
-     CTA.
+   - At least one section that links to a bets surface (match
+     picks, leaderboard, or news).
+   The exact section list is admin-configurable and changes between
+   sprints. Do NOT file a finding on missing/added sections — only
+   on a section that renders broken (e.g. an h2 with no body).
 6. Read the "--- main raw text ---" section to confirm meaningful
    content actually rendered — not just placeholders.
 
@@ -67,7 +68,10 @@ Deep-dive the signed-in landing at ${baseUrl}/he.
     bottom nav appears (since we changed the breakpoint to lg,
     tablet and mobile both have it).
 15. browser_resize to 1440x900 and re-snapshot /he. Confirm the
-    desktop top nav has its full 7 items and bottom nav is gone.
+    desktop top nav appears (the bottom nav should be gone). The
+    exact item count is admin-configurable and currently 8 - do
+    NOT file a finding on the count, only on whether the nav
+    actually renders at desktop width.
 
 # Things that are NOT findings
 - "The bank pill displays X/Y instead of just X" - the pill is

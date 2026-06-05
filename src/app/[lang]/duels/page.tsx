@@ -205,8 +205,9 @@ function TabPill({
   return (
     <Link
       href={`${localePath(locale, "duels")}?tab=${tabKey}`}
+      aria-current={active ? "page" : undefined}
       className={clsx(
-        "snap-start press-down inline-flex items-center justify-center h-10 px-4 rounded-full border text-sm font-bold",
+        "snap-start press-down inline-flex items-center justify-center h-11 px-4 rounded-full border text-sm font-bold",
         active
           ? "bg-primary text-on-primary border-primary"
           : "bg-surface-container-lowest text-on-surface border-outline-variant hover:bg-surface-container",

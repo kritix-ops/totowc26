@@ -149,6 +149,14 @@ try {
     const scenario = SCENARIO_REGISTRY[key];
     log(`[qa.scenario] start ${scenario.name}`);
     const findingsBefore = tools.findings.length;
+    // Snapshot budget state BEFORE the scenario so we can compute
+    // the scenario's own spend as a delta. budget is shared across
+    // scenarios (so the global cap covers a full `all` run), which
+    // means runScenario returns the cumulative usdSpent at end -
+    // summing those across scenarios would double-count.
+    const spendBefore = budget.usdSpent;
+    const inTokensBefore = budget.inputTokens;
+    const outTokensBefore = budget.outputTokens;
 
     const outcome = await runScenario({
       apiKey: env.anthropicApiKey,
@@ -164,11 +172,18 @@ try {
       log,
     });
 
+    // Rewrite outcome to carry this scenario's own delta, not the
+    // cumulative total. Keeps every consumer (reporter, log line)
+    // honest about which scenario cost what.
+    outcome.usdSpent = budget.usdSpent - spendBefore;
+    outcome.inputTokens = budget.inputTokens - inTokensBefore;
+    outcome.outputTokens = budget.outputTokens - outTokensBefore;
+
     const scenarioFindings = tools.findings.slice(findingsBefore);
     scenarioResults.push({ outcome, findings: scenarioFindings });
 
     log(
-      `[qa.scenario] end ${scenario.name} stopped=${outcome.stoppedReason} turns=${outcome.turns} findings=${scenarioFindings.length} $${outcome.usdSpent.toFixed(4)}`,
+      `[qa.scenario] end ${scenario.name} stopped=${outcome.stoppedReason} turns=${outcome.turns} findings=${scenarioFindings.length} $${outcome.usdSpent.toFixed(4)} (total $${budget.usdSpent.toFixed(4)})`,
     );
 
     // Bail out of the loop if budget is already gone.
