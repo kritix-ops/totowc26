@@ -737,7 +737,7 @@ function MyPicksSection({
         locale={locale}
         dict={dict}
         title={dict.profile.pointsFromMatches}
-        icon={ListChecks}
+        icon={<ListChecks className="h-5 w-5 text-tertiary-fixed-dim shrink-0" strokeWidth={1.75} />}
         viewAllHref={localePath(locale, "bets")}
         emptyHref={localePath(locale, "bets")}
         isEmpty={matchPicks.length === 0}
@@ -755,7 +755,7 @@ function MyPicksSection({
         locale={locale}
         dict={dict}
         title={dict.profile.pointsFromLiveBets}
-        icon={Radio}
+        icon={<Radio className="h-5 w-5 text-tertiary-fixed-dim shrink-0" strokeWidth={1.75} />}
         viewAllHref={localePath(locale, "bets/live")}
         emptyHref={localePath(locale, "bets/live")}
         isEmpty={liveBetPicks.length === 0}
@@ -773,7 +773,7 @@ function MyPicksSection({
         locale={locale}
         dict={dict}
         title={dict.profile.pointsFromTournamentBets}
-        icon={Trophy}
+        icon={<Trophy className="h-5 w-5 text-tertiary-fixed-dim shrink-0" strokeWidth={1.75} />}
         viewAllHref={localePath(locale, "bets/tournament")}
         emptyHref={localePath(locale, "bets/tournament")}
         isEmpty={tournamentBetPicks.length === 0}
@@ -791,7 +791,7 @@ function MyPicksSection({
         locale={locale}
         dict={dict}
         title={dict.profile.pointsFromDuels}
-        icon={Swords}
+        icon={<Swords className="h-5 w-5 text-tertiary-fixed-dim shrink-0" strokeWidth={1.75} />}
         viewAllHref={localePath(locale, "duels")}
         emptyHref={localePath(locale, "duels")}
         isEmpty={duelPicks.length === 0}
@@ -815,7 +815,7 @@ function PicksBucket({
   locale,
   dict,
   title,
-  icon: Icon,
+  icon,
   viewAllHref,
   emptyHref,
   isEmpty,
@@ -824,7 +824,7 @@ function PicksBucket({
   locale: Locale;
   dict: Awaited<ReturnType<typeof getDictionary>>;
   title: string;
-  icon: typeof ListChecks;
+  icon: React.ReactNode;
   viewAllHref: string;
   emptyHref: string;
   isEmpty: boolean;
@@ -836,10 +836,7 @@ function PicksBucket({
     <section className="flex flex-col gap-3">
       <div className="flex items-end justify-between gap-3">
         <h3 className="font-[family-name:var(--font-display)] text-lg md:text-xl font-bold text-on-surface inline-flex items-center gap-2">
-          <Icon
-            className="h-5 w-5 text-tertiary-fixed-dim shrink-0"
-            strokeWidth={1.75}
-          />
+          {icon}
           {title}
         </h3>
         {!isEmpty && (
