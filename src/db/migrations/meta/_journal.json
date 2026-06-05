@@ -288,6 +288,13 @@
       "when": 1782100000000,
       "tag": "0040_auto_grade_group_bets",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1782105000000,
+      "tag": "0041_total_goals_cards_to_ranges",
+      "breakpoints": true
     }
   ]
 }
