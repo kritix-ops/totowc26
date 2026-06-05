@@ -6,7 +6,23 @@
 // answer / resolved value), so a single jsonb column on custom_bets can
 // carry every variant without losing type safety at the call site.
 
-export type YesNoConfig = { kind: "yes_no" };
+export type YesNoConfig = {
+  kind: "yes_no";
+  // Per-option payout overrides for yes_no bets that price the two
+  // outcomes differently — e.g. a 30%-yes / 70%-no market where the
+  // "yes" branch should pay much more than the "no" branch. When set,
+  // they supersede the bet-level `payoutSnapshot` for users picking
+  // that specific branch, the same way `MultiChoiceOption.payoutOverride`
+  // works for multi_choice bets. Snapshotted into
+  // bet_picks.payout_snapshot at pick time, so post-lock shifts never
+  // re-price a locked pick.
+  //
+  // Optional everywhere — bets that price both outcomes the same leave
+  // these undefined and the flat bet-level payout is used. See
+  // _plans/2026-06-05-flat-tournament-bets-per-option-odds.md.
+  payoutOverrideYes?: number;
+  payoutOverrideNo?: number;
+};
 
 export type NumberUnit =
   | "goals"

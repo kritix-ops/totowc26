@@ -334,7 +334,17 @@ function TemplateIcon({ iconKey }: { iconKey: TournamentTemplate["iconKey"] }) {
 function buildAnswerConfig(template: TournamentTemplate): AnswerConfig {
   switch (template.answerType) {
     case "yes_no":
-      return { kind: "yes_no" };
+      // yesNoOverrides flow straight through onto YesNoConfig so the
+      // payout resolver can read per-branch prices at pick time. The
+      // template defines them for asymmetric markets (e.g. final on
+      // penalties) and leaves them off when both branches pay the same.
+      return template.yesNoOverrides
+        ? {
+            kind: "yes_no",
+            payoutOverrideYes: template.yesNoOverrides.yes,
+            payoutOverrideNo: template.yesNoOverrides.no,
+          }
+        : { kind: "yes_no" };
     case "number":
       return {
         kind: "number",

@@ -100,7 +100,7 @@ describe("resolvePickPayoutAtSubmit", () => {
     expect(r).toBe(14);
   });
 
-  it("ignores override on non-multi_choice answer types", () => {
+  it("falls back to bet-level for yes_no bets with no per-branch overrides", () => {
     const r = resolvePickPayoutAtSubmit({
       answerType: "yes_no",
       answerConfig: { kind: "yes_no" },
@@ -108,6 +108,68 @@ describe("resolvePickPayoutAtSubmit", () => {
       betLevelPayout: 6,
     });
     expect(r).toBe(6);
+  });
+
+  it("uses payoutOverrideYes when the user picks yes on a yes_no bet", () => {
+    const r = resolvePickPayoutAtSubmit({
+      answerType: "yes_no",
+      answerConfig: {
+        kind: "yes_no",
+        payoutOverrideYes: 100,
+        payoutOverrideNo: 20,
+      },
+      answer: pickYes,
+      betLevelPayout: 100,
+    });
+    expect(r).toBe(100);
+  });
+
+  it("uses payoutOverrideNo when the user picks no on a yes_no bet", () => {
+    const r = resolvePickPayoutAtSubmit({
+      answerType: "yes_no",
+      answerConfig: {
+        kind: "yes_no",
+        payoutOverrideYes: 100,
+        payoutOverrideNo: 20,
+      },
+      answer: { type: "yes_no", value: false },
+      betLevelPayout: 100,
+    });
+    expect(r).toBe(20);
+  });
+
+  it("falls back to bet-level when only the opposite branch is priced", () => {
+    const r = resolvePickPayoutAtSubmit({
+      answerType: "yes_no",
+      answerConfig: { kind: "yes_no", payoutOverrideYes: 100 },
+      answer: { type: "yes_no", value: false },
+      betLevelPayout: 6,
+    });
+    expect(r).toBe(6);
+  });
+
+  it("ignores a zero/negative yes_no override and falls back to bet-level", () => {
+    const r = resolvePickPayoutAtSubmit({
+      answerType: "yes_no",
+      answerConfig: {
+        kind: "yes_no",
+        payoutOverrideYes: 0,
+        payoutOverrideNo: -5,
+      },
+      answer: pickYes,
+      betLevelPayout: 6,
+    });
+    expect(r).toBe(6);
+  });
+
+  it("rounds a non-integer yes_no override to nearest integer", () => {
+    const r = resolvePickPayoutAtSubmit({
+      answerType: "yes_no",
+      answerConfig: { kind: "yes_no", payoutOverrideYes: 99.6 },
+      answer: pickYes,
+      betLevelPayout: 6,
+    });
+    expect(r).toBe(100);
   });
 
   it("rounds a non-integer override to nearest integer", () => {

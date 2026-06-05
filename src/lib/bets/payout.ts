@@ -22,7 +22,12 @@
 // the AnswerConfig discriminated union. The narrowing happens here in
 // one place rather than in every caller.
 
-import type { MultiChoiceConfig, MultiChoiceOption, PickAnswer } from "./types";
+import type {
+  MultiChoiceConfig,
+  MultiChoiceOption,
+  PickAnswer,
+  YesNoConfig,
+} from "./types";
 
 // Resolves the payout for a single pick at PICK time. Used by the
 // pick action to snapshot the value into user_custom_bet_picks.
@@ -32,12 +37,19 @@ export function resolvePickPayoutAtSubmit(args: {
   answer: PickAnswer;
   betLevelPayout: number;
 }): number {
-  const override = readMultiChoiceOverride(
+  const mc = readMultiChoiceOverride(
     args.answerType,
     args.answerConfig,
     args.answer,
   );
-  return override ?? args.betLevelPayout;
+  if (mc != null) return mc;
+  const yn = readYesNoOverride(
+    args.answerType,
+    args.answerConfig,
+    args.answer,
+  );
+  if (yn != null) return yn;
+  return args.betLevelPayout;
 }
 
 // Resolves the payout for a single pick at GRADE time. Used by the
@@ -80,5 +92,20 @@ function readMultiChoiceOverride(
     }
   }
 
+  return null;
+}
+
+function readYesNoOverride(
+  answerType: "yes_no" | "number" | "multi_choice" | "free_text",
+  answerConfig: unknown,
+  answer: PickAnswer,
+): number | null {
+  if (answerType !== "yes_no") return null;
+  if (answer.type !== "yes_no") return null;
+  const cfg = answerConfig as Partial<YesNoConfig> | null | undefined;
+  const v = answer.value ? cfg?.payoutOverrideYes : cfg?.payoutOverrideNo;
+  if (typeof v === "number" && Number.isFinite(v) && v > 0) {
+    return Math.round(v);
+  }
   return null;
 }
