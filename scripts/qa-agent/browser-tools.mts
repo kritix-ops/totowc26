@@ -246,6 +246,22 @@ export async function makeBrowserTools(opts: {
       return out;
     });
 
+    // Last-resort raw text dump of the <main> region. When the
+    // structural scan above finds very few elements, the agent has
+    // been writing "page is blank" findings on pages that actually
+    // contain text the user can clearly read in a screenshot. This
+    // section is the safety net: a plain text projection of the
+    // page's main content so the agent can see what the user sees.
+    const mainText = await page.evaluate(() => {
+      const main =
+        document.querySelector("main") ??
+        document.querySelector("[role=main]") ??
+        document.querySelector("section");
+      if (!main) return "";
+      const raw = (main as HTMLElement).innerText ?? "";
+      return raw.trim().replace(/[\t ]+/g, " ").replace(/\n{3,}/g, "\n\n").slice(0, 3500);
+    });
+
     const url = page.url();
     const title = await page.title().catch(() => "");
     const lines: string[] = [];
@@ -253,7 +269,7 @@ export async function makeBrowserTools(opts: {
     lines.push(`title: ${title || "(none)"}`);
     lines.push(`viewport: ${page.viewportSize()?.width}x${page.viewportSize()?.height}`);
     lines.push(
-      `elements: ${tree.length} interactive/structural, ${textBlocks.length} text blocks`,
+      `elements: ${tree.length} interactive/structural, ${textBlocks.length} text blocks, main_text_len=${mainText.length}`,
     );
     lines.push("--- interactive ---");
     for (const node of tree) {
@@ -265,6 +281,16 @@ export async function makeBrowserTools(opts: {
     if (textBlocks.length > 0) {
       lines.push("--- text content ---");
       for (const t of textBlocks) lines.push(`• ${t.replace(/"/g, "'")}`);
+    }
+    // Always surface the raw main text. It is short and disambiguates
+    // "page is blank" claims faster than another navigate-and-snapshot
+    // round. Skipped only if the structural+text sections already
+    // covered the same text (heuristic: structural rich + text blocks
+    // present means the page rendered fine, raw dump is redundant).
+    const richEnough = tree.length >= 5 && textBlocks.length >= 3;
+    if (mainText && !richEnough) {
+      lines.push("--- main raw text (truncated to 3500 chars) ---");
+      lines.push(mainText);
     }
     // Tail of new console entries since the previous snapshot. We
     // surface only error/warning/pageerror because every page logs
@@ -291,13 +317,23 @@ export async function makeBrowserTools(opts: {
       const msg = e instanceof Error ? e.message : String(e);
       return `ERROR: ${msg}\n---\n` + (await snapshot());
     }
-    // Let the page settle briefly before snapshotting. Networkidle is
-    // unreliable on a streaming SPA; a short wait + body-ready check
-    // is what humans do.
-    await page
-      .waitForLoadState("domcontentloaded", { timeout: 5000 })
-      .catch(() => {});
-    await page.waitForTimeout(250);
+    // Wait for the page to actually finish rendering, not just for the
+    // initial DOM. Next.js streams data behind <Suspense fallback={null}>
+    // boundaries; if we snapshotted on domcontentloaded the agent saw
+    // the empty shell and reported "blank page" while a real user (who
+    // waits a beat longer) saw the streamed content. Sequence:
+    //
+    //   1. window.load - all initial resources loaded
+    //   2. networkidle - no requests for 500ms (= streaming done)
+    //   3. 400ms cushion for React hydration to settle aria-busy etc.
+    //
+    // All three have generous timeouts because some pages legitimately
+    // keep low-traffic activity going (push notification heartbeat,
+    // analytics). networkidle is the most important - it is what
+    // distinguishes "shell loaded" from "content rendered".
+    await page.waitForLoadState("load", { timeout: 5000 }).catch(() => {});
+    await page.waitForLoadState("networkidle", { timeout: 5000 }).catch(() => {});
+    await page.waitForTimeout(400);
     return snapshot();
   }
 

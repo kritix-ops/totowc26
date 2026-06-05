@@ -36,6 +36,15 @@ sections:
   logs (e.g. `[match-bet save http]`) reveal status codes and
   response bodies that the screenshot alone cannot show. Include
   the raw line in the `actual` field of your finding.
+- `--- main raw text (truncated ...) ---` is the plain inner text
+  of the `<main>` region, shown when the structural scan returned
+  few elements (typical for pages still streaming under Suspense or
+  pages whose content is mostly text in non-interactive divs).
+  **Read this before claiming a page is "blank" or "empty".** A
+  page with several lines of meaningful text here is not blank —
+  it is rendered, just not heavy on interactive elements. If this
+  section says something like "היסטוריית בנק / יתרה / 30" then the
+  bank page IS rendered, even if the interactive list looks short.
 
 **Refs are valid only for the most recent snapshot.** If you click
 or navigate, take a new snapshot before referring to elements again.
@@ -43,6 +52,26 @@ or navigate, take a new snapshot before referring to elements again.
 When the page is in Hebrew, expect right-to-left layout. Element
 labels in the snapshot are the rendered text, so they will be in
 Hebrew. Use them as-is.
+
+## Before recording a "blank page" or "empty page" finding
+
+False-blank findings have been the #1 source of wasted run time.
+Apply this triage BEFORE recording such a finding:
+
+1. Re-read the snapshot's `--- main raw text ---` section. If it
+   has more than ~80 characters of meaningful text, the page is
+   NOT blank — investigate what content IS rendered before
+   reporting.
+2. Wait 1500ms (`browser_wait for=ms value=1500`) and re-snapshot.
+   Suspense-streamed content arrives after the initial response;
+   the second snapshot often has it.
+3. Take a screenshot AND describe its contents. If a screenshot
+   shows team names, balance numbers, scores, or any non-shell
+   text, the page is rendered.
+4. Only after all three steps confirm nothing visible should you
+   record a "page renders blank" finding — and quote the URL +
+   the empty `main_text_len=0` number from the snapshot header in
+   the `actual` field, so the human reviewer can verify.
 
 ## Waiting after async actions
 
@@ -93,6 +122,30 @@ Always include:
 - Tap targets must be at least 44x44px on mobile (360px viewport).
 - When you are done with the scenario, return a one-paragraph
   summary in plain text — no more tool calls.
+
+# Things that are NOT findings
+
+These look like bugs but are sandbox/test-environment realities,
+not problems with the product. Do NOT record findings for them:
+
+- "No admin-published day-bets / live-bets exist for any matchday"
+  - The admin authors these manually after the tournament begins.
+    An empty sandbox is the default state, not a bug.
+- "All matches are in the future, so I cannot test the deadline-
+  lock UI"
+  - The agent runs before kickoff, so this is by construction.
+    Record it once as `info` if you must, never as a `medium`+.
+- "A user prediction in score format (e.g. 4-0) is displayed on
+  the matchday card"
+  - The card labels predictions with "תחזית" /"Prediction". A 4-0
+    next to "תחזית" is the user's saved pick, not the match's
+    actual score. Reading "4-0" as a live result is a
+    misinterpretation — the match has not started.
+- "The header date format combines weekday + date in one line"
+  - "יום ה׳, 11 ביוני, 22:00" is the intended Hebrew format.
+
+If something looks wrong but you cannot reproduce it, do not
+guess. Skip rather than file a noisy finding.
 
 # Hard limits
 
