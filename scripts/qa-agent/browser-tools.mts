@@ -156,35 +156,15 @@ export async function makeBrowserTools(opts: {
       const node = await h.evaluate((el) => {
         const e = el as HTMLElement;
         // Map common input types to their implicit ARIA roles so the
-        // snapshot reads like a real a11y tree. The previous version
-        // dumped the raw HTML `type` attribute ("text", "tel"), which
-        // confused the QA agent into recording text inputs as "missing
-        // textbox role" findings on 2026-06-05.
-        const inputTypeToRole = (t: string): string => {
-          switch (t) {
-            case "text":
-            case "search":
-            case "tel":
-            case "url":
-            case "email":
-            case "password":
-              return "textbox";
-            case "number":
-              return "spinbutton";
-            case "checkbox":
-              return "checkbox";
-            case "radio":
-              return "radio";
-            case "range":
-              return "slider";
-            case "submit":
-            case "button":
-            case "reset":
-              return "button";
-            default:
-              return t || "input";
-          }
-        };
+        // snapshot reads like a real a11y tree. The mapping is inlined
+        // as an anonymous IIFE rather than a named const arrow because
+        // tsx/esbuild's keepNames wraps every NAMED callable (function
+        // OR arrow) with __name() for stack traces, and __name does
+        // not exist inside the browser context page.evaluate ships
+        // into - which throws "ReferenceError: __name is not defined"
+        // on every snapshot. The 2026-06-05 fix-commit covered the
+        // overflow + tap-target evaluates; this one regressed in a
+        // later commit and is now inlined to match.
         const role =
           e.getAttribute("role") ??
           (e.tagName === "A"
@@ -192,7 +172,31 @@ export async function makeBrowserTools(opts: {
             : e.tagName === "BUTTON"
               ? "button"
               : e.tagName === "INPUT"
-                ? inputTypeToRole((e as HTMLInputElement).type ?? "")
+                ? ((t: string): string => {
+                    switch (t) {
+                      case "text":
+                      case "search":
+                      case "tel":
+                      case "url":
+                      case "email":
+                      case "password":
+                        return "textbox";
+                      case "number":
+                        return "spinbutton";
+                      case "checkbox":
+                        return "checkbox";
+                      case "radio":
+                        return "radio";
+                      case "range":
+                        return "slider";
+                      case "submit":
+                      case "button":
+                      case "reset":
+                        return "button";
+                      default:
+                        return t || "input";
+                    }
+                  })((e as HTMLInputElement).type ?? "")
                 : e.tagName === "SELECT"
                   ? "combobox"
                   : e.tagName === "TEXTAREA"
