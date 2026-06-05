@@ -2,9 +2,24 @@
 
 import { useState } from "react";
 import { clsx } from "clsx";
-import type { LucideIcon } from "lucide-react";
+import { Sparkles, Clock, Swords, type LucideIcon } from "lucide-react";
 import { setSmartFlag } from "@/app/[lang]/profile/smart-hub-actions";
 import { usePendingAction } from "@/lib/use-pending-action";
+
+// Whitelist of icon names this toggle can render. Server-component
+// callers (e.g. /he/profile) pass a string here instead of a
+// LucideIcon component — React's server↔client boundary refuses to
+// serialise a forwardRef component, and the resulting digest is
+// opaque ("Server Components render error" with no message). A
+// short string + a client-side map closes the gap without changing
+// the visual output.
+type IconName = "sparkles" | "clock" | "swords";
+
+const ICONS: Record<IconName, LucideIcon> = {
+  sparkles: Sparkles,
+  clock: Clock,
+  swords: Swords,
+};
 
 // Compact pure-flag toggle for the three Smart-Reminders flags. Unlike
 // PushOptInToggle (which has to dance with browser permission + the
@@ -18,7 +33,7 @@ type Props = {
   initial: boolean;
   label: string;
   hint: string;
-  icon?: LucideIcon;
+  iconName?: IconName;
   isHebrew: boolean;
   // When false, the toggle is shown but disabled and shows a "blocked"
   // hint. Used to grey out the per-trigger push flags when the user
@@ -32,11 +47,12 @@ export function SmartFlagToggle({
   initial,
   label,
   hint,
-  icon: Icon,
+  iconName,
   isHebrew,
   disabled = false,
   disabledHint,
 }: Props) {
+  const Icon = iconName ? ICONS[iconName] : null;
   const [value, setValue] = useState(initial);
   const { pending, run } = usePendingAction();
 

@@ -37,12 +37,19 @@ login page without a session - navigate there directly.
 
 # Client-side validation
 4. Fill in just the display name (e.g. "Q") - too short. Try to
-   submit. The form should either:
-   - Refuse to submit (the most common pattern), OR
-   - Show a Hebrew error message after submit.
-   If neither happens, that is a HIGH finding.
-5. Fill in a malformed email (e.g. "not-an-email") and try to submit.
-   Expect a similar validation refusal.
+   submit. The form uses native HTML validation: 'required' and
+   'minLength=2' on the input. **Browsers show a NATIVE TOOLTIP**
+   ("Please lengthen this text…") when the user tries to submit a
+   too-short value, and **the snapshot cannot see native tooltips**.
+   What you SHOULD see: the URL stays on /signup (no navigation),
+   the form is still visible, and the input still has focus. That
+   is correct behaviour - the browser refused to submit. Do NOT
+   record a finding just because no Hebrew error appeared in the
+   snapshot; the native tooltip is doing the work.
+5. Fill in a malformed email (e.g. "not-an-email") and try to
+   submit. Same pattern: 'type=email' triggers native validation,
+   the snapshot cannot see the popup. If the URL stayed on /signup
+   and the form is still there, the browser blocked it correctly.
 
 # Visible-honeypot smoke test
 6. Use browser_check_tap_targets to confirm there is no oddly-sized
