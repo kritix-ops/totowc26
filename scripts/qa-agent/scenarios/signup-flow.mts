@@ -37,8 +37,8 @@ login page without a session - navigate there directly.
 
 # Client-side validation
 4. Fill in just the display name (e.g. "Q") - too short. Try to
-   submit. The form uses native HTML validation: `required` and
-   `minLength={2}` on the input. **Browsers show a NATIVE TOOLTIP**
+   submit. The form uses native HTML validation: 'required' and
+   'minLength=2' on the input. **Browsers show a NATIVE TOOLTIP**
    ("Please lengthen this text…") when the user tries to submit a
    too-short value, and **the snapshot cannot see native tooltips**.
    What you SHOULD see: the URL stays on /signup (no navigation),
@@ -47,7 +47,7 @@ login page without a session - navigate there directly.
    record a finding just because no Hebrew error appeared in the
    snapshot; the native tooltip is doing the work.
 5. Fill in a malformed email (e.g. "not-an-email") and try to
-   submit. Same pattern: `type=email` triggers native validation,
+   submit. Same pattern: 'type=email' triggers native validation,
    the snapshot cannot see the popup. If the URL stayed on /signup
    and the form is still there, the browser blocked it correctly.
 
