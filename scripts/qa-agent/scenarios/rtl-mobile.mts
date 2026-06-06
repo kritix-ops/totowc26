@@ -109,6 +109,11 @@ ${PAGES_TO_SWEEP.map((p) => `  - ${p}`).join("\n")}
 - "The bank page is blank" — false positive from earlier runs.
   Before recording, re-read the "--- main raw text ---" section.
   If it has >80 chars, the page IS rendered.
+- "The 'נשמר' badge and the date string read as one merged line in
+  '--- main raw text ---'" — that flat text dump concatenates sibling
+  text nodes without delimiters. As long as the screenshot shows the
+  badge and the date in distinct visual elements, the DOM is fine and
+  this is NOT a finding. Trust the screenshot over the flat text dump.
 
 # Budget
 You have at most 60 tool calls. The three viewports × seven pages

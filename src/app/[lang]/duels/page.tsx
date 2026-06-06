@@ -4,7 +4,7 @@ import { sql } from "drizzle-orm";
 import { Plus, Swords, ChevronLeft, ChevronRight } from "lucide-react";
 import { clsx } from "clsx";
 import { getDictionary, hasLocale, type Locale } from "../dictionaries";
-import { Card, Chip, LabelCaps, MatchupLabel, PillButton } from "@/components/ui";
+import { Card, Chip, LabelCaps, MatchupLabel } from "@/components/ui";
 import { PayGateBanner } from "@/components/PayGateBanner";
 import { getRequestUser } from "@/lib/request-user";
 import { getUserAccess } from "@/lib/access";
@@ -76,12 +76,10 @@ export default async function DuelsIndexPage({
           {access.canEdit && (
             <Link
               href={localePath(locale, "duels/new")}
-              className="self-start sm:self-auto"
+              className="press-down self-start sm:self-auto inline-flex items-center justify-center gap-2 min-h-[48px] px-6 py-3 rounded-full bg-primary text-on-primary font-[family-name:var(--font-label)] text-[14px] font-bold tracking-[0.05em] shadow-md hover:bg-surface-tint transition-all duration-200"
             >
-              <PillButton type="button" className="min-h-[48px]">
-                <Plus className="h-5 w-5" strokeWidth={2.5} />
-                {dict.duels.newCta}
-              </PillButton>
+              <Plus className="h-5 w-5" strokeWidth={2.5} />
+              {dict.duels.newCta}
             </Link>
           )}
         </div>

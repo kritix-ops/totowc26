@@ -165,6 +165,65 @@ describe("browser-tools (integration)", () => {
     await tools.context.close();
   });
 
+  it("maps input types to ARIA roles (text→textbox, number→spinbutton)", async () => {
+    // 2026-06-05 QA flagged signup form name field as "missing textbox
+    // role" because the snapshot reported it as role="text" - the raw
+    // HTML type, not the implicit ARIA role. The mapping now matches
+    // what assistive tech actually sees.
+    const tools = await makeBrowserTools({
+      browser,
+      reportDir: tmp,
+      baseUrl: "https://toto-mundial-sandbox.vercel.app",
+      startViewport: { width: 360, height: 800 },
+      locale: "he-IL",
+      log: () => {},
+    });
+    await tools.page.setContent(`<!DOCTYPE html>
+      <html><body>
+        <input type="text" aria-label="name" />
+        <input type="email" aria-label="email" />
+        <input type="number" aria-label="age" />
+        <select aria-label="country"><option>US</option></select>
+        <textarea aria-label="bio"></textarea>
+      </body></html>`);
+    const snap = await tools.run("browser_snapshot", {});
+    expect(snap).toMatch(/textbox "name"/);
+    expect(snap).toMatch(/textbox "email"/);
+    expect(snap).toMatch(/spinbutton "age"/);
+    // <select> with an aria-label PLUS an inner option ("US") gets the
+    // "(text: 'US')" suffix, so match the role + start of the name only.
+    expect(snap).toMatch(/combobox "country/);
+    expect(snap).toMatch(/textbox "bio"/);
+    await tools.context.close();
+  });
+
+  it("resolves implicit labels for inputs wrapped in a <label>", async () => {
+    // Mirrors the duels/new form: text input + textarea + select each
+    // wrapped in their own <label> with the visible text inside. Before
+    // the placeholder-defaults-to-"" fix the snapshot reported these as
+    // "(no label)" because placeholder short-circuited the ?? chain.
+    const tools = await makeBrowserTools({
+      browser,
+      reportDir: tmp,
+      baseUrl: "https://toto-mundial-sandbox.vercel.app",
+      startViewport: { width: 360, height: 800 },
+      locale: "he-IL",
+      log: () => {},
+    });
+    await tools.page.setContent(`<!DOCTYPE html>
+      <html lang="he" dir="rtl"><body>
+        <label>השאלה (עברית)<input type="text" /></label>
+        <label>כלל הכרעה<textarea></textarea></label>
+        <label for="stake">השקעה</label>
+        <input id="stake" type="number" />
+      </body></html>`);
+    const snap = await tools.run("browser_snapshot", {});
+    expect(snap).toContain("השאלה (עברית)");
+    expect(snap).toContain("כלל הכרעה");
+    expect(snap).toContain("השקעה");
+    await tools.context.close();
+  });
+
   it("snapshot tails recent console errors emitted by the page", async () => {
     const tools = await makeBrowserTools({
       browser,

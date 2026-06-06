@@ -142,9 +142,10 @@ export default async function QuickBetsPage({
 
       {!access.canEdit && <PayGateBanner locale={locale} dict={dict} />}
 
-      {access.canEdit && matches.length > 0 && (
-        <SurpriseMeButton locale={locale} target={{ surface: "matches" }} />
-      )}
+      {access.canEdit &&
+        matches.some((m) => m.myHomeScore === null || m.myAwayScore === null) && (
+          <SurpriseMeButton locale={locale} target={{ surface: "matches" }} />
+        )}
 
       {matches.length === 0 ? (
         <Card className="p-6 text-center text-on-surface-variant">

@@ -155,6 +155,16 @@ export async function makeBrowserTools(opts: {
       if (!isVisible) continue;
       const node = await h.evaluate((el) => {
         const e = el as HTMLElement;
+        // Map common input types to their implicit ARIA roles so the
+        // snapshot reads like a real a11y tree. The mapping is inlined
+        // as an anonymous IIFE rather than a named const arrow because
+        // tsx/esbuild's keepNames wraps every NAMED callable (function
+        // OR arrow) with __name() for stack traces, and __name does
+        // not exist inside the browser context page.evaluate ships
+        // into - which throws "ReferenceError: __name is not defined"
+        // on every snapshot. The 2026-06-05 fix-commit covered the
+        // overflow + tap-target evaluates; this one regressed in a
+        // later commit and is now inlined to match.
         const role =
           e.getAttribute("role") ??
           (e.tagName === "A"
@@ -162,24 +172,96 @@ export async function makeBrowserTools(opts: {
             : e.tagName === "BUTTON"
               ? "button"
               : e.tagName === "INPUT"
-                ? ((e as HTMLInputElement).type ?? "input")
+                ? ((t: string): string => {
+                    switch (t) {
+                      case "text":
+                      case "search":
+                      case "tel":
+                      case "url":
+                      case "email":
+                      case "password":
+                        return "textbox";
+                      case "number":
+                        return "spinbutton";
+                      case "checkbox":
+                        return "checkbox";
+                      case "radio":
+                        return "radio";
+                      case "range":
+                        return "slider";
+                      case "submit":
+                      case "button":
+                      case "reset":
+                        return "button";
+                      default:
+                        return t || "input";
+                    }
+                  })((e as HTMLInputElement).type ?? "")
                 : e.tagName === "SELECT"
-                  ? "select"
+                  ? "combobox"
                   : e.tagName === "TEXTAREA"
-                    ? "textarea"
+                    ? "textbox"
                     : e.tagName.toLowerCase());
-        const ariaLabel = e.getAttribute("aria-label");
-        const title = e.getAttribute("title");
-        const placeholder = (e as HTMLInputElement).placeholder;
-        const inner = (e.innerText ?? "").trim().replace(/\s+/g, " ").slice(0, 120);
+        // Normalise empties to null so the `??` precedence chain below
+        // works correctly. The 2026-06-05 QA run kept flagging duels/new
+        // inputs as "(no label)" even though the resolver fired - root
+        // cause was placeholder defaulting to "" (string, not null),
+        // which short-circuits ?? before implicitLabel ever wins.
+        const ariaLabel = e.getAttribute("aria-label") || null;
+        const title = e.getAttribute("title") || null;
+        const placeholderRaw = (e as HTMLInputElement).placeholder;
+        const placeholder = placeholderRaw && placeholderRaw.length > 0 ? placeholderRaw : null;
+        const innerRaw = (e.innerText ?? "").trim().replace(/\s+/g, " ").slice(0, 120);
+        const inner = innerRaw.length > 0 ? innerRaw : null;
+        // Implicit label resolution. An input wrapped in a <label> tag
+        // (or referenced by `for=`/`htmlFor=`) IS labelled for screen
+        // readers, even though the input itself has no aria-label or
+        // title or inner text. The QA agent used to file false-positive
+        // "input missing label" findings because the snapshot only
+        // looked at the input's own attributes. We now walk the parent
+        // chain looking for a wrapping <label>, and check for an
+        // associated label-by-id if the input has an id.
+        let implicitLabel: string | null = null;
+        if (
+          (e.tagName === "INPUT" ||
+            e.tagName === "TEXTAREA" ||
+            e.tagName === "SELECT") &&
+          !ariaLabel &&
+          !title &&
+          !placeholder
+        ) {
+          // Walk up looking for a wrapping <label> element.
+          let cur: HTMLElement | null = e.parentElement;
+          while (cur && cur.tagName !== "BODY") {
+            if (cur.tagName === "LABEL") {
+              implicitLabel = (cur.innerText ?? "")
+                .trim()
+                .replace(/\s+/g, " ")
+                .slice(0, 120);
+              break;
+            }
+            cur = cur.parentElement;
+          }
+          // <label for="id"> style if no wrapping <label> found.
+          if (!implicitLabel && e.id) {
+            const lbl = document.querySelector(`label[for="${CSS.escape(e.id)}"]`);
+            if (lbl) {
+              implicitLabel = ((lbl as HTMLElement).innerText ?? "")
+                .trim()
+                .replace(/\s+/g, " ")
+                .slice(0, 120);
+            }
+          }
+        }
         // Headline label preference: aria-label > title > placeholder >
-        // inner text. When aria-label is set but inner text differs, we
-        // append the inner text as a secondary signal so the agent can
-        // see state changes inside an aria-labelled button (e.g. a Save
-        // button whose visible label flips Save → Saving... → Saved
-        // while its aria-label stays constant).
-        let name = ariaLabel ?? title ?? placeholder ?? inner ?? "";
-        if (ariaLabel && inner && inner !== ariaLabel && inner.length > 0) {
+        // implicit <label> > inner text. When aria-label is set but
+        // inner text differs, we append the inner text as a secondary
+        // signal so the agent can see state changes inside an aria-
+        // labelled button (e.g. a Save button whose visible label
+        // flips Save → Saving... → Saved while its aria-label stays
+        // constant).
+        let name = ariaLabel ?? title ?? placeholder ?? implicitLabel ?? inner ?? "";
+        if (ariaLabel && inner && inner !== ariaLabel) {
           name = `${ariaLabel} (text: "${inner}")`;
         }
         // Selected/pressed state markers. Without these the agent
@@ -222,6 +304,17 @@ export async function makeBrowserTools(opts: {
     // count so a paragraph-heavy article does not dominate the
     // snapshot. Excludes elements that already contain an interactive
     // descendant we listed above.
+    //
+    // Bounds: window.innerHeight + 8000 captures the full landing
+    // dashboard on a 360x800 viewport. The 2000px window we shipped
+    // in the original implementation cut off the news section, the
+    // prize strip, and the install hint - the agent then filed
+    // false-MEDIUM findings about "missing placeholder on mobile" for
+    // sections that DID render, just below its snapshot horizon
+    // (verified end-to-end by scripts/one-off/verify-news-mobile.mjs
+    // on 2026-06-06: hasPlaceholder=true at 360px). Cap raised from
+    // 80 to 120 in the same pass so the longer scan does not get
+    // truncated mid-page.
     const textBlocks = await page.evaluate(() => {
       const out: string[] = [];
       const seen = new Set<string>();
@@ -232,7 +325,7 @@ export async function makeBrowserTools(opts: {
         if (el.querySelector("a, button, input, select, textarea")) continue;
         const r = el.getBoundingClientRect();
         if (r.width === 0 || r.height === 0) continue;
-        if (r.bottom < 0 || r.top > window.innerHeight + 2000) continue;
+        if (r.bottom < 0 || r.top > window.innerHeight + 8000) continue;
         const text = (el as HTMLElement).innerText
           ?.trim()
           .replace(/\s+/g, " ")
@@ -241,7 +334,7 @@ export async function makeBrowserTools(opts: {
         if (seen.has(text)) continue;
         seen.add(text);
         out.push(text);
-        if (out.length >= 80) break;
+        if (out.length >= 120) break;
       }
       return out;
     });
@@ -259,7 +352,12 @@ export async function makeBrowserTools(opts: {
         document.querySelector("section");
       if (!main) return "";
       const raw = (main as HTMLElement).innerText ?? "";
-      return raw.trim().replace(/[\t ]+/g, " ").replace(/\n{3,}/g, "\n\n").slice(0, 3500);
+      // 8000 chars covers the full signed-in dashboard plus the news
+      // archive page. The original 3500 cap truncated long pages
+      // before the bottom sections appeared in the raw text safety
+      // net, contributing to the same down-page-blindness that the
+      // textBlocks bounds bump above addresses.
+      return raw.trim().replace(/[\t ]+/g, " ").replace(/\n{3,}/g, "\n\n").slice(0, 8000);
     });
 
     const url = page.url();

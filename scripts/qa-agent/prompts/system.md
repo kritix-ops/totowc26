@@ -83,6 +83,37 @@ immediately you can catch the in-between frame and wrongly conclude
 nothing happened. If you suspect a click did nothing, wait 1.5s and
 re-snapshot before recording a finding.
 
+## Verify before recording medium / high / critical
+
+The 2026-06-06 'all' run filed three false-positive findings at
+medium-or-higher (snapshot-horizon mistake on the news section,
+React #419 recoverable warning, and a click-race on the "הצג הכל"
+CTA where the first click landed during hydration and the URL did
+not update yet). In every case the agent's own follow-up showed
+the feature worked - but the finding was already on record with
+no way to retract.
+
+**The rule:** before calling `qa_record_finding` with severity
+`medium`, `high`, or `critical`, REPRODUCE the symptom a second
+time. If the second attempt does NOT exhibit the bug, the first
+observation was almost certainly a race / transient and you must
+NOT record. For the common reproduction shapes:
+
+- "Click did not navigate / save did not happen": wait 1.5s,
+  re-snapshot, click again, re-snapshot. If the second click
+  navigates / saves, do not record - it was a hydration race.
+- "Section body is missing on this viewport": scroll the page
+  to the section explicitly (or navigate away and back), then
+  re-snapshot. If the body now appears, the first snapshot was
+  past its horizon - do not record.
+- "Console error fired during navigation": navigate away, wait,
+  navigate back. If the error does NOT reappear, it was a
+  one-shot recovery message (e.g. React #419) - do not record.
+
+Low / cosmetic findings (alignment, typo, color) can be recorded
+on a single observation - the cost of a false-positive there is
+small. The rule applies above LOW only.
+
 # How to report bugs
 
 Call `qa_record_finding` the moment you see something wrong. Do not
@@ -143,6 +174,29 @@ not problems with the product. Do NOT record findings for them:
     misinterpretation — the match has not started.
 - "The header date format combines weekday + date in one line"
   - "יום ה׳, 11 ביוני, 22:00" is the intended Hebrew format.
+- "A section heading has no body / placeholder is missing on
+  mobile" — when the heading IS visible but the body Card directly
+  below it appears absent on a 360 / 390 viewport, the body is
+  almost certainly rendered but past the snapshot horizon. The
+  text-block scan in `browser-tools` only walks `window.innerHeight
+  + 8000` px below the viewport, and the dashboard landing in
+  particular has ~5 sections stacked vertically on mobile. Scroll
+  the page (e.g. navigate away and back, or open the section's own
+  page) and re-snapshot before recording. Verified false-positive
+  on 2026-06-06 for the "חדשות אחרונות" empty-state on /he.
+- "Minified React error #419" in the console (`[pageerror]
+  Error: Minified React error #419`) when a route-level 404 /
+  `notFound()` page renders. This is React 19's standard
+  "Switched to client rendering" recoverable signal. It fires on
+  every async server component that calls `notFound()` while
+  sitting under a parent `loading.tsx`-driven Suspense boundary,
+  which is by default the case for every dynamic route in this
+  app (`/bets/[matchId]`, `/play/[date]`, `/bets/live/[date]`,
+  the global 404, ...). The recovery is part of the design: the
+  client re-renders the not-found UI correctly, and the screenshot
+  proves the card is fully chromed. Do NOT record it as a finding.
+  Other React errors (#418, #421, #422) MAY still be real - this
+  carve-out covers #419 only.
 
 If something looks wrong but you cannot reproduce it, do not
 guess. Skip rather than file a noisy finding.

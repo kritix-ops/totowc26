@@ -11,11 +11,11 @@ export const PRICE_PER_MTOK_CACHE_READ_USD = 0.3;
 export const PRICE_PER_MTOK_CACHE_WRITE_USD = 3.75;
 
 // Hard cap. If a run's spend crosses this, the loop aborts and the
-// reporter writes a partial report. With prompt caching enabled in
-// agent-loop.mts a full three-scenario run should land around $0.50
-// to $1.00, so $3.00 leaves real headroom while still catching a
-// runaway loop before it gets expensive.
-export const BUDGET_USD_HARD_CAP = 3.0;
+// reporter writes a partial report. With prompt caching the typical
+// 9-scenario `pnpm qa-agent all` lands around $3.00; the cap is set
+// at $5.00 so a full sweep + headroom + the rare retry can run to
+// completion. A single-scenario run will not get anywhere near this.
+export const BUDGET_USD_HARD_CAP = 5.0;
 
 // Maximum tool-use turns per scenario. Backstop in case the model
 // gets stuck retrying the same step.

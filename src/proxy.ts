@@ -12,6 +12,12 @@ const LOCALE_COOKIE_MAX_AGE = 60 * 60 * 24 * 365;
 // cannot forge them — only the proxy may set them.
 const TOTO_USER_ID_HEADER = "x-toto-user-id";
 const TOTO_USER_EMAIL_HEADER = "x-toto-user-email";
+// The original request pathname, forwarded so server components on
+// special routes (notFound, error.tsx) can re-derive the locale even
+// though they receive no `params`. The 2026-06-05 QA run found that
+// /he/bets/<bad-uuid> rendered English copy + a /en/bets back link
+// because not-found.tsx had no other locale signal to read.
+const TOTO_PATHNAME_HEADER = "x-pathname";
 
 // Pages that an unauthenticated user is allowed to see. Each entry is the
 // path AFTER the locale segment (no leading slash). Empty string = landing.
@@ -88,6 +94,8 @@ export async function proxy(request: NextRequest) {
   const requestHeaders = new Headers(request.headers);
   requestHeaders.delete(TOTO_USER_ID_HEADER);
   requestHeaders.delete(TOTO_USER_EMAIL_HEADER);
+  requestHeaders.delete(TOTO_PATHNAME_HEADER);
+  requestHeaders.set(TOTO_PATHNAME_HEADER, pathname);
 
   // 2) Refresh Supabase session and read the current user.
   const supaUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;

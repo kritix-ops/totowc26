@@ -71,11 +71,14 @@ export function DashboardPickCard({
   const [error, setError] = useState<string | null>(null);
   const { pending, run } = usePendingAction();
 
-  useEffect(() => {
-    if (!saved || dirty) return;
-    const t = setTimeout(() => setSaved(false), 2500);
-    return () => clearTimeout(t);
-  }, [saved, dirty]);
+  // No auto-clear timer here. The 2026-06-05 QA run caught the dashboard
+  // pick cards on /he showing the disabled "שמור הימור" label for matches
+  // that already had a saved bet visible on /he/bets - the timer was
+  // dismissing the persistent saved state after 2.5s on mount, leaving
+  // the button stuck. The same fix landed on QuickPickRow earlier; the
+  // `saved` flag now mirrors the on-disk pick for the lifetime of the
+  // card and only flips back to false when the user bumps a score
+  // (handled in `bump()`).
 
   // Read the clock in an effect so the locked state updates without a
   // page refresh as kickoff approaches.
