@@ -304,6 +304,17 @@ export async function makeBrowserTools(opts: {
     // count so a paragraph-heavy article does not dominate the
     // snapshot. Excludes elements that already contain an interactive
     // descendant we listed above.
+    //
+    // Bounds: window.innerHeight + 8000 captures the full landing
+    // dashboard on a 360x800 viewport. The 2000px window we shipped
+    // in the original implementation cut off the news section, the
+    // prize strip, and the install hint - the agent then filed
+    // false-MEDIUM findings about "missing placeholder on mobile" for
+    // sections that DID render, just below its snapshot horizon
+    // (verified end-to-end by scripts/one-off/verify-news-mobile.mjs
+    // on 2026-06-06: hasPlaceholder=true at 360px). Cap raised from
+    // 80 to 120 in the same pass so the longer scan does not get
+    // truncated mid-page.
     const textBlocks = await page.evaluate(() => {
       const out: string[] = [];
       const seen = new Set<string>();
@@ -314,7 +325,7 @@ export async function makeBrowserTools(opts: {
         if (el.querySelector("a, button, input, select, textarea")) continue;
         const r = el.getBoundingClientRect();
         if (r.width === 0 || r.height === 0) continue;
-        if (r.bottom < 0 || r.top > window.innerHeight + 2000) continue;
+        if (r.bottom < 0 || r.top > window.innerHeight + 8000) continue;
         const text = (el as HTMLElement).innerText
           ?.trim()
           .replace(/\s+/g, " ")
@@ -323,7 +334,7 @@ export async function makeBrowserTools(opts: {
         if (seen.has(text)) continue;
         seen.add(text);
         out.push(text);
-        if (out.length >= 80) break;
+        if (out.length >= 120) break;
       }
       return out;
     });
@@ -341,7 +352,12 @@ export async function makeBrowserTools(opts: {
         document.querySelector("section");
       if (!main) return "";
       const raw = (main as HTMLElement).innerText ?? "";
-      return raw.trim().replace(/[\t ]+/g, " ").replace(/\n{3,}/g, "\n\n").slice(0, 3500);
+      // 8000 chars covers the full signed-in dashboard plus the news
+      // archive page. The original 3500 cap truncated long pages
+      // before the bottom sections appeared in the raw text safety
+      // net, contributing to the same down-page-blindness that the
+      // textBlocks bounds bump above addresses.
+      return raw.trim().replace(/[\t ]+/g, " ").replace(/\n{3,}/g, "\n\n").slice(0, 8000);
     });
 
     const url = page.url();

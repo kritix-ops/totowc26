@@ -143,6 +143,29 @@ not problems with the product. Do NOT record findings for them:
     misinterpretation — the match has not started.
 - "The header date format combines weekday + date in one line"
   - "יום ה׳, 11 ביוני, 22:00" is the intended Hebrew format.
+- "A section heading has no body / placeholder is missing on
+  mobile" — when the heading IS visible but the body Card directly
+  below it appears absent on a 360 / 390 viewport, the body is
+  almost certainly rendered but past the snapshot horizon. The
+  text-block scan in `browser-tools` only walks `window.innerHeight
+  + 8000` px below the viewport, and the dashboard landing in
+  particular has ~5 sections stacked vertically on mobile. Scroll
+  the page (e.g. navigate away and back, or open the section's own
+  page) and re-snapshot before recording. Verified false-positive
+  on 2026-06-06 for the "חדשות אחרונות" empty-state on /he.
+- "Minified React error #419" in the console (`[pageerror]
+  Error: Minified React error #419`) when a route-level 404 /
+  `notFound()` page renders. This is React 19's standard
+  "Switched to client rendering" recoverable signal. It fires on
+  every async server component that calls `notFound()` while
+  sitting under a parent `loading.tsx`-driven Suspense boundary,
+  which is by default the case for every dynamic route in this
+  app (`/bets/[matchId]`, `/play/[date]`, `/bets/live/[date]`,
+  the global 404, ...). The recovery is part of the design: the
+  client re-renders the not-found UI correctly, and the screenshot
+  proves the card is fully chromed. Do NOT record it as a finding.
+  Other React errors (#418, #421, #422) MAY still be real - this
+  carve-out covers #419 only.
 
 If something looks wrong but you cannot reproduce it, do not
 guess. Skip rather than file a noisy finding.
