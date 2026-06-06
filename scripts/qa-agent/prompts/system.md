@@ -83,6 +83,37 @@ immediately you can catch the in-between frame and wrongly conclude
 nothing happened. If you suspect a click did nothing, wait 1.5s and
 re-snapshot before recording a finding.
 
+## Verify before recording medium / high / critical
+
+The 2026-06-06 'all' run filed three false-positive findings at
+medium-or-higher (snapshot-horizon mistake on the news section,
+React #419 recoverable warning, and a click-race on the "הצג הכל"
+CTA where the first click landed during hydration and the URL did
+not update yet). In every case the agent's own follow-up showed
+the feature worked - but the finding was already on record with
+no way to retract.
+
+**The rule:** before calling `qa_record_finding` with severity
+`medium`, `high`, or `critical`, REPRODUCE the symptom a second
+time. If the second attempt does NOT exhibit the bug, the first
+observation was almost certainly a race / transient and you must
+NOT record. For the common reproduction shapes:
+
+- "Click did not navigate / save did not happen": wait 1.5s,
+  re-snapshot, click again, re-snapshot. If the second click
+  navigates / saves, do not record - it was a hydration race.
+- "Section body is missing on this viewport": scroll the page
+  to the section explicitly (or navigate away and back), then
+  re-snapshot. If the body now appears, the first snapshot was
+  past its horizon - do not record.
+- "Console error fired during navigation": navigate away, wait,
+  navigate back. If the error does NOT reappear, it was a
+  one-shot recovery message (e.g. React #419) - do not record.
+
+Low / cosmetic findings (alignment, typo, color) can be recorded
+on a single observation - the cost of a false-positive there is
+small. The rule applies above LOW only.
+
 # How to report bugs
 
 Call `qa_record_finding` the moment you see something wrong. Do not
