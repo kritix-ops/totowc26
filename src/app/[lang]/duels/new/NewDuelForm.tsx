@@ -127,9 +127,24 @@ export function NewDuelForm({
       : "Exactly what counts? Phrase it so it can't be argued.",
     submit: isHebrew ? "פתח דו-קרב" : "Open duel",
     submitPending: isHebrew ? "פותח..." : "Opening...",
-    deadlineHint: isHebrew
-      ? `הדדליין להצטרפות נקבע ל-${defaultJoinWindow} שעות (או דקות לפני המשחק - המוקדם מביניהם).`
-      : `Join deadline defaults to ${defaultJoinWindow}h from now or the kickoff - whichever is earlier.`,
+    // Per-scope deadline copy. The actions.openDuel handler picks the
+    // earlier of "duelDefaultJoinWindowHours from now" and "60 minutes
+    // before the resolve anchor". For match scope the anchor is the
+    // kickoff; for day scope it's the earliest kickoff of that
+    // matchday; tournament scope has no near anchor, so the window-
+    // from-now is effectively the only cutoff. The old single line
+    // ("X שעות או דקות לפני המשחק") was both ambiguous (no minute
+    // count) and wrong on the two non-match scopes - the QA agent
+    // flagged it 2026-06-06 on the tournament case.
+    deadlineHintMatch: isHebrew
+      ? `הדדליין להצטרפות נקבע ל-${defaultJoinWindow} שעות מעכשיו או שעה לפני פתיחת המשחק - המוקדם מביניהם.`
+      : `Join deadline defaults to ${defaultJoinWindow}h from now or 1h before kickoff - whichever is earlier.`,
+    deadlineHintDay: isHebrew
+      ? `הדדליין להצטרפות נקבע ל-${defaultJoinWindow} שעות מעכשיו או שעה לפני המשחק הראשון של היום - המוקדם מביניהם.`
+      : `Join deadline defaults to ${defaultJoinWindow}h from now or 1h before the day's first kickoff - whichever is earlier.`,
+    deadlineHintTournament: isHebrew
+      ? `הדדליין להצטרפות נקבע ל-${defaultJoinWindow} שעות מעכשיו.`
+      : `Join deadline defaults to ${defaultJoinWindow}h from now.`,
     bankWarning: isHebrew
       ? `ההשקעה תינעל בבנק עד שהדו-קרב יוכרע או יבוטל. יתרה נוכחית: ${balance}.`
       : `Your stake is locked in the bank until the duel resolves or cancels. Current balance: ${balance}.`,
@@ -358,7 +373,11 @@ export function NewDuelForm({
             {labels.bankWarning}
           </p>
           <p className="text-xs text-on-surface-variant">
-            {labels.deadlineHint}
+            {scope === "match"
+              ? labels.deadlineHintMatch
+              : scope === "day"
+                ? labels.deadlineHintDay
+                : labels.deadlineHintTournament}
           </p>
         </div>
 
