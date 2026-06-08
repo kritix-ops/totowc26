@@ -271,6 +271,82 @@ export async function fetchUserMatchPicksForAdmin(
   `);
 }
 
+// Cross-user matrix for /admin/bets-overview. ONE query returns every
+// (user, custom_bet) pair where status in ('open','locked'), with the
+// user's pick if any. We deliberately do this as a single SQL with
+// LEFT JOIN over the cross product instead of N+1 client-side joins —
+// pool size is small (tens of users × tens of bets) so the matrix
+// payload is tiny.
+//
+// Bots are excluded so the matrix shows real humans only. Returned
+// flat; the page reshapes into a sparse map<userId, map<betId, row>>
+// for rendering.
+export type AdminBetMatrixCell = {
+  userId: string;
+  userDisplayName: string;
+  betId: string;
+  scope: "match" | "day" | "stage" | "group" | "tournament";
+  stage:
+    | "group"
+    | "r32"
+    | "r16"
+    | "qf"
+    | "sf"
+    | "third_place"
+    | "final"
+    | null;
+  groupId: string | null;
+  questionHe: string;
+  questionEn: string;
+  answerType: "yes_no" | "number" | "multi_choice" | "free_text";
+  answerConfig: unknown;
+  lockAt: string;
+  status: "open" | "locked";
+  homeCode: string | null;
+  awayCode: string | null;
+  pickAnswer: unknown | null;
+  pickLocked: boolean | null;
+};
+
+export async function fetchAllUsersBetMatrix(): Promise<AdminBetMatrixCell[]> {
+  return execRows<AdminBetMatrixCell>(sql`
+    select
+      p.id::text                  as "userId",
+      p.display_name              as "userDisplayName",
+      cb.id::text                 as "betId",
+      cb.scope::text              as "scope",
+      cb.stage::text              as "stage",
+      cb.group_id                 as "groupId",
+      cb.question_he              as "questionHe",
+      cb.question_en              as "questionEn",
+      cb.answer_type::text        as "answerType",
+      cb.answer_config            as "answerConfig",
+      cb.lock_at::text            as "lockAt",
+      cb.status::text             as "status",
+      m.home_team                 as "homeCode",
+      m.away_team                 as "awayCode",
+      pk.answer                   as "pickAnswer",
+      pk.locked                   as "pickLocked"
+    from public.profiles p
+    cross join public.custom_bets cb
+    left join public.user_custom_bet_picks pk
+      on pk.user_id = p.id and pk.custom_bet_id = cb.id
+    left join public.matches m on m.id = cb.match_id
+    where p.is_bot = false
+      and cb.status in ('open', 'locked')
+    order by
+      p.display_name asc,
+      case cb.scope::text
+        when 'tournament' then 1
+        when 'stage'      then 2
+        when 'group'      then 3
+        when 'day'        then 4
+        when 'match'      then 5
+      end asc,
+      cb.lock_at asc
+  `);
+}
+
 export type AdminUserBasic = {
   id: string;
   displayName: string;

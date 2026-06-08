@@ -9,6 +9,7 @@ import {
   Languages,
   Smartphone,
   Clock,
+  Grid3x3,
   Copy,
   EyeOff,
   Megaphone,
@@ -97,6 +98,12 @@ export default async function AdminPage({
       </AdminSection>
 
       <AdminSection title={isHebrew ? "הימורים" : "Bets"}>
+        <AdminTile
+          locale={locale}
+          path="admin/bets-overview"
+          icon={<Grid3x3 className="h-5 w-5" strokeWidth={1.75} />}
+          label={isHebrew ? "מצב הימורי כולם" : "Everyone's bets"}
+        />
         <AdminTile
           locale={locale}
           path="admin/bets"
