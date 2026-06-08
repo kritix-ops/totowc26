@@ -722,10 +722,17 @@ function UserDrawer({
                 accent="text-primary"
               />
             </Link>
-            <Stat
-              label={isHebrew ? "הימורים" : "Bets"}
-              value={user.betCount}
-            />
+            <Link
+              href={localePath(locale, `admin/users/${user.id}/bets`)}
+              className="block rounded-lg hover:bg-surface-container-low transition-colors"
+              aria-label={isHebrew ? "ראה ונהל הימורים" : "Inspect bets"}
+            >
+              <Stat
+                label={isHebrew ? "הימורים" : "Bets"}
+                value={user.betCount}
+                accent="text-primary"
+              />
+            </Link>
             <Stat
               label={isHebrew ? "הצטרף" : "Joined"}
               value={formatDate(user.createdAt, locale)}

@@ -3,6 +3,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { execFirstRow } from "@/db/helpers";
 import {
+  betAdminAudit,
   customBets,
   matchBets,
   userCustomBetPicks,
@@ -46,7 +47,22 @@ export type WritePrincipal =
   // The access object carries only what the gate needs; the full
   // getUserAccess() result satisfies it structurally.
   | { kind: "self"; userId: string; access: { canEdit: boolean } }
-  | { kind: "system"; userId: string };
+  | { kind: "system"; userId: string }
+  // Admin proxy: an admin writing on behalf of a target user. `adminId`
+  // is the acting admin (always sourced from getUser() in the calling
+  // action). `userId` is the target whose pick gets written. `reason`
+  // is mandatory text — the audit row's reason. `lockBypassed=true`
+  // mirrors opts.allowAfterDeadline so a late save still lands, but
+  // also marks the audit row so reports can call out admin overrides.
+  // Building this principal requires `requireAdmin()` to have passed
+  // — see src/lib/bets/bet-immutability.test.ts for the source guard.
+  | {
+      kind: "admin_proxy";
+      adminId: string;
+      userId: string;
+      reason: string;
+      lockBypassed: boolean;
+    };
 
 export type SkipReason =
   | "already_filled"
@@ -72,7 +88,14 @@ export type WriteOpts = { overwrite: boolean; allowAfterDeadline?: boolean };
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 function gateAccess(principal: WritePrincipal): boolean {
-  return principal.kind === "system" || principal.access.canEdit;
+  if (principal.kind === "system") return true;
+  if (principal.kind === "admin_proxy") {
+    // The caller is responsible for `requireAdmin()` before building this
+    // principal. The gate trusts that contract — verification happens at
+    // the source level in bet-immutability.test.ts.
+    return true;
+  }
+  return principal.access.canEdit;
 }
 
 // ---- match score (1/X/2) ----
@@ -316,6 +339,331 @@ export async function writeCustomPick(
     });
   } catch (err) {
     console.error("[write-core customPick] failed", err);
+    return { status: "error", error: "db" };
+  }
+}
+
+// ---- admin proxy writers ----
+//
+// Phase 2 of _plans/2026-06-08-admin-bet-inspector.md. These four
+// entrypoints are the ONLY path an admin uses to write/clear a pick on
+// behalf of another user. Each opens its own transaction so the pick
+// mutation and the bet_admin_audit row land atomically — if the audit
+// insert fails (e.g. DB CHECK on reason), the data write rolls back
+// with it. Callers MUST call requireAdmin() before constructing the
+// principal — bet-immutability.test.ts enforces this at source level.
+//
+// `lockBypassed` maps to the internal `allowAfterDeadline` flag, but
+// unlike the grace auto-fill the audit row stamps `lock_bypassed=true`
+// so a future report can distinguish admin overrides from grace fills.
+
+type AdminPrincipal = Extract<WritePrincipal, { kind: "admin_proxy" }>;
+
+// Exported only for unit testing — every admin write entrypoint runs
+// this guard, and the same shape is enforced again at the DB level by
+// the bet_admin_audit CHECK on `reason`.
+export function assertAdminReason(reason: string): void {
+  if (typeof reason !== "string" || reason.trim().length === 0) {
+    throw new Error("admin_proxy write requires a non-empty reason");
+  }
+}
+
+export async function writeMatchPickAdmin(
+  principal: AdminPrincipal,
+  input: MatchPickInput,
+): Promise<WriteOutcome> {
+  if (!gateAccess(principal)) return { status: "skipped", reason: "not_allowed" };
+  assertAdminReason(principal.reason);
+  if (!Number.isFinite(input.home) || !Number.isFinite(input.away)) {
+    return { status: "error", error: "invalid" };
+  }
+  const h = Math.max(0, Math.min(99, Math.floor(input.home)));
+  const a = Math.max(0, Math.min(99, Math.floor(input.away)));
+
+  const r = await execFirstRow<{
+    status: string;
+    kickoff_at: string;
+    stage: string;
+    lock_at_override: string | null;
+    matchday_offset: number | null;
+    risk_enabled: boolean;
+    risk_penalty: number;
+  }>(sql`
+    select
+      m.status::text as "status",
+      m.kickoff_at as "kickoff_at",
+      m.stage::text as "stage",
+      m.lock_at_override as "lock_at_override",
+      md.lock_offset_override_minutes as "matchday_offset",
+      s.match_risk_enabled as "risk_enabled",
+      s.match_risk_penalty as "risk_penalty"
+    from public.matches m
+    cross join public.settings s
+    left join public.matchdays md
+      on md.date = (m.kickoff_at at time zone 'Asia/Jerusalem')::date
+    where m.id = ${input.matchId}::uuid and s.id = 1
+    limit 1
+  `);
+  if (!r) return { status: "error", error: "not_found" };
+  if (r.status !== "scheduled") return { status: "skipped", reason: "closed" };
+  // Admin never writes a score for a match that has already kicked off,
+  // even with lockBypassed — the score itself is already moving.
+  if (new Date(r.kickoff_at).getTime() <= Date.now()) {
+    return { status: "skipped", reason: "closed" };
+  }
+
+  if (!principal.lockBypassed) {
+    const context = await getDeadlineContext();
+    const resolved = resolveMatchScoreLock(
+      {
+        matchId: input.matchId,
+        kickoffAt: new Date(r.kickoff_at),
+        stage: r.stage as StageKey,
+        lockAtOverride: r.lock_at_override ? new Date(r.lock_at_override) : null,
+        matchdayLockOffsetMinutes: r.matchday_offset,
+      },
+      context,
+    );
+    if (resolved.effectiveLockAt.getTime() <= Date.now()) {
+      return { status: "skipped", reason: "locked" };
+    }
+  }
+  const stakeSnapshot = r.risk_enabled ? r.risk_penalty : null;
+
+  try {
+    return await db.transaction(async (tx) => {
+      const [existing] = await tx
+        .select({
+          id: matchBets.id,
+          homeScore: matchBets.homeScore,
+          awayScore: matchBets.awayScore,
+        })
+        .from(matchBets)
+        .where(
+          and(
+            eq(matchBets.userId, principal.userId),
+            eq(matchBets.matchId, input.matchId),
+          ),
+        )
+        .limit(1);
+
+      await tx
+        .insert(matchBets)
+        .values({
+          userId: principal.userId,
+          matchId: input.matchId,
+          homeScore: h,
+          awayScore: a,
+          stakePaidMain: stakeSnapshot,
+        })
+        .onConflictDoUpdate({
+          target: [matchBets.userId, matchBets.matchId],
+          set: {
+            homeScore: h,
+            awayScore: a,
+            stakePaidMain: stakeSnapshot,
+            updatedAt: new Date(),
+          },
+        });
+
+      await tx.insert(betAdminAudit).values({
+        adminId: principal.adminId,
+        targetUserId: principal.userId,
+        action: "set",
+        surface: "match",
+        matchId: input.matchId,
+        customBetId: null,
+        before: existing
+          ? { home: existing.homeScore, away: existing.awayScore }
+          : null,
+        after: { home: h, away: a },
+        reason: principal.reason.trim(),
+        lockBypassed: principal.lockBypassed,
+      });
+      console.info("[admin bet write]", {
+        step: "set_match",
+        adminId: principal.adminId,
+        targetUserId: principal.userId,
+        matchId: input.matchId,
+        before: existing
+          ? { home: existing.homeScore, away: existing.awayScore }
+          : null,
+        after: { home: h, away: a },
+        lockBypassed: principal.lockBypassed,
+        reason: principal.reason.slice(0, 80),
+      });
+      return { status: "filled", balanceAfter: null };
+    });
+  } catch (err) {
+    console.error("[write-core matchPickAdmin] failed", err);
+    return { status: "error", error: "db" };
+  }
+}
+
+export async function clearMatchPickAdmin(
+  principal: AdminPrincipal,
+  matchId: string,
+): Promise<WriteOutcome> {
+  if (!gateAccess(principal)) return { status: "skipped", reason: "not_allowed" };
+  assertAdminReason(principal.reason);
+
+  try {
+    return await db.transaction(async (tx) => {
+      const [existing] = await tx
+        .select({
+          id: matchBets.id,
+          homeScore: matchBets.homeScore,
+          awayScore: matchBets.awayScore,
+        })
+        .from(matchBets)
+        .where(
+          and(
+            eq(matchBets.userId, principal.userId),
+            eq(matchBets.matchId, matchId),
+          ),
+        )
+        .limit(1);
+      if (!existing) return { status: "skipped", reason: "already_filled" };
+      await tx.delete(matchBets).where(eq(matchBets.id, existing.id));
+      await tx.insert(betAdminAudit).values({
+        adminId: principal.adminId,
+        targetUserId: principal.userId,
+        action: "clear",
+        surface: "match",
+        matchId,
+        customBetId: null,
+        before: { home: existing.homeScore, away: existing.awayScore },
+        after: null,
+        reason: principal.reason.trim(),
+        lockBypassed: principal.lockBypassed,
+      });
+      console.info("[admin bet write]", {
+        step: "clear_match",
+        adminId: principal.adminId,
+        targetUserId: principal.userId,
+        matchId,
+        before: { home: existing.homeScore, away: existing.awayScore },
+        lockBypassed: principal.lockBypassed,
+        reason: principal.reason.slice(0, 80),
+      });
+      return { status: "filled", balanceAfter: null };
+    });
+  } catch (err) {
+    console.error("[write-core clearMatchPickAdmin] failed", err);
+    return { status: "error", error: "db" };
+  }
+}
+
+export async function writeCustomPickAdmin(
+  principal: AdminPrincipal,
+  input: CustomPickInput,
+): Promise<WriteOutcome> {
+  if (!gateAccess(principal)) return { status: "skipped", reason: "not_allowed" };
+  assertAdminReason(principal.reason);
+
+  try {
+    return await db.transaction(async (tx) => {
+      await lockUserForBetting(tx, principal.userId);
+
+      const [beforePick] = await tx
+        .select({ answer: userCustomBetPicks.answer })
+        .from(userCustomBetPicks)
+        .where(
+          and(
+            eq(userCustomBetPicks.userId, principal.userId),
+            eq(userCustomBetPicks.customBetId, input.customBetId),
+          ),
+        )
+        .limit(1);
+
+      const outcome = await writeCustomPickTx(tx, principal, input, {
+        overwrite: true,
+        allowAfterDeadline: principal.lockBypassed,
+      });
+      if (outcome.status !== "filled") return outcome;
+
+      await tx.insert(betAdminAudit).values({
+        adminId: principal.adminId,
+        targetUserId: principal.userId,
+        action: "set",
+        surface: "custom",
+        matchId: null,
+        customBetId: input.customBetId,
+        before: beforePick?.answer ?? null,
+        after: input.answer,
+        reason: principal.reason.trim(),
+        lockBypassed: principal.lockBypassed,
+      });
+      console.info("[admin bet write]", {
+        step: "set_custom",
+        adminId: principal.adminId,
+        targetUserId: principal.userId,
+        betId: input.customBetId,
+        before: beforePick?.answer ?? null,
+        after: input.answer,
+        lockBypassed: principal.lockBypassed,
+        reason: principal.reason.slice(0, 80),
+      });
+      return outcome;
+    });
+  } catch (err) {
+    console.error("[write-core customPickAdmin] failed", err);
+    return { status: "error", error: "db" };
+  }
+}
+
+export async function clearCustomPickAdmin(
+  principal: AdminPrincipal,
+  customBetId: string,
+): Promise<WriteOutcome> {
+  if (!gateAccess(principal)) return { status: "skipped", reason: "not_allowed" };
+  assertAdminReason(principal.reason);
+
+  try {
+    return await db.transaction(async (tx) => {
+      await lockUserForBetting(tx, principal.userId);
+      const [existing] = await tx
+        .select({
+          id: userCustomBetPicks.id,
+          answer: userCustomBetPicks.answer,
+        })
+        .from(userCustomBetPicks)
+        .where(
+          and(
+            eq(userCustomBetPicks.userId, principal.userId),
+            eq(userCustomBetPicks.customBetId, customBetId),
+          ),
+        )
+        .limit(1);
+      if (!existing) return { status: "skipped", reason: "already_filled" };
+      await tx
+        .delete(userCustomBetPicks)
+        .where(eq(userCustomBetPicks.id, existing.id));
+      await tx.insert(betAdminAudit).values({
+        adminId: principal.adminId,
+        targetUserId: principal.userId,
+        action: "clear",
+        surface: "custom",
+        matchId: null,
+        customBetId,
+        before: existing.answer,
+        after: null,
+        reason: principal.reason.trim(),
+        lockBypassed: principal.lockBypassed,
+      });
+      console.info("[admin bet write]", {
+        step: "clear_custom",
+        adminId: principal.adminId,
+        targetUserId: principal.userId,
+        betId: customBetId,
+        before: existing.answer,
+        lockBypassed: principal.lockBypassed,
+        reason: principal.reason.slice(0, 80),
+      });
+      return { status: "filled", balanceAfter: null };
+    });
+  } catch (err) {
+    console.error("[write-core clearCustomPickAdmin] failed", err);
     return { status: "error", error: "db" };
   }
 }
