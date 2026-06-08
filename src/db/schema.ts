@@ -741,6 +741,50 @@ export const betGradingAudit = pgTable(
   }),
 );
 
+// bet_admin_audit: append-only log of every admin-on-behalf-of-user pick
+// write. Mirrors the bet_grading_audit precedent (immutable trail, REVOKE
+// UPDATE/DELETE in the migration). Either match_id or custom_bet_id is
+// set depending on `surface`; the migration's CHECK constraint enforces
+// the XOR. `before` snapshots the prior pick (NULL on first-time
+// insert), `after` snapshots the new state (NULL on clear). `reason` is
+// the admin's explanation, mandatory and non-empty at the DB level.
+// `lock_bypassed=true` flags the action as deadline-overriding so a
+// future report can call out "X bypasses this week".
+export const betAdminAudit = pgTable(
+  "bet_admin_audit",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    adminId: uuid("admin_id")
+      .notNull()
+      .references(() => profiles.id, { onDelete: "restrict" }),
+    targetUserId: uuid("target_user_id")
+      .notNull()
+      .references(() => profiles.id, { onDelete: "cascade" }),
+    action: text("action").notNull(), // 'set' | 'clear'
+    surface: text("surface").notNull(), // 'match' | 'custom'
+    matchId: uuid("match_id").references(() => matches.id, {
+      onDelete: "set null",
+    }),
+    customBetId: uuid("custom_bet_id").references(() => customBets.id, {
+      onDelete: "set null",
+    }),
+    before: jsonb("before"),
+    after: jsonb("after"),
+    reason: text("reason").notNull(),
+    lockBypassed: boolean("lock_bypassed").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    targetIdx: index("bet_admin_audit_target_idx").on(
+      t.targetUserId,
+      t.createdAt,
+    ),
+    adminIdx: index("bet_admin_audit_admin_idx").on(t.adminId, t.createdAt),
+  }),
+);
+
 // duels: 1v1 binary bet between two pool members.
 //
 // Lifecycle (mirrors customBets but specialised for the 1v1 case):

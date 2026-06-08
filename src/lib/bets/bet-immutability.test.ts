@@ -159,6 +159,96 @@ describe("write-core: never-overwrite gates", () => {
   });
 });
 
+describe("admin proxy path: gated, reasoned, audited", () => {
+  const adminActionsPath = "src/app/[lang]/admin/users/[id]/bets/actions.ts";
+  const adminActions = stripComments(read(adminActionsPath));
+  const writeCore = stripComments(read("src/lib/bets/write-core.ts"));
+
+  it("admin actions file enforces an isAdmin gate before any write-core call", () => {
+    expect(adminActions).toMatch(/isAdmin\s*\(/);
+    expect(adminActions).toMatch(
+      /from\s+["']@\/lib\/admin["']|from\s+["']\.\.\/+admin["']/,
+    );
+  });
+
+  it("admin actions file sources the admin id from getUser(), not the request body", () => {
+    expect(adminActions).toMatch(/const\s+user\s*=\s*await\s+getUser\s*\(\s*\)/);
+    expect(adminActions).toMatch(/adminId\s*:\s*user\.id|adminId\s*:\s*guard\.adminId/);
+  });
+
+  it("admin actions file builds an admin_proxy principal — never self or system", () => {
+    expect(adminActions).toMatch(/kind\s*:\s*["']admin_proxy["']/);
+    expect(adminActions).not.toMatch(/kind\s*:\s*["']self["']/);
+    expect(adminActions).not.toMatch(/kind\s*:\s*["']system["']/);
+  });
+
+  it("admin actions file blocks self-targeting (admin editing their own pick)", () => {
+    expect(adminActions).toMatch(/self_target/);
+  });
+
+  it("admin actions file requires a non-empty reason on every action", () => {
+    const actionFns = [
+      /adminSetCustomBetPick/,
+      /adminClearCustomBetPick/,
+      /adminSetMatchPick/,
+      /adminClearMatchPick/,
+    ];
+    for (const re of actionFns) {
+      expect(adminActions).toMatch(re);
+    }
+    expect(adminActions).toMatch(/validateReason|reason\.trim\(\)\.length\s*>\s*0/);
+  });
+
+  it("write-core's admin entrypoints all assert a non-empty reason", () => {
+    expect(writeCore).toMatch(/assertAdminReason/);
+    const adminFns = [
+      "writeMatchPickAdmin",
+      "clearMatchPickAdmin",
+      "writeCustomPickAdmin",
+      "clearCustomPickAdmin",
+    ];
+    for (const fn of adminFns) {
+      // Each admin fn body should mention assertAdminReason.
+      const fnStart = writeCore.indexOf(`function ${fn}`);
+      const fnEnd = writeCore.indexOf(`\nexport `, fnStart + 1);
+      const fnBody = writeCore.slice(
+        fnStart,
+        fnEnd > fnStart ? fnEnd : writeCore.length,
+      );
+      expect(fnBody).toMatch(/assertAdminReason/);
+    }
+  });
+
+  it("write-core's admin entrypoints insert a bet_admin_audit row", () => {
+    const adminFns = [
+      "writeMatchPickAdmin",
+      "clearMatchPickAdmin",
+      "writeCustomPickAdmin",
+      "clearCustomPickAdmin",
+    ];
+    for (const fn of adminFns) {
+      const fnStart = writeCore.indexOf(`function ${fn}`);
+      const fnEnd = writeCore.indexOf(`\nexport `, fnStart + 1);
+      const fnBody = writeCore.slice(
+        fnStart,
+        fnEnd > fnStart ? fnEnd : writeCore.length,
+      );
+      expect(fnBody).toMatch(/tx\.insert\s*\(\s*betAdminAudit\s*\)/);
+    }
+  });
+
+  it("non-admin writers never construct an admin_proxy principal", () => {
+    for (const { path: relPath } of AUTOMATED_WRITERS) {
+      const code = stripComments(read(relPath));
+      expect(code).not.toMatch(/kind\s*:\s*["']admin_proxy["']/);
+    }
+    for (const { path: relPath } of INTERACTIVE_WRITERS) {
+      const code = stripComments(read(relPath));
+      expect(code).not.toMatch(/kind\s*:\s*["']admin_proxy["']/);
+    }
+  });
+});
+
 describe("sandbox refresh-from-prod: bet tables are excluded", () => {
   const code = read("src/app/[lang]/admin/sandbox/actions.ts");
   const start = code.indexOf("const REFRESH_TABLES");

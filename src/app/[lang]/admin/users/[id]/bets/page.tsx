@@ -25,6 +25,8 @@ import {
 import { Card, Chip, SectionHeading, LabelCaps, MatchupLabel } from "@/components/ui";
 import { localePath } from "@/lib/paths";
 import { formatDateTime } from "@/lib/format";
+import { AdminPickEditor } from "./AdminPickEditor";
+import type { PickAnswer } from "@/lib/bets/types";
 
 // Admin read-only view of one user's bets across every surface. Mirrors
 // the structure of /admin/users/[id]/bank: back link, header with the
@@ -112,6 +114,8 @@ export default async function AdminUserBetsPage({
           title={isHebrew ? "הימורי טורניר" : "Tournament bets"}
           rows={buckets.tournament}
           locale={locale}
+          targetUserId={id}
+          targetUserName={user.displayName}
         />
       )}
 
@@ -121,6 +125,8 @@ export default async function AdminUserBetsPage({
           title={isHebrew ? "הימורי שלב" : "Stage bets"}
           rows={buckets.stage}
           locale={locale}
+          targetUserId={id}
+          targetUserName={user.displayName}
         />
       )}
 
@@ -130,6 +136,8 @@ export default async function AdminUserBetsPage({
           title={isHebrew ? "הימורי בית" : "Group bets"}
           rows={buckets.group}
           locale={locale}
+          targetUserId={id}
+          targetUserName={user.displayName}
         />
       )}
 
@@ -139,6 +147,8 @@ export default async function AdminUserBetsPage({
           title={isHebrew ? "הימורי יום" : "Day bets"}
           rows={buckets.day}
           locale={locale}
+          targetUserId={id}
+          targetUserName={user.displayName}
         />
       )}
 
@@ -148,11 +158,18 @@ export default async function AdminUserBetsPage({
           title={isHebrew ? "הימורי לייב" : "Live bets"}
           rows={buckets.match}
           locale={locale}
+          targetUserId={id}
+          targetUserName={user.displayName}
         />
       )}
 
       {matchRows.length > 0 && (
-        <MatchPicksSection rows={matchRows} locale={locale} />
+        <MatchPicksSection
+          rows={matchRows}
+          locale={locale}
+          targetUserId={id}
+          targetUserName={user.displayName}
+        />
       )}
 
       {customRows.length === 0 && matchRows.length === 0 && (
@@ -216,11 +233,15 @@ function ScopeSection({
   title,
   rows,
   locale,
+  targetUserId,
+  targetUserName,
 }: {
   icon: React.ReactNode;
   title: string;
   rows: AdminUserBetRow[];
   locale: Locale;
+  targetUserId: string;
+  targetUserName: string;
 }) {
   return (
     <section className="flex flex-col gap-3">
@@ -235,14 +256,30 @@ function ScopeSection({
       </SectionHeading>
       <div className="flex flex-col gap-2">
         {rows.map((r) => (
-          <BetRow key={r.betId} row={r} locale={locale} />
+          <BetRow
+            key={r.betId}
+            row={r}
+            locale={locale}
+            targetUserId={targetUserId}
+            targetUserName={targetUserName}
+          />
         ))}
       </div>
     </section>
   );
 }
 
-function BetRow({ row, locale }: { row: AdminUserBetRow; locale: Locale }) {
+function BetRow({
+  row,
+  locale,
+  targetUserId,
+  targetUserName,
+}: {
+  row: AdminUserBetRow;
+  locale: Locale;
+  targetUserId: string;
+  targetUserName: string;
+}) {
   const isHebrew = locale === "he";
   const hasPick = row.pickId != null;
   const lockLabel = formatDateTime(row.lockAt, locale, {
@@ -273,6 +310,21 @@ function BetRow({ row, locale }: { row: AdminUserBetRow; locale: Locale }) {
             <Lock className="h-3 w-3" strokeWidth={2} />
             {lockLabel}
           </span>
+          <AdminPickEditor
+            surface="custom"
+            customBetId={row.betId}
+            questionHe={row.questionHe}
+            questionEn={row.questionEn}
+            answerType={row.answerType}
+            answerConfig={row.answerConfig}
+            currentAnswer={(row.pickAnswer ?? null) as PickAnswer | null}
+            stake={row.stakeSnapshot}
+            payout={row.payoutSnapshot}
+            targetUserId={targetUserId}
+            targetUserName={targetUserName}
+            locale={locale}
+            lockAt={row.lockAt}
+          />
         </div>
       </div>
       {row.homeCode && row.awayCode && (
@@ -326,9 +378,13 @@ function BetRow({ row, locale }: { row: AdminUserBetRow; locale: Locale }) {
 function MatchPicksSection({
   rows,
   locale,
+  targetUserId,
+  targetUserName,
 }: {
   rows: AdminUserMatchPickRow[];
   locale: Locale;
+  targetUserId: string;
+  targetUserName: string;
 }) {
   const isHebrew = locale === "he";
   const filled = rows.filter((r) => r.pickId != null).length;
@@ -345,7 +401,13 @@ function MatchPicksSection({
       </SectionHeading>
       <Card className="p-3 md:p-4 flex flex-col gap-1">
         {rows.map((r) => (
-          <MatchPickRow key={r.matchId} row={r} locale={locale} />
+          <MatchPickRow
+            key={r.matchId}
+            row={r}
+            locale={locale}
+            targetUserId={targetUserId}
+            targetUserName={targetUserName}
+          />
         ))}
       </Card>
     </section>
@@ -355,9 +417,13 @@ function MatchPicksSection({
 function MatchPickRow({
   row,
   locale,
+  targetUserId,
+  targetUserName,
 }: {
   row: AdminUserMatchPickRow;
   locale: Locale;
+  targetUserId: string;
+  targetUserName: string;
 }) {
   const isHebrew = locale === "he";
   const hasPick = row.pickId != null;
@@ -369,6 +435,9 @@ function MatchPickRow({
   });
   const home = isHebrew ? row.homeNameHe : row.homeNameEn;
   const away = isHebrew ? row.awayNameHe : row.awayNameEn;
+  const editable = row.matchStatus === "scheduled";
+  const matchupHe = `${row.homeNameHe} נגד ${row.awayNameHe}`;
+  const matchupEn = `${row.homeNameEn} vs ${row.awayNameEn}`;
   return (
     <div
       className={`flex items-center gap-2 py-2 px-2 rounded border-b border-outline-variant last:border-b-0 ${
@@ -403,6 +472,20 @@ function MatchPickRow({
           {row.pickPointsEarned > 0 ? "+" : ""}
           {row.pickPointsEarned}
         </span>
+      )}
+      {editable && (
+        <AdminPickEditor
+          surface="match"
+          matchId={row.matchId}
+          matchupHe={matchupHe}
+          matchupEn={matchupEn}
+          currentHomeScore={row.pickHomeScore}
+          currentAwayScore={row.pickAwayScore}
+          targetUserId={targetUserId}
+          targetUserName={targetUserName}
+          locale={locale}
+          lockAt={row.kickoffAt}
+        />
       )}
     </div>
   );
