@@ -26,6 +26,7 @@ import { getBankBalance } from "@/lib/bank";
 import { DashboardPickCard } from "@/components/DashboardPickCard";
 import { SmartHubAsync, SmartHubSkeleton } from "@/components/SmartHub";
 import { WhatsAppInviteCard } from "@/components/WhatsAppInviteCard";
+import { PoolDigestSection } from "@/components/PoolDigestSection";
 import { db } from "@/db";
 import { settings } from "@/db/schema";
 import { eq } from "drizzle-orm";
@@ -35,6 +36,7 @@ import {
   LastBetSectionSkeleton,
   LatestNewsSectionSkeleton,
   LeaderboardSectionSkeleton,
+  PoolDigestSectionSkeleton,
   PrizeStripSkeleton,
   StatusRowSkeleton,
   TrendSectionSkeleton,
@@ -49,6 +51,7 @@ import {
   getPointsTrend,
   getPoolStats,
   getTournamentStart,
+  getTransparencyDigest,
   getUpcomingFixtures,
   type CategoryPrizeBreakdown,
   type FixtureWithMyBet,
@@ -316,6 +319,15 @@ function PlayerHome({
           <UpcomingSectionAsync locale={locale} dict={dict} userId={userId} />
         </Suspense>
 
+        {/* Pool digest — social-proof card showing today's locked picks
+            across every bet surface. Sits between the upcoming-matches
+            strip and the bottom grid so the page reads as:
+            you → pool → archive. See
+            _plans/2026-06-09-transparency-coverage-and-dashboard-digest.md */}
+        <Suspense fallback={<PoolDigestSectionSkeleton />}>
+          <PoolDigestSectionAsync locale={locale} dict={dict} />
+        </Suspense>
+
         <div className="flex flex-col gap-8 md:gap-12 lg:grid lg:grid-cols-12 lg:gap-x-12 lg:gap-y-12">
           <div className="lg:col-start-1 lg:col-end-6 lg:row-start-1">
             <Suspense fallback={<LastBetSectionSkeleton />}>
@@ -548,6 +560,53 @@ async function LatestNewsSectionAsync({
   const page = await loadNewsArchivePage({ lang, limit: 3 });
   return (
     <LatestNewsSection locale={locale} dict={dict} items={page.items} />
+  );
+}
+
+async function PoolDigestSectionAsync({
+  locale,
+  dict,
+}: {
+  locale: Locale;
+  dict: Awaited<ReturnType<typeof getDictionary>>;
+}) {
+  const lang: "he" | "en" = locale === "he" ? "he" : "en";
+  const [digestRow, digest] = await Promise.all([
+    db
+      .select({ enabled: settings.dashboardDigestEnabled })
+      .from(settings)
+      .where(eq(settings.id, 1))
+      .then((rows) => rows[0]),
+    getTransparencyDigest(lang),
+  ]);
+  // The admin toggle defaults to enabled; an explicit `false` mutes
+  // the widget without changing the page layout (the empty section
+  // simply returns null and the bottom grid moves up to occupy the
+  // freed space). Skips the digest fetch's render cost, not its DB
+  // round-trip — the toggle is cheap to read separately.
+  if (digestRow?.enabled === false) {
+    return null;
+  }
+  return (
+    <PoolDigestSection
+      locale={locale}
+      dict={{
+        poolDigestTitle: dict.dashboard.poolDigestTitle,
+        poolDigestSummary: dict.dashboard.poolDigestSummary,
+        poolDigestEmpty: dict.dashboard.poolDigestEmpty,
+        poolDigestCta: dict.dashboard.poolDigestCta,
+        poolDigestVoteSingle: dict.dashboard.poolDigestVoteSingle,
+        poolDigestUnanimous: dict.dashboard.poolDigestUnanimous,
+      }}
+      transparencyDict={{
+        categoryMatch: dict.transparency.categoryMatch,
+        categoryLive: dict.transparency.categoryLive,
+        categoryTournament: dict.transparency.categoryTournament,
+        categoryGroup: dict.transparency.categoryGroup,
+        categoryDuel: dict.transparency.categoryDuel,
+      }}
+      digest={digest}
+    />
   );
 }
 

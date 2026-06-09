@@ -201,7 +201,13 @@
     "viewAll": "View all",
     "matchday": "Matchday",
     "latestNewsTitle": "Latest news",
-    "latestNewsEmpty": "Headlines will appear here once the tournament kicks off."
+    "latestNewsEmpty": "Headlines will appear here once the tournament kicks off.",
+    "poolDigestTitle": "What the pool picked today",
+    "poolDigestSummary": "{pickers} players locked {questions} questions today",
+    "poolDigestEmpty": "No bets have locked yet for today. As soon as the first lock-time hits, you will see what everyone went with.",
+    "poolDigestCta": "See all picks",
+    "poolDigestVoteSingle": "{count}/{total} picked",
+    "poolDigestUnanimous": "Everyone picked"
   },
   "matchBet": {
     "title": "Exact score",
@@ -293,6 +299,8 @@
     "empty": "No bets match the current filters.",
     "categoryMatch": "Match pick",
     "categoryLive": "Live bet",
+    "categoryTournament": "Tournament bet",
+    "categoryGroup": "Group ranking",
     "categoryDuel": "Duel",
     "pickedLabel": "Picked",
     "stakeLabel": "Stake"

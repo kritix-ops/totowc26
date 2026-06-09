@@ -505,6 +505,13 @@ export const settings = pgTable("settings", {
     .notNull()
     .$type<string[]>()
     .default([]),
+  // Pool digest widget on the home dashboard. Default true so existing
+  // deployments start showing the new card immediately after migration;
+  // admin can mute it from the dashboard settings panel without taking
+  // the /transparency page down.
+  dashboardDigestEnabled: boolean("dashboard_digest_enabled")
+    .notNull()
+    .default(true),
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .notNull()
     .defaultNow(),

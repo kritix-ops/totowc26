@@ -25,7 +25,13 @@ type PageParams = {
   searchParams: Promise<SearchSP>;
 };
 
-const CATEGORIES: TransparencyCategory[] = ["match", "live", "duel"];
+const CATEGORIES: TransparencyCategory[] = [
+  "match",
+  "live",
+  "tournament",
+  "group",
+  "duel",
+];
 
 export default async function TransparencyPage({
   params,
@@ -241,6 +247,10 @@ function categoryLabel(
       return dict.transparency.categoryMatch;
     case "live":
       return dict.transparency.categoryLive;
+    case "tournament":
+      return dict.transparency.categoryTournament;
+    case "group":
+      return dict.transparency.categoryGroup;
     case "duel":
       return dict.transparency.categoryDuel;
   }
@@ -254,6 +264,10 @@ function categoryTone(
       return "default";
     case "live":
       return "primary";
+    case "tournament":
+      return "warning";
+    case "group":
+      return "default";
     case "duel":
       return "secondary";
   }
