@@ -309,6 +309,13 @@
       "when": 1782115000000,
       "tag": "0043_bet_admin_audit",
       "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1782120000000,
+      "tag": "0044_dashboard_digest_toggle",
+      "breakpoints": true
     }
   ]
 }

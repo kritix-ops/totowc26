@@ -1884,10 +1884,22 @@ export const getTournamentStart = unstable_cache(
 // Visibility rules (mirror §9 of the betting overhaul plan):
 //   match bets    → visible once the match status is live or final
 //   live bets     → visible once custom_bets.lock_at has passed
+//                   (scope in 'match' or 'day')
+//   tournament    → same lock rule, scope in 'tournament' or 'stage'
+//   group         → same lock rule, scope = 'group'
 //   duels         → visible from creation; opener identity is part of
 //                   the challenge UX so we never hide it
+//
+// The four custom_bet surfaces map 1:1 to the /bets tabs so a player
+// who navigates the app via /bets, /bets/tournament, /bets/groups,
+// /bets/live can use the same mental model when filtering here.
 
-export type TransparencyCategory = "match" | "live" | "duel";
+export type TransparencyCategory =
+  | "match"
+  | "live"
+  | "tournament"
+  | "group"
+  | "duel";
 
 export type TransparencyRow = {
   category: TransparencyCategory;
@@ -1913,6 +1925,13 @@ export async function getTransparencyFeed(
   filters: TransparencyFilters,
   limit = 100,
 ): Promise<TransparencyRow[]> {
+  console.info("[transparency feed] query", {
+    category: filters.category ?? "all",
+    userId: filters.userId ?? "all",
+    date: filters.date ?? "all",
+    locale: filters.locale,
+    limit,
+  });
   const homeNameCol = filters.locale === "he" ? sql`ht.name_he` : sql`ht.name_en`;
   const awayNameCol = filters.locale === "he" ? sql`at.name_he` : sql`at.name_en`;
   const questionCol = filters.locale === "he" ? sql`cb.question_he` : sql`cb.question_en`;
@@ -1938,7 +1957,7 @@ export async function getTransparencyFeed(
     }
   }
 
-  return execRows<TransparencyRow>(sql`
+  const rows = await execRows<TransparencyRow>(sql`
     with combined as (
       select
         'match'::text                                              as category,
@@ -1960,8 +1979,16 @@ export async function getTransparencyFeed(
 
       union all
 
+      -- All locked custom_bets in one branch; the category column is
+      -- derived from cb.scope so /bets, /bets/tournament, /bets/groups
+      -- and /bets/live each have a matching filter row in the UI.
       select
-        'live'::text                                               as category,
+        case cb.scope::text
+          when 'tournament' then 'tournament'
+          when 'stage'      then 'tournament'
+          when 'group'      then 'group'
+          else 'live'  -- scope in ('match', 'day')
+        end::text                                                  as category,
         cb.lock_at::text                                           as event_time,
         pk.user_id::text                                           as user_id,
         p.display_name                                             as display_name,
@@ -2035,6 +2062,8 @@ export async function getTransparencyFeed(
     order by src.event_time desc
     limit ${limit}
   `);
+  console.info("[transparency feed] result", { rows: rows.length });
+  return rows;
 }
 
 export async function getTransparencyUsers(): Promise<
@@ -2048,6 +2077,178 @@ export async function getTransparencyUsers(): Promise<
        or exists (select 1 from public.duels d where d.opener_id = p.id or d.joiner_id = p.id)
     order by p.display_name asc
   `);
+}
+
+// Pool digest for the dashboard widget. Returns an aggregated view of
+// every bet that became visible to the pool today (Asia/Jerusalem):
+// total bettors, total questions, top-3 questions by participation
+// with each question's top pick (and alt pick for binary bets).
+//
+// "Today" = a bet locked or went live today in Asia/Jerusalem. This
+// keeps the widget fresh — tournament/stage bets only appear on the
+// day they locked, not every day for the rest of the tournament.
+
+export type TransparencyDigestItem = {
+  category: TransparencyCategory;
+  question: string;
+  topPickLabel: string;
+  topPickCount: number;
+  altPickLabel: string | null;
+  altPickCount: number | null;
+  totalPickers: number;
+};
+
+export type TransparencyDigest = {
+  date: string;                       // Asia/Jerusalem yyyy-mm-dd
+  totalPickersToday: number;
+  totalQuestionsToday: number;
+  highlights: TransparencyDigestItem[];
+};
+
+export async function getTransparencyDigest(
+  locale: "he" | "en",
+): Promise<TransparencyDigest> {
+  const homeNameCol = locale === "he" ? sql`ht.name_he` : sql`ht.name_en`;
+  const awayNameCol = locale === "he" ? sql`at.name_he` : sql`at.name_en`;
+  const questionCol = locale === "he" ? sql`cb.question_he` : sql`cb.question_en`;
+  const yesLabel = locale === "he" ? sql`'כן'` : sql`'Yes'`;
+  const noLabel = locale === "he" ? sql`'לא'` : sql`'No'`;
+
+  const dateRow = await execFirstRow<{ today: string }>(sql`
+    select to_char((now() at time zone 'Asia/Jerusalem')::date, 'YYYY-MM-DD') as today
+  `);
+  const today = dateRow?.today ?? new Date().toISOString().slice(0, 10);
+
+  // picks_per_question: one row per (category, bet_id, pick_value)
+  // counting how many pool members chose that exact value. Both
+  // sources (match_bets, custom_bets) project into the same shape so
+  // they can share the ranking window further down.
+  const rows = await execRows<{
+    category: TransparencyCategory;
+    question: string;
+    top_pick_label: string;
+    top_pick_count: number;
+    alt_pick_label: string | null;
+    alt_pick_count: number | null;
+    total_pickers: number;
+  }>(sql`
+    with picks_per_question as (
+      select
+        'match'::text                                              as category,
+        mb.match_id::text                                          as bet_id,
+        (${homeNameCol} || ' vs ' || ${awayNameCol})               as question,
+        (mb.home_score || '-' || mb.away_score)                    as pick_value,
+        count(*)::int                                              as picks
+      from public.match_bets mb
+      join public.matches m on m.id = mb.match_id
+      join public.teams ht  on ht.code = m.home_team
+      join public.teams at  on at.code = m.away_team
+      where m.status in ('live', 'final')
+        and (m.kickoff_at at time zone 'Asia/Jerusalem')::date = ${today}::date
+      group by mb.match_id, ${homeNameCol}, ${awayNameCol}, mb.home_score, mb.away_score
+
+      union all
+
+      select
+        case cb.scope::text
+          when 'tournament' then 'tournament'
+          when 'stage'      then 'tournament'
+          when 'group'      then 'group'
+          else 'live'
+        end::text                                                  as category,
+        cb.id::text                                                as bet_id,
+        ${questionCol}                                             as question,
+        case pk.answer->>'value'
+          when 'true'  then ${yesLabel}
+          when 'false' then ${noLabel}
+          else coalesce(pk.answer->>'value', '?')
+        end                                                        as pick_value,
+        count(*)::int                                              as picks
+      from public.user_custom_bet_picks pk
+      join public.custom_bets cb on cb.id = pk.custom_bet_id
+      where cb.lock_at <= now()
+        and (cb.lock_at at time zone 'Asia/Jerusalem')::date = ${today}::date
+      group by cb.id, cb.scope, ${questionCol}, pick_value
+    ),
+    ranked as (
+      select
+        category, bet_id, question, pick_value, picks,
+        row_number() over (
+          partition by category, bet_id
+          order by picks desc, pick_value asc
+        ) as rn,
+        sum(picks) over (partition by category, bet_id) as total_pickers
+      from picks_per_question
+    ),
+    per_question as (
+      select
+        category, bet_id, question, total_pickers,
+        max(case when rn = 1 then pick_value end)        as top_pick_label,
+        max(case when rn = 1 then picks end)::int        as top_pick_count,
+        max(case when rn = 2 then pick_value end)        as alt_pick_label,
+        max(case when rn = 2 then picks end)::int        as alt_pick_count
+      from ranked
+      group by category, bet_id, question, total_pickers
+    )
+    select
+      category,
+      question,
+      top_pick_label,
+      top_pick_count,
+      alt_pick_label,
+      alt_pick_count,
+      total_pickers::int as total_pickers
+    from per_question
+    order by total_pickers desc, question asc
+    limit 3
+  `);
+
+  const totals = await execFirstRow<{
+    total_pickers: number;
+    total_questions: number;
+  }>(sql`
+    with locked_today as (
+      select mb.user_id, ('match:' || mb.match_id::text) as question_key
+      from public.match_bets mb
+      join public.matches m on m.id = mb.match_id
+      where m.status in ('live', 'final')
+        and (m.kickoff_at at time zone 'Asia/Jerusalem')::date = ${today}::date
+
+      union all
+
+      select pk.user_id, ('custom:' || cb.id::text) as question_key
+      from public.user_custom_bet_picks pk
+      join public.custom_bets cb on cb.id = pk.custom_bet_id
+      where cb.lock_at <= now()
+        and (cb.lock_at at time zone 'Asia/Jerusalem')::date = ${today}::date
+    )
+    select
+      count(distinct user_id)::int     as total_pickers,
+      count(distinct question_key)::int as total_questions
+    from locked_today
+  `);
+
+  const digest: TransparencyDigest = {
+    date: today,
+    totalPickersToday: totals?.total_pickers ?? 0,
+    totalQuestionsToday: totals?.total_questions ?? 0,
+    highlights: rows.map((r) => ({
+      category: r.category,
+      question: r.question,
+      topPickLabel: r.top_pick_label,
+      topPickCount: r.top_pick_count,
+      altPickLabel: r.alt_pick_label,
+      altPickCount: r.alt_pick_count,
+      totalPickers: r.total_pickers,
+    })),
+  };
+  console.info("[dashboard digest] result", {
+    date: digest.date,
+    totalPickersToday: digest.totalPickersToday,
+    totalQuestionsToday: digest.totalQuestionsToday,
+    highlights: digest.highlights.length,
+  });
+  return digest;
 }
 
 // Aggregated per-user performance card for /me/bank.

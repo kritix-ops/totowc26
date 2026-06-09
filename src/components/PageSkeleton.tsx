@@ -178,6 +178,24 @@ export function LeaderboardSectionSkeleton() {
   );
 }
 
+export function PoolDigestSectionSkeleton() {
+  return (
+    <section className="flex flex-col gap-4 md:gap-6">
+      <div className="flex justify-between items-end">
+        <ShimmerBlock className="h-6 w-48" />
+        <ShimmerBlock className="h-4 w-24" />
+      </div>
+      <div className="flex flex-col gap-2 rounded-lg border border-outline-variant bg-surface-container-low p-4">
+        <ShimmerBlock className="h-5 w-2/3" />
+        {Array.from({ length: 3 }).map((_, i) => (
+          <ShimmerBlock key={i} className="h-20" />
+        ))}
+        <ShimmerBlock className="h-10" />
+      </div>
+    </section>
+  );
+}
+
 export function LatestNewsSectionSkeleton() {
   return (
     <section className="flex flex-col gap-4 md:gap-6">

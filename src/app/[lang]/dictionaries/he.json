@@ -201,7 +201,13 @@
     "viewAll": "הצג הכל",
     "matchday": "מחזור",
     "latestNewsTitle": "חדשות אחרונות",
-    "latestNewsEmpty": "כותרות יופיעו כאן ברגע שהמונדיאל יתחיל."
+    "latestNewsEmpty": "כותרות יופיעו כאן ברגע שהמונדיאל יתחיל.",
+    "poolDigestTitle": "מה הקהילה ניחשה היום",
+    "poolDigestSummary": "{pickers} משתתפים נעלו {questions} שאלות היום",
+    "poolDigestEmpty": "עוד אין הימורים נעולים להיום. ברגע שיגיע מועד הנעילה הראשון, תראה כאן מה כולם בחרו.",
+    "poolDigestCta": "ראה את כל ההימורים",
+    "poolDigestVoteSingle": "{count}/{total} הימרו",
+    "poolDigestUnanimous": "כולם הימרו"
   },
   "matchBet": {
     "title": "תוצאה מדויקת",
@@ -293,6 +299,8 @@
     "empty": "אין הימורים שמתאימים לסינון.",
     "categoryMatch": "ניחוש משחק",
     "categoryLive": "הימור לייב",
+    "categoryTournament": "הימור טורניר",
+    "categoryGroup": "דירוג בית",
     "categoryDuel": "דו-קרב",
     "pickedLabel": "ניחש",
     "stakeLabel": "השקעה"
