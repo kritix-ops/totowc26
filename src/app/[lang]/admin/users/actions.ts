@@ -3,7 +3,12 @@
 import { revalidatePath } from "next/cache";
 import { eq, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { profiles, payments, pointAdjustments } from "@/db/schema";
+import {
+  profiles,
+  payments,
+  pointAdjustments,
+  passwordResetAudit,
+} from "@/db/schema";
 import { isAdmin } from "@/lib/admin";
 import { buildInviteCallbackUrl, getUser } from "@/lib/supabase/auth";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
@@ -263,6 +268,55 @@ export async function regenerateInviteLink(
   });
   const userId = link.data.user?.id ?? "";
   return { ok: true, inviteUrl: url, userId };
+}
+
+// Reset a user's password: generate a one-time recovery link that lands
+// them on /set-password, and record the reset in the append-only
+// password_reset_audit log (who reset whom, when).
+//
+// The target email is read server-side from the user id rather than passed
+// from the client, so the link and the audit row can never be aimed at a
+// different account. Generating the link does not invalidate the current
+// password — the old one simply stops mattering once a new one is set, and
+// the link is single-use and time-limited by Supabase.
+export async function resetUserPassword(
+  targetUserId: string,
+  origin: string,
+): Promise<InviteResult> {
+  const guard = await assertAdmin();
+  if ("ok" in guard && guard.ok === false) return guard;
+  const adminId = (guard as { adminId: string }).adminId;
+
+  try {
+    const admin = getSupabaseAdmin();
+
+    const found = await admin.auth.admin.getUserById(targetUserId);
+    if (found.error) return { ok: false, error: found.error.message };
+    const email = found.data.user?.email;
+    if (!email) return { ok: false, error: "no_email" };
+
+    const link = await admin.auth.admin.generateLink({
+      type: "recovery",
+      email,
+    });
+    if (link.error) return { ok: false, error: link.error.message };
+    const hashedToken = link.data.properties?.hashed_token;
+    if (!hashedToken) return { ok: false, error: "no_link" };
+    const url = buildInviteCallbackUrl({
+      origin,
+      hashedToken,
+      type: "recovery",
+      next: "/he/set-password",
+    });
+
+    await db.insert(passwordResetAudit).values({ adminId, targetUserId });
+    console.info("[admin password reset]", { targetUserId, by: adminId });
+
+    return { ok: true, inviteUrl: url, userId: targetUserId };
+  } catch (err) {
+    console.error("resetUserPassword failed:", err);
+    return { ok: false, error: "db" };
+  }
 }
 
 // Adjust a user's points bank by a signed delta. Append-only audit log.
