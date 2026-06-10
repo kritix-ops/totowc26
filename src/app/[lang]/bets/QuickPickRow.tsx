@@ -8,6 +8,7 @@ import { Flag } from "@/components/Flag";
 import type { Dictionary, Locale } from "../dictionaries";
 import { formatDateTime } from "@/lib/format";
 import { usePendingAction } from "@/lib/use-pending-action";
+import { withTimeout, SAVE_TIMEOUT_MS } from "@/lib/with-timeout";
 import { suggestMatchScore } from "./random-actions";
 import type { SaveBetResult } from "./[matchId]/actions";
 
@@ -151,11 +152,17 @@ export function QuickPickRow({
     // navigated away (2026-06-04 incident). usePendingAction still
     // gates re-entrant clicks and clears the button in `finally`.
     let res: SaveBetResult;
+    // Bound the wait: if the server hangs (pooler saturated, no response
+    // ever), abort after SAVE_TIMEOUT_MS so the button releases with an
+    // error the user can retry, instead of sitting on "שומר…" forever.
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), SAVE_TIMEOUT_MS);
     try {
       const r = await fetch("/api/bets/save", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ matchId: match.id, home: h, away: a }),
+        signal: controller.signal,
       });
       // Surface the raw response on non-2xx so the next debug pass
       // (incl. the QA agent rerun) sees status + body text and can
@@ -173,9 +180,14 @@ export function QuickPickRow({
       }
       res = (await r.json()) as SaveBetResult;
     } catch (err) {
+      // Either our abort (timeout) or a transport failure — both leave
+      // the pick unsaved. The save is an idempotent upsert, so retrying
+      // after a false-timeout can never double-write.
       console.error("[match-bet save fetch]", { matchId: match.id, err });
       setError("db");
       return false;
+    } finally {
+      clearTimeout(timeoutId);
     }
     if (!res.ok) {
       console.error("[match-bet save error code]", {
@@ -211,7 +223,14 @@ export function QuickPickRow({
     if (disabled || pending) return;
     setError(null);
     void run(async () => {
-      const res = await suggestMatchScore(match.id);
+      const res = await withTimeout(
+        suggestMatchScore(match.id),
+        SAVE_TIMEOUT_MS,
+      ).catch(() => null);
+      if (!res) {
+        setError("db");
+        return;
+      }
       if (!res.ok) {
         setError(res.error === "not_paid" ? "not_paid" : "db");
         return;

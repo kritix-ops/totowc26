@@ -20,6 +20,7 @@ import type {
 } from "@/lib/bets/types";
 import { usePickerOptions } from "@/lib/picker-options/client";
 import { usePendingAction } from "@/lib/use-pending-action";
+import { withTimeout, SAVE_TIMEOUT_MS } from "@/lib/with-timeout";
 import { resolvePickPayoutAtSubmit } from "@/lib/bets/payout";
 import { isFreePickScope } from "@/lib/bets/free-pick-scopes";
 import { PickScenarios } from "@/components/PickScenarios";
@@ -123,9 +124,20 @@ export function CustomBetCard({
     setSavedFlash(false);
     // usePendingAction releases the button on the action response, not
     // on submitCustomBetPick's revalidation re-render, so submitting
-    // several bets in a row never leaves one stuck on "שומר…".
+    // several bets in a row never leaves one stuck on "שומר…". withTimeout
+    // is the backstop for the other failure mode — the server never
+    // responding at all (pooler saturated) — so the button still releases
+    // instead of hanging. The write is an idempotent overwrite, so a retry
+    // after a false-timeout cannot double-save.
     void run(async () => {
-      const res = await submitCustomBetPick(bet.id, draft);
+      const res = await withTimeout(
+        submitCustomBetPick(bet.id, draft),
+        SAVE_TIMEOUT_MS,
+      ).catch(() => null);
+      if (!res) {
+        setError(isHebrew ? "השמירה נתקעה. נסה שוב." : "Save timed out. Try again.");
+        return;
+      }
       if (!res.ok) {
         setError(translateError(res.error, isHebrew, res));
         return;

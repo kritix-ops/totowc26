@@ -27,9 +27,6 @@ import { DashboardPickCard } from "@/components/DashboardPickCard";
 import { SmartHubAsync, SmartHubSkeleton } from "@/components/SmartHub";
 import { WhatsAppInviteCard } from "@/components/WhatsAppInviteCard";
 import { PoolDigestSection } from "@/components/PoolDigestSection";
-import { db } from "@/db";
-import { settings } from "@/db/schema";
-import { eq } from "drizzle-orm";
 import { isWhatsAppCardDismissed } from "@/lib/whatsapp-dismiss";
 import {
   HeroStatsCardSkeleton,
@@ -50,6 +47,7 @@ import {
   getMyRankSummary,
   getPointsTrend,
   getPoolStats,
+  getSettingsRow,
   getTournamentStart,
   getTransparencyDigest,
   getUpcomingFixtures,
@@ -479,16 +477,7 @@ async function UpcomingSectionAsync({
     getUpcomingFixtures(userId, 6),
     getUserAccess(userId),
     getBetLockMinutes(),
-    db
-      .select({
-        scoringExact: settings.scoringExact,
-        scoringOutcome: settings.scoringOutcome,
-        matchRiskEnabled: settings.matchRiskEnabled,
-        matchRiskPenalty: settings.matchRiskPenalty,
-      })
-      .from(settings)
-      .where(eq(settings.id, 1))
-      .then((rows) => rows[0]),
+    getSettingsRow(),
     getBankBalance(userId),
   ]);
   const scoring = {
@@ -571,12 +560,8 @@ async function PoolDigestSectionAsync({
   dict: Awaited<ReturnType<typeof getDictionary>>;
 }) {
   const lang: "he" | "en" = locale === "he" ? "he" : "en";
-  const [digestRow, digest] = await Promise.all([
-    db
-      .select({ enabled: settings.dashboardDigestEnabled })
-      .from(settings)
-      .where(eq(settings.id, 1))
-      .then((rows) => rows[0]),
+  const [settingsRow, digest] = await Promise.all([
+    getSettingsRow(),
     getTransparencyDigest(lang),
   ]);
   // The admin toggle defaults to enabled; an explicit `false` mutes
@@ -584,7 +569,7 @@ async function PoolDigestSectionAsync({
   // simply returns null and the bottom grid moves up to occupy the
   // freed space). Skips the digest fetch's render cost, not its DB
   // round-trip — the toggle is cheap to read separately.
-  if (digestRow?.enabled === false) {
+  if (settingsRow?.dashboardDigestEnabled === false) {
     return null;
   }
   return (
@@ -1312,11 +1297,7 @@ async function CommunityCardAsync({
   locale: Locale;
   dict: Awaited<ReturnType<typeof getDictionary>>;
 }) {
-  const [row] = await db
-    .select({ whatsappGroupUrl: settings.whatsappGroupUrl })
-    .from(settings)
-    .where(eq(settings.id, 1))
-    .limit(1);
+  const row = await getSettingsRow();
   const url = row?.whatsappGroupUrl ?? null;
   if (!url) return null;
   const dismissed = await isWhatsAppCardDismissed(url);
