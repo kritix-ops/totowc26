@@ -54,6 +54,10 @@ function validateReason(reason: string): boolean {
 function revalidateUserBetsPage(targetUserId: string): void {
   revalidatePath(`/he/admin/users/${targetUserId}/bets`);
   revalidatePath(`/en/admin/users/${targetUserId}/bets`);
+  // The cross-user matrix renders the same picks; keep it fresh so an edit on
+  // the per-user page (or the overview drawer) isn't stale on the next load.
+  revalidatePath(`/he/admin/bets-overview`);
+  revalidatePath(`/en/admin/bets-overview`);
 }
 
 export async function adminSetCustomBetPick(args: {
