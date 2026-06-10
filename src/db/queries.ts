@@ -1971,12 +1971,19 @@ export async function getTransparencyFeed(
 
   // Build the WHERE clause from optional filters. Each one is an AND
   // condition; if none are supplied we omit the WHERE entirely.
+  //
+  // The combined CTE projects event_time and user_id as ::text (the JS
+  // layer wants strings), so the filters must cast them back to their
+  // real types before a typed comparison: `text at time zone` and
+  // `text = uuid` are both undefined operators and throw 42883, which
+  // is what blanked /transparency?date=... and ?user=... to a 500.
+  // Do not drop these casts.
   const conds: ReturnType<typeof sql>[] = [];
   if (filters.category) conds.push(sql`src.category = ${filters.category}`);
-  if (filters.userId) conds.push(sql`src.user_id = ${filters.userId}::uuid`);
+  if (filters.userId) conds.push(sql`src.user_id::uuid = ${filters.userId}::uuid`);
   if (filters.date) {
     conds.push(
-      sql`(src.event_time at time zone 'Asia/Jerusalem')::date = ${filters.date}::date`,
+      sql`(src.event_time::timestamptz at time zone 'Asia/Jerusalem')::date = ${filters.date}::date`,
     );
   }
   let whereClause = sql``;
