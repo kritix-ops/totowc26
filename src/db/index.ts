@@ -13,22 +13,31 @@ if (!connectionString) {
 // Pooled connection for the app runtime. `prepare: false` is required when
 // using Supabase's PgBouncer in transaction mode.
 //
-// `connect_timeout` + `statement_timeout` are load-bearing, not cosmetic:
-// under a traffic burst the transaction pooler's backends saturate, and
-// without these a query would queue (or a connect would block) FOREVER —
-// the request hangs, the save never lands, and the button sits on "שומר…".
-// With them, a stuck query is cancelled (freeing its backend for the next
-// caller) and a stuck connect fails fast, so the system degrades into a
-// retryable error instead of an app-wide freeze. App queries run in
-// milliseconds, so 15s never trips legitimate traffic; the standalone cron
-// /sync scripts open their own clients and are unaffected. See
+// connect_timeout + statement_timeout are a RUNTIME guard, not cosmetic.
+// Under a traffic burst the transaction pooler's backends saturate; without
+// these a query would block and the request would hang forever (the save
+// never lands and the button sits on "שומר..."). With them a stuck query is
+// cancelled, freeing its backend, and a stuck connect fails fast, so the app
+// degrades into a retryable error instead of an app-wide freeze. App queries
+// run in milliseconds, so 15s never trips legitimate runtime traffic.
+//
+// They are deliberately NOT applied during `next build`. Prerendering runs
+// real DB queries, and when the database is under load those queries are slow
+// but valid; a build-time cancel turns a slow build into a FAILED deploy. On
+// 2026-06-10 statement_timeout aborted the prod build while prerendering
+// /he/bets/groups. NEXT_PHASE is "phase-production-build" only during the
+// build, so we gate on it. The standalone cron / sync scripts open their own
+// clients and are unaffected either way. See
 // _plans/2026-06-10-db-pool-saturation-fix.md.
+const isBuildPhase = process.env.NEXT_PHASE === "phase-production-build";
+
 const client = postgres(connectionString, {
   prepare: false,
   max: 10,
   idle_timeout: 20,
-  connect_timeout: 10,
-  connection: { statement_timeout: 15000 },
+  ...(isBuildPhase
+    ? {}
+    : { connect_timeout: 10, connection: { statement_timeout: 15000 } }),
 });
 
 export const db = drizzle(client, { schema, casing: "snake_case" });
