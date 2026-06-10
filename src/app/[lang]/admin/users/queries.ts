@@ -1,6 +1,8 @@
 import "server-only";
 import { sql } from "drizzle-orm";
 import { execFirstRow, execRows } from "@/db/helpers";
+import { approvedPotIlsSql } from "@/db/pot";
+import type { PlayerNameMap } from "@/lib/bets/format";
 
 export type AdminUserRow = {
   id: string;
@@ -347,6 +349,33 @@ export async function fetchAllUsersBetMatrix(): Promise<AdminBetMatrixCell[]> {
   `);
 }
 
+// Resolves the player markets (top scorer / golden ball) whose picks store a
+// raw api_football_id rather than a label — see renderPickAnswer. One small
+// query for the whole roster (~1,357 rows), returned as a lookup keyed by id
+// as a string (the pick value is stored as a string). name_he can be null for
+// not-yet-translated players, so we fall back to name_en.
+export async function fetchPlayerNamesById(): Promise<PlayerNameMap> {
+  const rows = await execRows<{
+    apiFootballId: number;
+    nameHe: string | null;
+    nameEn: string;
+  }>(sql`
+    select
+      p.api_football_id   as "apiFootballId",
+      p.name_he           as "nameHe",
+      p.name_en           as "nameEn"
+    from public.players p
+  `);
+  const map: PlayerNameMap = new Map();
+  for (const r of rows) {
+    map.set(String(r.apiFootballId), {
+      he: r.nameHe ?? r.nameEn,
+      en: r.nameEn,
+    });
+  }
+  return map;
+}
+
 export type AdminUserBasic = {
   id: string;
   displayName: string;
@@ -369,13 +398,14 @@ export async function fetchUserBasic(
   `);
 }
 
-export async function fetchAdminStats(entryFee: number): Promise<AdminUserStats> {
+export async function fetchAdminStats(): Promise<AdminUserStats> {
   const r = await execFirstRow<{
     total_users: number;
     approved_count: number;
     pending_count: number;
     unpaid_count: number;
     admin_count: number;
+    pot_ils: number;
   }>(sql`
     with latest as (
       select distinct on (user_id)
@@ -390,16 +420,17 @@ export async function fetchAdminStats(entryFee: number): Promise<AdminUserStats>
       (select count(*) from public.profiles p
          where p.is_bot = false
            and not exists (select 1 from latest l where l.user_id = p.id))::int as unpaid_count,
-      (select count(*) from public.profiles where role = 'admin')::int as admin_count
+      (select count(*) from public.profiles where role = 'admin')::int as admin_count,
+      ${approvedPotIlsSql} as pot_ils
   `);
 
-  const approvedCount = Number(r?.approved_count ?? 0);
   return {
     totalUsers: Number(r?.total_users ?? 0),
-    approvedCount,
+    approvedCount: Number(r?.approved_count ?? 0),
     pendingCount: Number(r?.pending_count ?? 0),
     unpaidCount: Number(r?.unpaid_count ?? 0),
     adminCount: Number(r?.admin_count ?? 0),
-    potIls: approvedCount * entryFee,
+    // Canonical deduped pot — same source as the home page and prize split.
+    potIls: Number(r?.pot_ils ?? 0),
   };
 }

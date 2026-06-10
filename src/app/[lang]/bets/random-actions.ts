@@ -12,7 +12,9 @@ import {
   listFillableMatches,
   type FillableCustomBet,
 } from "@/lib/bets/fillable";
-import { randomCustomAnswer, randomMatchScore } from "@/lib/random-picks";
+import { randomCustomAnswer } from "@/lib/random-picks";
+import { predictScore } from "@/lib/bets/score-model";
+import { loadScoreInputs } from "@/lib/bets/score-inputs";
 import {
   writeCustomPicksBulk,
   writeMatchPick,
@@ -53,8 +55,9 @@ export async function fillRandomPicks(
 
     if (target.surface === "matches") {
       const matches = await listFillableMatches(user.id);
+      const inputs = await loadScoreInputs(matches.map((m) => m.matchId));
       for (const m of matches) {
-        const score = randomMatchScore();
+        const score = predictScore(inputs.get(m.matchId) ?? {});
         const res = await writeMatchPick(
           principal,
           { matchId: m.matchId, home: score.home, away: score.away },
@@ -91,6 +94,32 @@ export async function fillRandomPicks(
     return { ok: true, filled, skipped };
   } catch (err) {
     console.error("[fill-random] failed", err);
+    return { ok: false, error: "db" };
+  }
+}
+
+export type SuggestScoreResult =
+  | { ok: true; home: number; away: number }
+  | { ok: false; error: "unauth" | "not_paid" | "db" };
+
+// Per-match "Surprise me": return a realistic, varied scoreline for one match
+// WITHOUT writing it. The row component prefills its steppers with the result
+// and saves through the normal /api/bets/save pipeline, so the user sees the
+// suggestion and can tweak it before it lands. Read-only and paid-gated.
+export async function suggestMatchScore(
+  matchId: string,
+): Promise<SuggestScoreResult> {
+  const user = await getUser();
+  if (!user) return { ok: false, error: "unauth" };
+  const access = await getUserAccess(user.id);
+  if (!access.canEdit) return { ok: false, error: "not_paid" };
+
+  try {
+    const inputs = await loadScoreInputs([matchId]);
+    const { home, away } = predictScore(inputs.get(matchId) ?? {});
+    return { ok: true, home, away };
+  } catch (err) {
+    console.error("[suggest-match-score] failed", err);
     return { ok: false, error: "db" };
   }
 }

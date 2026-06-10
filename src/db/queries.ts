@@ -1,7 +1,9 @@
 import "server-only";
+import { cache } from "react";
 import { sql } from "drizzle-orm";
 import { unstable_cache } from "next/cache";
 import { execFirstRow, execRows } from "./helpers";
+import { approvedPotIlsSql, paidParticipantsSql } from "./pot";
 import type { MultiChoiceOption } from "@/lib/bets/types";
 import { bankBalanceSql, duelCaseSql, duelDeltaSql } from "@/lib/bank";
 import { STAR_PLAYER_RANK, TEAM_RANK } from "@/lib/players/curation";
@@ -30,6 +32,38 @@ export const getBetLockMinutes = unstable_cache(
   },
   ["getBetLockMinutes"],
   { tags: [CACHE_TAG_SETTINGS], revalidate: 600 },
+);
+
+// The per-render settings fields the signed-in dashboard reads. Three
+// separate Suspense sections (upcoming-matches scoring, pool-digest
+// toggle, community/whatsapp card) each used to issue their own
+// `select ... from public.settings` on every render — three pooler
+// checkouts where one suffices. React `cache()` memoises this within a
+// single request so the three concurrent calls collapse to ONE round
+// trip, with no cross-request caching and therefore no staleness (an
+// admin edit shows on the very next render). See
+// _plans/2026-06-10-db-pool-saturation-fix.md.
+export type DashboardSettingsRow = {
+  scoringExact: number;
+  scoringOutcome: number;
+  matchRiskEnabled: boolean;
+  matchRiskPenalty: number;
+  dashboardDigestEnabled: boolean;
+  whatsappGroupUrl: string | null;
+};
+
+export const getSettingsRow = cache(
+  async (): Promise<DashboardSettingsRow | null> =>
+    execFirstRow<DashboardSettingsRow>(sql`
+      select
+        scoring_exact            as "scoringExact",
+        scoring_outcome          as "scoringOutcome",
+        match_risk_enabled       as "matchRiskEnabled",
+        match_risk_penalty       as "matchRiskPenalty",
+        dashboard_digest_enabled as "dashboardDigestEnabled",
+        whatsapp_group_url       as "whatsappGroupUrl"
+      from public.settings where id = 1
+    `),
 );
 
 export type LocalizedName = { he: string; en: string };
@@ -1345,9 +1379,8 @@ export const getPoolStats = unstable_cache(
   async (): Promise<PoolStats> => {
     const r = await execFirstRow<{ pot: number; players: number }>(sql`
       select
-        coalesce(sum(amount_ils) filter (where status = 'approved'), 0)::int as pot,
-        count(distinct user_id) filter (where status = 'approved')::int       as players
-      from public.payments
+        ${approvedPotIlsSql}   as pot,
+        ${paidParticipantsSql} as players
     `);
     return {
       potIls: Number(r?.pot ?? 0),
@@ -1403,10 +1436,7 @@ async function loadCategoryPrizeBreakdownFromDb(): Promise<CategoryPrizeBreakdow
     reserve: number;
   }>(sql`
     select
-      coalesce((
-        select sum(amount_ils) filter (where status = 'approved')
-        from public.payments
-      ), 0)::int                                                        as "pot",
+      ${approvedPotIlsSql}                                              as "pot",
       (select admin_overhead_ils        from public.settings where id = 1)::int as "overhead",
       (select prize_king_first_pct      from public.settings where id = 1)::int as "king_first",
       (select prize_king_second_pct     from public.settings where id = 1)::int as "king_second",
@@ -2106,6 +2136,23 @@ export type TransparencyDigest = {
 };
 
 export async function getTransparencyDigest(
+  locale: "he" | "en",
+): Promise<TransparencyDigest> {
+  // Cross-request cached: this card aggregates "what the pool picked
+  // today" across match_bets + custom picks (two multi-CTE scans) and
+  // renders on every signed-in dashboard load. A 60s window keeps it
+  // near-live (a fresh pick shows within a minute) while collapsing the
+  // per-render DB cost to ~one scan per minute per locale. See
+  // _plans/2026-06-10-db-pool-saturation-fix.md.
+  const cached = unstable_cache(
+    () => loadTransparencyDigestFromDb(locale),
+    ["transparency-digest", locale],
+    { revalidate: 60 },
+  );
+  return cached();
+}
+
+async function loadTransparencyDigestFromDb(
   locale: "he" | "en",
 ): Promise<TransparencyDigest> {
   const homeNameCol = locale === "he" ? sql`ht.name_he` : sql`ht.name_en`;

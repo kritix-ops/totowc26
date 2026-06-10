@@ -1,6 +1,7 @@
 import "server-only";
 import { sql } from "drizzle-orm";
 import { execFirstRow, execRows } from "./helpers";
+import { approvedPotIlsSql } from "./pot";
 
 // ---------- sync_runs ----------
 
@@ -565,8 +566,10 @@ export async function getPaymentTotals(): Promise<PaymentTotals> {
       count(*) filter (where status = 'pending')::int   as pending_count,
       count(*) filter (where status = 'approved')::int  as approved_count,
       count(*) filter (where status = 'rejected')::int  as rejected_count,
-      coalesce(sum(amount_ils) filter (where status = 'approved'), 0)::int
-                                                        as approved_sum
+      -- Row counts above describe the payments queue. The pot, though, is
+      -- money and must be deduped per user (see ./pot), or a stray second
+      -- approved row inflates it.
+      ${approvedPotIlsSql}                              as approved_sum
     from public.payments
   `);
   return {

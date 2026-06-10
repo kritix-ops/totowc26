@@ -792,6 +792,38 @@ export const betAdminAudit = pgTable(
   }),
 );
 
+// password_reset_audit: append-only log of every admin-initiated password
+// reset (i.e. an admin generated a one-time recovery link for a user so
+// they can set a new password). Mirrors bet_admin_audit's immutability
+// model — admin-only RLS read+insert, REVOKE UPDATE/DELETE on client roles
+// — see migration 0045. No reason column: the action is one-tap and the
+// actor/target/timestamp are the accountability record.
+export const passwordResetAudit = pgTable(
+  "password_reset_audit",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    adminId: uuid("admin_id")
+      .notNull()
+      .references(() => profiles.id, { onDelete: "restrict" }),
+    targetUserId: uuid("target_user_id")
+      .notNull()
+      .references(() => profiles.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    targetIdx: index("password_reset_audit_target_idx").on(
+      t.targetUserId,
+      t.createdAt,
+    ),
+    adminIdx: index("password_reset_audit_admin_idx").on(
+      t.adminId,
+      t.createdAt,
+    ),
+  }),
+);
+
 // duels: 1v1 binary bet between two pool members.
 //
 // Lifecycle (mirrors customBets but specialised for the 1v1 case):

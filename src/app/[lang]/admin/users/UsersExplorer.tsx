@@ -29,6 +29,7 @@ import {
   Copy,
   Link2,
   MessageCircle,
+  KeyRound,
 } from "lucide-react";
 import Link from "next/link";
 import type { Locale } from "../../dictionaries";
@@ -49,6 +50,7 @@ import {
   bulkApprovePending,
   removeUser,
   resetUserPicks,
+  resetUserPassword,
   invitePlayer,
   regenerateInviteLink,
 } from "./actions";
@@ -608,6 +610,7 @@ function UserDrawer({
   const [error, setError] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<"remove" | "reset" | "demote" | null>(null);
   const [regeneratedLink, setRegeneratedLink] = useState<string | null>(null);
+  const [linkKind, setLinkKind] = useState<"invite" | "reset">("invite");
   const [linkCopied, setLinkCopied] = useState(false);
   const { pending, run } = usePendingAction();
 
@@ -835,6 +838,26 @@ function UserDrawer({
             )}
 
             {user.email && action(
+              isHebrew ? "אפס סיסמה" : "Reset password",
+              <KeyRound className="h-4 w-4" />,
+              () =>
+                void run(async () => {
+                  setError(null);
+                  setLinkCopied(false);
+                  const res = await resetUserPassword(
+                    user.id,
+                    window.location.origin,
+                  );
+                  if (!res.ok) {
+                    setError(res.error);
+                    return;
+                  }
+                  setLinkKind("reset");
+                  setRegeneratedLink(res.inviteUrl);
+                }),
+            )}
+
+            {user.email && action(
               isHebrew ? "צור קישור הזמנה חדש" : "Regenerate invite link",
               <Send className="h-4 w-4" />,
               () =>
@@ -849,6 +872,7 @@ function UserDrawer({
                     setError(res.error);
                     return;
                   }
+                  setLinkKind("invite");
                   setRegeneratedLink(res.inviteUrl);
                 }),
             )}
@@ -902,7 +926,13 @@ function UserDrawer({
             <div className="bg-secondary-container/40 border border-secondary-fixed rounded-lg p-4 flex flex-col gap-3">
               <div className="flex items-center gap-2 text-secondary text-sm font-bold">
                 <CheckCircle2 className="h-4 w-4" />
-                {isHebrew ? "קישור חדש מוכן" : "New link ready"}
+                {linkKind === "reset"
+                  ? isHebrew
+                    ? "קישור לאיפוס סיסמה מוכן"
+                    : "Password reset link ready"
+                  : isHebrew
+                    ? "קישור חדש מוכן"
+                    : "New link ready"}
               </div>
               <div className="bg-surface-container-lowest border border-outline-variant rounded p-2 flex items-center gap-2">
                 <Link2 className="h-3.5 w-3.5 text-outline shrink-0" />
@@ -934,9 +964,13 @@ function UserDrawer({
               </div>
               <a
                 href={`https://wa.me/?text=${encodeURIComponent(
-                  isHebrew
-                    ? `היי ${user.displayName}, קישור חדש להתחברות לטוטו: ${regeneratedLink}`
-                    : `Hey ${user.displayName}, fresh sign-in link: ${regeneratedLink}`,
+                  linkKind === "reset"
+                    ? isHebrew
+                      ? `היי ${user.displayName}, קישור לאיפוס הסיסמה שלך בטוטו: ${regeneratedLink}`
+                      : `Hey ${user.displayName}, here's a link to reset your password: ${regeneratedLink}`
+                    : isHebrew
+                      ? `היי ${user.displayName}, קישור חדש להתחברות לטוטו: ${regeneratedLink}`
+                      : `Hey ${user.displayName}, fresh sign-in link: ${regeneratedLink}`,
                 )}`}
                 target="_blank"
                 rel="noopener noreferrer"
@@ -1089,6 +1123,8 @@ const ERROR_MAP = {
   email_taken:        ["מייל כבר רשום במערכת", "Email already registered"],
   create_failed:      ["יצירת המשתמש נכשלה", "User creation failed"],
   no_link:            ["לא הצלחנו לייצר קישור", "Failed to generate link"],
+  no_email:           ["למשתמש אין כתובת מייל", "User has no email address"],
+  already_paid:       ["המשתתף כבר מסומן כשולם", "User is already marked paid"],
 } as const satisfies Record<string, LocalizedTuple>;
 
 function translateError(code: string, isHebrew: boolean): string {

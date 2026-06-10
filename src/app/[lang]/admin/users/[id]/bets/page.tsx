@@ -16,6 +16,7 @@ import {
 import { hasLocale, type Locale } from "../../../../dictionaries";
 import { requireAdmin } from "@/lib/admin";
 import {
+  fetchPlayerNamesById,
   fetchUserBasic,
   fetchUserBetsForAdmin,
   fetchUserMatchPicksForAdmin,
@@ -27,6 +28,7 @@ import { localePath } from "@/lib/paths";
 import { formatDateTime } from "@/lib/format";
 import { AdminPickEditor } from "./AdminPickEditor";
 import type { PickAnswer } from "@/lib/bets/types";
+import { renderPickAnswer, type PlayerNameMap } from "@/lib/bets/format";
 
 // Admin read-only view of one user's bets across every surface. Mirrors
 // the structure of /admin/users/[id]/bank: back link, header with the
@@ -48,10 +50,11 @@ export default async function AdminUserBetsPage({
   await requireAdmin(locale);
   const ChevronBack = isHebrew ? ChevronRight : ChevronLeft;
 
-  const [user, customRows, matchRows] = await Promise.all([
+  const [user, customRows, matchRows, playerNames] = await Promise.all([
     fetchUserBasic(id),
     fetchUserBetsForAdmin(id),
     fetchUserMatchPicksForAdmin(id),
+    fetchPlayerNamesById(),
   ]);
   if (!user) notFound();
 
@@ -116,6 +119,7 @@ export default async function AdminUserBetsPage({
           locale={locale}
           targetUserId={id}
           targetUserName={user.displayName}
+          playerNames={playerNames}
         />
       )}
 
@@ -127,6 +131,7 @@ export default async function AdminUserBetsPage({
           locale={locale}
           targetUserId={id}
           targetUserName={user.displayName}
+          playerNames={playerNames}
         />
       )}
 
@@ -138,6 +143,7 @@ export default async function AdminUserBetsPage({
           locale={locale}
           targetUserId={id}
           targetUserName={user.displayName}
+          playerNames={playerNames}
         />
       )}
 
@@ -149,6 +155,7 @@ export default async function AdminUserBetsPage({
           locale={locale}
           targetUserId={id}
           targetUserName={user.displayName}
+          playerNames={playerNames}
         />
       )}
 
@@ -160,6 +167,7 @@ export default async function AdminUserBetsPage({
           locale={locale}
           targetUserId={id}
           targetUserName={user.displayName}
+          playerNames={playerNames}
         />
       )}
 
@@ -235,6 +243,7 @@ function ScopeSection({
   locale,
   targetUserId,
   targetUserName,
+  playerNames,
 }: {
   icon: React.ReactNode;
   title: string;
@@ -242,6 +251,7 @@ function ScopeSection({
   locale: Locale;
   targetUserId: string;
   targetUserName: string;
+  playerNames: PlayerNameMap;
 }) {
   return (
     <section className="flex flex-col gap-3">
@@ -262,6 +272,7 @@ function ScopeSection({
             locale={locale}
             targetUserId={targetUserId}
             targetUserName={targetUserName}
+            playerNames={playerNames}
           />
         ))}
       </div>
@@ -274,11 +285,13 @@ function BetRow({
   locale,
   targetUserId,
   targetUserName,
+  playerNames,
 }: {
   row: AdminUserBetRow;
   locale: Locale;
   targetUserId: string;
   targetUserName: string;
+  playerNames: PlayerNameMap;
 }) {
   const isHebrew = locale === "he";
   const hasPick = row.pickId != null;
@@ -288,11 +301,12 @@ function BetRow({
     hour: "2-digit",
     minute: "2-digit",
   });
-  const answerLabel = renderAnswer(
+  const answerLabel = renderPickAnswer(
     row.answerType,
     row.answerConfig,
     row.pickAnswer,
     isHebrew,
+    playerNames,
   );
   return (
     <Card className="p-4 flex flex-col gap-2">
@@ -491,31 +505,3 @@ function MatchPickRow({
   );
 }
 
-// Renders the JSON `answer` blob as a human-readable label, resolving
-// multi-choice values to their localized option label. Mirrors the
-// helper in /admin/bets/[id]/page.tsx; not extracted to a shared lib
-// yet because phase 2 will replace both call sites with a single
-// shared modal that reuses the user-facing AnswerInput components.
-function renderAnswer(
-  answerType: string,
-  config: unknown,
-  answer: unknown,
-  isHebrew: boolean,
-): string {
-  if (!answer || typeof answer !== "object") return "—";
-  const a = answer as { type?: string; value?: unknown };
-  if (a.type === "yes_no") {
-    return a.value ? (isHebrew ? "כן" : "Yes") : (isHebrew ? "לא" : "No");
-  }
-  if (a.type === "number") return String(a.value ?? "—");
-  if (a.type === "multi_choice" && typeof a.value === "string") {
-    const c = config as
-      | { options?: Array<{ value: string; labelHe: string; labelEn: string }> }
-      | null;
-    const opt = c?.options?.find((o) => o.value === a.value);
-    if (opt) return isHebrew ? opt.labelHe : opt.labelEn;
-    return a.value;
-  }
-  if (a.type === "free_text" && typeof a.value === "string") return a.value;
-  return "—";
-}

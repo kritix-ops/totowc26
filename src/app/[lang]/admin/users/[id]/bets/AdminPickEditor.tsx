@@ -24,7 +24,9 @@ import {
   adminSetMatchPick,
   type AdminWriteResult,
 } from "./actions";
-import type { PickAnswer } from "@/lib/bets/types";
+import type { MultiChoiceConfig, PickAnswer } from "@/lib/bets/types";
+import { SearchableChoicePicker } from "@/components/SearchableChoicePicker";
+import { usePickerOptions } from "@/lib/picker-options/client";
 
 // AdminPickEditor: a small dialog that lets an admin set or clear a
 // target user's pick on one specific bet. Surfaces are two:
@@ -60,6 +62,10 @@ type Props = (CustomKind | MatchKind) & {
   targetUserName: string;
   locale: Locale;
   lockAt?: string;
+  // Fired after a successful save or clear, before the dialog closes. Lets a
+  // host (e.g. the bets-overview drawer) refetch so its read view reflects the
+  // edit. Optional — the per-user page relies on revalidatePath instead.
+  onSaved?: () => void;
 };
 
 const ERROR_HE: Record<string, string> = {
@@ -168,6 +174,7 @@ function Dialog(props: Props & { onClose: () => void }) {
         setError(msg);
         return;
       }
+      props.onSaved?.();
       props.onClose();
     });
   }
@@ -189,6 +196,7 @@ function Dialog(props: Props & { onClose: () => void }) {
         setError(msg);
         return;
       }
+      props.onSaved?.();
       props.onClose();
     });
   }
@@ -215,6 +223,7 @@ function Dialog(props: Props & { onClose: () => void }) {
         setError(msg);
         return;
       }
+      props.onSaved?.();
       props.onClose();
     });
   }
@@ -418,9 +427,20 @@ function CustomAnswerInput({
   }
 
   if (answerType === "multi_choice") {
-    const cfg = answerConfig as
-      | { options?: Array<{ value: string; labelHe: string; labelEn: string }> }
-      | null;
+    const cfg = answerConfig as Partial<MultiChoiceConfig> | null;
+    // Dynamic-roster bets (top scorer / golden ball) keep options=[] and
+    // hydrate the ~1,357-row player list client-side, so the button grid
+    // below would render empty. Swap in the searchable picker instead.
+    if (cfg?.dynamicSource === "players") {
+      return (
+        <DynamicPlayerPicker
+          locale={locale}
+          currentValue={draft?.type === "multi_choice" ? draft.value : null}
+          pending={pending}
+          onPick={(value) => save({ type: "multi_choice", value })}
+        />
+      );
+    }
     const options = cfg?.options ?? [];
     return (
       <div className="flex flex-col gap-2">
@@ -466,6 +486,57 @@ function CustomAnswerInput({
       locale={locale}
       pending={pending}
       onSave={(s) => save({ type: "free_text", value: s })}
+    />
+  );
+}
+
+// Dynamic-roster picker for the player markets. Hydrates the full WC squad
+// from /api/picker-options (cached in memory across opens) and renders the
+// shared SearchableChoicePicker — search by name / team / position, chunked
+// display, mobile sheet. Selecting a player saves immediately, the same way
+// tapping an option in the static button grid does. Clearing inside the
+// picker is ignored on purpose: removing a pick goes through the audited
+// "Clear pick" button so it carries a reason.
+function DynamicPlayerPicker({
+  locale,
+  currentValue,
+  pending,
+  onPick,
+}: {
+  locale: Locale;
+  currentValue: string | null;
+  pending: boolean;
+  onPick: (value: string) => void;
+}) {
+  const isHebrew = locale === "he";
+  const { options, loading, error } = usePickerOptions("players", locale);
+
+  if (loading) {
+    return (
+      <div className="min-h-[52px] flex items-center justify-center rounded-full border border-outline-variant text-sm text-on-surface-variant">
+        {isHebrew ? "טוען שחקנים…" : "Loading players…"}
+      </div>
+    );
+  }
+  if (error) {
+    return (
+      <p className="inline-flex items-center gap-1.5 text-sm text-error">
+        <AlertCircle className="h-4 w-4" strokeWidth={2} />
+        {isHebrew ? "טעינת רשימת השחקנים נכשלה" : "Failed to load players"}
+      </p>
+    );
+  }
+  return (
+    <SearchableChoicePicker
+      options={options}
+      currentValue={currentValue}
+      locale={locale}
+      disabled={pending}
+      lazyChunkSize={20}
+      placeholder={isHebrew ? "בחר שחקן…" : "Pick a player…"}
+      onChange={(value) => {
+        if (value) onPick(value);
+      }}
     />
   );
 }
