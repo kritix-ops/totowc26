@@ -8,7 +8,9 @@ import {
   listFillableCustomBets,
   listFillableMatches,
 } from "@/lib/bets/fillable";
-import { randomCustomAnswer, randomMatchScore } from "@/lib/random-picks";
+import { randomCustomAnswer } from "@/lib/random-picks";
+import { predictScore } from "./score-model";
+import { loadScoreInputs } from "./score-inputs";
 import {
   writeCustomPicksBulk,
   writeMatchPick,
@@ -149,8 +151,9 @@ export async function fillMonkeyPicks(): Promise<MonkeyFillReport> {
   let matchesFilled = 0;
   let matchesSkipped = 0;
   const matches = await listFillableMatches(userId);
+  const scoreInputs = await loadScoreInputs(matches.map((m) => m.matchId));
   for (const m of matches) {
-    const score = randomMatchScore();
+    const score = predictScore(scoreInputs.get(m.matchId) ?? {});
     const res = await writeMatchPick(
       principal,
       { matchId: m.matchId, home: score.home, away: score.away },

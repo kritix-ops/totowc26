@@ -3,7 +3,9 @@ import { execRows, sql } from "@/db/helpers";
 import { type StageKey } from "@/db/schema";
 import { FREE_PICK_SCOPES } from "@/lib/bets/free-pick-scopes";
 import { getDeadlineContext, resolveMatchScoreLock } from "@/lib/deadlines";
-import { randomCustomAnswer, randomMatchScore } from "@/lib/random-picks";
+import { randomCustomAnswer } from "@/lib/random-picks";
+import { predictScore } from "./score-model";
+import { loadScoreInputs } from "./score-inputs";
 import {
   writeCustomPicksBulk,
   writeMatchPick,
@@ -51,13 +53,17 @@ export async function autoFillPastDeadline(): Promise<AutoFillReport> {
   const dueCustom = await computeDueCustomBets();
   if (dueMatchIds.length === 0 && dueCustom.ids.length === 0) return report;
 
+  // Odds/ranks are per-match, not per-user, so resolve the score inputs once
+  // for every due match and reuse them across all forgetful users.
+  const scoreInputs = await loadScoreInputs(dueMatchIds);
+
   for (const userId of paidIds) {
     const principal: WritePrincipal = { kind: "system", userId };
 
     if (dueMatchIds.length > 0) {
       const missing = await missingMatchIdsForUser(userId, dueMatchIds);
       for (const matchId of missing) {
-        const { home, away } = randomMatchScore();
+        const { home, away } = predictScore(scoreInputs.get(matchId) ?? {});
         const res = await writeMatchPick(principal, { matchId, home, away }, GRACE);
         if (res.status === "filled") report.matchPicksFilled++;
         else report.skipped++;

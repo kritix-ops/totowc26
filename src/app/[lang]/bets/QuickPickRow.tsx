@@ -1,13 +1,14 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Check, AlertCircle, Minus, Plus } from "lucide-react";
+import { Check, AlertCircle, Minus, Plus, Dices } from "lucide-react";
 import { clsx } from "clsx";
 import { Card } from "@/components/ui";
 import { Flag } from "@/components/Flag";
 import type { Dictionary, Locale } from "../dictionaries";
 import { formatDateTime } from "@/lib/format";
 import { usePendingAction } from "@/lib/use-pending-action";
+import { suggestMatchScore } from "./random-actions";
 import type { SaveBetResult } from "./[matchId]/actions";
 
 // One match row on the quick-picks /bets page. Self-contained: pre-
@@ -82,6 +83,7 @@ export function QuickPickRow({
   // Guarded by `dirty`: if the user is mid-edit we don't clobber their
   // in-flight input. Also guarded by justSavedRef so a save's own props
   // race can't repaint our own write as 0:0.
+  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     if (dirty) return;
     if (justSavedRef.current) {
@@ -101,6 +103,7 @@ export function QuickPickRow({
       setSaved(true);
     }
   }, [match.myHomeScore, match.myAwayScore, dirty]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   // No auto-clear: a saved bet stays saved. The earlier 2.5s/6s
   // timeout flipped the button back to "שמור" while the bet was
@@ -136,59 +139,86 @@ export function QuickPickRow({
     else setAway((v) => Math.max(0, Math.min(99, v + delta)));
   };
 
-  const submit = () => {
-    if (disabled || pending || !dirty) return;
-    setError(null);
+  // Persist an explicit scoreline through the save Route Handler. Takes the
+  // values as arguments (rather than reading `home`/`away` state) so the
+  // "Surprise me" path can save the freshly-suggested score without waiting
+  // for a state-update render. Returns true on success.
+  const doSave = async (h: number, a: number): Promise<boolean> => {
     // POST through a Route Handler (parallel via fetch) instead of the
     // saveBet server action — Next dispatches Server Functions ONE AT
     // A TIME per browser tab, so rapid-fire row saves queued behind
     // each other's revalidatePath and lost picks when the user
     // navigated away (2026-06-04 incident). usePendingAction still
     // gates re-entrant clicks and clears the button in `finally`.
-    void run(async () => {
-      let res: SaveBetResult;
-      try {
-        const r = await fetch("/api/bets/save", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ matchId: match.id, home, away }),
-        });
-        // Surface the raw response on non-2xx so the next debug pass
-        // (incl. the QA agent rerun) sees status + body text and can
-        // tell a 500 HTML error apart from a server-returned db code.
-        if (!r.ok) {
-          const bodyText = await r.text().catch(() => "<unreadable>");
-          console.error("[match-bet save http]", {
-            matchId: match.id,
-            status: r.status,
-            statusText: r.statusText,
-            body: bodyText.slice(0, 400),
-          });
-          setError("db");
-          return;
-        }
-        res = (await r.json()) as SaveBetResult;
-      } catch (err) {
-        console.error("[match-bet save fetch]", { matchId: match.id, err });
-        setError("db");
-        return;
-      }
-      if (!res.ok) {
-        console.error("[match-bet save error code]", {
+    let res: SaveBetResult;
+    try {
+      const r = await fetch("/api/bets/save", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ matchId: match.id, home: h, away: a }),
+      });
+      // Surface the raw response on non-2xx so the next debug pass
+      // (incl. the QA agent rerun) sees status + body text and can
+      // tell a 500 HTML error apart from a server-returned db code.
+      if (!r.ok) {
+        const bodyText = await r.text().catch(() => "<unreadable>");
+        console.error("[match-bet save http]", {
           matchId: match.id,
-          home,
-          away,
-          error: res.error,
+          status: r.status,
+          statusText: r.statusText,
+          body: bodyText.slice(0, 400),
         });
-        setError(res.error);
+        setError("db");
+        return false;
+      }
+      res = (await r.json()) as SaveBetResult;
+    } catch (err) {
+      console.error("[match-bet save fetch]", { matchId: match.id, err });
+      setError("db");
+      return false;
+    }
+    if (!res.ok) {
+      console.error("[match-bet save error code]", {
+        matchId: match.id,
+        home: h,
+        away: a,
+        error: res.error,
+      });
+      setError(res.error);
+      return false;
+    }
+    // Stamp what we wrote BEFORE flipping dirty, so the post-save
+    // useEffect sees the guard and does not paint stale props over
+    // the value the user just saved.
+    justSavedRef.current = { home: h, away: a };
+    setSaved(true);
+    setDirty(false);
+    return true;
+  };
+
+  const submit = () => {
+    if (disabled || pending || !dirty) return;
+    setError(null);
+    void run(async () => {
+      await doSave(home, away);
+    });
+  };
+
+  // Per-match "Surprise me": ask the server for a realistic scoreline, paint it
+  // into the steppers, and save it through the same pipeline. The user can
+  // re-tap (re-roll) or adjust with the steppers before it sticks.
+  const onSurprise = () => {
+    if (disabled || pending) return;
+    setError(null);
+    void run(async () => {
+      const res = await suggestMatchScore(match.id);
+      if (!res.ok) {
+        setError(res.error === "not_paid" ? "not_paid" : "db");
         return;
       }
-      // Stamp what we wrote BEFORE flipping dirty, so the post-save
-      // useEffect sees the guard and does not paint stale props over
-      // the value the user just saved.
-      justSavedRef.current = { home, away };
-      setSaved(true);
-      setDirty(false);
+      setHome(res.home);
+      setAway(res.away);
+      await doSave(res.home, res.away);
     });
   };
 
@@ -263,10 +293,28 @@ export function QuickPickRow({
           />
         </div>
 
-        <button
-          type="button"
-          onClick={submit}
-          disabled={disabled || pending || !dirty}
+        <div className="flex items-center gap-2 flex-1 md:flex-none justify-end">
+          {!disabled && !saved && (
+            <button
+              type="button"
+              onClick={onSurprise}
+              disabled={pending}
+              aria-label={isHebrew ? "תפתיע אותי" : "Surprise me"}
+              title={isHebrew ? "תפתיע אותי" : "Surprise me"}
+              className={clsx(
+                "press-down h-11 w-11 inline-flex items-center justify-center rounded-full shrink-0",
+                "bg-tertiary-fixed text-on-tertiary-fixed-variant border border-tertiary-fixed-dim",
+                pending && "opacity-60 cursor-wait",
+              )}
+            >
+              <Dices className="h-5 w-5" strokeWidth={1.75} />
+            </button>
+          )}
+
+          <button
+            type="button"
+            onClick={submit}
+            disabled={disabled || pending || !dirty}
           className={clsx(
             "press-down min-h-[44px] px-5 inline-flex items-center justify-center gap-1.5 rounded-full text-sm font-bold flex-1 md:flex-none md:min-w-[120px]",
             saved && !dirty
@@ -301,7 +349,8 @@ export function QuickPickRow({
           ) : (
             <span>{isHebrew ? "שמור" : "Save"}</span>
           )}
-        </button>
+          </button>
+        </div>
       </div>
 
       {error && (
