@@ -1,6 +1,7 @@
 import "server-only";
 import { sql } from "drizzle-orm";
 import { execFirstRow, execRows } from "@/db/helpers";
+import { approvedPotIlsSql } from "@/db/pot";
 
 export type AdminUserRow = {
   id: string;
@@ -369,13 +370,14 @@ export async function fetchUserBasic(
   `);
 }
 
-export async function fetchAdminStats(entryFee: number): Promise<AdminUserStats> {
+export async function fetchAdminStats(): Promise<AdminUserStats> {
   const r = await execFirstRow<{
     total_users: number;
     approved_count: number;
     pending_count: number;
     unpaid_count: number;
     admin_count: number;
+    pot_ils: number;
   }>(sql`
     with latest as (
       select distinct on (user_id)
@@ -390,16 +392,17 @@ export async function fetchAdminStats(entryFee: number): Promise<AdminUserStats>
       (select count(*) from public.profiles p
          where p.is_bot = false
            and not exists (select 1 from latest l where l.user_id = p.id))::int as unpaid_count,
-      (select count(*) from public.profiles where role = 'admin')::int as admin_count
+      (select count(*) from public.profiles where role = 'admin')::int as admin_count,
+      ${approvedPotIlsSql} as pot_ils
   `);
 
-  const approvedCount = Number(r?.approved_count ?? 0);
   return {
     totalUsers: Number(r?.total_users ?? 0),
-    approvedCount,
+    approvedCount: Number(r?.approved_count ?? 0),
     pendingCount: Number(r?.pending_count ?? 0),
     unpaidCount: Number(r?.unpaid_count ?? 0),
     adminCount: Number(r?.admin_count ?? 0),
-    potIls: approvedCount * entryFee,
+    // Canonical deduped pot — same source as the home page and prize split.
+    potIls: Number(r?.pot_ils ?? 0),
   };
 }

@@ -71,7 +71,7 @@ export default async function AdminPeoplePage({
         ? getPaymentsByStatus("all", 50)
         : Promise.resolve(null),
     ]);
-  const stats = await fetchAdminStats(s?.entryFee ?? ENTRY_FEE_ILS);
+  const stats = await fetchAdminStats();
 
   const pendingRequestsCount = pendingForBadge.length;
   const pendingPaymentsCount = paymentTotals.pendingCount;

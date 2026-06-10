@@ -1,8 +1,9 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { eq, sql } from "drizzle-orm";
+import { eq, sql, desc, and, inArray } from "drizzle-orm";
 import { db } from "@/db";
+import { execRows } from "@/db/helpers";
 import {
   profiles,
   payments,
@@ -83,6 +84,31 @@ export async function decidePayment(
   if ("ok" in guard && guard.ok === false) return guard;
   const adminId = (guard as { adminId: string }).adminId;
 
+  // Approving must not create a second approved row for the user — the
+  // payments table allows only one (migration 0046; rationale in
+  // src/db/pot.ts). If they're already paid on another row, refuse rather
+  // than hit the unique constraint.
+  if (decision === "approved") {
+    const [target] = await db
+      .select({ userId: payments.userId })
+      .from(payments)
+      .where(eq(payments.id, paymentId));
+    if (target) {
+      const approved = await db
+        .select({ id: payments.id })
+        .from(payments)
+        .where(
+          and(
+            eq(payments.userId, target.userId),
+            eq(payments.status, "approved"),
+          ),
+        );
+      if (approved.some((p) => p.id !== paymentId)) {
+        return { ok: false, error: "already_paid" };
+      }
+    }
+  }
+
   await db
     .update(payments)
     .set({
@@ -105,15 +131,45 @@ export async function manualMarkPaid(
   if ("ok" in guard && guard.ok === false) return guard;
   const adminId = (guard as { adminId: string }).adminId;
 
-  await db.insert(payments).values({
-    userId,
-    method,
-    amountIls: ENTRY_FEE_ILS,
-    status: "approved",
-    decidedAt: new Date(),
-    decidedBy: adminId,
-    note: note ?? "marked paid by admin",
-  });
+  // Never stack a second approved row on a user — that double-counts in the
+  // pot (see src/db/pot.ts for the history behind this). If the user is
+  // already paid, this is a no-op the caller should be told about. If they
+  // have a pending payment (e.g. a Paybox submission awaiting approval),
+  // approve that row in place instead of inserting a parallel one. Only
+  // when there is nothing to approve do we create a fresh approved row.
+  const existing = await db
+    .select({ id: payments.id, status: payments.status })
+    .from(payments)
+    .where(eq(payments.userId, userId))
+    .orderBy(desc(payments.submittedAt));
+
+  if (existing.some((p) => p.status === "approved")) {
+    return { ok: false, error: "already_paid" };
+  }
+
+  const pending = existing.find((p) => p.status === "pending");
+  if (pending) {
+    await db
+      .update(payments)
+      .set({
+        status: "approved",
+        method,
+        decidedAt: new Date(),
+        decidedBy: adminId,
+        note: note ?? "marked paid by admin",
+      })
+      .where(eq(payments.id, pending.id));
+  } else {
+    await db.insert(payments).values({
+      userId,
+      method,
+      amountIls: ENTRY_FEE_ILS,
+      status: "approved",
+      decidedAt: new Date(),
+      decidedBy: adminId,
+      note: note ?? "marked paid by admin",
+    });
+  }
   revalidatePath("/", "layout");
   return { ok: true };
 }
@@ -123,13 +179,31 @@ export async function bulkApprovePending(): Promise<{ ok: true; n: number } | Er
   if ("ok" in guard && guard.ok === false) return guard;
   const adminId = (guard as { adminId: string }).adminId;
 
-  const rows = await db
+  // Approve at most one pending payment per user, and only for users who
+  // are not already approved, so a bulk run can never produce a second
+  // approved row (enforced by the unique index in migration 0046). Without
+  // this, one stray pending+approved pair would fail the whole batch.
+  const eligible = await execRows<{ id: string }>(sql`
+    select distinct on (user_id) id
+    from public.payments p
+    where p.status = 'pending'
+      and not exists (
+        select 1 from public.payments a
+        where a.user_id = p.user_id and a.status = 'approved'
+      )
+    order by user_id, submitted_at asc
+  `);
+  if (eligible.length === 0) {
+    revalidatePath("/", "layout");
+    return { ok: true, n: 0 };
+  }
+
+  await db
     .update(payments)
     .set({ status: "approved", decidedAt: new Date(), decidedBy: adminId })
-    .where(eq(payments.status, "pending"))
-    .returning({ id: payments.id });
+    .where(inArray(payments.id, eligible.map((r) => r.id)));
   revalidatePath("/", "layout");
-  return { ok: true, n: rows.length };
+  return { ok: true, n: eligible.length };
 }
 
 export async function removeUser(userId: string): Promise<Result> {

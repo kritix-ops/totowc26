@@ -1124,6 +1124,7 @@ const ERROR_MAP = {
   create_failed:      ["יצירת המשתמש נכשלה", "User creation failed"],
   no_link:            ["לא הצלחנו לייצר קישור", "Failed to generate link"],
   no_email:           ["למשתמש אין כתובת מייל", "User has no email address"],
+  already_paid:       ["המשתתף כבר מסומן כשולם", "User is already marked paid"],
 } as const satisfies Record<string, LocalizedTuple>;
 
 function translateError(code: string, isHebrew: boolean): string {

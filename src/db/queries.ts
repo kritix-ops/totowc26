@@ -2,6 +2,7 @@ import "server-only";
 import { sql } from "drizzle-orm";
 import { unstable_cache } from "next/cache";
 import { execFirstRow, execRows } from "./helpers";
+import { approvedPotIlsSql, paidParticipantsSql } from "./pot";
 import type { MultiChoiceOption } from "@/lib/bets/types";
 import { bankBalanceSql, duelCaseSql, duelDeltaSql } from "@/lib/bank";
 import { STAR_PLAYER_RANK, TEAM_RANK } from "@/lib/players/curation";
@@ -1345,9 +1346,8 @@ export const getPoolStats = unstable_cache(
   async (): Promise<PoolStats> => {
     const r = await execFirstRow<{ pot: number; players: number }>(sql`
       select
-        coalesce(sum(amount_ils) filter (where status = 'approved'), 0)::int as pot,
-        count(distinct user_id) filter (where status = 'approved')::int       as players
-      from public.payments
+        ${approvedPotIlsSql}   as pot,
+        ${paidParticipantsSql} as players
     `);
     return {
       potIls: Number(r?.pot ?? 0),
@@ -1403,10 +1403,7 @@ async function loadCategoryPrizeBreakdownFromDb(): Promise<CategoryPrizeBreakdow
     reserve: number;
   }>(sql`
     select
-      coalesce((
-        select sum(amount_ils) filter (where status = 'approved')
-        from public.payments
-      ), 0)::int                                                        as "pot",
+      ${approvedPotIlsSql}                                              as "pot",
       (select admin_overhead_ils        from public.settings where id = 1)::int as "overhead",
       (select prize_king_first_pct      from public.settings where id = 1)::int as "king_first",
       (select prize_king_second_pct     from public.settings where id = 1)::int as "king_second",
