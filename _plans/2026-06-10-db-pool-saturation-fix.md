@@ -107,6 +107,21 @@ files; `vitest` 250 passed / 11 skipped. The 2 failing suites
 (missing `@anthropic-ai/sdk`, no local Playwright browser) unrelated to this
 change.
 
+## Follow-up: build-phase regression (same day)
+
+After promoting to master, the prod `next build` FAILED: static prerender
+of `/he/bets/groups` ran a `content_overrides` query that hit the new
+`statement_timeout` and threw (`57014 canceling statement due to statement
+timeout`), aborting the build. Root issue: the timeout is a RUNTIME guard,
+but `next build` legitimately runs DB queries during prerender, and with the
+prod DB saturated those queries were slow-but-valid. A build-time cancel
+turns a slow build into a failed deploy.
+
+Fix: gate `connect_timeout` + `statement_timeout` on
+`process.env.NEXT_PHASE !== "phase-production-build"` in `src/db/index.ts`,
+so they apply only at runtime. The failed build never deployed, so prod was
+left unchanged (still the original incident, not worse).
+
 ## Notes
 
 - Branch: changes made on `sandbox`. Confirm `sandbox`→prod deploy
