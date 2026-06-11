@@ -26,6 +26,9 @@ import { PublishRow } from "./PublishRow";
 import { PublishMarketGroup } from "./PublishMarketGroup";
 import { RefreshFixtureButton } from "./RefreshFixtureButton";
 import { GenerateAiButton } from "./GenerateAiButton";
+import { AiModelCard } from "./AiModelCard";
+import { countRemainingMatches } from "./actions";
+import { DEFAULT_SUGGEST_MODEL } from "@/lib/bets/suggest/models";
 
 // Markets we skip in the suggestions UI:
 //   - Match Winner is already covered by the main 1/X/2 bet, so
@@ -108,12 +111,15 @@ export default async function LiveBetSuggestionsPage({
   const sp = await searchParams;
   const date = resolveDate(sp.date);
 
-  const [fixtures, oddsConfig, availableDates, templates] = await Promise.all([
-    listFixturesForDate(date),
-    loadOddsConfig(),
-    listLiveBetsDates(),
-    listBetTemplates(50),
-  ]);
+  const [fixtures, oddsConfig, availableDates, templates, suggestModel, remainingMatches] =
+    await Promise.all([
+      listFixturesForDate(date),
+      loadOddsConfig(),
+      listLiveBetsDates(),
+      listBetTemplates(50),
+      loadSuggestModel(),
+      countRemainingMatches(),
+    ]);
   // Split templates by scope so the per-fixture row only shows match
   // templates and the per-day row only shows day templates. Limited to
   // 8 each to keep the chip strip short on mobile.
@@ -185,6 +191,12 @@ export default async function LiveBetSuggestionsPage({
           </p>
         </div>
       </header>
+
+      <AiModelCard
+        currentModelId={suggestModel}
+        remainingMatches={remainingMatches}
+        locale={locale}
+      />
 
       <DatePicker locale={locale} date={date} availableDates={availableDates} />
 
@@ -622,4 +634,13 @@ async function loadOddsConfig(): Promise<OddsNormConfig> {
     maxPayout: s?.maxPayout ?? 25,
     houseEdgePct: s?.houseEdgePct ?? 5,
   };
+}
+
+async function loadSuggestModel(): Promise<string> {
+  const [s] = await db
+    .select({ suggestModel: settings.suggestModel })
+    .from(settings)
+    .where(eq(settings.id, 1))
+    .limit(1);
+  return s?.suggestModel ?? DEFAULT_SUGGEST_MODEL;
 }

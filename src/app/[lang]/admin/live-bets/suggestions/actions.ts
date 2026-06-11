@@ -16,6 +16,7 @@ import { getDeadlineContext } from "@/lib/deadlines";
 import { liveStakeCap } from "@/lib/odds-normalize";
 import { generateSuggestions, type FixtureContext } from "@/lib/bets/suggest/generate";
 import { suggestionToDraft } from "@/lib/bets/suggest/transform";
+import { SUGGEST_MODELS } from "@/lib/bets/suggest/models";
 import { createCustomBet } from "../../bets/actions";
 
 // Server actions for the admin "Live bet suggestions" page.
@@ -368,7 +369,12 @@ export async function generateAiSuggestions(
     return { ok: false, error: "match_started" };
   }
 
-  const gen = await generateSuggestions(fx.context);
+  const [modelRow] = await db
+    .select({ suggestModel: settings.suggestModel })
+    .from(settings)
+    .where(eq(settings.id, 1))
+    .limit(1);
+  const gen = await generateSuggestions(fx.context, modelRow?.suggestModel);
   if (!gen.ok) {
     return { ok: false, error: gen.error === "no_key" ? "no_key" : "llm_failed" };
   }
@@ -421,6 +427,42 @@ export async function generateAiSuggestions(
   revalidatePath("/[lang]/admin/bets", "page");
   revalidatePath("/[lang]/admin/live-bets/suggestions", "page");
   return { ok: true, created, failed, total: gen.suggestions.length };
+}
+
+// Persist the admin's chosen suggestion model. Validated against the fixed
+// catalogue so a typo or retired id can't reach the generator.
+export async function setSuggestModel(
+  modelId: string,
+): Promise<{ ok: true } | { ok: false; error: Err }> {
+  const user = await getUser();
+  if (!user) return { ok: false, error: "unauth" };
+  if (!(await isAdmin(user.id))) {
+    console.warn("[suggest-model denied]", { userId: user.id });
+    return { ok: false, error: "forbidden" };
+  }
+  if (!SUGGEST_MODELS.some((m) => m.id === modelId)) {
+    return { ok: false, error: "invalid_input" };
+  }
+  try {
+    await db.update(settings).set({ suggestModel: modelId }).where(eq(settings.id, 1));
+    console.info("[suggest-model set]", { adminId: user.id, modelId });
+    revalidatePath("/[lang]/admin/live-bets/suggestions", "page");
+    return { ok: true };
+  } catch (err) {
+    console.error("[suggest-model set] failed:", err);
+    return { ok: false, error: "db" };
+  }
+}
+
+// Count fixtures still to be played (scheduled, kickoff in the future).
+// Drives the end-of-tournament cost projection on the AI model card.
+export async function countRemainingMatches(): Promise<number> {
+  const row = await execFirstRow<{ n: number }>(sql`
+    select count(*)::int as "n"
+    from public.matches
+    where status = 'scheduled' and kickoff_at > now()
+  `);
+  return row?.n ?? 0;
 }
 
 // Load the fixture's bilingual team names, stage and kickoff for the

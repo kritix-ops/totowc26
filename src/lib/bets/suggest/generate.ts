@@ -7,6 +7,7 @@ import {
   type SuggestionBatch,
 } from "./schema";
 import { validateSuggestion } from "./transform";
+import { modelById } from "./models";
 
 // LLM live-bet suggestion generator. Given a fixture, asks Claude for a
 // batch of complete, in-format live bets — each with a probability per
@@ -25,7 +26,6 @@ import { validateSuggestion } from "./transform";
 
 const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
 const ANTHROPIC_VERSION = "2023-06-01";
-const MODEL = process.env.CLAUDE_MODEL_SUGGEST ?? "claude-sonnet-4-6";
 
 export type FixtureContext = {
   homeNameHe: string;
@@ -90,6 +90,7 @@ function buildUserPrompt(fx: FixtureContext): string {
 
 export async function generateSuggestions(
   fx: FixtureContext,
+  modelId?: string,
 ): Promise<GenerateResult> {
   const key = process.env.ANTHROPIC_API_KEY;
   if (!key) {
@@ -97,8 +98,13 @@ export async function generateSuggestions(
     return { ok: false, error: "no_key" };
   }
 
+  // Admin-selected model from settings, falling back to the catalogue
+  // default (and honouring a CLAUDE_MODEL_SUGGEST override only when no
+  // explicit id is passed) so a retired id can never wedge generation.
+  const model = modelById(modelId ?? process.env.CLAUDE_MODEL_SUGGEST).id;
+
   const body = {
-    model: MODEL,
+    model,
     max_tokens: 4096,
     system: buildSystemPrompt(),
     messages: [{ role: "user", content: buildUserPrompt(fx) }],
@@ -161,7 +167,7 @@ export async function generateSuggestions(
 
   console.info("[live-gen ok]", {
     fixture: `${fx.homeNameEn} vs ${fx.awayNameEn}`,
-    model: MODEL,
+    model,
     returned: raw.length,
     valid: valid.length,
     dropped,

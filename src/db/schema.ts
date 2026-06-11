@@ -447,6 +447,11 @@ export const settings = pgTable("settings", {
   // column is kept one cycle for rollback).
   liveOddsMaxPayoutRatio: smallint("live_odds_max_payout_ratio").notNull().default(8),
   liveOddsMaxPayoutCeiling: smallint("live_odds_max_payout_ceiling").notNull().default(100),
+  // Claude model id used by the live-bet AI suggestion generator. Admin-
+  // selectable from a fixed catalogue (src/lib/bets/suggest/models.ts) so
+  // the cost/quality trade-off can be tuned without a redeploy. Falls back
+  // to the catalogue default if the stored id is ever retired.
+  suggestModel: text("suggest_model").notNull().default("claude-sonnet-4-6"),
   // 7-way prize split (king 1/2/3, matches/live/duels winner, reserve).
   // Sum MUST be 100 - DB CHECK constraint enforces this. The legacy
   // prizePct1-4 columns below are kept for backwards compatibility until
