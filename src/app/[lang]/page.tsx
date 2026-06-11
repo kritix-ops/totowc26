@@ -25,6 +25,10 @@ import { getUserAccess } from "@/lib/access";
 import { getBankBalance } from "@/lib/bank";
 import { DashboardPickCard } from "@/components/DashboardPickCard";
 import { SmartHubAsync, SmartHubSkeleton } from "@/components/SmartHub";
+import {
+  TodaysBetsSectionAsync,
+  TodaysBetsSectionSkeleton,
+} from "@/components/TodayBetsSection";
 import { WhatsAppInviteCard } from "@/components/WhatsAppInviteCard";
 import { PoolDigestSection } from "@/components/PoolDigestSection";
 import { isWhatsAppCardDismissed } from "@/lib/whatsapp-dismiss";
@@ -311,6 +315,16 @@ function PlayerHome({
             engine fan-out. */}
         <Suspense fallback={<SmartHubSkeleton />}>
           <SmartHubAsync locale={locale} userId={userId} />
+        </Suspense>
+
+        {/* Today's bets — read-only snapshot of every bet the user has
+            touching today's matches (score picks + match-scope and
+            day-scope live custom bets) plus a points-from-today badge.
+            Rolls forward to the next match day on dark days; returns null
+            once the tournament is over. See
+            _plans/2026-06-11-home-todays-bets-section.md. */}
+        <Suspense fallback={<TodaysBetsSectionSkeleton />}>
+          <TodaysBetsSectionAsync locale={locale} dict={dict} userId={userId} />
         </Suspense>
 
         <Suspense fallback={<UpcomingSectionSkeleton />}>

@@ -207,7 +207,10 @@
     "poolDigestEmpty": "No bets have locked yet for today. As soon as the first lock-time hits, you will see what everyone went with.",
     "poolDigestCta": "See all picks",
     "poolDigestVoteSingle": "{count}/{total} picked",
-    "poolDigestUnanimous": "Everyone picked"
+    "poolDigestUnanimous": "Everyone picked",
+    "todaysBetsTitle": "Your bets today",
+    "todaysBetsPlaced": "Bets",
+    "todaysBetsPoints": "Points today"
   },
   "matchBet": {
     "title": "Exact score",

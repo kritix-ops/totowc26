@@ -207,7 +207,10 @@
     "poolDigestEmpty": "עוד אין הימורים נעולים להיום. ברגע שיגיע מועד הנעילה הראשון, תראה כאן מה כולם בחרו.",
     "poolDigestCta": "ראה את כל ההימורים",
     "poolDigestVoteSingle": "{count}/{total} הימרו",
-    "poolDigestUnanimous": "כולם הימרו"
+    "poolDigestUnanimous": "כולם הימרו",
+    "todaysBetsTitle": "ההימורים שלך להיום",
+    "todaysBetsPlaced": "הימורים",
+    "todaysBetsPoints": "נקודות היום"
   },
   "matchBet": {
     "title": "תוצאה מדויקת",

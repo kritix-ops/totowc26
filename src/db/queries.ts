@@ -132,6 +132,207 @@ export async function getUpcomingFixtures(
   `);
 }
 
+// Today's (or next match day's) fixtures + bets for a single user. Drives
+// the home-page "Your bets today" section — see
+// _plans/2026-06-11-home-todays-bets-section.md and `TodayBetsSection.tsx`.
+//
+// Date selection (Asia/Jerusalem):
+//   1. If any fixture kicks off today, pick today.
+//   2. Else pick the earliest future date that has a fixture (roll forward).
+//   3. If neither exists (tournament over), return null and the section
+//      collapses to nothing.
+//
+// "Bets" mixes three sources, all keyed by the chosen date:
+//   - match_bets for fixtures on that date (score predictions)
+//   - custom_bets scope='match' whose match.kickoff_at lands on that date
+//   - custom_bets scope='day' anchored on matchdays.date = that date
+// Tournament/stage/group scopes have no per-day anchor and are excluded.
+//
+// `totals.totalPoints` sums graded points (match_bets.points_earned + custom
+// pick net = points_earned − stake_paid). Open/locked rows don't count
+// against the total — those are pending and lighting them up red would be
+// misleading.
+//
+// Read-only. Every join to user-keyed tables is filtered by ${userId}, so
+// no other player's picks are exposed.
+export type TodayBetsFixture = {
+  id: string;
+  homeCode: string;
+  homeNameHe: string;
+  homeNameEn: string;
+  awayCode: string;
+  awayNameHe: string;
+  awayNameEn: string;
+  kickoffAt: string;
+  status: "scheduled" | "live" | "final";
+  homeScore: number | null;
+  awayScore: number | null;
+  myHome: number | null;
+  myAway: number | null;
+  myPoints: number | null;
+  myExact: boolean | null;
+};
+
+export type TodayBetsBet = {
+  id: string;
+  scope: "match" | "day";
+  matchId: string | null;
+  questionHe: string;
+  questionEn: string;
+  answerType: "yes_no" | "number" | "multi_choice" | "free_text";
+  answerConfig: unknown; // AnswerConfig — narrowed by renderPickAnswer
+  status: "open" | "locked" | "graded" | "reversed";
+  lockAt: string;
+  myAnswer: unknown; // PickAnswer | null — narrowed by renderPickAnswer
+  myStakePaid: number | null;
+  myPointsEarned: number | null;
+};
+
+export type TodayBetsSummary = {
+  date: string;
+  isToday: boolean;
+  fixtures: TodayBetsFixture[];
+  bets: TodayBetsBet[];
+  totals: {
+    matchBetCount: number;
+    customBetCount: number;
+    totalPoints: number;
+  };
+};
+
+export async function getTodayBetsSummary(
+  userId: string,
+): Promise<TodayBetsSummary | null> {
+  // Pick the active date in one round trip: today first, otherwise the
+  // earliest future fixture date. NULL out → no future fixtures at all
+  // (tournament finished) → return null and let the section collapse.
+  const dateRow = await execFirstRow<{
+    date: string | null;
+    is_today: boolean | null;
+  }>(sql`
+    with today as (
+      select (now() at time zone 'Asia/Jerusalem')::date as d
+    ),
+    today_has as (
+      select 1
+      from public.matches m, today
+      where (m.kickoff_at at time zone 'Asia/Jerusalem')::date = today.d
+      limit 1
+    ),
+    next_future as (
+      select min((m.kickoff_at at time zone 'Asia/Jerusalem')::date) as d
+      from public.matches m, today
+      where (m.kickoff_at at time zone 'Asia/Jerusalem')::date > today.d
+    )
+    select
+      to_char(coalesce(
+        case when exists (table today_has) then (select d from today) end,
+        (select d from next_future)
+      ), 'YYYY-MM-DD')                       as "date",
+      exists (table today_has)               as "is_today"
+  `);
+  const date = dateRow?.date ?? null;
+  if (!date) return null;
+  const isToday = dateRow?.is_today === true;
+
+  const fixtures = await execRows<TodayBetsFixture>(sql`
+    select
+      m.id::text                       as "id",
+      m.home_team                      as "homeCode",
+      ht.name_he                       as "homeNameHe",
+      ht.name_en                       as "homeNameEn",
+      m.away_team                      as "awayCode",
+      at.name_he                       as "awayNameHe",
+      at.name_en                       as "awayNameEn",
+      m.kickoff_at                     as "kickoffAt",
+      m.status::text                   as "status",
+      m.home_score                     as "homeScore",
+      m.away_score                     as "awayScore",
+      mb.home_score                    as "myHome",
+      mb.away_score                    as "myAway",
+      mb.points_earned                 as "myPoints",
+      mb.was_exact                     as "myExact"
+    from public.matches m
+    join public.teams ht on ht.code = m.home_team
+    join public.teams at on at.code = m.away_team
+    left join public.match_bets mb
+      on mb.match_id = m.id and mb.user_id = ${userId}
+    where (m.kickoff_at at time zone 'Asia/Jerusalem')::date = ${date}::date
+    order by m.kickoff_at asc
+  `);
+
+  // Same anchoring rules as getPlayDayDetail. We INNER JOIN
+  // user_custom_bet_picks because this section is the user's *placed* bets;
+  // admin-published rows the user skipped don't belong here.
+  const bets = await execRows<TodayBetsBet>(sql`
+    select
+      cb.id::text                                 as "id",
+      cb.scope::text                              as "scope",
+      cb.match_id::text                           as "matchId",
+      cb.question_he                              as "questionHe",
+      cb.question_en                              as "questionEn",
+      cb.answer_type::text                        as "answerType",
+      cb.answer_config                            as "answerConfig",
+      cb.status::text                             as "status",
+      cb.lock_at                                  as "lockAt",
+      pk.answer                                   as "myAnswer",
+      pk.stake_paid                               as "myStakePaid",
+      pk.points_earned                            as "myPointsEarned"
+    from public.custom_bets cb
+    left join public.matches    m  on m.id = cb.match_id
+    left join public.matchdays  md on md.id = cb.matchday_id
+    join public.user_custom_bet_picks pk
+      on pk.custom_bet_id = cb.id and pk.user_id = ${userId}
+    where cb.status in ('open', 'locked', 'graded', 'reversed')
+      and (
+        (cb.scope = 'day'   and md.date = ${date}::date) or
+        (cb.scope = 'match' and (m.kickoff_at at time zone 'Asia/Jerusalem')::date = ${date}::date)
+      )
+    order by
+      cb.scope asc,
+      cb.lock_at asc
+  `);
+
+  let matchBetCount = 0;
+  let matchPoints = 0;
+  for (const fx of fixtures) {
+    if (fx.myHome !== null && fx.myAway !== null) {
+      matchBetCount += 1;
+      if (fx.myPoints !== null) matchPoints += fx.myPoints;
+    }
+  }
+
+  let customPoints = 0;
+  for (const b of bets) {
+    // Only graded/reversed rows feed the total. Open/locked bets are still
+    // in flight; their stake is committed but recoverable on edit.
+    if (b.status === "graded" || b.status === "reversed") {
+      customPoints += (b.myPointsEarned ?? 0) - (b.myStakePaid ?? 0);
+    }
+  }
+
+  const digest: TodayBetsSummary = {
+    date,
+    isToday,
+    fixtures,
+    bets,
+    totals: {
+      matchBetCount,
+      customBetCount: bets.length,
+      totalPoints: matchPoints + customPoints,
+    },
+  };
+  console.info("[dashboard today-bets] loaded", {
+    userId,
+    date,
+    isToday,
+    fixtures: fixtures.length,
+    bets: bets.length,
+    totalPoints: digest.totals.totalPoints,
+  });
+  return digest;
+}
+
 // Latest final match for which the user has a bet (i.e. their most recent
 // finished match). Used by dashboard's "Last bet" card.
 export async function getLatestFinalForUser(
