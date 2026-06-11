@@ -254,26 +254,38 @@ function QuestionCard({
         </time>
       </header>
 
-      <ul className="flex flex-col gap-1.5">
+      {/* Full-bleed zebra rows. With 30+ names a flat gapped list reads
+          as one undifferentiated wall (the home digit and points float
+          far from the name across an empty middle). Alternating row
+          tints band each name to its own score/points line, and the
+          points sit in a fixed-width right-aligned column so every
+          +10 / +5 / 0 stacks into a scannable column. min-h-11 keeps
+          each row a 44px touch target. */}
+      <ul className="flex flex-col -mx-3 md:-mx-4 rounded-lg overflow-hidden">
         {row.pickers.map((pk, idx) => (
           <li
             key={`${row.questionId}:${pk.userId}:${idx}`}
-            className="flex items-center justify-between gap-3 text-sm"
+            className={clsx(
+              "flex items-center justify-between gap-3 text-sm px-3 md:px-4 py-2 min-h-11",
+              idx % 2 === 1 && "bg-surface-container-high/70",
+            )}
           >
-            <span className="font-bold text-on-surface truncate">
+            <span className="font-bold text-on-surface truncate min-w-0">
               {pk.displayName}
             </span>
-            <span className="flex items-center gap-2 shrink-0 text-on-surface-variant">
-              <PickLabel tab={tab} label={pk.pickLabel} />
+            <span className="flex items-center gap-3 shrink-0">
               {pk.stake > 0 && (
-                <span className="bidi-ltr text-[11px]">
+                <span className="bidi-ltr text-[11px] text-on-surface-variant">
                   ({dict.transparency.stakeLabel}: {pk.stake})
                 </span>
               )}
+              <span className="text-on-surface-variant">
+                <PickLabel tab={tab} label={pk.pickLabel} />
+              </span>
               {pk.pointsEarned !== null && (
                 <span
                   className={clsx(
-                    "font-[family-name:var(--font-score)] text-sm leading-none font-bold tabular-nums",
+                    "min-w-[2.75rem] text-end font-[family-name:var(--font-score)] text-sm leading-none font-bold tabular-nums",
                     pk.pointsEarned > 0
                       ? "text-secondary"
                       : pk.pointsEarned < 0
