@@ -247,6 +247,19 @@ export function BetForm({
     setPayout(liveOddsPreview.payout);
   }
 
+  // Live scope without decimal_odds yet — snap to the live default
+  // stake (settings.liveOddsBaseStake) so the saved snapshot still
+  // represents a sensible default ★ pill. Payout falls back to the
+  // answer-type default (yes/no=3, etc.) which the linear-scale
+  // fallback path in write-core then uses as the scaling baseline.
+  const liveFallbackStake = defaults?.liveOddsBaseStake ?? 3;
+  if (isLiveScope && !liveOddsPreview && stake !== liveFallbackStake) {
+    setStake(liveFallbackStake);
+  }
+  if (isLiveScope && !liveOddsPreview && payout !== defaultStakePayout.payout) {
+    setPayout(defaultStakePayout.payout);
+  }
+
   // Free-pick scopes ignore stake at submit, but the DB still accepts a
   // value. Force it to 0 so a stale form field doesn't write a misleading
   // number to the row.
@@ -254,10 +267,10 @@ export function BetForm({
     setStake(0);
   }
 
-  if (!stakeTouched && !liveOddsPreview && !isFreePickFormScope && stake !== defaultStakePayout.stake) {
+  if (!stakeTouched && !liveOddsPreview && !isFreePickFormScope && !isLiveScope && stake !== defaultStakePayout.stake) {
     setStake(defaultStakePayout.stake);
   }
-  if (!payoutTouched && !liveOddsPreview && payout !== defaultStakePayout.payout) {
+  if (!payoutTouched && !liveOddsPreview && !isLiveScope && payout !== defaultStakePayout.payout) {
     setPayout(defaultStakePayout.payout);
   }
 
@@ -684,8 +697,8 @@ export function BetForm({
         hint={
           isLiveScope
             ? isHebrew
-              ? "השחקן בוחר כמה לסכן (1-30) על כרטיס ההימור. הזן את ה-decimal odds מהבוקמייקר; המערכת תחשב את ה-payout המדויק לכל סכום שהשחקן בוחר. ★ הברירת מחדל מסומנת בכרטיס היא הסכום שכאן למטה."
-              : "Player picks how much to risk (1-30) on the bet card. Enter the bookmaker decimal odds; the system reprices the payout for every chosen stake. The stake shown below is what the ★ default pill on the card will be."
+              ? "בהימור לייב השחקן בוחר בעצמו כמה לסכן (1-30) על כרטיס ההימור. כל מה שצריך ממך כאן זה ה-decimal odds מהבוקמייקר — המערכת תחשב לבד את ה-payout המדויק לכל סכום שיבחר."
+              : "On a live bet the player picks how much to risk (1-30) on the card themselves. All you need to enter here is the bookmaker decimal odds — the system reprices the payout for every chosen stake."
             : isFreePickFormScope
               ? isHebrew
                 ? "הימור טורניר/שלב/בית הוא ללא עלות לשחקן. השדה למטה הוא רק fallback אם אין מחיר לכל אפשרות."
@@ -695,6 +708,10 @@ export function BetForm({
                 : `Default for this answer type: stake ${defaultStakePayout.stake} / payout ${defaultStakePayout.payout}.`
         }
       >
+        {/* Live (match/day): single input for the bookmaker odds. The
+            stake/payout snapshot is computed automatically; no manual
+            entry needed because the player picks the stake themselves
+            on the bet card. */}
         {isLiveScope && (
           <div className="flex flex-col gap-3">
             <div className="flex flex-wrap items-end gap-3">
@@ -715,15 +732,15 @@ export function BetForm({
               {liveOddsPreview && (
                 <div className="flex items-end gap-3 text-sm text-on-surface-variant pb-2">
                   <span>
-                    {isHebrew ? "ברירת מחדל" : "Default"}:{" "}
+                    {isHebrew ? "ברירת מחדל בכרטיס" : "Card default"}:{" "}
                     <bdi className="tabular-nums font-bold text-on-surface">
                       {liveOddsPreview.stake}
                     </bdi>{" "}
                     {isHebrew ? "סיכון" : "risk"} ·{" "}
                     <bdi className="tabular-nums font-bold text-on-surface">
-                      {liveOddsPreview.payout}
+                      +{Math.max(0, liveOddsPreview.payout - liveOddsPreview.stake)}
                     </bdi>{" "}
-                    {isHebrew ? "תשלום" : "payout"}
+                    {isHebrew ? "זכייה" : "win"}
                   </span>
                 </div>
               )}
@@ -731,19 +748,19 @@ export function BetForm({
             {!parsedDecimalOdds && (
               <p className="text-xs text-tertiary-fixed-dim">
                 {isHebrew
-                  ? "אם לא תזין odds, ההימור ייפול על חישוב לינארי-מקירוב בעת ה-submit (יעבוד, אך פחות מדויק לסכומים שונים מברירת המחדל). מומלץ למלא תמיד."
-                  : "If no odds are entered, the submit path falls back to linear scaling (works, but less accurate at non-default stakes). Filling it in is recommended."}
+                  ? `בלי odds, ה-payout יחושב בקירוב לינארי על בסיס ברירת מחדל (${liveFallbackStake} סיכון / ${defaultStakePayout.payout} תשלום). מומלץ למלא תמיד.`
+                  : `Without odds, payout falls back to linear scaling from a default snapshot (${liveFallbackStake} stake / ${defaultStakePayout.payout} payout). Filling it in is recommended.`}
               </p>
             )}
           </div>
         )}
 
-        {/* Manual stake/payout — shown only when the live path isn't
-            handling pricing, i.e. either the scope is non-live or the
-            admin chose to skip the decimal-odds field. Free-pick scopes
-            still see payout (as a flat fallback) but never stake. */}
-        {(!isLiveScope || !parsedDecimalOdds) && (
-          <div className="flex flex-wrap gap-3 items-end mt-3">
+        {/* Non-live scopes: keep the manual stake/payout entry. Free-pick
+            scopes hide stake (forced to 0 server-side) and show only
+            payout as the flat fallback for surfaces without per-option
+            pricing. */}
+        {!isLiveScope && (
+          <div className="flex flex-wrap gap-3 items-end">
             {!isFreePickFormScope && (
               <NumberStepper
                 label={isHebrew ? "עלות (stake)" : "Stake"}
