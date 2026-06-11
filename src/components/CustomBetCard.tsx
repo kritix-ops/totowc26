@@ -314,6 +314,20 @@ export function CustomBetCard({
             lockAt={bet.lockAt}
             variant="inline"
           />
+          {/* Discoverability: tell the user explicitly that picks are
+              fluid until the bet closes. The cancel button itself only
+              appears once a pick is saved (you can't cancel what isn't
+              there), so without this line a first-time user thinks the
+              "save" decision is final. Modify/cancel verbs are voiced
+              in the same order they appear on screen — answer pills to
+              the left (change), trash button to the right (cancel). */}
+          {editable && (
+            <span className="text-[11px] text-on-surface-variant/80 text-end leading-tight">
+              {isHebrew
+                ? "ניתן לשנות או לבטל עד הסגירה"
+                : "Can change or cancel until close"}
+            </span>
+          )}
         </div>
       </div>
 

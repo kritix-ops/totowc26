@@ -281,6 +281,18 @@ export function BetForm({
             <Clock className="h-5 w-5 text-outline shrink-0" strokeWidth={1.5} />
             {isHebrew ? "סגירת הימור 5 דק' לפני שריקה" : "Bet locks 5 min before kickoff"}
           </p>
+          {/* Discoverability hint: tell the user the save is reversible
+              until the deadline. The cancel button itself only appears
+              when there is a pick to remove (you can't cancel an empty
+              form), so without this line the save-first decision looks
+              final. */}
+          {editable && (
+            <p className="text-sm text-on-surface-variant/80 -mt-1">
+              {isHebrew
+                ? "ניתן לשנות או לבטל את הניחוש עד הסגירה"
+                : "You can change or cancel your pick until close"}
+            </p>
+          )}
         </div>
       </aside>
 
