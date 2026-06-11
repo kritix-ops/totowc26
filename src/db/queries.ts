@@ -1583,7 +1583,12 @@ export type PlayDayRow = {
 export async function listOpenPlayDays(): Promise<PlayDayRow[]> {
   return execRows<PlayDayRow>(sql`
     with days as (
-      -- Every Asia/Jerusalem date that has either fixtures OR open bets.
+      -- Every Asia/Jerusalem date from today onward that has fixtures.
+      -- The final status is included (not just scheduled/live) so TODAY's
+      -- card does not vanish the moment its matches end - a player needs
+      -- to keep reaching the day to review the live bets they already
+      -- placed. The today-onward guard keeps finished past days from
+      -- piling up at the top of the list as the tournament runs.
       select to_char((m.kickoff_at at time zone 'Asia/Jerusalem')::date,
                      'YYYY-MM-DD') as date,
              min(m.kickoff_at)                                as first_kickoff,
@@ -1594,7 +1599,9 @@ export async function listOpenPlayDays(): Promise<PlayDayRow[]> {
       from public.matches m
       join public.teams ht on ht.code = m.home_team
       join public.teams at on at.code = m.away_team
-      where m.status in ('scheduled', 'live')
+      where m.status in ('scheduled', 'live', 'final')
+        and (m.kickoff_at at time zone 'Asia/Jerusalem')::date
+              >= (now() at time zone 'Asia/Jerusalem')::date
       group by (m.kickoff_at at time zone 'Asia/Jerusalem')::date
     ),
     bet_counts as (
@@ -1660,7 +1667,11 @@ export type PlayBetRow = {
   // exactly; null when not captured (legacy or non-pricedmulti-option bets).
   decimalOdds: string | null;
   lockAt: string;
-  status: "open" | "locked";        // we only fetch these two
+  // open/locked are the actively-bettable window; graded/reversed are
+  // shown read-only so a player can still SEE the live bet they placed
+  // after the match started and after it's been graded. cancelled (void)
+  // is intentionally excluded.
+  status: "open" | "locked" | "graded" | "reversed";
   matchId: string | null;
   matchLabel: string | null;        // "BRA vs GER" for match-scope
   myAnswer: unknown | null;         // raw JSONB; null when caller hasn't picked
@@ -1730,7 +1741,7 @@ export async function getPlayDayDetail(
     left join public.matchdays  md on md.id = cb.matchday_id
     left join public.user_custom_bet_picks pk
       on pk.custom_bet_id = cb.id and pk.user_id = ${userId}
-    where cb.status in ('open', 'locked')
+    where cb.status in ('open', 'locked', 'graded', 'reversed')
       and (
         (cb.scope = 'day'   and md.date = ${date}::date) or
         (cb.scope = 'match' and (m.kickoff_at at time zone 'Asia/Jerusalem')::date = ${date}::date)

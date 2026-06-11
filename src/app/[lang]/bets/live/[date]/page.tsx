@@ -321,7 +321,7 @@ function toCardData(
     payoutSnapshot: number;
     decimalOdds: string | null;
     lockAt: string;
-    status: "open" | "locked";
+    status: "open" | "locked" | "graded" | "reversed";
     matchLabel: string | null;
     myAnswer: unknown;
     myStakePaid: number | null;
