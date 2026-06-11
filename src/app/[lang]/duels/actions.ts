@@ -8,7 +8,13 @@ import { duels, matches as matchesTable, matchdays, settings } from "@/db/schema
 import { getUser } from "@/lib/supabase/auth";
 import { isAdmin } from "@/lib/admin";
 import { getUserAccess } from "@/lib/access";
-import { bankBalanceSql, bankCacheTag, lockUserForBetting } from "@/lib/bank";
+import {
+  assertBettingAllowed,
+  bankBalanceSql,
+  bankCacheTag,
+  getOverdraftConfig,
+  lockUserForBetting,
+} from "@/lib/bank";
 import { CACHE_TAG_LEADERBOARD } from "@/db/queries";
 import { sendEmail } from "@/lib/email/client";
 import { getEmailCopy, interpolate } from "@/lib/email/copy";
@@ -34,6 +40,8 @@ type DuelErr =
   | "stake_too_high"
   | "stake_too_low"
   | "insufficient_funds"
+  | "negative_balance_locked"
+  | "overdraft_exceeded"
   | "rate_limited"
   | "match_not_found"
   | "match_locked"
@@ -211,16 +219,49 @@ export async function openDuel(input: OpenDuelInput): Promise<OpenDuelResult> {
   }
 
   // 3) Serializable txn: lock the opener, check balance, insert.
+  // Returns either the inserted id or a guard rejection reason.
+  type OpenTxnResult =
+    | { kind: "ok"; id: string }
+    | { kind: "guard"; reason: "negative_balance_locked" | "overdraft_exceeded" };
   try {
-    const inserted = await db.transaction(async (tx) => {
+    const overdraft = await getOverdraftConfig();
+    const inserted = await db.transaction<OpenTxnResult>(async (tx) => {
       await lockUserForBetting(tx, user.id);
       const balanceRows = await tx.execute(
         sql`select ${bankBalanceSql(user.id)} as balance`,
       );
       const balance =
         (balanceRows as unknown as Array<{ balance: number }>)[0]?.balance ?? 0;
-      if (balance < input.stake) {
-        return null;
+      const guard = assertBettingAllowed({
+        balance,
+        stake: input.stake,
+        maxOverdraft: overdraft.maxOverdraft,
+        lockWhenNegative: overdraft.lockBetsWhenNegative,
+      });
+      if (!guard.ok) {
+        if (guard.reason === "negative_balance_locked") {
+          console.info("[duel open guard] negative_balance_locked", {
+            userId: user.id,
+            balance: guard.balance,
+            stake: input.stake,
+          });
+          return { kind: "guard", reason: "negative_balance_locked" };
+        }
+        console.info("[duel open guard] overdraft_exceeded", {
+          userId: user.id,
+          balance: guard.balance,
+          stake: input.stake,
+          cap: guard.cap,
+        });
+        return { kind: "guard", reason: "overdraft_exceeded" };
+      }
+      if (balance - input.stake < 0) {
+        console.info("[duel open guard] overdraft_taken", {
+          userId: user.id,
+          balanceBefore: balance,
+          balanceAfter: balance - input.stake,
+          cap: overdraft.maxOverdraft,
+        });
       }
 
       const [row] = await tx
@@ -243,15 +284,16 @@ export async function openDuel(input: OpenDuelInput): Promise<OpenDuelResult> {
           gradingConfig: autoGrade,
         })
         .returning({ id: duels.id });
-      return row.id;
+      return { kind: "ok", id: row.id };
     });
 
-    if (!inserted) {
-      return { ok: false, error: "insufficient_funds" };
+    if (inserted.kind === "guard") {
+      return { ok: false, error: inserted.reason };
     }
 
+    const duelId = inserted.id;
     console.info("[duel open]", {
-      duelId: inserted,
+      duelId,
       openerId: user.id,
       stake: input.stake,
       scope: input.scope,
@@ -264,7 +306,7 @@ export async function openDuel(input: OpenDuelInput): Promise<OpenDuelResult> {
     // §3.4). Best-effort; failures are logged inside notifyUsers and
     // never block the user's response.
     void notifyDuelOpened(
-      inserted,
+      duelId,
       user.id,
       input.questionHe.trim(),
       input.questionEn.trim(),
@@ -277,7 +319,7 @@ export async function openDuel(input: OpenDuelInput): Promise<OpenDuelResult> {
     // inside `useTransition` until the whole shell re-rendered.
     revalidatePath("/[lang]/duels", "layout");
     revalidatePath("/[lang]/me", "page");
-    return { ok: true, id: inserted };
+    return { ok: true, id: duelId };
   } catch (err) {
     console.error("[duel open] insert failed:", err);
     return { ok: false, error: "db" };
@@ -295,6 +337,7 @@ export async function joinDuel(id: string): Promise<JoinDuelResult> {
   if (!access.canEdit) return { ok: false, error: "not_paid" };
 
   try {
+    const overdraft = await getOverdraftConfig();
     const result = await db.transaction(async (tx) => {
       // Serialise joiners on the same duel id so two simultaneous taps
       // can never both win the race. The per-user lock on the joiner
@@ -324,15 +367,52 @@ export async function joinDuel(id: string): Promise<JoinDuelResult> {
         return { ok: false as const, error: "duel_closed" as const };
 
       // Re-check balance inside the txn so the bank read picks up any
-      // other in-flight stake debits from the same user.
+      // other in-flight stake debits from the same user. Negative-balance
+      // lock + overdraft cap also enforced here — joining is just as
+      // bank-spending as opening.
       const balanceRows = await tx.execute(
         sql`select ${bankBalanceSql(user.id)} as balance`,
       );
       const balance =
         (balanceRows as unknown as Array<{ balance: number }>)[0]?.balance ??
         0;
-      if (balance < d.stake)
-        return { ok: false as const, error: "insufficient_funds" as const };
+      const guard = assertBettingAllowed({
+        balance,
+        stake: d.stake,
+        maxOverdraft: overdraft.maxOverdraft,
+        lockWhenNegative: overdraft.lockBetsWhenNegative,
+      });
+      if (!guard.ok) {
+        if (guard.reason === "negative_balance_locked") {
+          console.info("[duel join guard] negative_balance_locked", {
+            userId: user.id,
+            duelId: id,
+            balance: guard.balance,
+            stake: d.stake,
+          });
+          return {
+            ok: false as const,
+            error: "negative_balance_locked" as const,
+          };
+        }
+        console.info("[duel join guard] overdraft_exceeded", {
+          userId: user.id,
+          duelId: id,
+          balance: guard.balance,
+          stake: d.stake,
+          cap: guard.cap,
+        });
+        return { ok: false as const, error: "overdraft_exceeded" as const };
+      }
+      if (balance - d.stake < 0) {
+        console.info("[duel join guard] overdraft_taken", {
+          userId: user.id,
+          duelId: id,
+          balanceBefore: balance,
+          balanceAfter: balance - d.stake,
+          cap: overdraft.maxOverdraft,
+        });
+      }
 
       await tx
         .update(duels)

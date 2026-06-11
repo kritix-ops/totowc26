@@ -49,6 +49,29 @@ export function normalizeOdds(
   return { stake, payout };
 }
 
+// Settings-driven payout cap for the player-chosen-stake path. The cap
+// is the smaller of (stake * ratio) — preserving the historical 8x
+// relationship — and an absolute ceiling — so a single bet can never
+// decide the whole tournament. Pure function: same numbers on server and
+// client so the bet card's live "potential win" matches what the server
+// will record.
+//
+// See _plans/2026-06-11-variable-live-bet-stake.md §4 (option 2).
+export type LiveStakeCapConfig = {
+  maxPayoutRatio: number;
+  maxPayoutCeiling: number;
+};
+
+export function liveStakeCap(
+  stake: number,
+  config: LiveStakeCapConfig,
+): number {
+  const ratio = clampPositiveInt(config.maxPayoutRatio, 1);
+  const ceiling = clampPositiveInt(config.maxPayoutCeiling, ratio);
+  const safeStake = clampPositiveInt(stake, 1);
+  return Math.min(safeStake * ratio, ceiling);
+}
+
 // Outright/free-pick variant. Same formula as normalizeOdds but the
 // caller charges nothing (stake 0) — `notionalStake` is only the
 // multiplier feeding the odds calculation. Used by tournament/stage/group

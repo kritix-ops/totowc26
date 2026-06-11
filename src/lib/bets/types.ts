@@ -98,6 +98,14 @@ export type MultiChoiceConfig = {
   // undefined and the bet-level payoutSnapshot is used as a flat
   // payout per the historic behaviour.
   payoutOverridesByValue?: Record<string, number>;
+  // Per-option bookmaker decimal odds keyed by option `value`. Captured
+  // at publish time for live (match/day) multi-choice bets so the
+  // variable-stake submit path can recompute payout against the
+  // player's chosen stake. Free-pick scopes (tournament/stage/group)
+  // do not set this — their option pricing comes from the outright
+  // curve, not from a single odds value. See
+  // _plans/2026-06-11-variable-live-bet-stake.md §6.
+  decimalOddsByValue?: Record<string, number>;
 };
 
 export type FreeTextConfig = {
@@ -148,6 +156,11 @@ export type AutoApiFootballConfig = {
 
 export type AutoFootballDataConfig = {
   source: "auto_football_data";
+  // Mirrored from AutoFootballField in src/lib/sync.ts. Three buckets:
+  //   - raw values pulled straight from the final match row
+  //   - derived yes/no flags (BTTS, over X.5 goals, clean sheets, halves)
+  //   - derived numeric fields (winning margin, second-half total)
+  // See coerceMatchField in src/lib/sync.ts for the resolver.
   field:
     | "home_score"
     | "away_score"
@@ -155,7 +168,22 @@ export type AutoFootballDataConfig = {
     | "ht_score"
     | "total_goals"
     | "ht_total"
-    | "went_to_penalties";
+    | "went_to_penalties"
+    | "btts"
+    | "home_scored"
+    | "away_scored"
+    | "clean_sheet_home"
+    | "clean_sheet_away"
+    | "first_half_goal"
+    | "second_half_goal"
+    | "both_halves_scored"
+    | "over_0_5_goals"
+    | "over_1_5_goals"
+    | "over_2_5_goals"
+    | "over_3_5_goals"
+    | "over_4_5_goals"
+    | "winning_margin"
+    | "second_half_total";
 };
 
 export type GradingConfig = AutoApiFootballConfig | AutoFootballDataConfig | null;

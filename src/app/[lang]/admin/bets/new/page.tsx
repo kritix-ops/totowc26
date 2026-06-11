@@ -7,20 +7,38 @@ import { Card } from "@/components/ui";
 import { localePath } from "@/lib/paths";
 import { db } from "@/db";
 import { settings, groups } from "@/db/schema";
-import { listAnchorMatches, listAnchorDays } from "@/db/admin-queries";
+import {
+  getBetTemplate,
+  listAnchorMatches,
+  listAnchorDays,
+  listBetTemplates,
+} from "@/db/admin-queries";
 import { getDeadlineContext } from "@/lib/deadlines";
-import { BetForm } from "../BetForm";
+import { BetForm, type InitialBet } from "../BetForm";
+import type { AnswerConfig, GradingConfig } from "@/lib/bets/types";
+import { adaptTemplateText } from "@/lib/bets/template-adapt";
 
 export default async function NewBetPage({
   params,
+  searchParams,
 }: PageProps<"/[lang]/admin/bets/new">) {
   const { lang } = await params;
   if (!hasLocale(lang)) notFound();
   const locale = lang as Locale;
   const isHebrew = locale === "he";
   const Chev = isHebrew ? ChevronLeft : ChevronRight;
+  const sp = await searchParams;
 
-  const [anchorMatches, anchorDays, groupRows, [defaultsRow], deadlineCtx] =
+  // Optional pre-fill from a saved template + (optionally) a target
+  // match/day. Pasted in via the quick-add buttons on the suggestions
+  // page; admin still reviews + publishes manually so a stale team-name
+  // in the question text gets caught before going live.
+  const templateId = typeof sp.templateId === "string" ? sp.templateId : null;
+  const targetMatchId = typeof sp.matchId === "string" ? sp.matchId : null;
+  const targetMatchdayDate =
+    typeof sp.matchdayDate === "string" ? sp.matchdayDate : null;
+
+  const [anchorMatches, anchorDays, groupRows, [defaultsRow], deadlineCtx, templates, template] =
     await Promise.all([
       listAnchorMatches(),
       listAnchorDays(),
@@ -36,11 +54,20 @@ export default async function NewBetPage({
           stakeFreeText: settings.stakeFreeText,
           payoutFreeText: settings.payoutFreeText,
           betLockMinutes: settings.betLockMinutes,
+          // Live-bet pricing knobs — the form reads these to convert the
+          // admin's decimal_odds into the suggested stake/payout preview
+          // and to mirror the user-side payout cap math byte-for-byte.
+          liveOddsBaseStake: settings.liveOddsBaseStake,
+          liveOddsHouseEdgePct: settings.liveOddsHouseEdgePct,
+          liveOddsMaxPayoutRatio: settings.liveOddsMaxPayoutRatio,
+          liveOddsMaxPayoutCeiling: settings.liveOddsMaxPayoutCeiling,
         })
         .from(settings)
         .where(eq(settings.id, 1))
         .limit(1),
       getDeadlineContext(),
+      listBetTemplates(50),
+      templateId ? getBetTemplate(templateId) : Promise.resolve(null),
     ]);
   const defaults = defaultsRow
     ? {
@@ -49,6 +76,65 @@ export default async function NewBetPage({
         tournamentStartAt:
           (deadlineCtx.tournamentStartAt ?? deadlineCtx.derivedTournamentStartAt)
             ?.toISOString() ?? null,
+      }
+    : undefined;
+
+  // Smart team-name swap: if the template was anchored on a specific
+  // match AND we're landing on a different match, find-and-replace the
+  // source team names (HE + EN) in the question + grading-rule text so
+  // a "Mexico to win?" template applied to Argentina ships as
+  // "Argentina to win?" without the admin having to retype. Conservative:
+  // only swaps when target teams are different + source/target both
+  // resolved; otherwise leaves text as-is.
+  const targetMatch = targetMatchId
+    ? anchorMatches.find((m) => m.id === targetMatchId)
+    : null;
+  const adapted =
+    template && targetMatch
+      ? adaptTemplateText(template, targetMatch)
+      : template
+        ? {
+            questionHe: template.questionHe,
+            questionEn: template.questionEn,
+            gradingRuleHe: template.gradingRuleHe,
+            gradingRuleEn: template.gradingRuleEn,
+          }
+        : null;
+
+  // Build the InitialBet payload when a template is selected. We do NOT
+  // copy match_id / matchday_date / lock_at / decimal_odds / stake from
+  // the source row — those are anchor-specific. Scope and the target
+  // anchor are taken from the URL params (when supplied by the quick-add
+  // button) so the form lands on the right surface without an extra
+  // click. Without explicit targets we just clone the question + grading
+  // shell and let the admin pick the anchor.
+  const initialBet: InitialBet | undefined = template && adapted
+    ? {
+        scope: targetMatchId
+          ? "match"
+          : targetMatchdayDate
+            ? "day"
+            : template.scope,
+        matchId: targetMatchId,
+        matchdayDate: targetMatchdayDate,
+        stage: null,
+        groupId: null,
+        questionHe: adapted.questionHe,
+        questionEn: adapted.questionEn,
+        gradingRuleHe: adapted.gradingRuleHe,
+        gradingRuleEn: adapted.gradingRuleEn,
+        answerType: template.answerType,
+        answerConfig: template.answerConfig as AnswerConfig,
+        // Pricing snapshots stay at the answer-type defaults; the form's
+        // decimal_odds input recomputes both for live scope on save.
+        stakeSnapshot: 0,
+        payoutSnapshot: 0,
+        decimalOdds: null,
+        gradingSource: template.gradingSource,
+        gradingConfig: template.gradingConfig as GradingConfig,
+        // Empty string makes the form fall back to its suggestDefaultLockAt
+        // pipeline (computes 5 min before the target match's kickoff).
+        lockAt: "",
       }
     : undefined;
 
@@ -79,8 +165,11 @@ export default async function NewBetPage({
           anchorDays={anchorDays}
           groupIds={groupRows.map((g) => g.id)}
           defaults={defaults}
+          templates={templates}
+          initialBet={initialBet}
         />
       </Card>
     </section>
   );
 }
+

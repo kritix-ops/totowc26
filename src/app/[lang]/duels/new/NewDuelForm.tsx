@@ -2,10 +2,12 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { AlertCircle } from "lucide-react";
 import { clsx } from "clsx";
 import { Card, PillButton, SectionHeading } from "@/components/ui";
 import { PickScenarios } from "@/components/PickScenarios";
+import { localePath } from "@/lib/paths";
 import type { Dictionary, Locale } from "../../dictionaries";
 import { openDuel } from "../actions";
 
@@ -60,6 +62,8 @@ export function NewDuelForm({
   locale,
   dict,
   balance,
+  maxOverdraft,
+  lockedFromBetting,
   duelMaxStake,
   defaultJoinWindow,
   upcomingMatches,
@@ -68,6 +72,8 @@ export function NewDuelForm({
   locale: Locale;
   dict: Dictionary;
   balance: number;
+  maxOverdraft: number;
+  lockedFromBetting: boolean;
   duelMaxStake: number;
   defaultJoinWindow: number;
   upcomingMatches: FixtureOption[];
@@ -76,8 +82,11 @@ export function NewDuelForm({
   const router = useRouter();
   const isHebrew = locale === "he";
 
-  // Honest stake cap: never offer more than the user actually has.
-  const maxStake = Math.max(1, Math.min(duelMaxStake, balance));
+  // Honest stake cap: never offer more than the user could legally place.
+  // A bet may push the bank to at most -maxOverdraft, so spending power
+  // is `balance + maxOverdraft` (clamped by the admin's duelMaxStake).
+  const spendingPower = balance + maxOverdraft;
+  const maxStake = Math.max(1, Math.min(duelMaxStake, spendingPower));
 
   const [scope, setScope] = useState<Scope>("match");
   const [matchId, setMatchId] = useState<string | "">("");
@@ -195,6 +204,32 @@ export function NewDuelForm({
       router.refresh();
     });
   };
+
+  if (lockedFromBetting) {
+    return (
+      <Card className="p-5 md:p-6 flex flex-col gap-3 bg-error-container text-on-error-container border border-error">
+        <h2 className="font-[family-name:var(--font-display)] text-lg md:text-xl font-bold">
+          {isHebrew ? "נעילה זמנית: יתרה שלילית" : "Locked: negative balance"}
+        </h2>
+        <p className="text-sm">
+          {isHebrew
+            ? `יתרת הבנק שלך ${balance} נקודות. פתיחת והצטרפות לדו-קרבים תיפתח שוב ברגע שהיתרה תחזור ל-0 או מעלה.`
+            : `Your bank stands at ${balance} points. Opening or joining duels reopens once you climb back to 0 or above.`}
+        </p>
+        <p className="text-sm">
+          {isHebrew
+            ? "ניחושי משחקים, הימורי טורניר ודירוגי בתים פתוחים כרגיל — הם דרך ההתאוששות שלך."
+            : "Match picks, tournament bets and group rankings stay open — they're your way back to positive."}
+        </p>
+        <Link
+          href={localePath(locale, "bets")}
+          className="press-down self-start mt-1 inline-flex items-center justify-center min-h-[48px] px-5 py-2 rounded-full bg-primary text-on-primary font-bold text-sm"
+        >
+          {isHebrew ? "להימורים החינמיים" : "Go to free picks"}
+        </Link>
+      </Card>
+    );
+  }
 
   return (
     <form onSubmit={submit} className="flex flex-col gap-6">

@@ -7,6 +7,7 @@ import { localePath } from "@/lib/paths";
 import { formatDateTime } from "@/lib/format";
 import { getAdminCustomBetDetail } from "@/db/admin-queries";
 import { GradeForm } from "./GradeForm";
+import { TemplateArchiveCard } from "./TemplateArchiveCard";
 
 export default async function AdminBetDetailPage({
   params,
@@ -99,6 +100,10 @@ export default async function AdminBetDetailPage({
         <LabelCaps>{isHebrew ? "כלל דירוג" : "Grading rule"}</LabelCaps>
         <p className="text-base">{gradingRule}</p>
       </Card>
+
+      {/* Template archive toggle — affects only the template picker /
+          quick-add chip strips. Players never see this column. */}
+      <TemplateArchiveCard betId={bet.id} archived={bet.templateArchived} locale={locale} />
 
       {/* Grade form OR resolved-value display */}
       <GradeForm

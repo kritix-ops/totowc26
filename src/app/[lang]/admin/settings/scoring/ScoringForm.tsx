@@ -34,7 +34,10 @@ type Field =
 // Subset of ScoringPayload keys whose value is a number.
 type NumberKey = Exclude<keyof ScoringPayload, BooleanKey>;
 // Subset whose value is a boolean.
-type BooleanKey = "matchRiskEnabled" | "dailyRenewalEnabled";
+type BooleanKey =
+  | "matchRiskEnabled"
+  | "dailyRenewalEnabled"
+  | "lockBetsWhenNegative";
 
 type Group = {
   title: { he: string; en: string };
@@ -160,19 +163,80 @@ const GROUPS: Group[] = [
     ],
   },
   {
-    title: { he: "הימורי לייב - יחסים", en: "Live bets - ratios" },
+    title: { he: "כללי בנק (מינוס)", en: "Bank rules (negative balance)" },
     hint: {
-      he: "פרמטרי המרה מ-odds של בוקמייקרים ל-stake/payout בנקודות שלנו. בכל הימור אדמין יכול לעקוף את החישוב האוטומטי.",
-      en: "How bookmaker odds map to our stake/payout. Admin can override per bet at publish time.",
+      he: "מאפשר הימור אחד של לייב או דו-קרב לדחוף את הבנק למינוס עד התקרה. ברגע שהיתרה שלילית, הימורי לייב ודו-קרב חסומים עד שהמשתתף חוזר ל-0 דרך ניחושי משחקים, טורניר או בתים. כיבוי הכפתור מחזיר את הכלל הישן (חייב יתרה ≥ השקעה).",
+      en: "Lets a single live or duel placement push the bank below 0, up to the cap. While the balance is negative the player is locked out of further live + duel bets until they recover via match picks, tournament or group bets. Toggling the switch off reverts to the legacy 'balance ≥ stake' rule.",
     },
     fields: [
       {
-        key: "liveOddsBaseStake",
-        label: { he: "השקעת בסיס", en: "Base stake" },
+        kind: "toggle",
+        key: "lockBetsWhenNegative",
+        label: {
+          he: "נעילה כשהיתרה שלילית",
+          en: "Lock when balance is negative",
+        },
+        hint: {
+          he: "כיל-סוויץ' לפיצ'ר. ברירת מחדל: דלוק.",
+          en: "Feature kill-switch. Default: on.",
+        },
       },
       {
-        key: "liveOddsMaxPayout",
-        label: { he: "תקרת תשלום", en: "Max payout cap" },
+        key: "maxOverdraft",
+        label: { he: "תקרת מינוס", en: "Max overdraft" },
+        hint: {
+          he: "מקסימום נקודות שהימור יחיד יכול לדחוף לפיו את הבנק (0-500). 0 = ביטול אפקטיבי של הפיצ'ר. ברירת מחדל: 30.",
+          en: "Deepest a single placement can drive the bank (0-500). 0 effectively disables overdraft. Default: 30.",
+        },
+      },
+    ],
+  },
+  {
+    title: { he: "הימורי לייב - יחסים", en: "Live bets - ratios" },
+    hint: {
+      he: "השחקן בוחר כמה לסכן בכל הימור (בטווח שתגדיר). תקרת הזכייה היא min(stake × יחס, תקרה מוחלטת). שדה 'תקרת תשלום' הישן נשאר זמנית למקרה של חזרה אחורה.",
+      en: "Players pick the stake they risk (within the range you set). Payout cap = min(stake × ratio, absolute ceiling). The legacy 'Max payout cap' field is kept one cycle for rollback only.",
+    },
+    fields: [
+      {
+        key: "liveOddsMinStake",
+        label: { he: "השקעה מינימלית", en: "Min stake" },
+        hint: {
+          he: "הסכום הקטן ביותר שמשתמש יכול לסכן בהימור לייב. ברירת מחדל: 1.",
+          en: "Smallest stake a player may pick on a live bet. Default: 1.",
+        },
+      },
+      {
+        key: "liveOddsBaseStake",
+        label: { he: "השקעת בסיס", en: "Base stake (default pill)" },
+        hint: {
+          he: "ערך ברירת המחדל שמופיע מסומן בכרטיס ההימור. ברירת מחדל: 3.",
+          en: "Stake the bet card highlights as the default. Default: 3.",
+        },
+      },
+      {
+        key: "liveOddsMaxStake",
+        label: { he: "השקעה מקסימלית", en: "Max stake" },
+        hint: {
+          he: "הסכום הגדול ביותר שמשתמש יכול לסכן בהימור לייב. ברירת מחדל: 30 (כל הבנק ההתחלתי).",
+          en: "Biggest stake a player may pick on a live bet. Default: 30 (whole starting bank).",
+        },
+      },
+      {
+        key: "liveOddsMaxPayoutRatio",
+        label: { he: "יחס תקרה (פי stake)", en: "Cap ratio (× stake)" },
+        hint: {
+          he: "תקרת זכייה לכל יחידת stake. ברירת מחדל: 8 (שומר על היחס ההיסטורי).",
+          en: "Per-stake-unit gross payout cap. Default: 8 (preserves the historic ratio).",
+        },
+      },
+      {
+        key: "liveOddsMaxPayoutCeiling",
+        label: { he: "תקרת זכייה מוחלטת", en: "Absolute payout ceiling" },
+        hint: {
+          he: "מספר הנקודות הגדול ביותר שאפשר לזכות בהן בהימור יחיד. ברירת מחדל: 100.",
+          en: "Hard cap on gross payout regardless of stake. Default: 100.",
+        },
       },
       {
         key: "liveOddsHouseEdgePct",
@@ -180,6 +244,14 @@ const GROUPS: Group[] = [
         hint: {
           he: "מקטין את התשלום הגולמי באחוז הזה. 0 = יחס בוקמייקר מלא; 5 = ברירת מחדל.",
           en: "Trims the raw bookmaker payout by this %. 0 = full bookmaker odds; 5 = default.",
+        },
+      },
+      {
+        key: "liveOddsMaxPayout",
+        label: { he: "תקרת תשלום (ישן)", en: "Max payout (legacy)" },
+        hint: {
+          he: "לא בשימוש מאז 11/6 - נשמר כעוגן rollback. אל תשנה.",
+          en: "Unused since the 11-Jun rollout — kept as a rollback anchor. Don't change.",
         },
       },
     ],

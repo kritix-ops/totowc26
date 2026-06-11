@@ -9,7 +9,7 @@ import { getRequestUser } from "@/lib/request-user";
 import { getUserAccess } from "@/lib/access";
 import { isAdmin } from "@/lib/admin";
 import { execFirstRow } from "@/db/helpers";
-import { getBankBalance } from "@/lib/bank";
+import { getBankBalance, getOverdraftConfig } from "@/lib/bank";
 import { localePath } from "@/lib/paths";
 import { formatDateTime } from "@/lib/format";
 import { serverNow } from "@/lib/server-now";
@@ -50,13 +50,18 @@ export default async function DuelDetailPage({ params }: PageParams) {
 
   const user = await getRequestUser();
   if (!user) redirect(localePath(locale, "login"));
-  const [access, admin, duel, bankBalance] = await Promise.all([
+  const [access, admin, duel, bankBalance, overdraft] = await Promise.all([
     getUserAccess(user.id),
     isAdmin(user.id),
     loadDuel(id),
     getBankBalance(user.id),
+    getOverdraftConfig(),
   ]);
   if (!duel) notFound();
+  // Negative-balance lock: join button hides + a lock banner takes its
+  // place in DuelActions. See _plans/2026-06-11-negative-balance-lock.md.
+  const lockedFromBetting =
+    overdraft.lockBetsWhenNegative && bankBalance < 0;
 
   const iAmOpener = duel.openerId === user.id;
   const winnerName =
@@ -176,6 +181,7 @@ export default async function DuelDetailPage({ params }: PageParams) {
         status={duel.status}
         stake={duel.stake}
         bankBalance={bankBalance}
+        lockedFromBetting={lockedFromBetting}
         iAmOpener={iAmOpener}
         isAdmin={admin}
         canEdit={access.canEdit}

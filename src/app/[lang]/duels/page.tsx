@@ -5,6 +5,7 @@ import { Plus, Swords, ChevronLeft, ChevronRight } from "lucide-react";
 import { clsx } from "clsx";
 import { getDictionary, hasLocale, type Locale } from "../dictionaries";
 import { Card, Chip, LabelCaps, MatchupLabel } from "@/components/ui";
+import { BetsTabs } from "@/components/BetsTabs";
 import { PayGateBanner } from "@/components/PayGateBanner";
 import { getRequestUser } from "@/lib/request-user";
 import { getUserAccess } from "@/lib/access";
@@ -63,12 +64,16 @@ export default async function DuelsIndexPage({
   return (
     <section className="px-4 md:px-16 py-6 md:py-12 flex flex-col gap-6 md:gap-8 max-w-3xl mx-auto w-full pb-24">
       <header className="flex flex-col gap-3">
-        <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
+        <h1 className="font-[family-name:var(--font-display)] text-[28px] leading-9 md:text-[40px] md:leading-[44px] font-bold text-primary">
+          {isHebrew ? "הימורים" : "Bets"}
+        </h1>
+        <BetsTabs locale={locale} active="duels" />
+        <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 mt-2">
           <div className="flex flex-col gap-1">
-            <h1 className="font-[family-name:var(--font-display)] text-[28px] leading-9 md:text-[40px] md:leading-[44px] font-bold text-primary inline-flex items-center gap-3">
-              <Swords className="h-6 w-6 md:h-7 md:w-7" strokeWidth={1.75} />
+            <h2 className="font-[family-name:var(--font-display)] text-lg md:text-xl font-bold text-on-surface inline-flex items-center gap-2">
+              <Swords className="h-5 w-5" strokeWidth={1.75} />
               {dict.duels.title}
-            </h1>
+            </h2>
             <p className="text-sm text-on-surface-variant">
               {dict.duels.subtitle}
             </p>

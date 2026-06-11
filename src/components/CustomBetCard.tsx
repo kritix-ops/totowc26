@@ -1,7 +1,17 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AlertCircle, Check, Info, Lock, Minus, Plus } from "lucide-react";
+import {
+  AlertCircle,
+  Check,
+  ChevronDown,
+  Info,
+  Lock,
+  Minus,
+  Plus,
+  Trash2,
+  X,
+} from "lucide-react";
 import { clsx } from "clsx";
 import { Card, Chip, LabelCaps, MatchupLabel } from "@/components/ui";
 import { SearchableChoicePicker } from "@/components/SearchableChoicePicker";
@@ -23,8 +33,13 @@ import { usePendingAction } from "@/lib/use-pending-action";
 import { withTimeout, SAVE_TIMEOUT_MS } from "@/lib/with-timeout";
 import { resolvePickPayoutAtSubmit } from "@/lib/bets/payout";
 import { isFreePickScope } from "@/lib/bets/free-pick-scopes";
+import { liveStakeCap, normalizeOdds } from "@/lib/odds-normalize";
+import type { LiveStakeUiConfig } from "@/lib/bank";
 import { PickScenarios } from "@/components/PickScenarios";
-import { submitCustomBetPick } from "@/app/[lang]/play/[date]/actions";
+import {
+  cancelCustomBetPick,
+  submitCustomBetPick,
+} from "@/app/[lang]/play/[date]/actions";
 
 // Threshold above which the multi_choice answer widget switches
 // from a pill grid to a searchable dropdown. Below the threshold a
@@ -54,6 +69,11 @@ export type CustomBetCardData = {
   scope: "match" | "day" | "stage" | "group" | "tournament";
   stakeSnapshot: number;
   payoutSnapshot: number;
+  // Bookmaker decimal odds (string from numeric col) captured at publish
+  // for live (match/day) bets. Used by the stake picker to mirror the
+  // server's variable-stake payout calc exactly. Tournament/stage/group
+  // bets keep this null — their pricing comes from the outright curve.
+  decimalOdds?: string | null;
   lockAt: string;
   status: "open" | "locked" | "graded" | "reversed" | "cancelled" | "draft";
   myAnswer: PickAnswer | null;
@@ -66,6 +86,9 @@ export function CustomBetCard({
   bet,
   bankBalance,
   editable,
+  liveStakeConfig,
+  maxOverdraft = 0,
+  lockedFromBetting = false,
 }: {
   locale: Locale;
   bet: CustomBetCardData;
@@ -73,6 +96,20 @@ export function CustomBetCard({
   // Server computes this once per render so the client doesn't have to
   // call Date.now() (which React 19 lint rules flag as impure).
   editable: boolean;
+  // Live-bet stake bounds + payout cap formula. Required when the bet's
+  // scope is `match` or `day`; ignored for free-pick scopes. The parent
+  // page reads it via getLiveStakeConfig() and threads it through every
+  // card so the pill row + payout preview match the server byte-for-byte.
+  liveStakeConfig?: LiveStakeUiConfig;
+  // Negative-balance feature props. `maxOverdraft` shifts the overdrawn
+  // floor from 0 to `-maxOverdraft` so live bets that dip into a
+  // controlled overdraft still submit. `lockedFromBetting` mirrors the
+  // server guard for the "already negative" case; when true, live-bet
+  // submit is blocked client-side too with a clear explanation.
+  // Both default to "feature off" so existing call sites stay correct.
+  // See _plans/2026-06-11-negative-balance-lock.md.
+  maxOverdraft?: number;
+  lockedFromBetting?: boolean;
 }) {
   const isHebrew = locale === "he";
 
@@ -81,6 +118,12 @@ export function CustomBetCard({
   const [draft, setDraft] = useState<PickAnswer | null>(bet.myAnswer);
   const [error, setError] = useState<string | null>(null);
   const [savedFlash, setSavedFlash] = useState(false);
+  const [cancelFlash, setCancelFlash] = useState(false);
+  // Two-step destructive confirm: tap "Cancel pick" → strip flips to
+  // "Sure? [Yes] [No]". A second deliberate tap is what actually fires
+  // the destructive action. Keeps cancel discoverable without making a
+  // misclick destroy a thoughtful pick.
+  const [confirmingCancel, setConfirmingCancel] = useState(false);
   const { pending, run } = usePendingAction();
 
   // Sync the draft from the server when fresh props arrive (e.g. after
@@ -105,7 +148,27 @@ export function CustomBetCard({
   // regardless of what bet.stakeSnapshot says, in case a legacy record
   // slipped through with a non-zero value.
   const isFreePick = isFreePickScope(bet.scope);
-  const effectiveStake = isFreePick ? 0 : bet.stakeSnapshot;
+
+  // Player-chosen stake for live (match/day) bets. Seeded from the
+  // player's last saved choice (if any) or the bet's snapshotted default,
+  // then constrained by the admin's [minStake, maxStake] range. Free-pick
+  // scopes ignore this entirely.
+  const stakeDefault = bet.myStakePaid ?? bet.stakeSnapshot;
+  const initialStake = isFreePick
+    ? 0
+    : liveStakeConfig
+      ? clampStake(stakeDefault, liveStakeConfig.minStake, liveStakeConfig.maxStake)
+      : stakeDefault;
+  const [chosenStake, setChosenStake] = useState<number>(initialStake);
+
+  // Resync the chosen stake when fresh server props arrive (auto-fill,
+  // monkey bot, server revalidate), unless the user has un-saved edits.
+  useEffect(() => {
+    if (userEditedRef.current) return;
+    setChosenStake(initialStake);
+  }, [initialStake]);
+
+  const effectiveStake = isFreePick ? 0 : chosenStake;
   const refund = bet.myStakePaid ?? 0;
   // If the draft is "empty" the user hasn't expressed a choice yet, so the
   // submit-cost is 0 (we render submit disabled in that case anyway).
@@ -113,15 +176,65 @@ export function CustomBetCard({
   const newCost = hasChoice ? effectiveStake : 0;
   const effective = bankBalance + refund;
   const bankAfter = effective - newCost;
-  const overdrawn = hasChoice && bankAfter < 0;
+  // Overdraft floor: free picks never overdraw; live picks may dip to
+  // `-maxOverdraft` per the negative-balance feature. `lockedFromBetting`
+  // is a separate "you're already in the negative" gate — handled below.
+  const overdraftFloor = isFreePick ? 0 : -maxOverdraft;
+  const overdrawn = hasChoice && bankAfter < overdraftFloor;
+  // Negative-balance lock applies only to priced (live) picks. Free picks
+  // are the recovery path back to a positive bank, so they stay enabled.
+  const locked = !isFreePick && lockedFromBetting;
 
+  // Recompute the gross payout for the chosen stake (live bets only).
+  // Free-pick scopes fall back to the legacy per-option resolver.
+  const grossPayout = computeDisplayPayout(bet, draft, chosenStake, liveStakeConfig);
+  const stakeDirty = !isFreePick && chosenStake !== (bet.myStakePaid ?? bet.stakeSnapshot);
   const dirty =
-    JSON.stringify(draft ?? null) !== JSON.stringify(bet.myAnswer ?? null);
+    JSON.stringify(draft ?? null) !== JSON.stringify(bet.myAnswer ?? null) ||
+    stakeDirty;
 
-  const onSubmit = () => {
-    if (!draft || !editable || overdrawn || pending) return;
+  const onChosenStake = (next: number) => {
+    userEditedRef.current = true;
+    setChosenStake(next);
+  };
+
+  const onCancel = () => {
+    if (!editable || pending || !bet.myAnswer) return;
     setError(null);
     setSavedFlash(false);
+    setCancelFlash(false);
+    void run(async () => {
+      const res = await withTimeout(
+        cancelCustomBetPick(bet.id),
+        SAVE_TIMEOUT_MS,
+      ).catch(() => null);
+      if (!res) {
+        setError(isHebrew ? "הביטול נתקע. נסה שוב." : "Cancel timed out. Try again.");
+        setConfirmingCancel(false);
+        return;
+      }
+      if (!res.ok) {
+        setError(translateCancelError(res.error, isHebrew));
+        setConfirmingCancel(false);
+        return;
+      }
+      // The server cleared the row. Drop the local draft so the answer
+      // widget renders "no answer" instead of showing the value we just
+      // asked the server to delete. Reset chosenStake to the bet's
+      // default so the pill row reads as a fresh choice.
+      userEditedRef.current = false;
+      setDraft(null);
+      setChosenStake(initialStake);
+      setConfirmingCancel(false);
+      setCancelFlash(true);
+    });
+  };
+
+  const onSubmit = () => {
+    if (!draft || !editable || overdrawn || locked || pending) return;
+    setError(null);
+    setSavedFlash(false);
+    setCancelFlash(false);
     // usePendingAction releases the button on the action response, not
     // on submitCustomBetPick's revalidation re-render, so submitting
     // several bets in a row never leaves one stuck on "שומר…". withTimeout
@@ -130,8 +243,11 @@ export function CustomBetCard({
     // instead of hanging. The write is an idempotent overwrite, so a retry
     // after a false-timeout cannot double-save.
     void run(async () => {
+      // Only send a stake for live (priced) bets — free picks ignore it
+      // on the server but it's clearer to omit at the boundary.
+      const stakeArg = isFreePick ? undefined : chosenStake;
       const res = await withTimeout(
-        submitCustomBetPick(bet.id, draft),
+        submitCustomBetPick(bet.id, draft, stakeArg),
         SAVE_TIMEOUT_MS,
       ).catch(() => null);
       if (!res) {
@@ -198,6 +314,20 @@ export function CustomBetCard({
             lockAt={bet.lockAt}
             variant="inline"
           />
+          {/* Discoverability: tell the user explicitly that picks are
+              fluid until the bet closes. The cancel button itself only
+              appears once a pick is saved (you can't cancel what isn't
+              there), so without this line a first-time user thinks the
+              "save" decision is final. Modify/cancel verbs are voiced
+              in the same order they appear on screen — answer pills to
+              the left (change), trash button to the right (cancel). */}
+          {editable && (
+            <span className="text-[11px] text-on-surface-variant/80 text-end leading-tight">
+              {isHebrew
+                ? "ניתן לשנות או לבטל עד הסגירה"
+                : "Can change or cancel until close"}
+            </span>
+          )}
         </div>
       </div>
 
@@ -218,40 +348,61 @@ export function CustomBetCard({
         disabled={!editable || pending}
       />
 
+      {/* Player-chosen stake picker (live scope only). Rendered above
+          the scenarios so the live preview reacts to the same numbers
+          the player sees on the pills. Free-pick scopes skip the row
+          entirely — their cost is fixed at 0. */}
+      {!isFreePick && liveStakeConfig && (
+        <StakePicker
+          locale={locale}
+          value={chosenStake}
+          baseStake={bet.stakeSnapshot}
+          config={liveStakeConfig}
+          disabled={!editable || pending}
+          onChange={onChosenStake}
+        />
+      )}
+
+      {/* "How the payout is calculated" — tap-to-expand explainer.
+          Live scope only; free-pick bets already render "ללא עלות"
+          on the summary so there's nothing to explain there. */}
+      {!isFreePick && liveStakeConfig && (
+        <PayoutExplainer
+          locale={locale}
+          bet={bet}
+          draft={draft}
+          chosenStake={chosenStake}
+          config={liveStakeConfig}
+        />
+      )}
+
       {/* Scenarios: shows current bank, post-stake balance, and the
-          balance under each possible outcome. The "if correct" delta
-          uses resolvePickPayoutAtSubmit so per-option payouts
-          (outright bets) flip the number as the user picks each
-          option. When no pick is selected yet we fall back to the
-          bet-level payout so the user still sees a meaningful preview
-          before tapping anything. */}
-      {(() => {
-        const effectivePayout = resolvePickPayoutAtSubmit({
-          answerType: bet.answerType,
-          answerConfig: bet.answerConfig,
-          answer: draft ?? { type: "yes_no", value: false },
-          betLevelPayout: bet.payoutSnapshot,
-        });
-        return (
-          <PickScenarios
-            locale={locale}
-            currentBalance={effective}
-            stake={hasChoice ? bet.stakeSnapshot : 0}
-            scenarios={[
-              {
-                label: isHebrew ? "אם תפגע" : "If correct",
-                delta: effectivePayout,
-                tone: "positive",
-              },
-              {
-                label: isHebrew ? "אם תטעה" : "If wrong",
-                delta: 0,
-                tone: "neutral",
-              },
-            ]}
-          />
-        );
-      })()}
+          balance under each possible outcome. The "if correct" delta is
+          computed against the chosen stake for live bets so the pill
+          row and the bank preview agree. Free-pick scopes use the
+          per-option resolver (outright curves). */}
+      {/* Scenarios always render the prospective stake row, even before the
+          user has tapped an answer pill — that's the row that makes "אם תטעה"
+          read as a loss of the staked points (post-stake balance) instead
+          of misleadingly showing 0 → currentBalance. Free-pick scopes still
+          get stake=0 because their cost is genuinely zero. */}
+      <PickScenarios
+        locale={locale}
+        currentBalance={effective}
+        stake={effectiveStake}
+        scenarios={[
+          {
+            label: isHebrew ? "אם תפגע" : "If correct",
+            delta: grossPayout,
+            tone: "positive",
+          },
+          {
+            label: isHebrew ? "אם תטעה" : "If wrong",
+            delta: 0,
+            tone: "neutral",
+          },
+        ]}
+      />
 
       {/* Stake/payout + submit */}
       <div className="flex flex-col-reverse md:flex-row md:items-center md:justify-between gap-3 pt-3 border-t border-outline-variant">
@@ -262,7 +413,7 @@ export function CustomBetCard({
             </span>
           ) : (
             <span>
-              {isHebrew ? "עלות" : "Stake"}:{" "}
+              {isHebrew ? "סיכון" : "Risk"}:{" "}
               <bdi className="tabular-nums font-bold text-on-surface">
                 {effectiveStake}
               </bdi>
@@ -270,9 +421,9 @@ export function CustomBetCard({
           )}
           <span aria-hidden className="opacity-40">·</span>
           <span>
-            {isHebrew ? "זכייה" : "Payout"}:{" "}
+            {isHebrew ? "זכייה אפשרית" : "Potential win"}:{" "}
             <bdi className="tabular-nums font-bold text-on-surface">
-              {bet.payoutSnapshot}
+              +{Math.max(0, grossPayout - effectiveStake)}
             </bdi>
           </span>
           {hasChoice && dirty && newCost > 0 && (
@@ -298,28 +449,398 @@ export function CustomBetCard({
               {isHebrew ? "נשמר" : "Saved"}
             </p>
           )}
-          <button
-            type="button"
-            onClick={onSubmit}
-            disabled={!editable || pending || overdrawn || !hasChoice || !dirty}
-            className={clsx(
-              "press-down inline-flex items-center justify-center gap-2 min-h-[44px] px-5 rounded-full text-sm font-bold transition-colors",
-              "bg-primary text-on-primary shadow-md hover:bg-surface-tint",
-              "disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-primary",
+          {cancelFlash && !error && (
+            <p className="inline-flex items-center gap-1.5 text-xs text-secondary">
+              <Check className="h-3 w-3" strokeWidth={2.5} />
+              {isHebrew ? "הניחוש בוטל" : "Pick cancelled"}
+            </p>
+          )}
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            {/* Cancel pick — only when there's a saved pick and the bet
+                is still editable. The two-step confirm strip prevents a
+                misclick from destroying a thoughtful pick. */}
+            {bet.myAnswer && editable && !confirmingCancel && (
+              <button
+                type="button"
+                onClick={() => {
+                  setError(null);
+                  setSavedFlash(false);
+                  setCancelFlash(false);
+                  setConfirmingCancel(true);
+                }}
+                disabled={pending}
+                className={clsx(
+                  "press-down inline-flex items-center justify-center gap-1.5 min-h-[44px] px-4 rounded-full text-sm font-bold transition-colors",
+                  "bg-surface-container-lowest text-error border border-error/40",
+                  "hover:bg-error-container hover:border-error",
+                  "disabled:opacity-50 disabled:cursor-not-allowed",
+                )}
+                aria-label={isHebrew ? "בטל את הניחוש" : "Cancel pick"}
+              >
+                <Trash2 className="h-4 w-4" strokeWidth={2} />
+                {isHebrew ? "בטל ניחוש" : "Cancel pick"}
+              </button>
             )}
-          >
-            {pending
-              ? isHebrew ? "שומר…" : "Saving…"
-              : overdrawn
-                ? isHebrew ? "אין מספיק בבנק" : "Insufficient bank"
-                : bet.myAnswer
-                  ? isHebrew ? "עדכן ניחוש" : "Update pick"
-                  : isHebrew ? "שמור ניחוש" : "Save pick"}
-          </button>
+            {bet.myAnswer && editable && confirmingCancel && (
+              <div
+                role="group"
+                aria-label={isHebrew ? "אישור ביטול" : "Confirm cancel"}
+                className="inline-flex items-center gap-2 rounded-full bg-error-container/40 border border-error/40 ps-3 pe-1 py-1"
+              >
+                <span className="text-xs font-bold text-error">
+                  {isHebrew ? "בטוח?" : "Sure?"}
+                </span>
+                <button
+                  type="button"
+                  onClick={onCancel}
+                  disabled={pending}
+                  className={clsx(
+                    "press-down inline-flex items-center justify-center gap-1 min-h-9 px-3 rounded-full text-xs font-bold transition-colors",
+                    "bg-error text-on-error hover:bg-error/90",
+                    "disabled:opacity-60 disabled:cursor-not-allowed",
+                  )}
+                >
+                  <Trash2 className="h-3.5 w-3.5" strokeWidth={2} />
+                  {pending
+                    ? isHebrew ? "מבטל…" : "Cancelling…"
+                    : isHebrew ? "כן, בטל" : "Yes, cancel"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfirmingCancel(false)}
+                  disabled={pending}
+                  className={clsx(
+                    "press-down inline-flex items-center justify-center gap-1 min-h-9 px-3 rounded-full text-xs font-bold transition-colors",
+                    "bg-surface-container-lowest text-on-surface border border-outline hover:bg-surface-container",
+                    "disabled:opacity-60 disabled:cursor-not-allowed",
+                  )}
+                >
+                  <X className="h-3.5 w-3.5" strokeWidth={2} />
+                  {isHebrew ? "השאר" : "Keep"}
+                </button>
+              </div>
+            )}
+            <button
+              type="button"
+              onClick={onSubmit}
+              disabled={!editable || pending || overdrawn || locked || !hasChoice || !dirty}
+              className={clsx(
+                "press-down inline-flex items-center justify-center gap-2 min-h-[44px] px-5 rounded-full text-sm font-bold transition-colors",
+                "bg-primary text-on-primary shadow-md hover:bg-surface-tint",
+                "disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-primary",
+              )}
+            >
+              {pending && !confirmingCancel
+                ? isHebrew ? "שומר…" : "Saving…"
+                : locked
+                  ? isHebrew ? "נעול: יתרה שלילית" : "Locked: negative bank"
+                  : overdrawn
+                    ? isHebrew ? "חורג מתקרת המינוס" : "Past overdraft cap"
+                    : bet.myAnswer
+                      ? isHebrew ? "עדכן ניחוש" : "Update pick"
+                      : isHebrew ? "שמור ניחוש" : "Save pick"}
+            </button>
+          </div>
         </div>
       </div>
     </Card>
   );
+}
+
+// ---------- Stake picker (live scope only) ----------
+
+// Pre-defined stake stops. Filtered against [minStake, maxStake] at render
+// so an admin who lowers the max simply hides the higher pills — the row
+// stays narrow enough to fit a 360px viewport with all 6 visible.
+const STAKE_STOPS = [1, 3, 5, 10, 20, 30] as const;
+
+function StakePicker({
+  locale,
+  value,
+  baseStake,
+  config,
+  disabled,
+  onChange,
+}: {
+  locale: Locale;
+  value: number;
+  baseStake: number;
+  config: LiveStakeUiConfig;
+  disabled: boolean;
+  onChange: (next: number) => void;
+}) {
+  const isHebrew = locale === "he";
+  const stops = STAKE_STOPS.filter(
+    (s) => s >= config.minStake && s <= config.maxStake,
+  );
+  // Always surface the baseStake even if it's not on the canonical stop
+  // list (e.g. admin set it to 4). Insert it in sorted position so the
+  // pill order stays ascending.
+  const stopsWithBase = Array.from(new Set([...stops, baseStake])).sort(
+    (a, b) => a - b,
+  );
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="text-xs font-bold text-on-surface-variant uppercase tracking-wide">
+          {isHebrew ? "כמה לסכן?" : "How much to risk?"}
+        </span>
+        <span className="text-xs text-on-surface-variant tabular-nums">
+          {isHebrew
+            ? `${config.minStake}–${config.maxStake} נק׳`
+            : `${config.minStake}–${config.maxStake} pts`}
+        </span>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        {stopsWithBase.map((stop) => {
+          const active = stop === value;
+          const isDefault = stop === baseStake;
+          return (
+            <button
+              key={stop}
+              type="button"
+              disabled={disabled}
+              onClick={() => onChange(stop)}
+              aria-pressed={active}
+              aria-label={
+                isHebrew
+                  ? `סכן ${stop} נקודות${isDefault ? " (ברירת מחדל)" : ""}`
+                  : `Risk ${stop} points${isDefault ? " (default)" : ""}`
+              }
+              className={clsx(
+                "press-down min-h-11 min-w-11 px-3 inline-flex items-center justify-center gap-1 rounded-full border text-sm font-bold tabular-nums transition-colors",
+                active
+                  ? "bg-primary text-on-primary border-primary shadow-sm"
+                  : "bg-surface-container-lowest text-on-surface border-outline hover:border-primary",
+                "disabled:opacity-50 disabled:cursor-not-allowed",
+              )}
+            >
+              {stop}
+              {isDefault && (
+                <span
+                  aria-hidden
+                  className={clsx(
+                    "text-[10px] font-bold",
+                    active ? "text-on-primary/80" : "text-on-surface-variant",
+                  )}
+                >
+                  ★
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ---------- Payout explainer (live scope only) ----------
+
+// Example stakes shown in the explainer table. Filtered against the
+// admin's [minStake, maxStake] range so an admin who lowers max sees a
+// shorter row. Same shape as the StakePicker stops so the table reads
+// like a continuation of the pill row above.
+const EXPLAINER_STAKES = [1, 3, 5, 10, 20, 30] as const;
+
+function PayoutExplainer({
+  locale,
+  bet,
+  draft,
+  chosenStake,
+  config,
+}: {
+  locale: Locale;
+  bet: CustomBetCardData;
+  draft: PickAnswer | null;
+  chosenStake: number;
+  config: LiveStakeUiConfig;
+}) {
+  const isHebrew = locale === "he";
+  const [open, setOpen] = useState(false);
+
+  // The decimal odds we'll quote in the explainer. For multi_choice, this
+  // is the odds of the currently-picked option (so the math the player
+  // sees matches their choice). For yes/no, it's the bet-level value.
+  // Null if neither is known — the panel still works, but talks about
+  // the snapshot scaling instead of the exact formula.
+  const oddsForExplainer = lookupLiveOptionOdds(bet, draft);
+  const edgeFactor = (100 - config.houseEdgePct) / 100;
+
+  const stakes = EXPLAINER_STAKES.filter(
+    (s) => s >= config.minStake && s <= config.maxStake,
+  );
+  const examples = stakes.map((stake) => ({
+    stake,
+    netWin: Math.max(0, computeDisplayPayout(bet, draft, stake, config) - stake),
+  }));
+
+  const formulaLine = oddsForExplainer != null
+    ? isHebrew
+      ? `זכייה ברוטו = סיכון × ${oddsForExplainer.toFixed(2)} × ${edgeFactor.toFixed(2)}`
+      : `Gross payout = stake × ${oddsForExplainer.toFixed(2)} × ${edgeFactor.toFixed(2)}`
+    : isHebrew
+      ? `זכייה ברוטו = סיכון × יחס × ${edgeFactor.toFixed(2)}`
+      : `Gross payout = stake × odds × ${edgeFactor.toFixed(2)}`;
+
+  return (
+    <div className="flex flex-col gap-2">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="self-start min-h-11 inline-flex items-center gap-1.5 text-xs text-on-surface-variant hover:text-on-surface"
+      >
+        <Info className="h-3.5 w-3.5" strokeWidth={2} />
+        <span className="font-bold">
+          {isHebrew ? "איך הזכייה מחושבת?" : "How the payout is calculated"}
+        </span>
+        <ChevronDown
+          className={clsx(
+            "h-3.5 w-3.5 transition-transform",
+            open && "rotate-180",
+          )}
+          strokeWidth={2}
+        />
+      </button>
+
+      {open && (
+        <div className="flex flex-col gap-2 rounded-lg bg-surface-container-low border border-outline-variant p-3 text-xs">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-on-surface-variant">
+            {oddsForExplainer != null && (
+              <span>
+                {isHebrew ? "יחס בוקמייקר" : "Odds"}:{" "}
+                <bdi className="tabular-nums font-bold text-on-surface">
+                  {oddsForExplainer.toFixed(2)}
+                </bdi>
+              </span>
+            )}
+            <span>
+              {isHebrew ? "ניכוי בית" : "House edge"}:{" "}
+              <bdi className="tabular-nums font-bold text-on-surface">
+                {config.houseEdgePct}%
+              </bdi>
+            </span>
+            <span>
+              {isHebrew ? "תקרת זכייה" : "Payout cap"}:{" "}
+              <bdi className="tabular-nums font-bold text-on-surface">
+                {isHebrew
+                  ? `מינ׳(סיכון × ${config.maxPayoutRatio}, ${config.maxPayoutCeiling})`
+                  : `min(stake × ${config.maxPayoutRatio}, ${config.maxPayoutCeiling})`}
+              </bdi>
+            </span>
+          </div>
+
+          <div className="text-on-surface" dir="ltr">
+            <code className="text-[11px] font-[family-name:var(--font-mono),monospace]">
+              {formulaLine}
+            </code>
+          </div>
+
+          <div className="border-t border-outline-variant pt-2">
+            <div className="text-on-surface-variant mb-1.5">
+              {isHebrew
+                ? "זכייה נקייה לפי סכום סיכון:"
+                : "Net win per stake amount:"}
+            </div>
+            <div className="grid grid-cols-3 gap-1.5">
+              {examples.map((ex) => {
+                const active = ex.stake === chosenStake;
+                return (
+                  <div
+                    key={ex.stake}
+                    className={clsx(
+                      "rounded px-2 py-1.5 text-center tabular-nums",
+                      active
+                        ? "bg-primary text-on-primary font-bold"
+                        : "bg-surface-container-lowest text-on-surface",
+                    )}
+                  >
+                    <div
+                      className={clsx(
+                        "text-[10px]",
+                        active ? "text-on-primary/85" : "text-on-surface-variant",
+                      )}
+                    >
+                      {isHebrew ? `סיכון ${ex.stake}` : `risk ${ex.stake}`}
+                    </div>
+                    <div className="text-sm font-bold">+{ex.netWin}</div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Compute the gross payout to show in the scenarios + summary. For live
+// bets this mirrors the server's writeCustomPickTx variable-stake path
+// byte-for-byte (normalizeOdds + liveStakeCap with the same config). For
+// free picks it falls back to the per-option resolver.
+function computeDisplayPayout(
+  bet: CustomBetCardData,
+  draft: PickAnswer | null,
+  stake: number,
+  config: LiveStakeUiConfig | undefined,
+): number {
+  const isFreePick = isFreePickScope(bet.scope);
+  const fallbackAnswer = draft ?? ({ type: "yes_no", value: false } as PickAnswer);
+  if (isFreePick || !config) {
+    return resolvePickPayoutAtSubmit({
+      answerType: bet.answerType,
+      answerConfig: bet.answerConfig,
+      answer: fallbackAnswer,
+      betLevelPayout: bet.payoutSnapshot,
+    });
+  }
+  const odds = lookupLiveOptionOdds(bet, draft);
+  const cap = liveStakeCap(stake, config);
+  if (odds != null) {
+    const { payout } = normalizeOdds(odds, {
+      baseStake: stake,
+      maxPayout: cap,
+      houseEdgePct: config.houseEdgePct,
+    });
+    return payout;
+  }
+  // Legacy fallback: scale the bet's snapshotted payout linearly.
+  const basePayout = resolvePickPayoutAtSubmit({
+    answerType: bet.answerType,
+    answerConfig: bet.answerConfig,
+    answer: fallbackAnswer,
+    betLevelPayout: bet.payoutSnapshot,
+  });
+  const baseStakeForScale = Math.max(1, bet.stakeSnapshot);
+  const scaled = Math.round((basePayout * stake) / baseStakeForScale);
+  return Math.min(Math.max(scaled, stake + 1), cap);
+}
+
+function lookupLiveOptionOdds(
+  bet: CustomBetCardData,
+  draft: PickAnswer | null,
+): number | null {
+  if (bet.answerType === "multi_choice" && draft?.type === "multi_choice") {
+    const cfg = bet.answerConfig.kind === "multi_choice" ? bet.answerConfig : null;
+    const v = cfg?.decimalOddsByValue?.[draft.value];
+    if (typeof v === "number" && Number.isFinite(v) && v > 1) return v;
+    return null;
+  }
+  if (bet.decimalOdds) {
+    const n = Number(bet.decimalOdds);
+    if (Number.isFinite(n) && n > 1) return n;
+  }
+  return null;
+}
+
+function clampStake(value: number, min: number, max: number): number {
+  if (!Number.isFinite(value)) return min;
+  const n = Math.floor(value);
+  if (n < min) return min;
+  if (n > max) return max;
+  return n;
 }
 
 // ---------- Answer widgets ----------
@@ -653,6 +1174,25 @@ function ChoicePill({
       {children}
     </button>
   );
+}
+
+function translateCancelError(err: string, isHebrew: boolean): string {
+  // Cancel reuses most of submitCustomBetPick's error codes (auth /
+  // payment / lock / not-found / db) plus one cancel-specific outcome:
+  // "nothing_to_cancel" when the row vanished between render and click
+  // (e.g. another tab already cancelled it). The submit path can never
+  // hit that branch, so it lives only here.
+  const map: Record<string, LocalizedTuple> = {
+    unauth:             ["יש להתחבר", "Sign in required"],
+    not_paid:           ["תשלום עדיין לא אושר", "Payment not approved yet"],
+    bet_not_found:      ["ההימור לא נמצא", "Bet not found"],
+    bet_not_open:       ["ההימור עדיין לא פתוח", "Bet isn't open yet"],
+    bet_locked:         ["ההימור נסגר. לא ניתן לבטל.", "Bet locked"],
+    nothing_to_cancel:  ["אין ניחוש לבטל", "No pick to cancel"],
+    db:                 ["שגיאת ביטול", "Cancel failed"],
+    unknown:            ["שגיאה", "Error"],
+  };
+  return translateErrorCode(err in map ? err : "unknown", map, isHebrew);
 }
 
 function translateError(

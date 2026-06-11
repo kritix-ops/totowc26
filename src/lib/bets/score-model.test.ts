@@ -103,6 +103,30 @@ describe("predictScore - odds path", () => {
       predictScore({ odds: { win: { home: 2, draw: 3.3, away: 3.6 } } }).source,
     ).toBe("odds");
   });
+
+  it("respects team-strength ranks even when the odds disagree", () => {
+    // Pathological: odds claim Cape Verde (away) is the favourite — would
+    // happen if the snapshot is stale, mis-mapped, or swapped. The wide
+    // rank gap MUST override and forbid the underdog (Cape Verde) winning.
+    const input: ScoreModelInput = {
+      odds: { win: { home: 8, draw: 5, away: 1.3 } }, // away "favourite"
+      rankHome: 5, // Spain
+      rankAway: 36, // Cape Verde
+    };
+    const r = sampleMany(input);
+    expect(r.awayWins).toBe(0);
+  });
+
+  it("upset-caps a clear odds-favourite at the 0.60 threshold", () => {
+    // Brazil vs Iran-style: home ~1.5, draw 4.2, away ~6.5 — borderline cap.
+    const input: ScoreModelInput = {
+      odds: { win: { home: 1.5, draw: 4.2, away: 6.5 } },
+      rankHome: 1, // Brazil
+      rankAway: 26, // Iran — gap 25 > STRONG_RANK_GAP, rank cap definitely fires
+    };
+    const r = sampleMany(input);
+    expect(r.awayWins).toBe(0);
+  });
 });
 
 describe("predictScore - rank fallback", () => {
@@ -111,6 +135,15 @@ describe("predictScore - rank fallback", () => {
     const r = sampleMany(input);
     expect(r.awayWins).toBe(0); // big rank gap -> upset cap engaged
     expect(r.homeWins).toBeGreaterThan(r.n * 0.6);
+  });
+
+  it("respects rank symmetry when the underdog hosts the favourite", () => {
+    // Cape Verde (home, rank 36) vs Spain (away, rank 5). The favourite is
+    // AWAY this time — same protection must hold.
+    const input: ScoreModelInput = { rankHome: 36, rankAway: 5 };
+    const r = sampleMany(input);
+    expect(r.homeWins).toBe(0); // underdog (home) cannot win
+    expect(r.awayWins).toBeGreaterThan(r.n * 0.6);
   });
 
   it("is roughly even for adjacent ranks", () => {

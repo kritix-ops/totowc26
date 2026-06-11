@@ -4,7 +4,7 @@ import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { AlertCircle, Plus, RotateCcw, Trash2 } from "lucide-react";
 import { clsx } from "clsx";
-import { PillButton, LabelCaps } from "@/components/ui";
+import { Chip, PillButton, LabelCaps } from "@/components/ui";
 import {
   COMMON_ADMIN_ERRORS,
   translateAdminError,
@@ -23,7 +23,9 @@ import type {
   AutoApiFootballStat,
   GradingConfig,
 } from "@/lib/bets/types";
-import type { AdminAnchorMatch, AdminAnchorDay } from "@/db/admin-queries";
+import { isFreePickScope } from "@/lib/bets/free-pick-scopes";
+import { liveStakeCap, normalizeOdds } from "@/lib/odds-normalize";
+import type { AdminAnchorMatch, AdminAnchorDay, BetTemplate } from "@/db/admin-queries";
 import type { BetTypeKey } from "@/db/schema";
 import { createCustomBet, updateCustomBet } from "./actions";
 
@@ -45,7 +47,22 @@ type AutoFdField =
   | "ht_score"
   | "total_goals"
   | "ht_total"
-  | "went_to_penalties";
+  | "went_to_penalties"
+  | "btts"
+  | "home_scored"
+  | "away_scored"
+  | "clean_sheet_home"
+  | "clean_sheet_away"
+  | "first_half_goal"
+  | "second_half_goal"
+  | "both_halves_scored"
+  | "over_0_5_goals"
+  | "over_1_5_goals"
+  | "over_2_5_goals"
+  | "over_3_5_goals"
+  | "over_4_5_goals"
+  | "winning_margin"
+  | "second_half_total";
 
 type Defaults = {
   stakeYesNo: number; payoutYesNo: number;
@@ -63,6 +80,13 @@ type Defaults = {
   // Tournament anchor (settings.tournament_start_at). null = no
   // explicit admin choice; falls back to earliest fixture kickoff.
   tournamentStartAt: string | null;
+  // Live-bet pricing knobs — drive the decimal-odds → stake/payout
+  // preview for match/day scopes and mirror the user-side payout cap
+  // math byte-for-byte.
+  liveOddsBaseStake: number;
+  liveOddsHouseEdgePct: number;
+  liveOddsMaxPayoutRatio: number;
+  liveOddsMaxPayoutCeiling: number;
 };
 
 export type InitialBet = {
@@ -79,6 +103,10 @@ export type InitialBet = {
   answerConfig: AnswerConfig;
   stakeSnapshot: number;
   payoutSnapshot: number;
+  // Bookmaker decimal odds as a NUMERIC-mapped string (e.g. "2.50"), or
+  // null when the bet pre-dates the variable-stake feature or is a
+  // free-pick scope. Edit-mode seeds the form from this.
+  decimalOdds: string | null;
   gradingSource: GradingSource;
   gradingConfig: GradingConfig;
   lockAt: string; // ISO 8601 (UTC)
@@ -93,6 +121,7 @@ export function BetForm({
   mode = "create",
   betId,
   initialBet,
+  templates,
 }: {
   locale: Locale;
   anchorMatches: AdminAnchorMatch[];
@@ -102,6 +131,11 @@ export function BetForm({
   mode?: "create" | "edit";
   betId?: string;
   initialBet?: InitialBet;
+  // Past custom_bets the admin can clone into this new draft. Server
+  // pre-fetches them; the picker swaps the form's text/grading state on
+  // selection. Edit mode hides the picker (mutating a draft we're
+  // editing would clobber whatever the admin came in to fix).
+  templates?: BetTemplate[];
 }) {
   const isHebrew = locale === "he";
   const router = useRouter();
@@ -155,7 +189,23 @@ export function BetForm({
     initialFt?.placeholderEn ?? "",
   );
 
-  // ---- Pricing (default by answer type, overridable) ----
+  // ---- Pricing (scope-aware) ----
+  //
+  // Three modes, picked by the bet's scope:
+  //   • Live (match/day) with decimal_odds   → admin enters the bookmaker
+  //     odds; the form auto-computes stake (= liveOddsBaseStake) and the
+  //     payout via normalizeOdds. This is the path that gives the user-
+  //     facing bet card exact variable-stake math.
+  //   • Live (match/day) without decimal_odds → falls back to manual
+  //     stake/payout entry. Submit-time math then linearly scales from
+  //     this snapshot — works but with rounding drift at non-default
+  //     stakes (logged on the server as `no_odds_fallback`).
+  //   • Free pick (tournament/stage/group)   → stake is force-zero at
+  //     submit time; the form only collects payout as a flat fallback for
+  //     bets without per-option pricing.
+  const isLiveScope = scope === "match" || scope === "day";
+  const isFreePickFormScope = isFreePickScope(scope);
+
   const defaultStakePayout = useMemo(() => {
     if (!defaults) return { stake: 1, payout: 3 };
     switch (answerType) {
@@ -165,6 +215,11 @@ export function BetForm({
       case "free_text":    return { stake: defaults.stakeFreeText,     payout: defaults.payoutFreeText };
     }
   }, [answerType, defaults]);
+
+  const [decimalOddsInput, setDecimalOddsInput] = useState<string>(
+    initialBet?.decimalOdds ?? "",
+  );
+
   const [stake, setStake] = useState<number>(
     initialBet?.stakeSnapshot ?? defaultStakePayout.stake,
   );
@@ -176,10 +231,67 @@ export function BetForm({
   // value is "touched" already because it came from the saved row.
   const [stakeTouched, setStakeTouched] = useState(mode === "edit");
   const [payoutTouched, setPayoutTouched] = useState(mode === "edit");
-  if (!stakeTouched && stake !== defaultStakePayout.stake) {
+
+  // Parse the live decimal-odds input and, when valid, derive the
+  // stake/payout the user-facing card will land on at the default ★ pill.
+  // Same math as src/lib/odds-normalize.ts so admin and player agree.
+  const parsedDecimalOdds = useMemo(() => {
+    if (!isLiveScope) return null;
+    const trimmed = decimalOddsInput.trim();
+    if (!trimmed) return null;
+    const n = Number(trimmed);
+    if (!Number.isFinite(n) || n <= 1) return null;
+    return n;
+  }, [decimalOddsInput, isLiveScope]);
+
+  const liveOddsPreview = useMemo(() => {
+    if (parsedDecimalOdds == null || !defaults) return null;
+    const { stake: previewStake, payout: previewPayout } = normalizeOdds(
+      parsedDecimalOdds,
+      {
+        baseStake: defaults.liveOddsBaseStake,
+        maxPayout: liveStakeCap(defaults.liveOddsBaseStake, {
+          maxPayoutRatio: defaults.liveOddsMaxPayoutRatio,
+          maxPayoutCeiling: defaults.liveOddsMaxPayoutCeiling,
+        }),
+        houseEdgePct: defaults.liveOddsHouseEdgePct,
+      },
+    );
+    return { stake: previewStake, payout: previewPayout };
+  }, [parsedDecimalOdds, defaults]);
+
+  // Snap stake/payout to the computed preview when decimal_odds is the
+  // source of truth — keeps the saved snapshot consistent with what the
+  // user-facing card will show at the default pill.
+  if (liveOddsPreview && (stake !== liveOddsPreview.stake || payout !== liveOddsPreview.payout)) {
+    setStake(liveOddsPreview.stake);
+    setPayout(liveOddsPreview.payout);
+  }
+
+  // Live scope without decimal_odds yet — snap to the live default
+  // stake (settings.liveOddsBaseStake) so the saved snapshot still
+  // represents a sensible default ★ pill. Payout falls back to the
+  // answer-type default (yes/no=3, etc.) which the linear-scale
+  // fallback path in write-core then uses as the scaling baseline.
+  const liveFallbackStake = defaults?.liveOddsBaseStake ?? 3;
+  if (isLiveScope && !liveOddsPreview && stake !== liveFallbackStake) {
+    setStake(liveFallbackStake);
+  }
+  if (isLiveScope && !liveOddsPreview && payout !== defaultStakePayout.payout) {
+    setPayout(defaultStakePayout.payout);
+  }
+
+  // Free-pick scopes ignore stake at submit, but the DB still accepts a
+  // value. Force it to 0 so a stale form field doesn't write a misleading
+  // number to the row.
+  if (isFreePickFormScope && stake !== 0) {
+    setStake(0);
+  }
+
+  if (!stakeTouched && !liveOddsPreview && !isFreePickFormScope && !isLiveScope && stake !== defaultStakePayout.stake) {
     setStake(defaultStakePayout.stake);
   }
-  if (!payoutTouched && payout !== defaultStakePayout.payout) {
+  if (!payoutTouched && !liveOddsPreview && !isLiveScope && payout !== defaultStakePayout.payout) {
     setPayout(defaultStakePayout.payout);
   }
 
@@ -202,6 +314,55 @@ export function BetForm({
   const [autoFdField, setAutoFdField] = useState<AutoFdField>(
     initialFd?.field ?? "total_goals",
   );
+
+  // ---- Templates (create-mode only) ----
+  //
+  // Apply a past bet onto the in-flight form by swapping the
+  // question + grading-rule + answer-type + answer-config + grading
+  // source/config. Pricing / scope / anchor / lock_at stay as-is so
+  // the admin's current target match doesn't get blown away.
+  const applyTemplate = (t: BetTemplate) => {
+    setQuestionHe(t.questionHe);
+    setQuestionEn(t.questionEn);
+    setGradingRuleHe(t.gradingRuleHe);
+    setGradingRuleEn(t.gradingRuleEn);
+    setAnswerType(t.answerType);
+
+    // Re-seed the answer-config widgets based on the template's shape.
+    const cfg = t.answerConfig as AnswerConfig | undefined;
+    if (cfg?.kind === "number") {
+      setNumberUnit(cfg.unit ?? "");
+      setNumberMin(cfg.min !== undefined ? String(cfg.min) : "");
+      setNumberMax(cfg.max !== undefined ? String(cfg.max) : "");
+    }
+    if (cfg?.kind === "multi_choice") {
+      setMcOptions(
+        cfg.options.length > 0
+          ? cfg.options.map((o) => ({
+              value: o.value,
+              labelHe: o.labelHe,
+              labelEn: o.labelEn,
+            }))
+          : [
+              { value: "", labelHe: "", labelEn: "" },
+              { value: "", labelHe: "", labelEn: "" },
+            ],
+      );
+    }
+    if (cfg?.kind === "free_text") {
+      setFreeTextPlaceholderHe(cfg.placeholderHe ?? "");
+      setFreeTextPlaceholderEn(cfg.placeholderEn ?? "");
+    }
+
+    setGradingSource(t.gradingSource);
+    const gc = t.gradingConfig as GradingConfig | undefined;
+    if (gc?.source === "auto_api_football") {
+      setAutoAfStat(gc.stat);
+      setAutoAfAgg(gc.aggregate);
+    } else if (gc?.source === "auto_football_data") {
+      setAutoFdField(gc.field);
+    }
+  };
 
   // ---- Lock time ----
   // suggestDefaultLockAt reads Date.now() in its fallback branch, so the
@@ -278,6 +439,9 @@ export function BetForm({
       answerConfig,
       stakeSnapshot: stake,
       payoutSnapshot: payout,
+      // Only live scopes ship a decimal_odds value. The server re-asserts
+      // the scope gate and rejects a stray value on free-pick scopes.
+      decimalOdds: isLiveScope ? parsedDecimalOdds : null,
       gradingSource,
       gradingConfig,
       lockAt: lockAtIso,
@@ -315,6 +479,26 @@ export function BetForm({
 
   return (
     <form onSubmit={submit} className="flex flex-col gap-6 md:gap-8">
+      {/* 0. Template picker (create-mode only). Hidden when editing —
+          mutating a draft we came in to fix would silently throw away
+          the unsaved tweaks the admin's mid-typing. */}
+      {mode !== "edit" && templates && templates.length > 0 && (
+        <Section
+          title={isHebrew ? "טען מהימור קודם" : "Load from previous bet"}
+          hint={
+            isHebrew
+              ? "בחר הימור קיים כדי להעתיק שאלה, כלל ניקוד, סוג תשובה ומקור דירוג. אם הוא מכיל {HOME}/{AWAY} או את שמות הקבוצות המקוריות, הטקסט יותאם אוטומטית למשחק הנוכחי."
+              : "Pick a past bet to copy the question, grading rule, answer type, and grading source. {HOME}/{AWAY} placeholders and source team names get swapped to the current match automatically."
+          }
+        >
+          <TemplatePicker
+            locale={locale}
+            templates={templates}
+            onPick={applyTemplate}
+          />
+        </Section>
+      )}
+
       {/* 1. Scope */}
       <Section title={isHebrew ? "סוג הימור" : "Scope"}>
         <SegmentedRow
@@ -595,42 +779,109 @@ export function BetForm({
         </Section>
       )}
 
-      {/* 7. Pricing */}
+      {/* 7. Pricing — scope-aware. Live (match/day) prefers decimal odds
+          (variable-stake math); free pick hides stake; legacy path shows
+          manual stake/payout fields when no odds are supplied. */}
       <Section
         title={isHebrew ? "תמחור" : "Pricing"}
-        hint={isHebrew
-          ? `ברירת המחדל לסוג תשובה זה: ${defaultStakePayout.stake} / ${defaultStakePayout.payout}.`
-          : `Default for this answer type: stake ${defaultStakePayout.stake} / payout ${defaultStakePayout.payout}.`}
+        hint={
+          isLiveScope
+            ? isHebrew
+              ? "בהימור לייב השחקן בוחר בעצמו כמה לסכן (1-30) על כרטיס ההימור. כל מה שצריך ממך כאן זה ה-decimal odds מהבוקמייקר — המערכת תחשב לבד את ה-payout המדויק לכל סכום שיבחר."
+              : "On a live bet the player picks how much to risk (1-30) on the card themselves. All you need to enter here is the bookmaker decimal odds — the system reprices the payout for every chosen stake."
+            : isFreePickFormScope
+              ? isHebrew
+                ? "הימור טורניר/שלב/בית הוא ללא עלות לשחקן. השדה למטה הוא רק fallback אם אין מחיר לכל אפשרות."
+                : "Tournament/stage/group bets are free for the player. The field below is only a fallback when there's no per-option pricing."
+              : isHebrew
+                ? `ברירת המחדל לסוג תשובה זה: ${defaultStakePayout.stake} / ${defaultStakePayout.payout}.`
+                : `Default for this answer type: stake ${defaultStakePayout.stake} / payout ${defaultStakePayout.payout}.`
+        }
       >
-        <div className="flex flex-wrap gap-3 items-end">
-          <NumberStepper
-            label={isHebrew ? "עלות (stake)" : "Stake"}
-            value={stake}
-            onChange={(n) => { setStake(n); setStakeTouched(true); }}
-            min={0}
-          />
-          <NumberStepper
-            label={isHebrew ? "תשלום (payout)" : "Payout"}
-            value={payout}
-            onChange={(n) => { setPayout(n); setPayoutTouched(true); }}
-            min={1}
-          />
-          {(stakeTouched || payoutTouched) && (
-            <button
-              type="button"
-              onClick={() => {
-                setStake(defaultStakePayout.stake);
-                setPayout(defaultStakePayout.payout);
-                setStakeTouched(false);
-                setPayoutTouched(false);
-              }}
-              className="self-end inline-flex items-center gap-1.5 min-h-[40px] px-4 rounded-full border border-outline text-on-surface-variant text-sm hover:bg-surface-container"
-            >
-              <RotateCcw className="h-3.5 w-3.5" strokeWidth={2} />
-              {isHebrew ? "ברירת מחדל" : "Reset to default"}
-            </button>
-          )}
-        </div>
+        {/* Live (match/day): single input for the bookmaker odds. The
+            stake/payout snapshot is computed automatically; no manual
+            entry needed because the player picks the stake themselves
+            on the bet card. */}
+        {isLiveScope && (
+          <div className="flex flex-col gap-3">
+            <div className="flex flex-wrap items-end gap-3">
+              <label className="flex flex-col gap-1">
+                <LabelCaps>
+                  {isHebrew ? "Decimal odds (בוקמייקר)" : "Decimal odds"}
+                </LabelCaps>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  placeholder="2.50"
+                  value={decimalOddsInput}
+                  onChange={(e) => setDecimalOddsInput(e.target.value)}
+                  className="min-h-[48px] w-32 px-3 rounded border border-outline bg-surface-container-lowest text-base font-bold tabular-nums focus:outline-none focus:border-primary"
+                  dir="ltr"
+                />
+              </label>
+              {liveOddsPreview && (
+                <div className="flex items-end gap-3 text-sm text-on-surface-variant pb-2">
+                  <span>
+                    {isHebrew ? "ברירת מחדל בכרטיס" : "Card default"}:{" "}
+                    <bdi className="tabular-nums font-bold text-on-surface">
+                      {liveOddsPreview.stake}
+                    </bdi>{" "}
+                    {isHebrew ? "סיכון" : "risk"} ·{" "}
+                    <bdi className="tabular-nums font-bold text-on-surface">
+                      +{Math.max(0, liveOddsPreview.payout - liveOddsPreview.stake)}
+                    </bdi>{" "}
+                    {isHebrew ? "זכייה" : "win"}
+                  </span>
+                </div>
+              )}
+            </div>
+            {!parsedDecimalOdds && (
+              <p className="text-xs text-tertiary-fixed-dim">
+                {isHebrew
+                  ? `בלי odds, ה-payout יחושב בקירוב לינארי על בסיס ברירת מחדל (${liveFallbackStake} סיכון / ${defaultStakePayout.payout} תשלום). מומלץ למלא תמיד.`
+                  : `Without odds, payout falls back to linear scaling from a default snapshot (${liveFallbackStake} stake / ${defaultStakePayout.payout} payout). Filling it in is recommended.`}
+              </p>
+            )}
+          </div>
+        )}
+
+        {/* Non-live scopes: keep the manual stake/payout entry. Free-pick
+            scopes hide stake (forced to 0 server-side) and show only
+            payout as the flat fallback for surfaces without per-option
+            pricing. */}
+        {!isLiveScope && (
+          <div className="flex flex-wrap gap-3 items-end">
+            {!isFreePickFormScope && (
+              <NumberStepper
+                label={isHebrew ? "עלות (stake)" : "Stake"}
+                value={stake}
+                onChange={(n) => { setStake(n); setStakeTouched(true); }}
+                min={0}
+              />
+            )}
+            <NumberStepper
+              label={isHebrew ? "תשלום (payout)" : "Payout"}
+              value={payout}
+              onChange={(n) => { setPayout(n); setPayoutTouched(true); }}
+              min={1}
+            />
+            {(stakeTouched || payoutTouched) && (
+              <button
+                type="button"
+                onClick={() => {
+                  setStake(isFreePickFormScope ? 0 : defaultStakePayout.stake);
+                  setPayout(defaultStakePayout.payout);
+                  setStakeTouched(false);
+                  setPayoutTouched(false);
+                }}
+                className="self-end inline-flex items-center gap-1.5 min-h-[40px] px-4 rounded-full border border-outline text-on-surface-variant text-sm hover:bg-surface-container"
+              >
+                <RotateCcw className="h-3.5 w-3.5" strokeWidth={2} />
+                {isHebrew ? "ברירת מחדל" : "Reset to default"}
+              </button>
+            )}
+          </div>
+        )}
       </Section>
 
       {/* 8. Grading source */}
@@ -655,19 +906,49 @@ export function BetForm({
 
       {/* 9. Grading config (dynamic) */}
       {gradingSource === "auto_football_data" && (
-        <Section title={isHebrew ? "מה לדגום מהתוצאה?" : "Which field to read?"}>
+        <Section
+          title={isHebrew ? "מה לדגום מהתוצאה?" : "Which field to read?"}
+          hint={isHebrew
+            ? "ההגדרה חייבת להתאים לסוג התשובה שבחרת — כן/לא לשדות yes/no, מספר לשדות number וכו'. אחרת ההימור יישאר ידני."
+            : "Field must match the answer type you picked (yes/no for boolean fields, number for numeric, etc.). Mismatched bets fall back to manual grading."}
+        >
           <select
             value={autoFdField}
             onChange={(e) => setAutoFdField(e.target.value as AutoFdField)}
             className="min-h-[48px] w-full px-3 rounded border border-outline bg-surface-container-lowest text-base"
           >
-            <option value="total_goals">      {isHebrew ? "סך השערים במשחק" : "Total goals in match"}</option>
-            <option value="ht_total">          {isHebrew ? "סך השערים במחצית" : "Halftime total goals"}</option>
-            <option value="home_score">        {isHebrew ? "שערי בית" : "Home score"}</option>
-            <option value="away_score">        {isHebrew ? "שערי חוץ" : "Away score"}</option>
-            <option value="winner">            {isHebrew ? "מנצח (1/X/2)" : "Winner (1/X/2)"}</option>
-            <option value="ht_score">          {isHebrew ? "תוצאת מחצית מדויקת" : "Exact halftime score"}</option>
-            <option value="went_to_penalties"> {isHebrew ? "האם הוכרע בפנדלים" : "Went to penalties"}</option>
+            <optgroup label={isHebrew ? "תוצאה כללית" : "General result"}>
+              <option value="winner">            {isHebrew ? "מנצח (1/X/2) — בחירה" : "Winner (1/X/2) — multi-choice"}</option>
+              <option value="ht_score">          {isHebrew ? "תוצאת מחצית מדויקת — בחירה" : "Exact halftime score — multi-choice"}</option>
+              <option value="went_to_penalties"> {isHebrew ? "האם הוכרע בפנדלים — כן/לא" : "Went to penalties — yes/no"}</option>
+            </optgroup>
+            <optgroup label={isHebrew ? "ספירת שערים" : "Goal counts"}>
+              <option value="total_goals">       {isHebrew ? "סך השערים במשחק — מספר" : "Total goals in match — number"}</option>
+              <option value="ht_total">          {isHebrew ? "סך השערים במחצית 1 — מספר" : "First-half total goals — number"}</option>
+              <option value="second_half_total"> {isHebrew ? "סך השערים במחצית 2 — מספר" : "Second-half total goals — number"}</option>
+              <option value="home_score">        {isHebrew ? "שערי הבית — מספר" : "Home goals — number"}</option>
+              <option value="away_score">        {isHebrew ? "שערי החוץ — מספר" : "Away goals — number"}</option>
+              <option value="winning_margin">    {isHebrew ? "הפרש שערים סופי — מספר" : "Winning margin — number"}</option>
+            </optgroup>
+            <optgroup label={isHebrew ? "מעל / מתחת לשערים" : "Over/Under goals"}>
+              <option value="over_0_5_goals">    {isHebrew ? "מעל 0.5 שערים — כן/לא" : "Over 0.5 goals — yes/no"}</option>
+              <option value="over_1_5_goals">    {isHebrew ? "מעל 1.5 שערים — כן/לא" : "Over 1.5 goals — yes/no"}</option>
+              <option value="over_2_5_goals">    {isHebrew ? "מעל 2.5 שערים — כן/לא" : "Over 2.5 goals — yes/no"}</option>
+              <option value="over_3_5_goals">    {isHebrew ? "מעל 3.5 שערים — כן/לא" : "Over 3.5 goals — yes/no"}</option>
+              <option value="over_4_5_goals">    {isHebrew ? "מעל 4.5 שערים — כן/לא" : "Over 4.5 goals — yes/no"}</option>
+            </optgroup>
+            <optgroup label={isHebrew ? "BTTS וקבוצות" : "BTTS & per-team"}>
+              <option value="btts">              {isHebrew ? "שתי הקבוצות יבקיעו (BTTS) — כן/לא" : "Both teams to score (BTTS) — yes/no"}</option>
+              <option value="home_scored">       {isHebrew ? "האם הבית הבקיעה — כן/לא" : "Did home score — yes/no"}</option>
+              <option value="away_scored">       {isHebrew ? "האם החוץ הבקיעה — כן/לא" : "Did away score — yes/no"}</option>
+              <option value="clean_sheet_home">  {isHebrew ? "שער יבש לקבוצת הבית — כן/לא" : "Home kept clean sheet — yes/no"}</option>
+              <option value="clean_sheet_away">  {isHebrew ? "שער יבש לקבוצת החוץ — כן/לא" : "Away kept clean sheet — yes/no"}</option>
+            </optgroup>
+            <optgroup label={isHebrew ? "מחציות" : "Halves"}>
+              <option value="first_half_goal">   {isHebrew ? "שער במחצית 1 — כן/לא" : "Goal in 1st half — yes/no"}</option>
+              <option value="second_half_goal">  {isHebrew ? "שער במחצית 2 — כן/לא" : "Goal in 2nd half — yes/no"}</option>
+              <option value="both_halves_scored">{isHebrew ? "שער בשתי המחציות — כן/לא" : "Goal in both halves — yes/no"}</option>
+            </optgroup>
           </select>
         </Section>
       )}
@@ -1106,6 +1387,108 @@ function suggestDefaultLockAt(
   // is what the admin actually expects to see, even when the browser
   // is in another timezone.
   return isoToLocalInputValue(lock.toISOString());
+}
+
+// Searchable template picker. Renders a text input + a scrollable list
+// filtered by case-insensitive substring against the locale-active
+// question text, the applied-anchor label (so an admin can type "MEX"
+// to find every bet they wrote on Mexico fixtures), and the scope tag.
+function TemplatePicker({
+  locale,
+  templates,
+  onPick,
+}: {
+  locale: Locale;
+  templates: BetTemplate[];
+  onPick: (t: BetTemplate) => void;
+}) {
+  const isHebrew = locale === "he";
+  const [query, setQuery] = useState("");
+  const q = query.trim().toLowerCase();
+
+  const filtered = useMemo(() => {
+    if (!q) return templates;
+    return templates.filter((t) => {
+      const haystack = [
+        isHebrew ? t.questionHe : t.questionEn,
+        t.appliedLabel ?? "",
+        scopeShortLabel(t.scope, isHebrew),
+        scopeShortLabel(t.scope, !isHebrew),
+      ]
+        .join(" ")
+        .toLowerCase();
+      return haystack.includes(q);
+    });
+  }, [q, templates, isHebrew]);
+
+  return (
+    <div className="flex flex-col gap-2">
+      <input
+        type="text"
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        placeholder={
+          isHebrew ? "חפש לפי טקסט / משחק / סוג…" : "Search by text / match / scope…"
+        }
+        className="min-h-[48px] w-full px-3 rounded border border-outline bg-surface-container-lowest text-base font-bold focus:outline-none focus:border-primary"
+      />
+      <ul className="flex flex-col gap-1 max-h-72 overflow-y-auto rounded border border-outline-variant bg-surface-container-lowest">
+        {filtered.length === 0 ? (
+          <li className="px-3 py-3 text-xs text-on-surface-variant text-center">
+            {isHebrew ? "אין תוצאות תואמות." : "No matching templates."}
+          </li>
+        ) : (
+          filtered.map((t) => (
+            <li key={t.id}>
+              <button
+                type="button"
+                onClick={() => {
+                  onPick(t);
+                  setQuery("");
+                }}
+                className="press-down w-full text-start min-h-11 px-3 py-2 hover:bg-surface-container flex flex-col gap-0.5"
+              >
+                <span className="text-sm font-bold text-on-surface line-clamp-2">
+                  <Chip className="me-1 text-[10px]">
+                    {scopeShortLabel(t.scope, isHebrew)}
+                  </Chip>
+                  {isHebrew ? t.questionHe : t.questionEn}
+                </span>
+                {t.appliedLabel && (
+                  <span className="text-[11px] text-on-surface-variant tabular-nums">
+                    {isHebrew ? "הוחל על:" : "Last applied to:"} {t.appliedLabel}
+                  </span>
+                )}
+              </button>
+            </li>
+          ))
+        )}
+      </ul>
+    </div>
+  );
+}
+
+// Tight 2-3 char label for the template-picker chip. Lets the dropdown
+// fit a scope + question + applied-anchor preview on one mobile line.
+function scopeShortLabel(scope: string, isHebrew: boolean): string {
+  if (isHebrew) {
+    switch (scope) {
+      case "match":      return "משחק";
+      case "day":        return "יום";
+      case "stage":      return "שלב";
+      case "group":      return "בית";
+      case "tournament": return "טורניר";
+      default:           return scope;
+    }
+  }
+  switch (scope) {
+    case "match":      return "Match";
+    case "day":        return "Day";
+    case "stage":      return "Stage";
+    case "group":      return "Group";
+    case "tournament": return "Tour";
+    default:           return scope;
+  }
 }
 
 function scopeHelp(scope: Scope, isHebrew: boolean): string {

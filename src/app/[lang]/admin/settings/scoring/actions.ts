@@ -35,9 +35,19 @@ export type ScoringPayload = {
   duelMaxStake: number;
   duelDefaultJoinWindowHours: number;
   duelDailyLimit: number;
+  // Negative-balance lock: knobs from migration 0050. See
+  // _plans/2026-06-11-negative-balance-lock.md.
+  maxOverdraft: number;
+  lockBetsWhenNegative: boolean;
   liveOddsBaseStake: number;
   liveOddsMaxPayout: number;
   liveOddsHouseEdgePct: number;
+  // Player-chosen stake bounds + new payout-cap formula (ratio + ceiling).
+  // See _plans/2026-06-11-variable-live-bet-stake.md.
+  liveOddsMinStake: number;
+  liveOddsMaxStake: number;
+  liveOddsMaxPayoutRatio: number;
+  liveOddsMaxPayoutCeiling: number;
   stakeYesNo: number;
   payoutYesNo: number;
   stakeNumber: number;
@@ -73,9 +83,14 @@ const INTEGER_KEYS = [
   "duelMaxStake",
   "duelDefaultJoinWindowHours",
   "duelDailyLimit",
+  "maxOverdraft",
   "liveOddsBaseStake",
   "liveOddsMaxPayout",
   "liveOddsHouseEdgePct",
+  "liveOddsMinStake",
+  "liveOddsMaxStake",
+  "liveOddsMaxPayoutRatio",
+  "liveOddsMaxPayoutCeiling",
   "stakeYesNo",
   "payoutYesNo",
   "stakeNumber",
@@ -101,6 +116,7 @@ const INTEGER_KEYS = [
 const BOOLEAN_KEYS = [
   "matchRiskEnabled",
   "dailyRenewalEnabled",
+  "lockBetsWhenNegative",
 ] as const satisfies ReadonlyArray<keyof ScoringPayload>;
 
 export type SaveScoringResult =
@@ -143,7 +159,24 @@ export async function saveScoringSettings(
   if (payload.duelMaxStake < 1 || payload.duelMaxStake > 20) {
     return { ok: false, error: "invalid" };
   }
+  // Overdraft cap: 0 collapses to the legacy "balance >= stake" rule,
+  // 500 is a generous upper bound — way past any sane stake cap.
+  if (payload.maxOverdraft < 0 || payload.maxOverdraft > 500) {
+    return { ok: false, error: "invalid" };
+  }
   if (payload.liveOddsHouseEdgePct > 50) {
+    return { ok: false, error: "invalid" };
+  }
+  // Live stake bounds: mirror the DB CHECK in migration 0047 so the user
+  // gets a clean form error rather than an opaque constraint violation.
+  if (
+    payload.liveOddsMinStake < 1 ||
+    payload.liveOddsMaxStake < payload.liveOddsMinStake ||
+    payload.liveOddsMaxStake > 100 ||
+    payload.liveOddsMaxPayoutRatio < 1 ||
+    payload.liveOddsMaxPayoutCeiling < payload.liveOddsMaxPayoutRatio ||
+    payload.liveOddsMaxPayoutCeiling > 32000
+  ) {
     return { ok: false, error: "invalid" };
   }
 
@@ -199,9 +232,15 @@ export async function saveScoringSettings(
         duelMaxStake: payload.duelMaxStake,
         duelDefaultJoinWindowHours: payload.duelDefaultJoinWindowHours,
         duelDailyLimit: payload.duelDailyLimit,
+        maxOverdraft: payload.maxOverdraft,
+        lockBetsWhenNegative: payload.lockBetsWhenNegative,
         liveOddsBaseStake: payload.liveOddsBaseStake,
         liveOddsMaxPayout: payload.liveOddsMaxPayout,
         liveOddsHouseEdgePct: payload.liveOddsHouseEdgePct,
+        liveOddsMinStake: payload.liveOddsMinStake,
+        liveOddsMaxStake: payload.liveOddsMaxStake,
+        liveOddsMaxPayoutRatio: payload.liveOddsMaxPayoutRatio,
+        liveOddsMaxPayoutCeiling: payload.liveOddsMaxPayoutCeiling,
         stakeYesNo: payload.stakeYesNo,
         payoutYesNo: payload.payoutYesNo,
         stakeNumber: payload.stakeNumber,

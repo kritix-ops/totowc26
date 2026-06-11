@@ -57,6 +57,14 @@ export type CreateCustomBetInput = {
 
   stakeSnapshot: number;
   payoutSnapshot: number;
+  // Bookmaker decimal odds — required for live (match/day) bets so the
+  // variable-stake submit path can recompute payout exactly per the
+  // player's chosen stake; ignored (forced null) for free-pick scopes
+  // (tournament/stage/group). Optional on input for backward compat with
+  // legacy bets that pre-date the variable-stake feature; when omitted
+  // for live scope the bet falls back to the linear-scale path in
+  // write-core. See _plans/2026-06-11-variable-live-bet-stake.md.
+  decimalOdds?: number | null;
 
   gradingSource: "auto_api_football" | "auto_football_data" | "manual";
   gradingConfig: GradingConfig;
@@ -100,6 +108,18 @@ export async function createCustomBet(
     input.payoutSnapshot <= 0
   ) {
     return { ok: false, error: "invalid_stake_payout" };
+  }
+  // decimal_odds is allowed only for live (match/day) scope and must be > 1
+  // when supplied. Free-pick scopes (tournament/stage/group) must not carry
+  // it — their per-option pricing comes from the outright curve and a
+  // value here would mislead anyone reading the row later.
+  if (input.decimalOdds != null) {
+    if (input.scope !== "match" && input.scope !== "day") {
+      return { ok: false, error: "invalid_stake_payout" };
+    }
+    if (!Number.isFinite(input.decimalOdds) || input.decimalOdds <= 1) {
+      return { ok: false, error: "invalid_stake_payout" };
+    }
   }
 
   // 4) Answer config shape ↔ answer type.
@@ -162,6 +182,11 @@ export async function createCustomBet(
         answerConfig: input.answerConfig,
         stakeSnapshot: input.stakeSnapshot,
         payoutSnapshot: input.payoutSnapshot,
+        // drizzle's `numeric` maps to JS string; store with 2dp to match
+        // the column precision (see migration 0047). Only live scopes
+        // get a value — validated above.
+        decimalOdds:
+          input.decimalOdds != null ? input.decimalOdds.toFixed(2) : null,
         gradingSource: input.gradingSource,
         gradingConfig: input.gradingConfig,
         status: "draft",
@@ -223,6 +248,15 @@ export async function updateCustomBet(
     input.payoutSnapshot <= 0
   ) {
     return { ok: false, error: "invalid_stake_payout" };
+  }
+  // Same decimal_odds gate as create — scope must be match/day; value > 1.
+  if (input.decimalOdds != null) {
+    if (input.scope !== "match" && input.scope !== "day") {
+      return { ok: false, error: "invalid_stake_payout" };
+    }
+    if (!Number.isFinite(input.decimalOdds) || input.decimalOdds <= 1) {
+      return { ok: false, error: "invalid_stake_payout" };
+    }
   }
   if (!validateAnswerConfig(input.answerType, input.answerConfig)) {
     return { ok: false, error: "invalid_answer_config" };
@@ -294,6 +328,8 @@ export async function updateCustomBet(
         answerConfig: input.answerConfig,
         stakeSnapshot: input.stakeSnapshot,
         payoutSnapshot: input.payoutSnapshot,
+        decimalOdds:
+          input.decimalOdds != null ? input.decimalOdds.toFixed(2) : null,
         gradingSource: input.gradingSource,
         gradingConfig: input.gradingConfig,
         lockAt: lockAtDate,
@@ -316,6 +352,51 @@ export async function updateCustomBet(
     return { ok: true };
   } catch (err) {
     console.error("[bet update] write failed:", err);
+    return { ok: false, error: "db" };
+  }
+}
+
+export type SetTemplateArchivedResult =
+  | { ok: true }
+  | { ok: false; error: Err };
+
+// Flip a bet's template_archived flag so it stops surfacing in the
+// template picker / quick-add chip strips. Does NOT touch the bet's
+// status, score, picks or any player-visible field — purely admin-side
+// catalog hygiene. Setting it back to false un-archives.
+export async function setTemplateArchived(
+  id: string,
+  archived: boolean,
+): Promise<SetTemplateArchivedResult> {
+  const user = await getUser();
+  if (!user) return { ok: false, error: "unauth" };
+  if (!(await isAdmin(user.id))) {
+    console.warn("[template archive denied]", { userId: user.id, id });
+    return { ok: false, error: "forbidden" };
+  }
+
+  try {
+    const updated = await db
+      .update(customBets)
+      .set({ templateArchived: archived, updatedAt: new Date() })
+      .where(eq(customBets.id, id))
+      .returning({ id: customBets.id });
+    if (updated.length === 0) return { ok: false, error: "bet_not_found" };
+
+    console.info("[template archive]", { id, archived, by: user.id });
+
+    // The picker mounts on /admin/bets/new + /admin/live-bets/suggestions
+    // + /admin/bets/quick-add; bust all three so the flag flip is
+    // visible without a hard refresh. The detail page revalidates so the
+    // button label flips immediately.
+    revalidatePath("/[lang]/admin/bets", "page");
+    revalidatePath("/[lang]/admin/bets/new", "page");
+    revalidatePath("/[lang]/admin/bets/quick-add", "page");
+    revalidatePath("/[lang]/admin/live-bets/suggestions", "page");
+    revalidatePath(`/[lang]/admin/bets/${id}`, "page");
+    return { ok: true };
+  } catch (err) {
+    console.error("[template archive] update failed:", err);
     return { ok: false, error: "db" };
   }
 }
@@ -481,9 +562,17 @@ function validateGradingConfig(
     );
   }
   if (source === "auto_football_data") {
+    // Must stay in sync with AutoFootballDataConfig.field in
+    // src/lib/bets/types.ts and the resolver branches in
+    // src/lib/sync.ts (coerceMatchField). Adding a field in only one
+    // place quietly rejects every bet that uses it as
+    // "invalid_grading_config", which is exactly what just happened on
+    // 2026-06-11 when btts/over_X/halves/clean_sheet were added to the
+    // type + resolver + form but not here.
     return (
       config.source === "auto_football_data" &&
       [
+        // Raw values from the final match row.
         "home_score",
         "away_score",
         "winner",
@@ -491,6 +580,23 @@ function validateGradingConfig(
         "total_goals",
         "ht_total",
         "went_to_penalties",
+        // Derived yes/no fields.
+        "btts",
+        "home_scored",
+        "away_scored",
+        "clean_sheet_home",
+        "clean_sheet_away",
+        "first_half_goal",
+        "second_half_goal",
+        "both_halves_scored",
+        "over_0_5_goals",
+        "over_1_5_goals",
+        "over_2_5_goals",
+        "over_3_5_goals",
+        "over_4_5_goals",
+        // Derived numeric fields.
+        "winning_margin",
+        "second_half_total",
       ].includes(config.field)
     );
   }

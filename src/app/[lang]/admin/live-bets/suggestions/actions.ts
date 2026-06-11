@@ -6,6 +6,7 @@ import { db } from "@/db";
 import { customBets, matches as matchesTable, matchdays } from "@/db/schema";
 import { getUser } from "@/lib/supabase/auth";
 import { isAdmin } from "@/lib/admin";
+import { getDeadlineContext } from "@/lib/deadlines";
 
 // Server actions for the admin "Live bet suggestions" page.
 //
@@ -90,11 +91,10 @@ export async function publishSuggestion(
     return { ok: false, error: "match_locked" };
   }
 
-  // Lock 60 minutes before kickoff. Matches the pool-wide rule that
-  // every non-match-pick bet closes an hour before the relevant match
-  // or matchday starts (match picks themselves use the global cutoff
-  // in settings.match_picks_global_lock_at, resolved by deadlines.ts).
-  const lockAt = new Date(m.kickoffAt.getTime() - 60 * 60_000);
+  // Match-scope lock offset comes from the deadlines context (defaults
+  // table → /admin/deadlines), so admin can tune it without a code
+  // change. Defaults to 5 minutes per migration 0048.
+  const lockAt = await resolveSuggestionLockAt(m.kickoffAt, "custom_match");
   if (lockAt.getTime() <= Date.now()) {
     return { ok: false, error: "match_locked" };
   }
@@ -117,6 +117,11 @@ export async function publishSuggestion(
         answerConfig: { kind: "yes_no" },
         stakeSnapshot: input.stake,
         payoutSnapshot: input.payout,
+        // Captured so submitCustomBetPick can reprice the bet for a
+        // player-chosen stake. drizzle's `numeric` maps to JS string;
+        // store the original bookmaker quote rounded to 2dp to match
+        // the column precision (see migration 0047).
+        decimalOdds: input.decimalOdds.toFixed(2),
         gradingSource: "manual",
         gradingConfig: null,
         status: "open",
@@ -220,7 +225,7 @@ export async function publishMultiChoiceSuggestion(
     return { ok: false, error: "match_locked" };
   }
 
-  const lockAt = new Date(m.kickoffAt.getTime() - 60 * 60_000);
+  const lockAt = await resolveSuggestionLockAt(m.kickoffAt, "custom_match");
   if (lockAt.getTime() <= Date.now()) {
     return { ok: false, error: "match_locked" };
   }
@@ -241,7 +246,17 @@ export async function publishMultiChoiceSuggestion(
     payoutOverride: o.payout,
   }));
   const payoutOverridesByValue: Record<string, number> = {};
-  for (const o of options) payoutOverridesByValue[o.value] = o.payoutOverride;
+  const decimalOddsByValue: Record<string, number> = {};
+  for (let i = 0; i < input.options.length; i += 1) {
+    const opt = input.options[i];
+    const value = `opt_${i}`;
+    payoutOverridesByValue[value] = opt.payout;
+    // Capture per-option bookmaker odds so the variable-stake submit
+    // path can recompute payout when a player picks this option at a
+    // non-default stake. Rounded to 2dp to match the column precision
+    // we use for top-level decimal_odds on yes/no bets.
+    decimalOddsByValue[value] = Math.round(opt.decimalOdds * 100) / 100;
+  }
 
   try {
     const [row] = await db
@@ -259,6 +274,7 @@ export async function publishMultiChoiceSuggestion(
           kind: "multi_choice",
           options,
           payoutOverridesByValue,
+          decimalOddsByValue,
         },
         stakeSnapshot: stake,
         payoutSnapshot: maxPayout,
@@ -305,6 +321,19 @@ export async function refreshOddsForFixture(
   console.info("[odds refresh]", { adminId: user.id, matchId });
   revalidatePath("/[lang]/admin/live-bets/suggestions", "page");
   return { ok: true };
+}
+
+// Pull the per-type lock offset from the deadlines table (managed via
+// /admin/deadlines) and translate it into the absolute lockAt for a
+// suggestion publish. Same single source of truth as previewCustomBetLock,
+// so a change in /admin/deadlines is reflected here without redeploy.
+async function resolveSuggestionLockAt(
+  kickoffAt: Date,
+  typeKey: "custom_match" | "custom_day",
+): Promise<Date> {
+  const ctx = await getDeadlineContext();
+  const offsetMinutes = ctx.defaults[typeKey];
+  return new Date(kickoffAt.getTime() - offsetMinutes * 60_000);
 }
 
 // Upsert the matchday row for a given kickoff. Same logic as the

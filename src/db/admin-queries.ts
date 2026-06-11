@@ -419,6 +419,11 @@ export type AdminCustomBetDetail = {
   answerConfig: unknown;
   stakeSnapshot: number;
   payoutSnapshot: number;
+  // Bookmaker decimal odds (string from numeric col) — present on live
+  // (match/day) bets created via either the suggestions page or the
+  // BetForm with the field set; null for legacy live bets and for every
+  // free-pick scope.
+  decimalOdds: string | null;
   gradingSource: "auto_api_football" | "auto_football_data" | "manual";
   gradingConfig: unknown;
   resolvedValue: unknown;
@@ -431,6 +436,10 @@ export type AdminCustomBetDetail = {
   matchLabel: string | null;
   stage: string | null;
   groupId: string | null;
+  // Whether the bet still surfaces in the template picker / quick-add
+  // chips. Toggled from /admin/bets/[id]/page.tsx via the Template
+  // section. See migration 0049.
+  templateArchived: boolean;
   createdAt: string;
   picks: AdminCustomBetPickRow[];
 };
@@ -453,6 +462,7 @@ export async function getAdminCustomBetDetail(
       cb.answer_config                            as "answerConfig",
       cb.stake_snapshot                           as "stakeSnapshot",
       cb.payout_snapshot                          as "payoutSnapshot",
+      cb.decimal_odds::text                       as "decimalOdds",
       cb.grading_source::text                     as "gradingSource",
       cb.grading_config                           as "gradingConfig",
       cb.resolved_value                           as "resolvedValue",
@@ -467,6 +477,7 @@ export async function getAdminCustomBetDetail(
         else null end                             as "matchLabel",
       cb.stage::text                              as "stage",
       cb.group_id                                 as "groupId",
+      cb.template_archived                        as "templateArchived",
       cb.created_at                               as "createdAt"
     from public.custom_bets cb
     left join public.matchdays md on md.id = cb.matchday_id
@@ -553,6 +564,153 @@ export async function listAnchorDays(): Promise<AdminAnchorDay[]> {
     group by (m.kickoff_at at time zone 'Asia/Jerusalem')::date
     order by (m.kickoff_at at time zone 'Asia/Jerusalem')::date asc
   `);
+}
+
+// ---------- bet templates / quick-add ----------
+//
+// A "template" is just a previously-authored custom_bets row. The
+// authoring path can clone its question + grading config onto a fresh
+// scope/anchor; the rest (lock_at, decimal_odds, stake/payout) is
+// recomputed for the new bet. See the quick-add UI on
+// /admin/live-bets/suggestions and the picker on /admin/bets/new.
+export type BetTemplate = {
+  id: string;
+  // Scope the template was originally written under. The picker shows
+  // it as a chip so admins know what surface a template fits best, and
+  // /admin/bets/new uses it as the default scope on clone unless the
+  // URL also supplies a target match / day.
+  scope: "match" | "day" | "stage" | "group" | "tournament";
+  questionHe: string;
+  questionEn: string;
+  gradingRuleHe: string;
+  gradingRuleEn: string;
+  answerType: "yes_no" | "number" | "multi_choice" | "free_text";
+  answerConfig: unknown;
+  gradingSource: "auto_api_football" | "auto_football_data" | "manual";
+  gradingConfig: unknown;
+  // Label of the original anchor — e.g. "MEX vs SA" or "11 ביוני".
+  // Surface only; not used at clone time.
+  appliedLabel: string | null;
+  createdAt: string;
+  // Team names on the source match (only set for scope='match'
+  // templates). Used by the smart-text-swap on /admin/bets/new — if the
+  // target match's teams differ, the names get find-and-replaced inside
+  // the question + grading-rule text so a "Mexico to win?" template
+  // applied to Argentina ships as "Argentina to win?" without manual
+  // editing. Null for other scopes (no anchor team to swap from).
+  sourceHomeNameHe?: string | null;
+  sourceHomeNameEn?: string | null;
+  sourceAwayNameHe?: string | null;
+  sourceAwayNameEn?: string | null;
+};
+
+// Dedupe-by-question across the latest N bets so a popular question
+// like "Both teams to score?" doesn't show up 30 times. Tie-break on
+// most-recent createdAt so the chosen row carries the freshest grading
+// config. Excludes cancelled rows but keeps every other status —
+// drafts are valid templates (admin may have authored them precisely
+// as templates and never published).
+export async function listBetTemplates(
+  limit = 50,
+): Promise<BetTemplate[]> {
+  return execRows<BetTemplate>(sql`
+    with latest as (
+      select
+        cb.id,
+        cb.scope::text                              as scope,
+        cb.question_he                              as "questionHe",
+        cb.question_en                              as "questionEn",
+        cb.grading_rule_he                          as "gradingRuleHe",
+        cb.grading_rule_en                          as "gradingRuleEn",
+        cb.answer_type::text                        as "answerType",
+        cb.answer_config                            as "answerConfig",
+        cb.grading_source::text                     as "gradingSource",
+        cb.grading_config                           as "gradingConfig",
+        case
+          when cb.match_id is not null
+            then (select home_team || ' vs ' || away_team
+                  from public.matches where id = cb.match_id)
+          when cb.matchday_id is not null
+            then (select to_char(date, 'DD/MM') from public.matchdays
+                  where id = cb.matchday_id)
+          when cb.group_id is not null
+            then 'Group ' || cb.group_id
+          when cb.stage is not null
+            then cb.stage::text
+          else 'tournament'
+        end                                         as "appliedLabel",
+        cb.created_at                               as "createdAt",
+        row_number() over (
+          partition by cb.question_he, cb.answer_type
+          order by cb.created_at desc
+        )                                           as rn
+      from public.custom_bets cb
+      where cb.status <> 'cancelled'
+        and cb.template_archived = false
+    )
+    select
+      id::text         as "id",
+      scope,
+      "questionHe",
+      "questionEn",
+      "gradingRuleHe",
+      "gradingRuleEn",
+      "answerType",
+      "answerConfig",
+      "gradingSource",
+      "gradingConfig",
+      "appliedLabel",
+      "createdAt"::text as "createdAt"
+    from latest
+    where rn = 1
+    order by "createdAt" desc
+    limit ${limit}
+  `);
+}
+
+// Single-template lookup for the ?templateId= URL param path. Wraps the
+// listing query with a where-clause filter so the result shape matches,
+// and additionally joins the source match's teams so the new-bet page
+// can find-and-replace literal team names when the target anchor uses
+// different teams.
+export async function getBetTemplate(
+  id: string,
+): Promise<BetTemplate | null> {
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return null;
+  const [row] = await execRows<BetTemplate>(sql`
+    select
+      cb.id::text                                 as "id",
+      cb.scope::text                              as "scope",
+      cb.question_he                              as "questionHe",
+      cb.question_en                              as "questionEn",
+      cb.grading_rule_he                          as "gradingRuleHe",
+      cb.grading_rule_en                          as "gradingRuleEn",
+      cb.answer_type::text                        as "answerType",
+      cb.answer_config                            as "answerConfig",
+      cb.grading_source::text                     as "gradingSource",
+      cb.grading_config                           as "gradingConfig",
+      case
+        when cb.match_id is not null
+          then (select home_team || ' vs ' || away_team
+                from public.matches where id = cb.match_id)
+        when cb.matchday_id is not null
+          then (select to_char(date, 'DD/MM') from public.matchdays
+                where id = cb.matchday_id)
+        else null
+      end                                         as "appliedLabel",
+      cb.created_at::text                         as "createdAt",
+      ht.name_he                                  as "sourceHomeNameHe",
+      ht.name_en                                  as "sourceHomeNameEn",
+      at.name_he                                  as "sourceAwayNameHe",
+      at.name_en                                  as "sourceAwayNameEn"
+    from public.custom_bets cb
+    left join public.matches m  on m.id = cb.match_id
+    left join public.teams   ht on ht.code = m.home_team
+    left join public.teams   at on at.code = m.away_team
+    where cb.id = ${id}::uuid
+    limit 1
+  `);
+  return row ?? null;
 }
 
 export async function getPaymentTotals(): Promise<PaymentTotals> {
