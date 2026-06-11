@@ -7,20 +7,37 @@ import { Card } from "@/components/ui";
 import { localePath } from "@/lib/paths";
 import { db } from "@/db";
 import { settings, groups } from "@/db/schema";
-import { listAnchorMatches, listAnchorDays } from "@/db/admin-queries";
+import {
+  getBetTemplate,
+  listAnchorMatches,
+  listAnchorDays,
+  listBetTemplates,
+} from "@/db/admin-queries";
 import { getDeadlineContext } from "@/lib/deadlines";
-import { BetForm } from "../BetForm";
+import { BetForm, type InitialBet } from "../BetForm";
+import type { AnswerConfig, GradingConfig } from "@/lib/bets/types";
 
 export default async function NewBetPage({
   params,
+  searchParams,
 }: PageProps<"/[lang]/admin/bets/new">) {
   const { lang } = await params;
   if (!hasLocale(lang)) notFound();
   const locale = lang as Locale;
   const isHebrew = locale === "he";
   const Chev = isHebrew ? ChevronLeft : ChevronRight;
+  const sp = await searchParams;
 
-  const [anchorMatches, anchorDays, groupRows, [defaultsRow], deadlineCtx] =
+  // Optional pre-fill from a saved template + (optionally) a target
+  // match/day. Pasted in via the quick-add buttons on the suggestions
+  // page; admin still reviews + publishes manually so a stale team-name
+  // in the question text gets caught before going live.
+  const templateId = typeof sp.templateId === "string" ? sp.templateId : null;
+  const targetMatchId = typeof sp.matchId === "string" ? sp.matchId : null;
+  const targetMatchdayDate =
+    typeof sp.matchdayDate === "string" ? sp.matchdayDate : null;
+
+  const [anchorMatches, anchorDays, groupRows, [defaultsRow], deadlineCtx, templates, template] =
     await Promise.all([
       listAnchorMatches(),
       listAnchorDays(),
@@ -48,6 +65,8 @@ export default async function NewBetPage({
         .where(eq(settings.id, 1))
         .limit(1),
       getDeadlineContext(),
+      listBetTemplates(50),
+      templateId ? getBetTemplate(templateId) : Promise.resolve(null),
     ]);
   const defaults = defaultsRow
     ? {
@@ -56,6 +75,43 @@ export default async function NewBetPage({
         tournamentStartAt:
           (deadlineCtx.tournamentStartAt ?? deadlineCtx.derivedTournamentStartAt)
             ?.toISOString() ?? null,
+      }
+    : undefined;
+
+  // Build the InitialBet payload when a template is selected. We do NOT
+  // copy match_id / matchday_date / lock_at / decimal_odds / stake from
+  // the source row — those are anchor-specific. Scope and the target
+  // anchor are taken from the URL params (when supplied by the quick-add
+  // button) so the form lands on the right surface without an extra
+  // click. Without explicit targets we just clone the question + grading
+  // shell and let the admin pick the anchor.
+  const initialBet: InitialBet | undefined = template
+    ? {
+        scope: targetMatchId
+          ? "match"
+          : targetMatchdayDate
+            ? "day"
+            : template.scope,
+        matchId: targetMatchId,
+        matchdayDate: targetMatchdayDate,
+        stage: null,
+        groupId: null,
+        questionHe: template.questionHe,
+        questionEn: template.questionEn,
+        gradingRuleHe: template.gradingRuleHe,
+        gradingRuleEn: template.gradingRuleEn,
+        answerType: template.answerType,
+        answerConfig: template.answerConfig as AnswerConfig,
+        // Pricing snapshots stay at the answer-type defaults; the form's
+        // decimal_odds input recomputes both for live scope on save.
+        stakeSnapshot: 0,
+        payoutSnapshot: 0,
+        decimalOdds: null,
+        gradingSource: template.gradingSource,
+        gradingConfig: template.gradingConfig as GradingConfig,
+        // Empty string makes the form fall back to its suggestDefaultLockAt
+        // pipeline (computes 5 min before the target match's kickoff).
+        lockAt: "",
       }
     : undefined;
 
@@ -86,6 +142,8 @@ export default async function NewBetPage({
           anchorDays={anchorDays}
           groupIds={groupRows.map((g) => g.id)}
           defaults={defaults}
+          templates={templates}
+          initialBet={initialBet}
         />
       </Card>
     </section>

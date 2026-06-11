@@ -8,7 +8,13 @@ import { Card, Chip, LabelCaps, SectionHeading } from "@/components/ui";
 import { Flag } from "@/components/Flag";
 import { db } from "@/db";
 import { liveOddsSnapshot, settings } from "@/db/schema";
-import { listFixturesForDate, listLiveBetsDates } from "@/db/admin-queries";
+import { Plus } from "lucide-react";
+import {
+  listBetTemplates,
+  listFixturesForDate,
+  listLiveBetsDates,
+  type BetTemplate,
+} from "@/db/admin-queries";
 import { localePath } from "@/lib/paths";
 import { formatDateTime } from "@/lib/format";
 import { fetchOddsForMatch, type MarketOdds } from "@/lib/odds";
@@ -101,11 +107,17 @@ export default async function LiveBetSuggestionsPage({
   const sp = await searchParams;
   const date = resolveDate(sp.date);
 
-  const [fixtures, oddsConfig, availableDates] = await Promise.all([
+  const [fixtures, oddsConfig, availableDates, templates] = await Promise.all([
     listFixturesForDate(date),
     loadOddsConfig(),
     listLiveBetsDates(),
+    listBetTemplates(50),
   ]);
+  // Split templates by scope so the per-fixture row only shows match
+  // templates and the per-day row only shows day templates. Limited to
+  // 8 each to keep the chip strip short on mobile.
+  const matchTemplates = templates.filter((t) => t.scope === "match").slice(0, 8);
+  const dayTemplates = templates.filter((t) => t.scope === "day").slice(0, 8);
 
   // Resolve odds per fixture. Two-tier strategy:
   //   1. Read from live_odds_snapshot — the cron keeps this fresh
@@ -175,6 +187,15 @@ export default async function LiveBetSuggestionsPage({
 
       <DatePicker locale={locale} date={date} availableDates={availableDates} />
 
+      {dayTemplates.length > 0 && (
+        <QuickAddRow
+          locale={locale}
+          title={isHebrew ? "הוספה מהירה ליום" : "Quick add for this day"}
+          templates={dayTemplates}
+          targetParam={`matchdayDate=${date}`}
+        />
+      )}
+
       {apiKeyMissing && (
         <Card className="p-4 md:p-5 bg-error-container text-on-error-container border border-error">
           <p className="text-sm font-bold">
@@ -229,6 +250,15 @@ export default async function LiveBetSuggestionsPage({
                   </div>
                 </header>
 
+                {matchTemplates.length > 0 && (
+                  <QuickAddRow
+                    locale={locale}
+                    title={isHebrew ? "הוספה מהירה למשחק" : "Quick add for this match"}
+                    templates={matchTemplates}
+                    targetParam={`matchId=${f.id}`}
+                  />
+                )}
+
                 {!markets ? (
                   <p className="text-xs text-on-surface-variant">
                     {isHebrew
@@ -264,6 +294,54 @@ export default async function LiveBetSuggestionsPage({
         </div>
       )}
     </section>
+  );
+}
+
+// Per-anchor quick-add chip row. Each chip links to /admin/bets/new
+// pre-filled with the template + the target match/day, so one tap
+// jumps the admin into a draft that's 90% ready — they just review the
+// odds + question wording and publish.
+function QuickAddRow({
+  locale,
+  title,
+  templates,
+  targetParam,
+}: {
+  locale: Locale;
+  title: string;
+  templates: BetTemplate[];
+  targetParam: string;
+}) {
+  const isHebrew = locale === "he";
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex items-center justify-between gap-2">
+        <LabelCaps>{title}</LabelCaps>
+        <Link
+          href={localePath(locale, `admin/bets/new${targetParam ? `?${targetParam}` : ""}`)}
+          className="text-xs font-bold text-on-surface-variant hover:text-primary"
+        >
+          {isHebrew ? "הוסף מאפס +" : "From scratch +"}
+        </Link>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        {templates.map((t) => (
+          <Link
+            key={t.id}
+            href={localePath(
+              locale,
+              `admin/bets/new?templateId=${t.id}&${targetParam}`,
+            )}
+            className="press-down inline-flex items-center gap-1.5 min-h-11 px-3 rounded-full border border-outline bg-surface-container-lowest text-sm font-bold text-on-surface hover:border-primary hover:bg-surface-container max-w-full"
+          >
+            <Plus className="h-3.5 w-3.5 shrink-0" strokeWidth={2.5} />
+            <span className="truncate">
+              {isHebrew ? t.questionHe : t.questionEn}
+            </span>
+          </Link>
+        ))}
+      </div>
+    </div>
   );
 }
 

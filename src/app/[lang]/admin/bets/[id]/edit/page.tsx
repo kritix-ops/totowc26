@@ -119,6 +119,9 @@ export default async function EditBetPage({
           mode="edit"
           betId={id}
           initialBet={initial}
+          // Edit mode hides the template picker; pass an empty array so
+          // the prop is satisfied without an extra DB roundtrip.
+          templates={[]}
         />
       </Card>
     </section>

@@ -25,7 +25,7 @@ import type {
 } from "@/lib/bets/types";
 import { isFreePickScope } from "@/lib/bets/free-pick-scopes";
 import { liveStakeCap, normalizeOdds } from "@/lib/odds-normalize";
-import type { AdminAnchorMatch, AdminAnchorDay } from "@/db/admin-queries";
+import type { AdminAnchorMatch, AdminAnchorDay, BetTemplate } from "@/db/admin-queries";
 import type { BetTypeKey } from "@/db/schema";
 import { createCustomBet, updateCustomBet } from "./actions";
 
@@ -121,6 +121,7 @@ export function BetForm({
   mode = "create",
   betId,
   initialBet,
+  templates,
 }: {
   locale: Locale;
   anchorMatches: AdminAnchorMatch[];
@@ -130,6 +131,11 @@ export function BetForm({
   mode?: "create" | "edit";
   betId?: string;
   initialBet?: InitialBet;
+  // Past custom_bets the admin can clone into this new draft. Server
+  // pre-fetches them; the picker swaps the form's text/grading state on
+  // selection. Edit mode hides the picker (mutating a draft we're
+  // editing would clobber whatever the admin came in to fix).
+  templates?: BetTemplate[];
 }) {
   const isHebrew = locale === "he";
   const router = useRouter();
@@ -309,6 +315,55 @@ export function BetForm({
     initialFd?.field ?? "total_goals",
   );
 
+  // ---- Templates (create-mode only) ----
+  //
+  // Apply a past bet onto the in-flight form by swapping the
+  // question + grading-rule + answer-type + answer-config + grading
+  // source/config. Pricing / scope / anchor / lock_at stay as-is so
+  // the admin's current target match doesn't get blown away.
+  const applyTemplate = (t: BetTemplate) => {
+    setQuestionHe(t.questionHe);
+    setQuestionEn(t.questionEn);
+    setGradingRuleHe(t.gradingRuleHe);
+    setGradingRuleEn(t.gradingRuleEn);
+    setAnswerType(t.answerType);
+
+    // Re-seed the answer-config widgets based on the template's shape.
+    const cfg = t.answerConfig as AnswerConfig | undefined;
+    if (cfg?.kind === "number") {
+      setNumberUnit(cfg.unit ?? "");
+      setNumberMin(cfg.min !== undefined ? String(cfg.min) : "");
+      setNumberMax(cfg.max !== undefined ? String(cfg.max) : "");
+    }
+    if (cfg?.kind === "multi_choice") {
+      setMcOptions(
+        cfg.options.length > 0
+          ? cfg.options.map((o) => ({
+              value: o.value,
+              labelHe: o.labelHe,
+              labelEn: o.labelEn,
+            }))
+          : [
+              { value: "", labelHe: "", labelEn: "" },
+              { value: "", labelHe: "", labelEn: "" },
+            ],
+      );
+    }
+    if (cfg?.kind === "free_text") {
+      setFreeTextPlaceholderHe(cfg.placeholderHe ?? "");
+      setFreeTextPlaceholderEn(cfg.placeholderEn ?? "");
+    }
+
+    setGradingSource(t.gradingSource);
+    const gc = t.gradingConfig as GradingConfig | undefined;
+    if (gc?.source === "auto_api_football") {
+      setAutoAfStat(gc.stat);
+      setAutoAfAgg(gc.aggregate);
+    } else if (gc?.source === "auto_football_data") {
+      setAutoFdField(gc.field);
+    }
+  };
+
   // ---- Lock time ----
   // suggestDefaultLockAt reads Date.now() in its fallback branch, so the
   // React lint rule won't let us wrap this in useMemo. Compute it inline
@@ -424,6 +479,41 @@ export function BetForm({
 
   return (
     <form onSubmit={submit} className="flex flex-col gap-6 md:gap-8">
+      {/* 0. Template picker (create-mode only). Hidden when editing —
+          mutating a draft we came in to fix would silently throw away
+          the unsaved tweaks the admin's mid-typing. */}
+      {mode !== "edit" && templates && templates.length > 0 && (
+        <Section
+          title={isHebrew ? "טען מהימור קודם" : "Load from previous bet"}
+          hint={
+            isHebrew
+              ? "בחר הימור קיים כדי להעתיק שאלה, כלל ניקוד, סוג תשובה ומקור דירוג. ה-scope, המשחק/יום, זמן הנעילה וה-odds לא יועתקו — תזין מחדש למשחק הנוכחי."
+              : "Pick a past bet to copy the question, grading rule, answer type, and grading source. Scope, match/day, lock time, and odds are not copied — re-enter for the current target."
+          }
+        >
+          <select
+            defaultValue=""
+            onChange={(e) => {
+              const t = templates.find((x) => x.id === e.target.value);
+              if (t) applyTemplate(t);
+              e.target.value = "";
+            }}
+            className="min-h-[48px] w-full px-3 rounded border border-outline bg-surface-container-lowest text-base"
+          >
+            <option value="" disabled>
+              {isHebrew ? "— בחר טמפלט —" : "— pick a template —"}
+            </option>
+            {templates.map((t) => (
+              <option key={t.id} value={t.id}>
+                {`[${scopeShortLabel(t.scope, isHebrew)}] `}
+                {isHebrew ? t.questionHe : t.questionEn}
+                {t.appliedLabel ? ` · ${t.appliedLabel}` : ""}
+              </option>
+            ))}
+          </select>
+        </Section>
+      )}
+
       {/* 1. Scope */}
       <Section title={isHebrew ? "סוג הימור" : "Scope"}>
         <SegmentedRow
@@ -1312,6 +1402,29 @@ function suggestDefaultLockAt(
   // is what the admin actually expects to see, even when the browser
   // is in another timezone.
   return isoToLocalInputValue(lock.toISOString());
+}
+
+// Tight 2-3 char label for the template-picker chip. Lets the dropdown
+// fit a scope + question + applied-anchor preview on one mobile line.
+function scopeShortLabel(scope: string, isHebrew: boolean): string {
+  if (isHebrew) {
+    switch (scope) {
+      case "match":      return "משחק";
+      case "day":        return "יום";
+      case "stage":      return "שלב";
+      case "group":      return "בית";
+      case "tournament": return "טורניר";
+      default:           return scope;
+    }
+  }
+  switch (scope) {
+    case "match":      return "Match";
+    case "day":        return "Day";
+    case "stage":      return "Stage";
+    case "group":      return "Group";
+    case "tournament": return "Tour";
+    default:           return scope;
+  }
 }
 
 function scopeHelp(scope: Scope, isHebrew: boolean): string {

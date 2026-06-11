@@ -561,6 +561,132 @@ export async function listAnchorDays(): Promise<AdminAnchorDay[]> {
   `);
 }
 
+// ---------- bet templates / quick-add ----------
+//
+// A "template" is just a previously-authored custom_bets row. The
+// authoring path can clone its question + grading config onto a fresh
+// scope/anchor; the rest (lock_at, decimal_odds, stake/payout) is
+// recomputed for the new bet. See the quick-add UI on
+// /admin/live-bets/suggestions and the picker on /admin/bets/new.
+export type BetTemplate = {
+  id: string;
+  // Scope the template was originally written under. The picker shows
+  // it as a chip so admins know what surface a template fits best, and
+  // /admin/bets/new uses it as the default scope on clone unless the
+  // URL also supplies a target match / day.
+  scope: "match" | "day" | "stage" | "group" | "tournament";
+  questionHe: string;
+  questionEn: string;
+  gradingRuleHe: string;
+  gradingRuleEn: string;
+  answerType: "yes_no" | "number" | "multi_choice" | "free_text";
+  answerConfig: unknown;
+  gradingSource: "auto_api_football" | "auto_football_data" | "manual";
+  gradingConfig: unknown;
+  // Label of the original anchor — e.g. "MEX vs SA" or "11 ביוני".
+  // Surface only; not used at clone time.
+  appliedLabel: string | null;
+  createdAt: string;
+};
+
+// Dedupe-by-question across the latest N bets so a popular question
+// like "Both teams to score?" doesn't show up 30 times. Tie-break on
+// most-recent createdAt so the chosen row carries the freshest grading
+// config. Excludes cancelled rows but keeps every other status —
+// drafts are valid templates (admin may have authored them precisely
+// as templates and never published).
+export async function listBetTemplates(
+  limit = 50,
+): Promise<BetTemplate[]> {
+  return execRows<BetTemplate>(sql`
+    with latest as (
+      select
+        cb.id,
+        cb.scope::text                              as scope,
+        cb.question_he                              as "questionHe",
+        cb.question_en                              as "questionEn",
+        cb.grading_rule_he                          as "gradingRuleHe",
+        cb.grading_rule_en                          as "gradingRuleEn",
+        cb.answer_type::text                        as "answerType",
+        cb.answer_config                            as "answerConfig",
+        cb.grading_source::text                     as "gradingSource",
+        cb.grading_config                           as "gradingConfig",
+        case
+          when cb.match_id is not null
+            then (select home_team || ' vs ' || away_team
+                  from public.matches where id = cb.match_id)
+          when cb.matchday_id is not null
+            then (select to_char(date, 'DD/MM') from public.matchdays
+                  where id = cb.matchday_id)
+          when cb.group_id is not null
+            then 'Group ' || cb.group_id
+          when cb.stage is not null
+            then cb.stage::text
+          else 'tournament'
+        end                                         as "appliedLabel",
+        cb.created_at                               as "createdAt",
+        row_number() over (
+          partition by cb.question_he, cb.answer_type
+          order by cb.created_at desc
+        )                                           as rn
+      from public.custom_bets cb
+      where cb.status <> 'cancelled'
+    )
+    select
+      id::text         as "id",
+      scope,
+      "questionHe",
+      "questionEn",
+      "gradingRuleHe",
+      "gradingRuleEn",
+      "answerType",
+      "answerConfig",
+      "gradingSource",
+      "gradingConfig",
+      "appliedLabel",
+      "createdAt"::text as "createdAt"
+    from latest
+    where rn = 1
+    order by "createdAt" desc
+    limit ${limit}
+  `);
+}
+
+// Single-template lookup for the ?templateId= URL param path. Wraps the
+// listing query with a where-clause filter so the result shape matches.
+export async function getBetTemplate(
+  id: string,
+): Promise<BetTemplate | null> {
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return null;
+  const [row] = await execRows<BetTemplate>(sql`
+    select
+      cb.id::text                                 as "id",
+      cb.scope::text                              as "scope",
+      cb.question_he                              as "questionHe",
+      cb.question_en                              as "questionEn",
+      cb.grading_rule_he                          as "gradingRuleHe",
+      cb.grading_rule_en                          as "gradingRuleEn",
+      cb.answer_type::text                        as "answerType",
+      cb.answer_config                            as "answerConfig",
+      cb.grading_source::text                     as "gradingSource",
+      cb.grading_config                           as "gradingConfig",
+      case
+        when cb.match_id is not null
+          then (select home_team || ' vs ' || away_team
+                from public.matches where id = cb.match_id)
+        when cb.matchday_id is not null
+          then (select to_char(date, 'DD/MM') from public.matchdays
+                where id = cb.matchday_id)
+        else null
+      end                                         as "appliedLabel",
+      cb.created_at::text                         as "createdAt"
+    from public.custom_bets cb
+    where cb.id = ${id}::uuid
+    limit 1
+  `);
+  return row ?? null;
+}
+
 export async function getPaymentTotals(): Promise<PaymentTotals> {
   const r = await execFirstRow<{
     pending_count: number;
