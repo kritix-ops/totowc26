@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Plus, ChevronLeft, ChevronRight, Copy, RefreshCw } from "lucide-react";
+import { Plus, ChevronLeft, ChevronRight, Copy, RefreshCw, Zap } from "lucide-react";
 import { hasLocale, type Locale } from "../../dictionaries";
 import { Card, Chip, LabelCaps, PillButton, SectionHeading } from "@/components/ui";
 import { localePath } from "@/lib/paths";
@@ -90,6 +90,16 @@ export default async function AdminBetsPage({
                 className="min-h-[48px]"
               >
                 {isHebrew ? "הימורי טורניר" : "Tournament bets"}
+              </PillButton>
+            </Link>
+            <Link href={localePath(locale, "admin/bets/quick-add")}>
+              <PillButton
+                type="button"
+                variant="ghost"
+                className="min-h-[48px] inline-flex items-center gap-1.5"
+              >
+                <Zap className="h-4 w-4" strokeWidth={2} />
+                {isHebrew ? "הוספה מהירה" : "Quick add"}
               </PillButton>
             </Link>
             <Link href={localePath(locale, "admin/bets/new")}>

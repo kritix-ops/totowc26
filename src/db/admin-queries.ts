@@ -587,6 +587,16 @@ export type BetTemplate = {
   // Surface only; not used at clone time.
   appliedLabel: string | null;
   createdAt: string;
+  // Team names on the source match (only set for scope='match'
+  // templates). Used by the smart-text-swap on /admin/bets/new — if the
+  // target match's teams differ, the names get find-and-replaced inside
+  // the question + grading-rule text so a "Mexico to win?" template
+  // applied to Argentina ships as "Argentina to win?" without manual
+  // editing. Null for other scopes (no anchor team to swap from).
+  sourceHomeNameHe?: string | null;
+  sourceHomeNameEn?: string | null;
+  sourceAwayNameHe?: string | null;
+  sourceAwayNameEn?: string | null;
 };
 
 // Dedupe-by-question across the latest N bets so a popular question
@@ -653,7 +663,10 @@ export async function listBetTemplates(
 }
 
 // Single-template lookup for the ?templateId= URL param path. Wraps the
-// listing query with a where-clause filter so the result shape matches.
+// listing query with a where-clause filter so the result shape matches,
+// and additionally joins the source match's teams so the new-bet page
+// can find-and-replace literal team names when the target anchor uses
+// different teams.
 export async function getBetTemplate(
   id: string,
 ): Promise<BetTemplate | null> {
@@ -679,8 +692,15 @@ export async function getBetTemplate(
                 where id = cb.matchday_id)
         else null
       end                                         as "appliedLabel",
-      cb.created_at::text                         as "createdAt"
+      cb.created_at::text                         as "createdAt",
+      ht.name_he                                  as "sourceHomeNameHe",
+      ht.name_en                                  as "sourceHomeNameEn",
+      at.name_he                                  as "sourceAwayNameHe",
+      at.name_en                                  as "sourceAwayNameEn"
     from public.custom_bets cb
+    left join public.matches m  on m.id = cb.match_id
+    left join public.teams   ht on ht.code = m.home_team
+    left join public.teams   at on at.code = m.away_team
     where cb.id = ${id}::uuid
     limit 1
   `);
