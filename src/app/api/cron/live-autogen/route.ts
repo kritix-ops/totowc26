@@ -2,6 +2,11 @@ import { NextResponse, type NextRequest } from "next/server";
 import { isAuthorizedCron } from "@/lib/cron-auth";
 import { runLiveAutogen } from "@/lib/bets/suggest/autogen";
 
+// One AI generation is ~30s; the runner budgets its wall-clock and defers
+// the overflow, but it still needs the full function ceiling to finish a
+// match or two. Matches the 60s the other cron routes use.
+export const maxDuration = 60;
+
 // Daily cron that seeds draft AI live-bet suggestions for upcoming matches
 // when the admin has enabled the rule (settings.live_autogen_enabled). The
 // generator queues DRAFTS only — the admin still reviews and publishes in

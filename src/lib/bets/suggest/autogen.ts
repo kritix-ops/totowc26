@@ -28,15 +28,23 @@ export type AutogenReport = {
   enabled: boolean;
   matchesEligible: number;
   matchesSeeded: number;
+  matchesDeferred: number;
   draftsCreated: number;
   draftsFailed: number;
 };
 
+// A single generation takes ~30s (output-token bound). With the route's
+// 60s function ceiling we can only finish one or two matches per run, so we
+// stop seeding once this much wall-clock is spent and defer the rest to the
+// next cron firing rather than risk the function being killed mid-insert.
+const RUN_BUDGET_MS = 45_000;
+
 export async function runLiveAutogen(): Promise<AutogenReport> {
+  const startedAt = Date.now();
   const cfg = await loadAutogenConfig();
   if (!cfg.enabled) {
     console.info("[live-autogen] disabled");
-    return { enabled: false, matchesEligible: 0, matchesSeeded: 0, draftsCreated: 0, draftsFailed: 0 };
+    return { enabled: false, matchesEligible: 0, matchesSeeded: 0, matchesDeferred: 0, draftsCreated: 0, draftsFailed: 0 };
   }
 
   // custom_bets.created_by is NOT NULL; attribute system drafts to the
@@ -45,16 +53,25 @@ export async function runLiveAutogen(): Promise<AutogenReport> {
   const createdBy = await firstAdminId();
   if (!createdBy) {
     console.warn("[live-autogen] no admin account to own drafts; skipping");
-    return { enabled: true, matchesEligible: 0, matchesSeeded: 0, draftsCreated: 0, draftsFailed: 0 };
+    return { enabled: true, matchesEligible: 0, matchesSeeded: 0, matchesDeferred: 0, draftsCreated: 0, draftsFailed: 0 };
   }
 
   const eligible = await listEligibleMatches(cfg.leadHours);
   let seeded = 0;
+  let deferred = 0;
   let created = 0;
   let failed = 0;
 
-  for (const m of eligible) {
-    const res = await generateAndQueueForMatch(m, cfg.model, cfg.pricing, createdBy);
+  for (let i = 0; i < eligible.length; i += 1) {
+    if (Date.now() - startedAt > RUN_BUDGET_MS) {
+      // Out of wall-clock for this run; the soonest-first ordering means
+      // we've covered the most urgent matches. The remaining ones are still
+      // eligible (no bets yet) and get picked up on the next firing.
+      deferred = eligible.length - i;
+      console.warn("[live-autogen deferred]", { deferred, reason: "run budget exhausted" });
+      break;
+    }
+    const res = await generateAndQueueForMatch(eligible[i], cfg.model, cfg.pricing, createdBy);
     if (res.created > 0) seeded += 1;
     created += res.created;
     failed += res.failed;
@@ -64,6 +81,7 @@ export async function runLiveAutogen(): Promise<AutogenReport> {
     enabled: true,
     matchesEligible: eligible.length,
     matchesSeeded: seeded,
+    matchesDeferred: deferred,
     draftsCreated: created,
     draftsFailed: failed,
   };

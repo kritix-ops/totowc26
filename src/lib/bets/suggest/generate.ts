@@ -79,7 +79,7 @@ function buildSystemPrompt(): string {
     "- The grading rule must be unambiguous and match the grading source when set.",
     "- rationale: one short sentence on why the probabilities are calibrated that way.",
     "",
-    "Aim for 6-10 diverse bets: a couple of safe ones, a couple of grouped exotic markets, and a few stat-based ones.",
+    "Aim for about 6 diverse bets: one or two safe ones, a grouped exotic market, and a couple of stat- or event-based ones. Quality over quantity.",
   ].join("\n");
 }
 
@@ -108,7 +108,12 @@ export async function generateSuggestions(
 
   const body = {
     model,
-    max_tokens: 4096,
+    // ~6 bilingual bets land around 2k output tokens; 3072 leaves headroom
+    // without inviting a 40s+ generation that would blow the function
+    // timeout. Output-token generation is the latency bottleneck (~60 tok/s
+    // on Sonnet), so capping the batch size keeps the call inside the
+    // 55s fetch ceiling below.
+    max_tokens: 3072,
     system: buildSystemPrompt(),
     messages: [{ role: "user", content: buildUserPrompt(fx) }],
     tools: [
@@ -131,9 +136,12 @@ export async function generateSuggestions(
         "content-type": "application/json",
       },
       body: JSON.stringify(body),
-      // Generation is interactive (admin clicks "generate"); a hung
-      // upstream must not pin the action. 30s is generous for one call.
-      signal: AbortSignal.timeout(30_000),
+      // A ~6-bet batch takes ~30s (output-token bound). The old 30s ceiling
+      // aborted real generations mid-flight — the "generation failed" the
+      // admin was seeing. 55s clears the typical call with margin and still
+      // sits under the route's 60s maxDuration so we surface a clean error
+      // instead of the function being killed.
+      signal: AbortSignal.timeout(55_000),
     });
     if (!res.ok) {
       const text = await res.text().catch(() => "");

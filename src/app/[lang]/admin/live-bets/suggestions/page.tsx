@@ -30,6 +30,12 @@ import { AiModelCard } from "./AiModelCard";
 import { countRemainingMatches } from "./actions";
 import { DEFAULT_SUGGEST_MODEL } from "@/lib/bets/suggest/models";
 
+// The AI generate action runs in this route's function and a ~6-bet
+// Anthropic call takes ~30s, so the default (short) function timeout would
+// kill it. 60s gives the call room; the fetch itself aborts at 55s so a
+// genuinely stuck upstream still returns a clean error, not a 504.
+export const maxDuration = 60;
+
 // Markets we skip in the suggestions UI:
 //   - Match Winner is already covered by the main 1/X/2 bet, so
 //     republishing it as a custom bet would duplicate. Two API-Football
