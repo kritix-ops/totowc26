@@ -8,7 +8,7 @@ import { localePath } from "@/lib/paths";
 // between the three without losing context. Server component on
 // purpose — no client state needed since each tab is a real URL.
 
-type BetsTabKey = "match-picks" | "tournament" | "groups" | "live";
+type BetsTabKey = "match-picks" | "tournament" | "groups" | "live" | "duels";
 
 type TabDef = {
   key: BetsTabKey;
@@ -22,6 +22,7 @@ const TABS: TabDef[] = [
   { key: "tournament",  path: "bets/tournament", he: "הימורי טורניר", en: "Tournament" },
   { key: "groups",      path: "bets/groups",     he: "דירוגי בתים",   en: "Group rankings" },
   { key: "live",        path: "bets/live",       he: "הימורי לייב",   en: "Live bets" },
+  { key: "duels",       path: "duels",           he: "דו-קרבים",      en: "Duels" },
 ];
 
 export function BetsTabs({
