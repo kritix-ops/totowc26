@@ -1,14 +1,24 @@
 "use client";
 
 import { useState } from "react";
-import { Check, Stamp, Clock, AlertCircle, Plus, Minus } from "lucide-react";
+import {
+  AlertCircle,
+  Check,
+  Clock,
+  Minus,
+  Plus,
+  Stamp,
+  Trash2,
+  X,
+} from "lucide-react";
 import { clsx } from "clsx";
 import { PillButton } from "@/components/ui";
 import { Flag } from "@/components/Flag";
 import { PickScenarios } from "@/components/PickScenarios";
 import type { Dictionary, Locale } from "../../dictionaries";
 import { usePendingAction } from "@/lib/use-pending-action";
-import type { SaveBetResult } from "./actions";
+import { cancelBet } from "./actions";
+import type { CancelBetResult, SaveBetResult } from "./actions";
 
 // 1/X/2 score predictor for a single match. The "extra bets" (BTTS / Over
 // 2.5 / halftime) used to live here behind an "Advanced" section; those
@@ -54,10 +64,18 @@ export function BetForm({
   const isHebrew = locale === "he";
   const [home, setHome] = useState(initialBet?.home ?? 0);
   const [away, setAway] = useState(initialBet?.away ?? 0);
+  // `hasPick` mirrors initialBet at render time and flips locally when
+  // the user cancels — needed so the cancel button hides itself after a
+  // successful clear without waiting for a server-driven prop swap.
+  const [hasPick, setHasPick] = useState<boolean>(initialBet !== null);
   const [error, setError] = useState<
-    Exclude<SaveBetResult, { ok: true }>["error"] | null
+    | Exclude<SaveBetResult, { ok: true }>["error"]
+    | Exclude<CancelBetResult, { ok: true }>["error"]
+    | null
   >(null);
   const [saved, setSaved] = useState(false);
+  const [cancelled, setCancelled] = useState(false);
+  const [confirmingCancel, setConfirmingCancel] = useState(false);
   const { pending, run } = usePendingAction();
 
   const pick: Pick = home === away ? "X" : home > away ? "1" : "2";
@@ -83,10 +101,38 @@ export function BetForm({
     console.info("[bet pick click]", { matchId: match.id, pick: p });
   };
 
+  const onCancel = () => {
+    if (!editable || pending || !hasPick) return;
+    setError(null);
+    setSaved(false);
+    setCancelled(false);
+    void run(async () => {
+      const res: CancelBetResult = await cancelBet(match.id).catch((err) => {
+        console.error("[match-bet form cancel]", err);
+        return { ok: false, error: "db" } as CancelBetResult;
+      });
+      if (!res.ok) {
+        setError(res.error);
+        setConfirmingCancel(false);
+        return;
+      }
+      console.info("[bet cancel click]", { matchId: match.id });
+      setHasPick(false);
+      // Reset the scoreboard to the canonical "no pick yet" 0-0 so the
+      // user sees a fresh board to fill again if they want to re-pick
+      // before the deadline.
+      setHome(0);
+      setAway(0);
+      setConfirmingCancel(false);
+      setCancelled(true);
+    });
+  };
+
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
     setSaved(false);
+    setCancelled(false);
     // POST through /api/bets/save (parallel via fetch) — same reason
     // as QuickPickRow/DashboardPickCard: Next dispatches Server
     // Functions one at a time per browser tab, which caused queued
@@ -112,6 +158,7 @@ export function BetForm({
         return;
       }
       setSaved(true);
+      setHasPick(true);
     });
   };
 
@@ -241,7 +288,7 @@ export function BetForm({
         {error && (
           <p className="inline-flex items-center gap-2 text-sm text-error self-start md:self-end">
             <AlertCircle className="h-4 w-4" strokeWidth={2} />
-            {translate(error, dict)}
+            {translate(error, dict, isHebrew)}
           </p>
         )}
         {saved && !error && (
@@ -250,19 +297,91 @@ export function BetForm({
             {isHebrew ? "ההימור נשמר" : "Bet saved"}
           </p>
         )}
-        <PillButton
-          type="submit"
-          disabled={!editable || pending}
-          className={clsx(
-            "w-full md:w-auto px-10 md:px-12 py-4 text-base shadow-[0_8px_24px_rgba(28,20,15,0.15)]",
-            (!editable || pending) && "opacity-60 cursor-not-allowed",
+        {cancelled && !error && (
+          <p className="inline-flex items-center gap-2 text-sm text-secondary self-start md:self-end">
+            <Check className="h-4 w-4" strokeWidth={2.5} />
+            {isHebrew ? "ההימור בוטל" : "Bet cancelled"}
+          </p>
+        )}
+        <div className="flex flex-col-reverse md:flex-row md:items-center md:justify-end gap-3">
+          {/* Cancel pick — visible only when a pick is currently saved
+              and the bet is still editable. Two-step confirm to keep a
+              misclick from destroying the user's prediction. */}
+          {hasPick && editable && !confirmingCancel && (
+            <button
+              type="button"
+              onClick={() => {
+                setError(null);
+                setSaved(false);
+                setCancelled(false);
+                setConfirmingCancel(true);
+              }}
+              disabled={pending}
+              className={clsx(
+                "press-down inline-flex items-center justify-center gap-2 min-h-[44px] px-5 rounded-full text-sm font-bold transition-colors",
+                "bg-surface-container-lowest text-error border border-error/40",
+                "hover:bg-error-container hover:border-error",
+                "disabled:opacity-50 disabled:cursor-not-allowed",
+              )}
+              aria-label={isHebrew ? "בטל ניחוש" : "Cancel pick"}
+            >
+              <Trash2 className="h-4 w-4" strokeWidth={2} />
+              {isHebrew ? "בטל ניחוש" : "Cancel pick"}
+            </button>
           )}
-        >
-          <Check className="h-5 w-5" strokeWidth={2.5} />
-          {pending
-            ? isHebrew ? "שומר..." : "Saving..."
-            : dict.matchBet.saveBet}
-        </PillButton>
+          {hasPick && editable && confirmingCancel && (
+            <div
+              role="group"
+              aria-label={isHebrew ? "אישור ביטול" : "Confirm cancel"}
+              className="inline-flex items-center gap-2 rounded-full bg-error-container/40 border border-error/40 ps-3 pe-1 py-1"
+            >
+              <span className="text-xs font-bold text-error">
+                {isHebrew ? "בטוח?" : "Sure?"}
+              </span>
+              <button
+                type="button"
+                onClick={onCancel}
+                disabled={pending}
+                className={clsx(
+                  "press-down inline-flex items-center justify-center gap-1 min-h-9 px-3 rounded-full text-xs font-bold transition-colors",
+                  "bg-error text-on-error hover:bg-error/90",
+                  "disabled:opacity-60 disabled:cursor-not-allowed",
+                )}
+              >
+                <Trash2 className="h-3.5 w-3.5" strokeWidth={2} />
+                {pending
+                  ? isHebrew ? "מבטל…" : "Cancelling…"
+                  : isHebrew ? "כן, בטל" : "Yes, cancel"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setConfirmingCancel(false)}
+                disabled={pending}
+                className={clsx(
+                  "press-down inline-flex items-center justify-center gap-1 min-h-9 px-3 rounded-full text-xs font-bold transition-colors",
+                  "bg-surface-container-lowest text-on-surface border border-outline hover:bg-surface-container",
+                  "disabled:opacity-60 disabled:cursor-not-allowed",
+                )}
+              >
+                <X className="h-3.5 w-3.5" strokeWidth={2} />
+                {isHebrew ? "השאר" : "Keep"}
+              </button>
+            </div>
+          )}
+          <PillButton
+            type="submit"
+            disabled={!editable || pending}
+            className={clsx(
+              "w-full md:w-auto px-10 md:px-12 py-4 text-base shadow-[0_8px_24px_rgba(28,20,15,0.15)]",
+              (!editable || pending) && "opacity-60 cursor-not-allowed",
+            )}
+          >
+            <Check className="h-5 w-5" strokeWidth={2.5} />
+            {pending && !confirmingCancel
+              ? isHebrew ? "שומר..." : "Saving..."
+              : dict.matchBet.saveBet}
+          </PillButton>
+        </div>
       </div>
     </form>
   );
@@ -322,9 +441,18 @@ function ScoreStepper({
 }
 
 function translate(
-  code: Exclude<SaveBetResult, { ok: true }>["error"],
+  code:
+    | Exclude<SaveBetResult, { ok: true }>["error"]
+    | Exclude<CancelBetResult, { ok: true }>["error"],
   dict: Dictionary,
+  isHebrew: boolean,
 ): string {
+  // Cancel-only outcome: the row vanished between render and click
+  // (e.g. another tab already cancelled it). Not part of the dictionary
+  // map since the legacy save path can never hit it.
+  if (code === "nothing_to_cancel") {
+    return isHebrew ? "אין הימור לבטל" : "No bet to cancel";
+  }
   const map = dict.errors.matchBet as Record<string, string>;
   return map[code] ?? map.fallback;
 }

@@ -5,7 +5,11 @@ import { bankCacheTag } from "@/lib/bank";
 import { getUser } from "@/lib/supabase/auth";
 import { getUserAccess } from "@/lib/access";
 import type { PickAnswer } from "@/lib/bets/types";
-import { writeCustomPick, type WriteOutcome } from "@/lib/bets/write-core";
+import {
+  cancelCustomPickSelf,
+  writeCustomPick,
+  type WriteOutcome,
+} from "@/lib/bets/write-core";
 
 type Err =
   | "unauth"
@@ -71,6 +75,64 @@ export async function submitCustomBetPick(
     return { ok: false, error: "insufficient_bank", needed: res.needed };
   }
   return { ok: false, error: mapError(res) };
+}
+
+export type CancelPickResult =
+  | { ok: true; balanceAfter: number }
+  | {
+      ok: false;
+      error:
+        | "unauth"
+        | "not_paid"
+        | "bet_not_found"
+        | "bet_not_open"
+        | "bet_locked"
+        | "nothing_to_cancel"
+        | "db";
+    };
+
+// Owner-explicit cancel for one custom-bet pick. Same access + lock gates
+// as submitCustomBetPick; bank refund is implicit (the bank is a live SQL
+// derivation, so deleting the pick row removes its stake from the running
+// sum on the next read).
+export async function cancelCustomBetPick(
+  customBetId: string,
+): Promise<CancelPickResult> {
+  const user = await getUser();
+  if (!user) return { ok: false, error: "unauth" };
+
+  const access = await getUserAccess(user.id);
+  const res = await cancelCustomPickSelf(
+    { kind: "self", userId: user.id, access },
+    { customBetId },
+  );
+
+  if (res.status === "filled") {
+    console.info("[custom-bet cancel]", {
+      userId: user.id,
+      betId: customBetId,
+      balanceAfter: res.balanceAfter,
+    });
+    updateTag(bankCacheTag(user.id));
+    revalidatePath("/[lang]/bets", "layout");
+    revalidatePath("/[lang]/play", "layout");
+    return { ok: true, balanceAfter: res.balanceAfter ?? 0 };
+  }
+  return { ok: false, error: mapCancelError(res) };
+}
+
+function mapCancelError(
+  res: Exclude<WriteOutcome, { status: "filled" }>,
+): Exclude<CancelPickResult, { ok: true }>["error"] {
+  if (res.status === "skipped") {
+    if (res.reason === "not_allowed") return "not_paid";
+    if (res.reason === "closed") return "bet_not_open";
+    if (res.reason === "locked") return "bet_locked";
+    if (res.reason === "already_filled") return "nothing_to_cancel";
+    return "db";
+  }
+  if (res.error === "bet_not_found") return "bet_not_found";
+  return "db";
 }
 
 // Map the shared write-core outcome onto this action's historic error union.

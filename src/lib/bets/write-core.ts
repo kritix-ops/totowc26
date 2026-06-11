@@ -211,6 +211,87 @@ export async function writeMatchPick(
   }
 }
 
+// ---- match score (1/X/2) cancel ----
+
+// Owner-explicit cancel: the signed-in user removes their own 1/X/2 pick
+// while the match-score lock window is still open. The carve-out the
+// `feedback_user_bets_are_sacred` memory permits — destruction by the
+// owner is allowed; destruction by anything else (cron, bot, sandbox push)
+// is still forbidden. Mirrors writeMatchPick's deadline + status gates
+// so the cancel window matches the save window exactly.
+export async function cancelMatchPickSelf(
+  principal: WritePrincipal,
+  input: { matchId: string },
+): Promise<WriteOutcome> {
+  if (principal.kind !== "self") {
+    // Admin clear has its own audited path (clearMatchPickAdmin); the
+    // grace cron has no cancel pass. Both are intentional.
+    return { status: "skipped", reason: "not_allowed" };
+  }
+  if (!gateAccess(principal)) return { status: "skipped", reason: "not_allowed" };
+
+  const r = await execFirstRow<{
+    status: string;
+    kickoff_at: string;
+    stage: string;
+    lock_at_override: string | null;
+    matchday_offset: number | null;
+  }>(sql`
+    select
+      m.status::text as "status",
+      m.kickoff_at as "kickoff_at",
+      m.stage::text as "stage",
+      m.lock_at_override as "lock_at_override",
+      md.lock_offset_override_minutes as "matchday_offset"
+    from public.matches m
+    left join public.matchdays md
+      on md.date = (m.kickoff_at at time zone 'Asia/Jerusalem')::date
+    where m.id = ${input.matchId}::uuid
+    limit 1
+  `);
+  if (!r) return { status: "error", error: "not_found" };
+  if (r.status !== "scheduled") return { status: "skipped", reason: "closed" };
+
+  const context = await getDeadlineContext();
+  const resolved = resolveMatchScoreLock(
+    {
+      matchId: input.matchId,
+      kickoffAt: new Date(r.kickoff_at),
+      stage: r.stage as StageKey,
+      lockAtOverride: r.lock_at_override ? new Date(r.lock_at_override) : null,
+      matchdayLockOffsetMinutes: r.matchday_offset,
+    },
+    context,
+  );
+  if (resolved.effectiveLockAt.getTime() <= Date.now()) {
+    return { status: "skipped", reason: "locked" };
+  }
+
+  try {
+    const deleted = await db
+      .delete(matchBets)
+      .where(
+        and(
+          eq(matchBets.userId, principal.userId),
+          eq(matchBets.matchId, input.matchId),
+        ),
+      )
+      .returning({ id: matchBets.id });
+    if (deleted.length === 0) {
+      // No row to cancel — caller can show a no-op "nothing to cancel"
+      // or just refresh. Reusing already_filled would be misleading;
+      // there's no dedicated "nothing-to-clear" reason, so closed is
+      // the closest existing one (the pick set the user wanted to clear
+      // is effectively empty).
+      return { status: "skipped", reason: "already_filled" };
+    }
+    return { status: "filled", balanceAfter: null };
+  } catch (err) {
+    console.error("[write-core cancelMatchPickSelf] failed", err);
+    return { status: "error", error: "db" };
+  }
+}
+
 // ---- custom bet pick ----
 
 // `requestedStake` is the player's choice for live (match/day) bets.
@@ -413,6 +494,85 @@ export async function writeCustomPick(
     });
   } catch (err) {
     console.error("[write-core customPick] failed", err);
+    return { status: "error", error: "db" };
+  }
+}
+
+// ---- custom bet cancel (owner) ----
+
+// Owner-explicit cancel for one custom-bet pick. Same advisory-locked
+// txn pattern as writeCustomPick so a concurrent save/cancel from the
+// same user is serialized. Bank refund is implicit because the balance
+// is a derived SQL query — removing the pick row removes its stake from
+// the live-running sum.
+export async function cancelCustomPickSelf(
+  principal: WritePrincipal,
+  input: { customBetId: string },
+): Promise<WriteOutcome> {
+  if (principal.kind !== "self") {
+    return { status: "skipped", reason: "not_allowed" };
+  }
+  if (!gateAccess(principal)) return { status: "skipped", reason: "not_allowed" };
+
+  try {
+    return await db.transaction(async (tx) => {
+      await lockUserForBetting(tx, principal.userId);
+
+      const [bet] = await tx
+        .select({
+          id: customBets.id,
+          scope: customBets.scope,
+          status: customBets.status,
+          lockAt: customBets.lockAt,
+        })
+        .from(customBets)
+        .where(eq(customBets.id, input.customBetId))
+        .limit(1);
+      if (!bet) return { status: "error", error: "bet_not_found" };
+      if (bet.status !== "open") return { status: "skipped", reason: "closed" };
+
+      const resolved = resolveCustomBetLock({
+        id: bet.id,
+        scope: bet.scope,
+        lockAt: bet.lockAt,
+      });
+      if (resolved.effectiveLockAt.getTime() <= Date.now()) {
+        return { status: "skipped", reason: "locked" };
+      }
+
+      const [existing] = await tx
+        .select({
+          id: userCustomBetPicks.id,
+          stakePaid: userCustomBetPicks.stakePaid,
+          locked: userCustomBetPicks.locked,
+        })
+        .from(userCustomBetPicks)
+        .where(
+          and(
+            eq(userCustomBetPicks.userId, principal.userId),
+            eq(userCustomBetPicks.customBetId, input.customBetId),
+          ),
+        )
+        .limit(1);
+      if (!existing) return { status: "skipped", reason: "already_filled" };
+      // Once a pick is row-locked (grading-in-flight admin grade prep)
+      // we refuse cancel even though the bet header may still say open.
+      if (existing.locked) return { status: "skipped", reason: "locked" };
+
+      await tx
+        .delete(userCustomBetPicks)
+        .where(eq(userCustomBetPicks.id, existing.id));
+
+      const balanceRows = await tx.execute(
+        sql`select ${bankBalanceSql(principal.userId)} as balance`,
+      );
+      const balance = Number(
+        (balanceRows as unknown as Array<{ balance: number }>)[0]?.balance ?? 0,
+      );
+      return { status: "filled", balanceAfter: balance };
+    });
+  } catch (err) {
+    console.error("[write-core cancelCustomPickSelf] failed", err);
     return { status: "error", error: "db" };
   }
 }

@@ -95,6 +95,93 @@ describe.each(AUTOMATED_WRITERS)(
   },
 );
 
+// Owner-explicit cancel: a signed-in user removing their own pick. The
+// carve-out the "user bets are SACRED" memory permits. Each cancel
+// transport must source the userId from getUser() (never the request
+// body) and route the destructive call through the write-core's
+// self-only entrypoint — admin_proxy is forbidden on this path because
+// admin clear has its own audited path elsewhere.
+const CANCEL_TRANSPORTS = [
+  {
+    name: "cancelBet server action (1/X/2)",
+    path: "src/app/[lang]/bets/[matchId]/actions.ts",
+  },
+  {
+    name: "cancelBet route handler (1/X/2)",
+    path: "src/app/api/bets/cancel/route.ts",
+  },
+  {
+    name: "cancelCustomBetPick server action",
+    path: "src/app/[lang]/play/[date]/actions.ts",
+  },
+] as const;
+
+describe.each(CANCEL_TRANSPORTS)(
+  "owner-cancel transport: $name",
+  ({ path: relPath }) => {
+    const code = stripComments(read(relPath));
+
+    it("sources the userId from the live session via getUser()", () => {
+      expect(code).toMatch(/const\s+user\s*=\s*await\s+getUser\s*\(\s*\)/);
+    });
+
+    it("forwards the session user's own id (user.id), not a body-supplied or hardcoded one", () => {
+      expect(code).toMatch(/userId\s*:\s*user\.id|userId\s*:\s*input\.userId/);
+    });
+
+    it("never constructs an admin_proxy principal (admin clear has its own audited path)", () => {
+      expect(code).not.toMatch(/kind\s*:\s*["']admin_proxy["']/);
+    });
+
+    it("never constructs a system principal (cron has no cancel pass)", () => {
+      expect(code).not.toMatch(/kind\s*:\s*["']system["']/);
+    });
+  },
+);
+
+describe("cancel-match-pick-core: shared cancel helper", () => {
+  const code = stripComments(read("src/lib/bets/cancel-match-pick-core.ts"));
+
+  it("builds a self principal, never a system or admin_proxy one", () => {
+    expect(code).toMatch(/kind\s*:\s*["']self["']/);
+    expect(code).not.toMatch(/kind\s*:\s*["']system["']/);
+    expect(code).not.toMatch(/kind\s*:\s*["']admin_proxy["']/);
+  });
+
+  it("keys the principal on the input.userId the transport forwarded", () => {
+    expect(code).toMatch(/userId\s*:\s*input\.userId/);
+  });
+
+  it("delegates the destructive write to cancelMatchPickSelf", () => {
+    expect(code).toMatch(/cancelMatchPickSelf/);
+  });
+});
+
+describe("write-core: owner-cancel entrypoints reject non-self principals", () => {
+  const code = stripComments(read("src/lib/bets/write-core.ts"));
+
+  it.each(["cancelMatchPickSelf", "cancelCustomPickSelf"])(
+    "%s short-circuits when principal.kind !== 'self'",
+    (fn) => {
+      const start = code.indexOf(`function ${fn}`);
+      expect(start).toBeGreaterThanOrEqual(0);
+      const after = code.indexOf("\nexport ", start + 1);
+      const body = code.slice(start, after > start ? after : code.length);
+      expect(body).toMatch(/principal\.kind\s*!==\s*["']self["']/);
+    },
+  );
+
+  it.each(["cancelMatchPickSelf", "cancelCustomPickSelf"])(
+    "%s re-runs the lock gate (effectiveLockAt comparison)",
+    (fn) => {
+      const start = code.indexOf(`function ${fn}`);
+      const after = code.indexOf("\nexport ", start + 1);
+      const body = code.slice(start, after > start ? after : code.length);
+      expect(body).toMatch(/effectiveLockAt/);
+    },
+  );
+});
+
 describe.each(INTERACTIVE_WRITERS)(
   "interactive bet writer: $name",
   ({ path: relPath, buildsPrincipal }) => {

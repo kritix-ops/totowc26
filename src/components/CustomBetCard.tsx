@@ -1,7 +1,17 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AlertCircle, Check, ChevronDown, Info, Lock, Minus, Plus } from "lucide-react";
+import {
+  AlertCircle,
+  Check,
+  ChevronDown,
+  Info,
+  Lock,
+  Minus,
+  Plus,
+  Trash2,
+  X,
+} from "lucide-react";
 import { clsx } from "clsx";
 import { Card, Chip, LabelCaps, MatchupLabel } from "@/components/ui";
 import { SearchableChoicePicker } from "@/components/SearchableChoicePicker";
@@ -26,7 +36,10 @@ import { isFreePickScope } from "@/lib/bets/free-pick-scopes";
 import { liveStakeCap, normalizeOdds } from "@/lib/odds-normalize";
 import type { LiveStakeUiConfig } from "@/lib/bank";
 import { PickScenarios } from "@/components/PickScenarios";
-import { submitCustomBetPick } from "@/app/[lang]/play/[date]/actions";
+import {
+  cancelCustomBetPick,
+  submitCustomBetPick,
+} from "@/app/[lang]/play/[date]/actions";
 
 // Threshold above which the multi_choice answer widget switches
 // from a pill grid to a searchable dropdown. Below the threshold a
@@ -94,6 +107,12 @@ export function CustomBetCard({
   const [draft, setDraft] = useState<PickAnswer | null>(bet.myAnswer);
   const [error, setError] = useState<string | null>(null);
   const [savedFlash, setSavedFlash] = useState(false);
+  const [cancelFlash, setCancelFlash] = useState(false);
+  // Two-step destructive confirm: tap "Cancel pick" → strip flips to
+  // "Sure? [Yes] [No]". A second deliberate tap is what actually fires
+  // the destructive action. Keeps cancel discoverable without making a
+  // misclick destroy a thoughtful pick.
+  const [confirmingCancel, setConfirmingCancel] = useState(false);
   const { pending, run } = usePendingAction();
 
   // Sync the draft from the server when fresh props arrive (e.g. after
@@ -161,10 +180,43 @@ export function CustomBetCard({
     setChosenStake(next);
   };
 
+  const onCancel = () => {
+    if (!editable || pending || !bet.myAnswer) return;
+    setError(null);
+    setSavedFlash(false);
+    setCancelFlash(false);
+    void run(async () => {
+      const res = await withTimeout(
+        cancelCustomBetPick(bet.id),
+        SAVE_TIMEOUT_MS,
+      ).catch(() => null);
+      if (!res) {
+        setError(isHebrew ? "הביטול נתקע. נסה שוב." : "Cancel timed out. Try again.");
+        setConfirmingCancel(false);
+        return;
+      }
+      if (!res.ok) {
+        setError(translateCancelError(res.error, isHebrew));
+        setConfirmingCancel(false);
+        return;
+      }
+      // The server cleared the row. Drop the local draft so the answer
+      // widget renders "no answer" instead of showing the value we just
+      // asked the server to delete. Reset chosenStake to the bet's
+      // default so the pill row reads as a fresh choice.
+      userEditedRef.current = false;
+      setDraft(null);
+      setChosenStake(initialStake);
+      setConfirmingCancel(false);
+      setCancelFlash(true);
+    });
+  };
+
   const onSubmit = () => {
     if (!draft || !editable || overdrawn || pending) return;
     setError(null);
     setSavedFlash(false);
+    setCancelFlash(false);
     // usePendingAction releases the button on the action response, not
     // on submitCustomBetPick's revalidation re-render, so submitting
     // several bets in a row never leaves one stuck on "שומר…". withTimeout
@@ -360,24 +412,96 @@ export function CustomBetCard({
               {isHebrew ? "נשמר" : "Saved"}
             </p>
           )}
-          <button
-            type="button"
-            onClick={onSubmit}
-            disabled={!editable || pending || overdrawn || !hasChoice || !dirty}
-            className={clsx(
-              "press-down inline-flex items-center justify-center gap-2 min-h-[44px] px-5 rounded-full text-sm font-bold transition-colors",
-              "bg-primary text-on-primary shadow-md hover:bg-surface-tint",
-              "disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-primary",
+          {cancelFlash && !error && (
+            <p className="inline-flex items-center gap-1.5 text-xs text-secondary">
+              <Check className="h-3 w-3" strokeWidth={2.5} />
+              {isHebrew ? "הניחוש בוטל" : "Pick cancelled"}
+            </p>
+          )}
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            {/* Cancel pick — only when there's a saved pick and the bet
+                is still editable. The two-step confirm strip prevents a
+                misclick from destroying a thoughtful pick. */}
+            {bet.myAnswer && editable && !confirmingCancel && (
+              <button
+                type="button"
+                onClick={() => {
+                  setError(null);
+                  setSavedFlash(false);
+                  setCancelFlash(false);
+                  setConfirmingCancel(true);
+                }}
+                disabled={pending}
+                className={clsx(
+                  "press-down inline-flex items-center justify-center gap-1.5 min-h-[44px] px-4 rounded-full text-sm font-bold transition-colors",
+                  "bg-surface-container-lowest text-error border border-error/40",
+                  "hover:bg-error-container hover:border-error",
+                  "disabled:opacity-50 disabled:cursor-not-allowed",
+                )}
+                aria-label={isHebrew ? "בטל את הניחוש" : "Cancel pick"}
+              >
+                <Trash2 className="h-4 w-4" strokeWidth={2} />
+                {isHebrew ? "בטל ניחוש" : "Cancel pick"}
+              </button>
             )}
-          >
-            {pending
-              ? isHebrew ? "שומר…" : "Saving…"
-              : overdrawn
-                ? isHebrew ? "אין מספיק בבנק" : "Insufficient bank"
-                : bet.myAnswer
-                  ? isHebrew ? "עדכן ניחוש" : "Update pick"
-                  : isHebrew ? "שמור ניחוש" : "Save pick"}
-          </button>
+            {bet.myAnswer && editable && confirmingCancel && (
+              <div
+                role="group"
+                aria-label={isHebrew ? "אישור ביטול" : "Confirm cancel"}
+                className="inline-flex items-center gap-2 rounded-full bg-error-container/40 border border-error/40 ps-3 pe-1 py-1"
+              >
+                <span className="text-xs font-bold text-error">
+                  {isHebrew ? "בטוח?" : "Sure?"}
+                </span>
+                <button
+                  type="button"
+                  onClick={onCancel}
+                  disabled={pending}
+                  className={clsx(
+                    "press-down inline-flex items-center justify-center gap-1 min-h-9 px-3 rounded-full text-xs font-bold transition-colors",
+                    "bg-error text-on-error hover:bg-error/90",
+                    "disabled:opacity-60 disabled:cursor-not-allowed",
+                  )}
+                >
+                  <Trash2 className="h-3.5 w-3.5" strokeWidth={2} />
+                  {pending
+                    ? isHebrew ? "מבטל…" : "Cancelling…"
+                    : isHebrew ? "כן, בטל" : "Yes, cancel"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfirmingCancel(false)}
+                  disabled={pending}
+                  className={clsx(
+                    "press-down inline-flex items-center justify-center gap-1 min-h-9 px-3 rounded-full text-xs font-bold transition-colors",
+                    "bg-surface-container-lowest text-on-surface border border-outline hover:bg-surface-container",
+                    "disabled:opacity-60 disabled:cursor-not-allowed",
+                  )}
+                >
+                  <X className="h-3.5 w-3.5" strokeWidth={2} />
+                  {isHebrew ? "השאר" : "Keep"}
+                </button>
+              </div>
+            )}
+            <button
+              type="button"
+              onClick={onSubmit}
+              disabled={!editable || pending || overdrawn || !hasChoice || !dirty}
+              className={clsx(
+                "press-down inline-flex items-center justify-center gap-2 min-h-[44px] px-5 rounded-full text-sm font-bold transition-colors",
+                "bg-primary text-on-primary shadow-md hover:bg-surface-tint",
+                "disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-primary",
+              )}
+            >
+              {pending && !confirmingCancel
+                ? isHebrew ? "שומר…" : "Saving…"
+                : overdrawn
+                  ? isHebrew ? "אין מספיק בבנק" : "Insufficient bank"
+                  : bet.myAnswer
+                    ? isHebrew ? "עדכן ניחוש" : "Update pick"
+                    : isHebrew ? "שמור ניחוש" : "Save pick"}
+            </button>
+          </div>
         </div>
       </div>
     </Card>
@@ -1011,6 +1135,25 @@ function ChoicePill({
       {children}
     </button>
   );
+}
+
+function translateCancelError(err: string, isHebrew: boolean): string {
+  // Cancel reuses most of submitCustomBetPick's error codes (auth /
+  // payment / lock / not-found / db) plus one cancel-specific outcome:
+  // "nothing_to_cancel" when the row vanished between render and click
+  // (e.g. another tab already cancelled it). The submit path can never
+  // hit that branch, so it lives only here.
+  const map: Record<string, LocalizedTuple> = {
+    unauth:             ["יש להתחבר", "Sign in required"],
+    not_paid:           ["תשלום עדיין לא אושר", "Payment not approved yet"],
+    bet_not_found:      ["ההימור לא נמצא", "Bet not found"],
+    bet_not_open:       ["ההימור עדיין לא פתוח", "Bet isn't open yet"],
+    bet_locked:         ["ההימור נסגר. לא ניתן לבטל.", "Bet locked"],
+    nothing_to_cancel:  ["אין ניחוש לבטל", "No pick to cancel"],
+    db:                 ["שגיאת ביטול", "Cancel failed"],
+    unknown:            ["שגיאה", "Error"],
+  };
+  return translateErrorCode(err in map ? err : "unknown", map, isHebrew);
 }
 
 function translateError(

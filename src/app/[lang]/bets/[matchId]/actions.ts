@@ -5,6 +5,10 @@ import {
   performSaveMatchPick,
   type SaveBetResult,
 } from "@/lib/bets/save-match-pick-core";
+import {
+  performCancelMatchPick,
+  type CancelBetResult,
+} from "@/lib/bets/cancel-match-pick-core";
 
 // 1/X/2 match-bet submission as a server action.
 //
@@ -18,6 +22,7 @@ import {
 // caller still wired to the server-action contract.
 
 export type { SaveBetResult } from "@/lib/bets/save-match-pick-core";
+export type { CancelBetResult } from "@/lib/bets/cancel-match-pick-core";
 
 export async function saveBet(
   matchId: string,
@@ -27,4 +32,16 @@ export async function saveBet(
   const user = await getUser();
   if (!user) return { ok: false, error: "unauth" };
   return performSaveMatchPick({ userId: user.id, matchId, home, away });
+}
+
+// Owner-explicit cancel for a match pick. Same parallel-safe POST route
+// exists at src/app/api/bets/cancel/route.ts — surfaces that fire many
+// cancels in a tight loop should use the route; this action remains for
+// single-card cancels where the server-action ergonomics are simpler.
+export async function cancelBet(
+  matchId: string,
+): Promise<CancelBetResult> {
+  const user = await getUser();
+  if (!user) return { ok: false, error: "unauth" };
+  return performCancelMatchPick({ userId: user.id, matchId });
 }
