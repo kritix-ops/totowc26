@@ -59,15 +59,33 @@ export default async function TransparencyPage({
       : undefined;
   const date = rawDate && /^\d{4}-\d{2}-\d{2}$/.test(rawDate) ? rawDate : undefined;
 
-  const [feed, users] = await Promise.all([
-    getTransparencyFeed({
+  // Defensive: this is a public-trust surface that "must always be up".
+  // Each data dependency gets its own try/catch with a logged error and
+  // a safe default so a single query throw degrades to an empty feed /
+  // empty filter list instead of a full-page 500. Mirrors the same
+  // pattern already used on /bets/live/[date].
+  let feed: Awaited<ReturnType<typeof getTransparencyFeed>> = [];
+  let users: Awaited<ReturnType<typeof getTransparencyUsers>> = [];
+  try {
+    feed = await getTransparencyFeed({
       userId,
       category,
       date,
       locale: locale === "he" ? "he" : "en",
-    }),
-    getTransparencyUsers(),
-  ]);
+    });
+  } catch (err) {
+    console.error("[transparency] getTransparencyFeed threw", {
+      userId,
+      category,
+      date,
+      err,
+    });
+  }
+  try {
+    users = await getTransparencyUsers();
+  } catch (err) {
+    console.error("[transparency] getTransparencyUsers threw", { err });
+  }
 
   const activeFilters = [
     userId

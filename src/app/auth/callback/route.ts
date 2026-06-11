@@ -1,28 +1,22 @@
 import { NextResponse, type NextRequest } from "next/server";
-import type { EmailOtpType } from "@supabase/supabase-js";
 import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import { profiles } from "@/db/schema";
 import { getSupabaseAdmin, getSupabaseServer } from "@/lib/supabase/server";
 
-// Email-link callback. Handles two flows depending on what's in the
-// query string:
+// OAuth (PKCE) callback. Handles ?code=... coming back from Google sign-in.
+// The browser is the user's actual browser at this point (Google does not
+// prefetch the redirect), so it is safe to consume the code on the GET.
 //
-//   1) ?token_hash=...&type=...
-//      Admin-generated invite / recovery / magic links. We build these
-//      URLs ourselves from generateLink({}).properties.hashed_token so
-//      the verification step happens server-side via verifyOtp and the
-//      session lands in our cookie store. Bypasses Supabase's hosted
-//      auth/v1/verify endpoint which is configured for PKCE and can't
-//      satisfy the code_verifier requirement on admin-issued links.
+// Admin-generated email links (recovery / invite / magiclink) DO NOT come
+// here. They route through /auth/confirm, which renders a button and only
+// calls verifyOtp on the explicit POST. The token there is single-use and
+// would otherwise be burned by WhatsApp / iMessage / Slack / Gmail link-
+// preview crawlers that fetch every shared URL up front. See
+// src/lib/supabase/auth.ts → buildAuthConfirmUrl for the why.
 //
-//   2) ?code=...
-//      Browser-initiated PKCE flow (OAuth, password reset triggered by
-//      the user from /login, etc). Standard exchangeCodeForSession path.
-// Reject anything that could resolve into a different origin once joined
-// with our origin. Plain absolute paths starting with a single "/" are
-// safe; protocol-relative "//evil.com", schemed "https://evil.com" and
-// non-prefixed "evil.com" all get scrubbed back to the default.
+// A legacy /auth/callback?token_hash=... link from before the split now
+// redirects to /auth/confirm so old in-flight messages still work.
 function safeNext(value: string | null, fallback: string): string {
   if (!value) return fallback;
   if (!value.startsWith("/")) return fallback;
@@ -34,27 +28,22 @@ function safeNext(value: string | null, fallback: string): string {
 export async function GET(request: NextRequest) {
   const { searchParams, origin } = new URL(request.url);
   const tokenHash = searchParams.get("token_hash");
-  const type = searchParams.get("type") as EmailOtpType | null;
+  const type = searchParams.get("type");
   const code = searchParams.get("code");
   const next = safeNext(searchParams.get("next"), "/he/onboarding");
 
-  const supabase = await getSupabaseServer();
-
+  // Legacy redirect: pre-existing links built against /auth/callback still
+  // resolve. We forward to /auth/confirm so the token isn't burned by a
+  // preview bot on this GET.
   if (tokenHash && type) {
-    const { error } = await supabase.auth.verifyOtp({
-      token_hash: tokenHash,
-      type,
-    });
-    if (!error) {
-      console.info("[auth callback] verifyOtp ok", { type, next });
-      return NextResponse.redirect(`${origin}${next}`);
-    }
-    console.error("[auth callback] verifyOtp failed", {
-      type,
-      message: error.message,
-    });
-    return NextResponse.redirect(`${origin}/he/login?error=invalid_link`);
+    const target = new URL(`${origin}/auth/confirm`);
+    target.searchParams.set("token_hash", tokenHash);
+    target.searchParams.set("type", type);
+    target.searchParams.set("next", next);
+    return NextResponse.redirect(target.toString());
   }
+
+  const supabase = await getSupabaseServer();
 
   if (code) {
     const { data, error } = await supabase.auth.exchangeCodeForSession(code);
