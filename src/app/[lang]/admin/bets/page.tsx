@@ -48,12 +48,12 @@ export default async function AdminBetsPage({
         <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
           <div className="flex flex-col gap-1">
             <h1 className="font-[family-name:var(--font-display)] text-[28px] leading-9 md:text-[40px] md:leading-[44px] font-bold text-primary">
-              {isHebrew ? "הימורי לייב" : "Live bets"}
+              {isHebrew ? "הימורים מותאמים" : "Custom bets"}
             </h1>
             <p className="text-sm text-on-surface-variant">
               {isHebrew
-                ? "צור, פרסם ונהל את כל ההימורים שאינם 1/X/2."
-                : "Create, publish, and manage every non‑1/X/2 bet."}
+                ? "צור, פרסם ונהל את כל ההימורים שאינם 1/X/2 — לייב, יום, טורניר, שלב, קבוצה. סנן לפי 'סוג' כדי לראות רק מה שאתה מנהל כרגע."
+                : "Create, publish, and manage every non‑1/X/2 bet — live, day, tournament, stage, group. Filter by 'type' to focus on one surface."}
             </p>
           </div>
           <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap">
