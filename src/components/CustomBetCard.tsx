@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AlertCircle, Check, Info, Lock, Minus, Plus } from "lucide-react";
+import { AlertCircle, Check, ChevronDown, Info, Lock, Minus, Plus } from "lucide-react";
 import { clsx } from "clsx";
 import { Card, Chip, LabelCaps, MatchupLabel } from "@/components/ui";
 import { SearchableChoicePicker } from "@/components/SearchableChoicePicker";
@@ -279,6 +279,19 @@ export function CustomBetCard({
         />
       )}
 
+      {/* "How the payout is calculated" — tap-to-expand explainer.
+          Live scope only; free-pick bets already render "ללא עלות"
+          on the summary so there's nothing to explain there. */}
+      {!isFreePick && liveStakeConfig && (
+        <PayoutExplainer
+          locale={locale}
+          bet={bet}
+          draft={draft}
+          chosenStake={chosenStake}
+          config={liveStakeConfig}
+        />
+      )}
+
       {/* Scenarios: shows current bank, post-stake balance, and the
           balance under each possible outcome. The "if correct" delta is
           computed against the chosen stake for live bets so the pill
@@ -455,6 +468,147 @@ function StakePicker({
           );
         })}
       </div>
+    </div>
+  );
+}
+
+// ---------- Payout explainer (live scope only) ----------
+
+// Example stakes shown in the explainer table. Filtered against the
+// admin's [minStake, maxStake] range so an admin who lowers max sees a
+// shorter row. Same shape as the StakePicker stops so the table reads
+// like a continuation of the pill row above.
+const EXPLAINER_STAKES = [1, 3, 5, 10, 20, 30] as const;
+
+function PayoutExplainer({
+  locale,
+  bet,
+  draft,
+  chosenStake,
+  config,
+}: {
+  locale: Locale;
+  bet: CustomBetCardData;
+  draft: PickAnswer | null;
+  chosenStake: number;
+  config: LiveStakeUiConfig;
+}) {
+  const isHebrew = locale === "he";
+  const [open, setOpen] = useState(false);
+
+  // The decimal odds we'll quote in the explainer. For multi_choice, this
+  // is the odds of the currently-picked option (so the math the player
+  // sees matches their choice). For yes/no, it's the bet-level value.
+  // Null if neither is known — the panel still works, but talks about
+  // the snapshot scaling instead of the exact formula.
+  const oddsForExplainer = lookupLiveOptionOdds(bet, draft);
+  const edgeFactor = (100 - config.houseEdgePct) / 100;
+
+  const stakes = EXPLAINER_STAKES.filter(
+    (s) => s >= config.minStake && s <= config.maxStake,
+  );
+  const examples = stakes.map((stake) => ({
+    stake,
+    netWin: Math.max(0, computeDisplayPayout(bet, draft, stake, config) - stake),
+  }));
+
+  const formulaLine = oddsForExplainer != null
+    ? isHebrew
+      ? `זכייה ברוטו = סיכון × ${oddsForExplainer.toFixed(2)} × ${edgeFactor.toFixed(2)}`
+      : `Gross payout = stake × ${oddsForExplainer.toFixed(2)} × ${edgeFactor.toFixed(2)}`
+    : isHebrew
+      ? `זכייה ברוטו = סיכון × יחס × ${edgeFactor.toFixed(2)}`
+      : `Gross payout = stake × odds × ${edgeFactor.toFixed(2)}`;
+
+  return (
+    <div className="flex flex-col gap-2">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="self-start min-h-11 inline-flex items-center gap-1.5 text-xs text-on-surface-variant hover:text-on-surface"
+      >
+        <Info className="h-3.5 w-3.5" strokeWidth={2} />
+        <span className="font-bold">
+          {isHebrew ? "איך הזכייה מחושבת?" : "How the payout is calculated"}
+        </span>
+        <ChevronDown
+          className={clsx(
+            "h-3.5 w-3.5 transition-transform",
+            open && "rotate-180",
+          )}
+          strokeWidth={2}
+        />
+      </button>
+
+      {open && (
+        <div className="flex flex-col gap-2 rounded-lg bg-surface-container-low border border-outline-variant p-3 text-xs">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-on-surface-variant">
+            {oddsForExplainer != null && (
+              <span>
+                {isHebrew ? "יחס בוקמייקר" : "Odds"}:{" "}
+                <bdi className="tabular-nums font-bold text-on-surface">
+                  {oddsForExplainer.toFixed(2)}
+                </bdi>
+              </span>
+            )}
+            <span>
+              {isHebrew ? "ניכוי בית" : "House edge"}:{" "}
+              <bdi className="tabular-nums font-bold text-on-surface">
+                {config.houseEdgePct}%
+              </bdi>
+            </span>
+            <span>
+              {isHebrew ? "תקרת זכייה" : "Payout cap"}:{" "}
+              <bdi className="tabular-nums font-bold text-on-surface">
+                {isHebrew
+                  ? `מינ׳(סיכון × ${config.maxPayoutRatio}, ${config.maxPayoutCeiling})`
+                  : `min(stake × ${config.maxPayoutRatio}, ${config.maxPayoutCeiling})`}
+              </bdi>
+            </span>
+          </div>
+
+          <div className="text-on-surface" dir="ltr">
+            <code className="text-[11px] font-[family-name:var(--font-mono),monospace]">
+              {formulaLine}
+            </code>
+          </div>
+
+          <div className="border-t border-outline-variant pt-2">
+            <div className="text-on-surface-variant mb-1.5">
+              {isHebrew
+                ? "זכייה נקייה לפי סכום סיכון:"
+                : "Net win per stake amount:"}
+            </div>
+            <div className="grid grid-cols-3 gap-1.5">
+              {examples.map((ex) => {
+                const active = ex.stake === chosenStake;
+                return (
+                  <div
+                    key={ex.stake}
+                    className={clsx(
+                      "rounded px-2 py-1.5 text-center tabular-nums",
+                      active
+                        ? "bg-primary text-on-primary font-bold"
+                        : "bg-surface-container-lowest text-on-surface",
+                    )}
+                  >
+                    <div
+                      className={clsx(
+                        "text-[10px]",
+                        active ? "text-on-primary/85" : "text-on-surface-variant",
+                      )}
+                    >
+                      {isHebrew ? `סיכון ${ex.stake}` : `risk ${ex.stake}`}
+                    </div>
+                    <div className="text-sm font-bold">+{ex.netWin}</div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
