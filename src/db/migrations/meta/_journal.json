@@ -330,6 +330,13 @@
       "when": 1782130000000,
       "tag": "0046_one_approved_payment_per_user",
       "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1782135000000,
+      "tag": "0047_variable_live_stake",
+      "breakpoints": true
     }
   ]
 }

@@ -25,9 +25,15 @@ export type SubmitPickResult =
 // transaction, status + deadline checks, bank check and per-option payout
 // snapshot all live in the shared write-core (src/lib/bets/write-core.ts), so
 // this action, the "Surprise me" bulk fill and the monkey bot cannot diverge.
+//
+// `stake` is the player-chosen risk for live (match/day) bets. Optional:
+// when omitted, write-core uses the bet's snapshotted default. Tampered
+// values get clamped server-side; the bet card never sends out-of-range
+// numbers. Free-pick scopes (tournament/stage/group) ignore it.
 export async function submitCustomBetPick(
   customBetId: string,
   answer: PickAnswer,
+  stake?: number,
 ): Promise<SubmitPickResult> {
   const user = await getUser();
   if (!user) return { ok: false, error: "unauth" };
@@ -35,7 +41,7 @@ export async function submitCustomBetPick(
   const access = await getUserAccess(user.id);
   const res = await writeCustomPick(
     { kind: "self", userId: user.id, access },
-    { customBetId, answer },
+    { customBetId, answer, requestedStake: stake },
     { overwrite: true },
   );
 
@@ -43,6 +49,7 @@ export async function submitCustomBetPick(
     console.info("[custom-bet stake]", {
       userId: user.id,
       betId: customBetId,
+      requestedStake: stake,
       balanceAfter: res.balanceAfter,
     });
     // Drop this user's cached bank breakdown so the header pill shows the

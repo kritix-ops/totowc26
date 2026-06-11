@@ -430,6 +430,16 @@ export const settings = pgTable("settings", {
   liveOddsBaseStake: smallint("live_odds_base_stake").notNull().default(3),
   liveOddsMaxPayout: smallint("live_odds_max_payout").notNull().default(25),
   liveOddsHouseEdgePct: smallint("live_odds_house_edge_pct").notNull().default(5),
+  // Player-chosen stake bounds. The bet card pills clamp to this range
+  // client-side and write-core re-clamps server-side. See
+  // _plans/2026-06-11-variable-live-bet-stake.md.
+  liveOddsMinStake: smallint("live_odds_min_stake").notNull().default(1),
+  liveOddsMaxStake: smallint("live_odds_max_stake").notNull().default(30),
+  // Gross-payout cap formula = min(stake * ratio, ceiling). Replaces the
+  // old single liveOddsMaxPayout cap for the user-facing path (the legacy
+  // column is kept one cycle for rollback).
+  liveOddsMaxPayoutRatio: smallint("live_odds_max_payout_ratio").notNull().default(8),
+  liveOddsMaxPayoutCeiling: smallint("live_odds_max_payout_ceiling").notNull().default(100),
   // 7-way prize split (king 1/2/3, matches/live/duels winner, reserve).
   // Sum MUST be 100 - DB CHECK constraint enforces this. The legacy
   // prizePct1-4 columns below are kept for backwards compatibility until
@@ -639,6 +649,13 @@ export const customBets = pgTable(
     // Pricing snapshot
     stakeSnapshot: smallint("stake_snapshot").notNull(),
     payoutSnapshot: smallint("payout_snapshot").notNull(),
+    // Bookmaker decimal odds the bet was published against. Required for
+    // live (match/day) scope so the submit path can recompute payout for a
+    // player-chosen stake. Free-pick scopes (tournament/stage/group) keep
+    // this NULL because their per-option payouts come from the outright
+    // curve, not a single odds value. See migration 0047 + plan
+    // _plans/2026-06-11-variable-live-bet-stake.md.
+    decimalOdds: numeric("decimal_odds", { precision: 6, scale: 2 }),
 
     // Grading config
     gradingSource: gradingSourceEnum("grading_source").notNull(),

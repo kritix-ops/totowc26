@@ -6,6 +6,7 @@ import {
   betAdminAudit,
   customBets,
   matchBets,
+  settings,
   userCustomBetPicks,
   type StageKey,
 } from "@/db/schema";
@@ -14,6 +15,7 @@ import type { PickAnswer } from "@/lib/bets/types";
 import { resolvePickPayoutAtSubmit } from "@/lib/bets/payout";
 import { isFreePickScope } from "@/lib/bets/free-pick-scopes";
 import { validateAnswer } from "@/lib/bets/validate-answer";
+import { liveStakeCap, normalizeOdds } from "@/lib/odds-normalize";
 import {
   getDeadlineContext,
   resolveCustomBetLock,
@@ -211,7 +213,19 @@ export async function writeMatchPick(
 
 // ---- custom bet pick ----
 
-export type CustomPickInput = { customBetId: string; answer: PickAnswer };
+// `requestedStake` is the player's choice for live (match/day) bets.
+//   - Set by the interactive bet card via submitCustomBetPick (1..30 by
+//     default, clamped server-side to [liveOddsMinStake, liveOddsMaxStake]).
+//   - Omitted by every automated path (Surprise Me, the monkey bot, the
+//     deadline grace auto-fill) so those keep staking the bet's default
+//     (the player never expressed a choice). Free-pick scopes
+//     (tournament/stage/group) ignore it.
+// See _plans/2026-06-11-variable-live-bet-stake.md §6.
+export type CustomPickInput = {
+  customBetId: string;
+  answer: PickAnswer;
+  requestedStake?: number;
+};
 
 // Inner write, assumes the per-user advisory lock is already held on `tx`.
 async function writeCustomPickTx(
@@ -228,6 +242,7 @@ async function writeCustomPickTx(
       lockAt: customBets.lockAt,
       stakeSnapshot: customBets.stakeSnapshot,
       payoutSnapshot: customBets.payoutSnapshot,
+      decimalOdds: customBets.decimalOdds,
       answerType: customBets.answerType,
       answerConfig: customBets.answerConfig,
     })
@@ -277,12 +292,78 @@ async function writeCustomPickTx(
     return { status: "skipped", reason: "already_filled" };
   }
 
-  // Free-pick scopes (tournament/stage/group) cost 0 regardless of a legacy
-  // non-zero stakeSnapshot. Bank check inside the txn sees this user's other
-  // in-flight stakes (including earlier picks in the same bulk fill) and adds
-  // back the old stake since an update refunds before charging.
+  // Resolve effective stake + payout for this submit:
+  //   - Free-pick scopes (tournament/stage/group): stake = 0 always; payout
+  //     comes from the per-option curve via resolvePickPayoutAtSubmit.
+  //   - Live scopes (match/day): stake comes from the player's pill choice
+  //     (input.requestedStake) when supplied, clamped to the admin range.
+  //     If the bet has decimalOdds we recompute the payout fresh against
+  //     the chosen stake; if not (legacy bet missing the column), we fall
+  //     back to the bet's snapshotted (stake, payout) to keep the player
+  //     unblocked — logged loudly so a backfill miss is visible.
   const isFreePick = isFreePickScope(bet.scope);
-  const effectiveStake = isFreePick ? 0 : bet.stakeSnapshot;
+  let effectiveStake: number;
+  let pickPayout: number;
+  if (isFreePick) {
+    effectiveStake = 0;
+    pickPayout = resolvePickPayoutAtSubmit({
+      answerType: bet.answerType,
+      answerConfig: bet.answerConfig,
+      answer: input.answer,
+      betLevelPayout: bet.payoutSnapshot,
+    });
+  } else {
+    const liveCfg = await loadLiveStakeConfig(tx);
+    const resolved = resolveLiveStake(input.requestedStake, bet.stakeSnapshot, liveCfg);
+    effectiveStake = resolved.stake;
+    if (resolved.clamped) {
+      console.warn("[custom-bet stake] clamped", {
+        userId: principal.userId,
+        betId: input.customBetId,
+        requested: input.requestedStake,
+        clampedTo: effectiveStake,
+      });
+    }
+    const optionOdds = resolveLiveOptionOdds({
+      answerType: bet.answerType,
+      answerConfig: bet.answerConfig,
+      betLevelDecimalOdds: bet.decimalOdds == null ? null : Number(bet.decimalOdds),
+      answer: input.answer,
+    });
+    if (optionOdds != null) {
+      const { payout } = normalizeOdds(optionOdds, {
+        baseStake: effectiveStake,
+        maxPayout: liveStakeCap(effectiveStake, liveCfg),
+        houseEdgePct: liveCfg.houseEdgePct,
+      });
+      pickPayout = payout;
+    } else {
+      // Legacy or partially-priced live bet (no decimalOdds captured at
+      // publish). Linearly scale the bet's snapshotted payout to the
+      // player's chosen stake and apply the new cap so a stake-30 player
+      // still gets a meaningfully different number than a stake-3 player.
+      // Logged loudly so a publish path that forgot to store odds shows
+      // up in the console without waiting for a player to file a bug.
+      console.warn("[custom-bet stake] no_odds_fallback", {
+        userId: principal.userId,
+        betId: input.customBetId,
+        answerType: bet.answerType,
+        snapshotStake: bet.stakeSnapshot,
+        snapshotPayout: bet.payoutSnapshot,
+      });
+      const baseStakeForScale = Math.max(1, bet.stakeSnapshot);
+      const basePayout = resolvePickPayoutAtSubmit({
+        answerType: bet.answerType,
+        answerConfig: bet.answerConfig,
+        answer: input.answer,
+        betLevelPayout: bet.payoutSnapshot,
+      });
+      const cap = liveStakeCap(effectiveStake, liveCfg);
+      const scaled = Math.round((basePayout * effectiveStake) / baseStakeForScale);
+      pickPayout = Math.min(Math.max(scaled, effectiveStake + 1), cap);
+    }
+  }
+
   const balanceRows = await tx.execute(
     sql`select ${bankBalanceSql(principal.userId)} as balance`,
   );
@@ -295,13 +376,6 @@ async function writeCustomPickTx(
   if (needed > 0) {
     return { status: "skipped", reason: "unaffordable", needed };
   }
-
-  const pickPayout = resolvePickPayoutAtSubmit({
-    answerType: bet.answerType,
-    answerConfig: bet.answerConfig,
-    answer: input.answer,
-    betLevelPayout: bet.payoutSnapshot,
-  });
 
   if (existing) {
     await tx
@@ -666,6 +740,100 @@ export async function clearCustomPickAdmin(
     console.error("[write-core clearCustomPickAdmin] failed", err);
     return { status: "error", error: "db" };
   }
+}
+
+// Live (match/day) stake settings read inside the same advisory-locked
+// txn as the bet fetch, so an admin tweaking the bounds mid-session
+// applies to the very next submit. One small extra round trip per live
+// submit; trivial cost relative to the bank-balance recalc that
+// follows.
+type LiveStakeConfig = {
+  baseStake: number;
+  minStake: number;
+  maxStake: number;
+  maxPayoutRatio: number;
+  maxPayoutCeiling: number;
+  houseEdgePct: number;
+};
+
+async function loadLiveStakeConfig(tx: Tx): Promise<LiveStakeConfig> {
+  const [row] = await tx
+    .select({
+      baseStake: settings.liveOddsBaseStake,
+      minStake: settings.liveOddsMinStake,
+      maxStake: settings.liveOddsMaxStake,
+      maxPayoutRatio: settings.liveOddsMaxPayoutRatio,
+      maxPayoutCeiling: settings.liveOddsMaxPayoutCeiling,
+      houseEdgePct: settings.liveOddsHouseEdgePct,
+    })
+    .from(settings)
+    .where(eq(settings.id, 1))
+    .limit(1);
+  return {
+    baseStake: row?.baseStake ?? 3,
+    minStake: row?.minStake ?? 1,
+    maxStake: row?.maxStake ?? 30,
+    maxPayoutRatio: row?.maxPayoutRatio ?? 8,
+    maxPayoutCeiling: row?.maxPayoutCeiling ?? 100,
+    houseEdgePct: row?.houseEdgePct ?? 5,
+  };
+}
+
+// Translates a player's requested stake into the effective integer stake
+// used by the bank check and the payout recomputation. Trusts the bet's
+// own stakeSnapshot as the fallback (legacy default = settings.baseStake
+// at publish time) when the caller does not pass a request.
+//
+// `clamped: true` means the caller asked for a value outside the admin
+// bounds — kept as a separate flag so the action layer can log it for
+// observability. Tampered clients trip this; honest pill taps don't
+// (the bet card only renders stake values that already sit inside the
+// admin range).
+export function resolveLiveStake(
+  requested: number | undefined,
+  fallbackStake: number,
+  config: { minStake: number; maxStake: number },
+): { stake: number; clamped: boolean } {
+  if (requested === undefined) {
+    return { stake: Math.max(config.minStake, Math.min(config.maxStake, fallbackStake)), clamped: false };
+  }
+  if (!Number.isFinite(requested) || !Number.isInteger(requested)) {
+    return { stake: config.minStake, clamped: true };
+  }
+  const clamped = Math.max(config.minStake, Math.min(config.maxStake, requested));
+  return { stake: clamped, clamped: clamped !== requested };
+}
+
+// Look up the bookmaker decimal odds that apply to the option the player
+// picked, so the variable-stake submit path can recompute payout exactly.
+//   - Single-side bets (yes_no without per-side overrides) read the
+//     bet-level decimal_odds column.
+//   - Multi-choice bets read the per-option map written by
+//     publishMultiChoiceSuggestion.
+//   - Yes/no bets with per-side overrides could also store per-side
+//     odds in a follow-up; the publish path doesn't capture them yet,
+//     so they fall through to the linear-scale fallback in the caller.
+// Returns null when no odds value is available — the caller logs and
+// falls back to linear scaling so the player is never blocked.
+function resolveLiveOptionOdds(args: {
+  answerType: "yes_no" | "number" | "multi_choice" | "free_text";
+  answerConfig: unknown;
+  betLevelDecimalOdds: number | null;
+  answer: PickAnswer;
+}): number | null {
+  if (args.answerType === "multi_choice" && args.answer.type === "multi_choice") {
+    const cfg = args.answerConfig as
+      | { decimalOddsByValue?: Record<string, number> }
+      | null
+      | undefined;
+    const v = cfg?.decimalOddsByValue?.[args.answer.value];
+    if (typeof v === "number" && Number.isFinite(v) && v > 1) return v;
+    return null;
+  }
+  if (args.betLevelDecimalOdds != null && Number.isFinite(args.betLevelDecimalOdds) && args.betLevelDecimalOdds > 1) {
+    return args.betLevelDecimalOdds;
+  }
+  return null;
 }
 
 // Bulk custom-bet fill: ONE advisory-locked transaction for the whole batch,

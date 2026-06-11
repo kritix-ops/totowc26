@@ -230,3 +230,39 @@ export async function getStakeConfig(): Promise<StakeConfig> {
   // a null here would mean the DB is in an unrecoverable state.
   return row!;
 }
+
+// Player-chosen stake config for live (match/day) bets. The bet card
+// uses this to render the pill row and mirror the server's payout
+// calculation byte-for-byte (so the "potential win" preview on the
+// pill matches what gets snapshotted on submit). See migration 0047
+// and _plans/2026-06-11-variable-live-bet-stake.md.
+export type LiveStakeUiConfig = {
+  baseStake: number;
+  minStake: number;
+  maxStake: number;
+  maxPayoutRatio: number;
+  maxPayoutCeiling: number;
+  houseEdgePct: number;
+};
+
+export async function getLiveStakeConfig(): Promise<LiveStakeUiConfig> {
+  const row = await execFirstRow<LiveStakeUiConfig>(sql`
+    select
+      live_odds_base_stake            as "baseStake",
+      live_odds_min_stake             as "minStake",
+      live_odds_max_stake             as "maxStake",
+      live_odds_max_payout_ratio      as "maxPayoutRatio",
+      live_odds_max_payout_ceiling    as "maxPayoutCeiling",
+      live_odds_house_edge_pct        as "houseEdgePct"
+    from public.settings where id = 1
+  `);
+  // Settings row 1 is seeded at db init; defaults match migration 0047.
+  return row ?? {
+    baseStake: 3,
+    minStake: 1,
+    maxStake: 30,
+    maxPayoutRatio: 8,
+    maxPayoutCeiling: 100,
+    houseEdgePct: 5,
+  };
+}

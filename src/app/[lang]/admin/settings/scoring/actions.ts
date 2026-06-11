@@ -38,6 +38,12 @@ export type ScoringPayload = {
   liveOddsBaseStake: number;
   liveOddsMaxPayout: number;
   liveOddsHouseEdgePct: number;
+  // Player-chosen stake bounds + new payout-cap formula (ratio + ceiling).
+  // See _plans/2026-06-11-variable-live-bet-stake.md.
+  liveOddsMinStake: number;
+  liveOddsMaxStake: number;
+  liveOddsMaxPayoutRatio: number;
+  liveOddsMaxPayoutCeiling: number;
   stakeYesNo: number;
   payoutYesNo: number;
   stakeNumber: number;
@@ -76,6 +82,10 @@ const INTEGER_KEYS = [
   "liveOddsBaseStake",
   "liveOddsMaxPayout",
   "liveOddsHouseEdgePct",
+  "liveOddsMinStake",
+  "liveOddsMaxStake",
+  "liveOddsMaxPayoutRatio",
+  "liveOddsMaxPayoutCeiling",
   "stakeYesNo",
   "payoutYesNo",
   "stakeNumber",
@@ -146,6 +156,18 @@ export async function saveScoringSettings(
   if (payload.liveOddsHouseEdgePct > 50) {
     return { ok: false, error: "invalid" };
   }
+  // Live stake bounds: mirror the DB CHECK in migration 0047 so the user
+  // gets a clean form error rather than an opaque constraint violation.
+  if (
+    payload.liveOddsMinStake < 1 ||
+    payload.liveOddsMaxStake < payload.liveOddsMinStake ||
+    payload.liveOddsMaxStake > 100 ||
+    payload.liveOddsMaxPayoutRatio < 1 ||
+    payload.liveOddsMaxPayoutCeiling < payload.liveOddsMaxPayoutRatio ||
+    payload.liveOddsMaxPayoutCeiling > 32000
+  ) {
+    return { ok: false, error: "invalid" };
+  }
 
   // Legacy prize percentages: each ≤ 100, sum ≤ 100 (fractional reserve
   // allowed for backward compatibility with the existing PrizeStrip UI).
@@ -202,6 +224,10 @@ export async function saveScoringSettings(
         liveOddsBaseStake: payload.liveOddsBaseStake,
         liveOddsMaxPayout: payload.liveOddsMaxPayout,
         liveOddsHouseEdgePct: payload.liveOddsHouseEdgePct,
+        liveOddsMinStake: payload.liveOddsMinStake,
+        liveOddsMaxStake: payload.liveOddsMaxStake,
+        liveOddsMaxPayoutRatio: payload.liveOddsMaxPayoutRatio,
+        liveOddsMaxPayoutCeiling: payload.liveOddsMaxPayoutCeiling,
         stakeYesNo: payload.stakeYesNo,
         payoutYesNo: payload.payoutYesNo,
         stakeNumber: payload.stakeNumber,

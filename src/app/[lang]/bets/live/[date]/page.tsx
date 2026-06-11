@@ -13,7 +13,7 @@ import {
 } from "@/components/CustomBetCard";
 import { getRequestUser } from "@/lib/request-user";
 import { getUserAccess } from "@/lib/access";
-import { getBankBalance } from "@/lib/bank";
+import { getBankBalance, getLiveStakeConfig } from "@/lib/bank";
 import { localePath } from "@/lib/paths";
 import { formatDateTime } from "@/lib/format";
 import { serverNow } from "@/lib/server-now";
@@ -83,6 +83,10 @@ export default async function BetsLiveDayPage({
   } catch (err) {
     console.error("[bets/live/date] getBankBalance threw", { date, err });
   }
+  // Live-bet stake bounds + payout cap, read once per render and
+  // threaded through every CustomBetCard so the pill row matches the
+  // server-side payout math byte-for-byte.
+  const liveStakeConfig = await getLiveStakeConfig();
   // Compute "is this bet still editable?" once on the server so the
   // CustomBetCard client component doesn't have to call Date.now()
   // during its render.
@@ -209,6 +213,7 @@ export default async function BetsLiveDayPage({
                           locale={locale}
                           bankBalance={bankBalance}
                           editable={isEditable(b)}
+                          liveStakeConfig={liveStakeConfig}
                           bet={toCardData(b, "match", isHebrew, m.homeCode, m.awayCode)}
                         />
                       ))}
@@ -240,6 +245,7 @@ export default async function BetsLiveDayPage({
                 locale={locale}
                 bankBalance={bankBalance}
                 editable={isEditable(b)}
+                liveStakeConfig={liveStakeConfig}
                 bet={toCardData(b, "day", isHebrew)}
               />
             ))}
@@ -299,6 +305,7 @@ function toCardData(
     answerConfig: unknown;
     stakeSnapshot: number;
     payoutSnapshot: number;
+    decimalOdds: string | null;
     lockAt: string;
     status: "open" | "locked";
     matchLabel: string | null;
@@ -325,6 +332,7 @@ function toCardData(
     scope,
     stakeSnapshot: row.stakeSnapshot,
     payoutSnapshot: row.payoutSnapshot,
+    decimalOdds: row.decimalOdds,
     lockAt: row.lockAt,
     status: row.status,
     myAnswer: (row.myAnswer ?? null) as PickAnswer | null,

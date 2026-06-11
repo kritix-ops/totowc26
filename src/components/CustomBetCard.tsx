@@ -23,6 +23,8 @@ import { usePendingAction } from "@/lib/use-pending-action";
 import { withTimeout, SAVE_TIMEOUT_MS } from "@/lib/with-timeout";
 import { resolvePickPayoutAtSubmit } from "@/lib/bets/payout";
 import { isFreePickScope } from "@/lib/bets/free-pick-scopes";
+import { liveStakeCap, normalizeOdds } from "@/lib/odds-normalize";
+import type { LiveStakeUiConfig } from "@/lib/bank";
 import { PickScenarios } from "@/components/PickScenarios";
 import { submitCustomBetPick } from "@/app/[lang]/play/[date]/actions";
 
@@ -54,6 +56,11 @@ export type CustomBetCardData = {
   scope: "match" | "day" | "stage" | "group" | "tournament";
   stakeSnapshot: number;
   payoutSnapshot: number;
+  // Bookmaker decimal odds (string from numeric col) captured at publish
+  // for live (match/day) bets. Used by the stake picker to mirror the
+  // server's variable-stake payout calc exactly. Tournament/stage/group
+  // bets keep this null — their pricing comes from the outright curve.
+  decimalOdds?: string | null;
   lockAt: string;
   status: "open" | "locked" | "graded" | "reversed" | "cancelled" | "draft";
   myAnswer: PickAnswer | null;
@@ -66,6 +73,7 @@ export function CustomBetCard({
   bet,
   bankBalance,
   editable,
+  liveStakeConfig,
 }: {
   locale: Locale;
   bet: CustomBetCardData;
@@ -73,6 +81,11 @@ export function CustomBetCard({
   // Server computes this once per render so the client doesn't have to
   // call Date.now() (which React 19 lint rules flag as impure).
   editable: boolean;
+  // Live-bet stake bounds + payout cap formula. Required when the bet's
+  // scope is `match` or `day`; ignored for free-pick scopes. The parent
+  // page reads it via getLiveStakeConfig() and threads it through every
+  // card so the pill row + payout preview match the server byte-for-byte.
+  liveStakeConfig?: LiveStakeUiConfig;
 }) {
   const isHebrew = locale === "he";
 
@@ -105,7 +118,27 @@ export function CustomBetCard({
   // regardless of what bet.stakeSnapshot says, in case a legacy record
   // slipped through with a non-zero value.
   const isFreePick = isFreePickScope(bet.scope);
-  const effectiveStake = isFreePick ? 0 : bet.stakeSnapshot;
+
+  // Player-chosen stake for live (match/day) bets. Seeded from the
+  // player's last saved choice (if any) or the bet's snapshotted default,
+  // then constrained by the admin's [minStake, maxStake] range. Free-pick
+  // scopes ignore this entirely.
+  const stakeDefault = bet.myStakePaid ?? bet.stakeSnapshot;
+  const initialStake = isFreePick
+    ? 0
+    : liveStakeConfig
+      ? clampStake(stakeDefault, liveStakeConfig.minStake, liveStakeConfig.maxStake)
+      : stakeDefault;
+  const [chosenStake, setChosenStake] = useState<number>(initialStake);
+
+  // Resync the chosen stake when fresh server props arrive (auto-fill,
+  // monkey bot, server revalidate), unless the user has un-saved edits.
+  useEffect(() => {
+    if (userEditedRef.current) return;
+    setChosenStake(initialStake);
+  }, [initialStake]);
+
+  const effectiveStake = isFreePick ? 0 : chosenStake;
   const refund = bet.myStakePaid ?? 0;
   // If the draft is "empty" the user hasn't expressed a choice yet, so the
   // submit-cost is 0 (we render submit disabled in that case anyway).
@@ -115,8 +148,18 @@ export function CustomBetCard({
   const bankAfter = effective - newCost;
   const overdrawn = hasChoice && bankAfter < 0;
 
+  // Recompute the gross payout for the chosen stake (live bets only).
+  // Free-pick scopes fall back to the legacy per-option resolver.
+  const grossPayout = computeDisplayPayout(bet, draft, chosenStake, liveStakeConfig);
+  const stakeDirty = !isFreePick && chosenStake !== (bet.myStakePaid ?? bet.stakeSnapshot);
   const dirty =
-    JSON.stringify(draft ?? null) !== JSON.stringify(bet.myAnswer ?? null);
+    JSON.stringify(draft ?? null) !== JSON.stringify(bet.myAnswer ?? null) ||
+    stakeDirty;
+
+  const onChosenStake = (next: number) => {
+    userEditedRef.current = true;
+    setChosenStake(next);
+  };
 
   const onSubmit = () => {
     if (!draft || !editable || overdrawn || pending) return;
@@ -130,8 +173,11 @@ export function CustomBetCard({
     // instead of hanging. The write is an idempotent overwrite, so a retry
     // after a false-timeout cannot double-save.
     void run(async () => {
+      // Only send a stake for live (priced) bets — free picks ignore it
+      // on the server but it's clearer to omit at the boundary.
+      const stakeArg = isFreePick ? undefined : chosenStake;
       const res = await withTimeout(
-        submitCustomBetPick(bet.id, draft),
+        submitCustomBetPick(bet.id, draft, stakeArg),
         SAVE_TIMEOUT_MS,
       ).catch(() => null);
       if (!res) {
@@ -218,40 +264,43 @@ export function CustomBetCard({
         disabled={!editable || pending}
       />
 
+      {/* Player-chosen stake picker (live scope only). Rendered above
+          the scenarios so the live preview reacts to the same numbers
+          the player sees on the pills. Free-pick scopes skip the row
+          entirely — their cost is fixed at 0. */}
+      {!isFreePick && liveStakeConfig && (
+        <StakePicker
+          locale={locale}
+          value={chosenStake}
+          baseStake={bet.stakeSnapshot}
+          config={liveStakeConfig}
+          disabled={!editable || pending}
+          onChange={onChosenStake}
+        />
+      )}
+
       {/* Scenarios: shows current bank, post-stake balance, and the
-          balance under each possible outcome. The "if correct" delta
-          uses resolvePickPayoutAtSubmit so per-option payouts
-          (outright bets) flip the number as the user picks each
-          option. When no pick is selected yet we fall back to the
-          bet-level payout so the user still sees a meaningful preview
-          before tapping anything. */}
-      {(() => {
-        const effectivePayout = resolvePickPayoutAtSubmit({
-          answerType: bet.answerType,
-          answerConfig: bet.answerConfig,
-          answer: draft ?? { type: "yes_no", value: false },
-          betLevelPayout: bet.payoutSnapshot,
-        });
-        return (
-          <PickScenarios
-            locale={locale}
-            currentBalance={effective}
-            stake={hasChoice ? bet.stakeSnapshot : 0}
-            scenarios={[
-              {
-                label: isHebrew ? "אם תפגע" : "If correct",
-                delta: effectivePayout,
-                tone: "positive",
-              },
-              {
-                label: isHebrew ? "אם תטעה" : "If wrong",
-                delta: 0,
-                tone: "neutral",
-              },
-            ]}
-          />
-        );
-      })()}
+          balance under each possible outcome. The "if correct" delta is
+          computed against the chosen stake for live bets so the pill
+          row and the bank preview agree. Free-pick scopes use the
+          per-option resolver (outright curves). */}
+      <PickScenarios
+        locale={locale}
+        currentBalance={effective}
+        stake={hasChoice ? effectiveStake : 0}
+        scenarios={[
+          {
+            label: isHebrew ? "אם תפגע" : "If correct",
+            delta: grossPayout,
+            tone: "positive",
+          },
+          {
+            label: isHebrew ? "אם תטעה" : "If wrong",
+            delta: 0,
+            tone: "neutral",
+          },
+        ]}
+      />
 
       {/* Stake/payout + submit */}
       <div className="flex flex-col-reverse md:flex-row md:items-center md:justify-between gap-3 pt-3 border-t border-outline-variant">
@@ -262,7 +311,7 @@ export function CustomBetCard({
             </span>
           ) : (
             <span>
-              {isHebrew ? "עלות" : "Stake"}:{" "}
+              {isHebrew ? "סיכון" : "Risk"}:{" "}
               <bdi className="tabular-nums font-bold text-on-surface">
                 {effectiveStake}
               </bdi>
@@ -270,9 +319,9 @@ export function CustomBetCard({
           )}
           <span aria-hidden className="opacity-40">·</span>
           <span>
-            {isHebrew ? "זכייה" : "Payout"}:{" "}
+            {isHebrew ? "זכייה אפשרית" : "Potential win"}:{" "}
             <bdi className="tabular-nums font-bold text-on-surface">
-              {bet.payoutSnapshot}
+              +{Math.max(0, grossPayout - effectiveStake)}
             </bdi>
           </span>
           {hasChoice && dirty && newCost > 0 && (
@@ -320,6 +369,161 @@ export function CustomBetCard({
       </div>
     </Card>
   );
+}
+
+// ---------- Stake picker (live scope only) ----------
+
+// Pre-defined stake stops. Filtered against [minStake, maxStake] at render
+// so an admin who lowers the max simply hides the higher pills — the row
+// stays narrow enough to fit a 360px viewport with all 6 visible.
+const STAKE_STOPS = [1, 3, 5, 10, 20, 30] as const;
+
+function StakePicker({
+  locale,
+  value,
+  baseStake,
+  config,
+  disabled,
+  onChange,
+}: {
+  locale: Locale;
+  value: number;
+  baseStake: number;
+  config: LiveStakeUiConfig;
+  disabled: boolean;
+  onChange: (next: number) => void;
+}) {
+  const isHebrew = locale === "he";
+  const stops = STAKE_STOPS.filter(
+    (s) => s >= config.minStake && s <= config.maxStake,
+  );
+  // Always surface the baseStake even if it's not on the canonical stop
+  // list (e.g. admin set it to 4). Insert it in sorted position so the
+  // pill order stays ascending.
+  const stopsWithBase = Array.from(new Set([...stops, baseStake])).sort(
+    (a, b) => a - b,
+  );
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="text-xs font-bold text-on-surface-variant uppercase tracking-wide">
+          {isHebrew ? "כמה לסכן?" : "How much to risk?"}
+        </span>
+        <span className="text-xs text-on-surface-variant tabular-nums">
+          {isHebrew
+            ? `${config.minStake}–${config.maxStake} נק׳`
+            : `${config.minStake}–${config.maxStake} pts`}
+        </span>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        {stopsWithBase.map((stop) => {
+          const active = stop === value;
+          const isDefault = stop === baseStake;
+          return (
+            <button
+              key={stop}
+              type="button"
+              disabled={disabled}
+              onClick={() => onChange(stop)}
+              aria-pressed={active}
+              aria-label={
+                isHebrew
+                  ? `סכן ${stop} נקודות${isDefault ? " (ברירת מחדל)" : ""}`
+                  : `Risk ${stop} points${isDefault ? " (default)" : ""}`
+              }
+              className={clsx(
+                "press-down min-h-11 min-w-11 px-3 inline-flex items-center justify-center gap-1 rounded-full border text-sm font-bold tabular-nums transition-colors",
+                active
+                  ? "bg-primary text-on-primary border-primary shadow-sm"
+                  : "bg-surface-container-lowest text-on-surface border-outline hover:border-primary",
+                "disabled:opacity-50 disabled:cursor-not-allowed",
+              )}
+            >
+              {stop}
+              {isDefault && (
+                <span
+                  aria-hidden
+                  className={clsx(
+                    "text-[10px] font-bold",
+                    active ? "text-on-primary/80" : "text-on-surface-variant",
+                  )}
+                >
+                  ★
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// Compute the gross payout to show in the scenarios + summary. For live
+// bets this mirrors the server's writeCustomPickTx variable-stake path
+// byte-for-byte (normalizeOdds + liveStakeCap with the same config). For
+// free picks it falls back to the per-option resolver.
+function computeDisplayPayout(
+  bet: CustomBetCardData,
+  draft: PickAnswer | null,
+  stake: number,
+  config: LiveStakeUiConfig | undefined,
+): number {
+  const isFreePick = isFreePickScope(bet.scope);
+  const fallbackAnswer = draft ?? ({ type: "yes_no", value: false } as PickAnswer);
+  if (isFreePick || !config) {
+    return resolvePickPayoutAtSubmit({
+      answerType: bet.answerType,
+      answerConfig: bet.answerConfig,
+      answer: fallbackAnswer,
+      betLevelPayout: bet.payoutSnapshot,
+    });
+  }
+  const odds = lookupLiveOptionOdds(bet, draft);
+  const cap = liveStakeCap(stake, config);
+  if (odds != null) {
+    const { payout } = normalizeOdds(odds, {
+      baseStake: stake,
+      maxPayout: cap,
+      houseEdgePct: config.houseEdgePct,
+    });
+    return payout;
+  }
+  // Legacy fallback: scale the bet's snapshotted payout linearly.
+  const basePayout = resolvePickPayoutAtSubmit({
+    answerType: bet.answerType,
+    answerConfig: bet.answerConfig,
+    answer: fallbackAnswer,
+    betLevelPayout: bet.payoutSnapshot,
+  });
+  const baseStakeForScale = Math.max(1, bet.stakeSnapshot);
+  const scaled = Math.round((basePayout * stake) / baseStakeForScale);
+  return Math.min(Math.max(scaled, stake + 1), cap);
+}
+
+function lookupLiveOptionOdds(
+  bet: CustomBetCardData,
+  draft: PickAnswer | null,
+): number | null {
+  if (bet.answerType === "multi_choice" && draft?.type === "multi_choice") {
+    const cfg = bet.answerConfig.kind === "multi_choice" ? bet.answerConfig : null;
+    const v = cfg?.decimalOddsByValue?.[draft.value];
+    if (typeof v === "number" && Number.isFinite(v) && v > 1) return v;
+    return null;
+  }
+  if (bet.decimalOdds) {
+    const n = Number(bet.decimalOdds);
+    if (Number.isFinite(n) && n > 1) return n;
+  }
+  return null;
+}
+
+function clampStake(value: number, min: number, max: number): number {
+  if (!Number.isFinite(value)) return min;
+  const n = Math.floor(value);
+  if (n < min) return min;
+  if (n > max) return max;
+  return n;
 }
 
 // ---------- Answer widgets ----------

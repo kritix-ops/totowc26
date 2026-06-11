@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildOutrightCurve,
+  liveStakeCap,
   normalizeOdds,
   normalizeOutrightOdds,
 } from "./odds-normalize";
@@ -149,5 +150,85 @@ describe("buildOutrightCurve (continuous log-odds payout)", () => {
     const curve = buildOutrightCurve([10, 1000], { floor: 20, ceiling: 100 });
     expect(curve(1)).toBe(20);
     expect(curve(0.5)).toBe(20);
+  });
+});
+
+// Variable-stake payout cap. Cap = min(stake * ratio, ceiling). The
+// 8/100 defaults come from _plans/2026-06-11-variable-live-bet-stake.md.
+describe("liveStakeCap (variable stake)", () => {
+  const cfg = { maxPayoutRatio: 8, maxPayoutCeiling: 100 };
+
+  it("scales linearly while below the ceiling", () => {
+    expect(liveStakeCap(1, cfg)).toBe(8);
+    expect(liveStakeCap(3, cfg)).toBe(24);
+    expect(liveStakeCap(10, cfg)).toBe(80);
+  });
+
+  it("clamps to the absolute ceiling at the upper end", () => {
+    expect(liveStakeCap(13, cfg)).toBe(100); // 104 → 100
+    expect(liveStakeCap(20, cfg)).toBe(100);
+    expect(liveStakeCap(30, cfg)).toBe(100);
+  });
+
+  it("treats sub-1 stake as 1 (no negative caps)", () => {
+    expect(liveStakeCap(0, cfg)).toBe(8);
+    expect(liveStakeCap(-5, cfg)).toBe(8);
+  });
+
+  it("respects a tighter ratio when admin lowers it", () => {
+    expect(liveStakeCap(10, { maxPayoutRatio: 5, maxPayoutCeiling: 100 })).toBe(50);
+    expect(liveStakeCap(30, { maxPayoutRatio: 5, maxPayoutCeiling: 100 })).toBe(100);
+  });
+
+  it("respects a tighter ceiling when admin lowers it", () => {
+    expect(liveStakeCap(10, { maxPayoutRatio: 8, maxPayoutCeiling: 50 })).toBe(50);
+    expect(liveStakeCap(3, { maxPayoutRatio: 8, maxPayoutCeiling: 50 })).toBe(24);
+  });
+});
+
+// End-to-end: player-chosen stake fed through normalizeOdds with the
+// matching cap. Validates the corner cases the bet card relies on.
+describe("normalizeOdds with player-chosen stake", () => {
+  const cap = { maxPayoutRatio: 8, maxPayoutCeiling: 100 };
+
+  it("stake 10 on odds 2.0 yields +9 net (cap not hit)", () => {
+    const r = normalizeOdds(2.0, {
+      baseStake: 10,
+      maxPayout: liveStakeCap(10, cap),
+      houseEdgePct: 5,
+    });
+    // 10 * 2.0 * 0.95 = 19 → cap min(80,100)=80 → 19. Net win +9.
+    expect(r).toEqual({ stake: 10, payout: 19 });
+  });
+
+  it("stake 30 on longshot odds 10 caps at the ceiling", () => {
+    const r = normalizeOdds(10, {
+      baseStake: 30,
+      maxPayout: liveStakeCap(30, cap),
+      houseEdgePct: 5,
+    });
+    // Raw 30 * 10 * 0.95 = 285. cap = min(240, 100) = 100. Payout 100.
+    // Net win = 100 - 30 = +70.
+    expect(r).toEqual({ stake: 30, payout: 100 });
+  });
+
+  it("stake 1 floors at stake + 1 even on a heavy favourite", () => {
+    const r = normalizeOdds(1.05, {
+      baseStake: 1,
+      maxPayout: liveStakeCap(1, cap),
+      houseEdgePct: 5,
+    });
+    // Raw 1 * 1.05 * 0.95 = 0.9975 → 1. Floor pushes to 2.
+    expect(r).toEqual({ stake: 1, payout: 2 });
+  });
+
+  it("stake 3 default behaviour matches the pre-migration numbers", () => {
+    const r = normalizeOdds(2.0, {
+      baseStake: 3,
+      maxPayout: liveStakeCap(3, cap),
+      houseEdgePct: 5,
+    });
+    // 3 * 2.0 * 0.95 = 5.7 → 6. Same as the existing default-stake test.
+    expect(r).toEqual({ stake: 3, payout: 6 });
   });
 });

@@ -117,6 +117,11 @@ export async function publishSuggestion(
         answerConfig: { kind: "yes_no" },
         stakeSnapshot: input.stake,
         payoutSnapshot: input.payout,
+        // Captured so submitCustomBetPick can reprice the bet for a
+        // player-chosen stake. drizzle's `numeric` maps to JS string;
+        // store the original bookmaker quote rounded to 2dp to match
+        // the column precision (see migration 0047).
+        decimalOdds: input.decimalOdds.toFixed(2),
         gradingSource: "manual",
         gradingConfig: null,
         status: "open",
@@ -241,7 +246,17 @@ export async function publishMultiChoiceSuggestion(
     payoutOverride: o.payout,
   }));
   const payoutOverridesByValue: Record<string, number> = {};
-  for (const o of options) payoutOverridesByValue[o.value] = o.payoutOverride;
+  const decimalOddsByValue: Record<string, number> = {};
+  for (let i = 0; i < input.options.length; i += 1) {
+    const opt = input.options[i];
+    const value = `opt_${i}`;
+    payoutOverridesByValue[value] = opt.payout;
+    // Capture per-option bookmaker odds so the variable-stake submit
+    // path can recompute payout when a player picks this option at a
+    // non-default stake. Rounded to 2dp to match the column precision
+    // we use for top-level decimal_odds on yes/no bets.
+    decimalOddsByValue[value] = Math.round(opt.decimalOdds * 100) / 100;
+  }
 
   try {
     const [row] = await db
@@ -259,6 +274,7 @@ export async function publishMultiChoiceSuggestion(
           kind: "multi_choice",
           options,
           payoutOverridesByValue,
+          decimalOddsByValue,
         },
         stakeSnapshot: stake,
         payoutSnapshot: maxPayout,

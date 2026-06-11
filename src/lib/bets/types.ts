@@ -98,6 +98,14 @@ export type MultiChoiceConfig = {
   // undefined and the bet-level payoutSnapshot is used as a flat
   // payout per the historic behaviour.
   payoutOverridesByValue?: Record<string, number>;
+  // Per-option bookmaker decimal odds keyed by option `value`. Captured
+  // at publish time for live (match/day) multi-choice bets so the
+  // variable-stake submit path can recompute payout against the
+  // player's chosen stake. Free-pick scopes (tournament/stage/group)
+  // do not set this — their option pricing comes from the outright
+  // curve, not from a single odds value. See
+  // _plans/2026-06-11-variable-live-bet-stake.md §6.
+  decimalOddsByValue?: Record<string, number>;
 };
 
 export type FreeTextConfig = {

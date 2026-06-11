@@ -1655,6 +1655,10 @@ export type PlayBetRow = {
   answerConfig: unknown;            // raw JSONB - caller casts via AnswerConfig
   stakeSnapshot: number;
   payoutSnapshot: number;
+  // Bookmaker decimal odds captured at publish (string from numeric col).
+  // Used by the variable-stake bet card to mirror the server payout calc
+  // exactly; null when not captured (legacy or non-pricedmulti-option bets).
+  decimalOdds: string | null;
   lockAt: string;
   status: "open" | "locked";        // we only fetch these two
   matchId: string | null;
@@ -1712,6 +1716,7 @@ export async function getPlayDayDetail(
       cb.answer_config                            as "answerConfig",
       cb.stake_snapshot                           as "stakeSnapshot",
       cb.payout_snapshot                          as "payoutSnapshot",
+      cb.decimal_odds::text                       as "decimalOdds",
       cb.lock_at                                  as "lockAt",
       cb.status::text                             as "status",
       cb.match_id::text                           as "matchId",
