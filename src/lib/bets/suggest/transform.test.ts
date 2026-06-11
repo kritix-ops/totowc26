@@ -106,6 +106,30 @@ describe("suggestionToDraft", () => {
     expect(draft.grading).toEqual(yesNoBase.grading);
   });
 
+  it("carries an event-timeline grading spec through untouched", () => {
+    const eventBet: LiveBetSuggestion = {
+      questionHe: "יהיה אדום במחצית הראשונה?",
+      questionEn: "Red card in the first half?",
+      answerType: "yes_no",
+      yesProbability: 0.12,
+      gradingRuleHe: "כרטיס אדום אחד או יותר עד דקה 45.",
+      gradingRuleEn: "One or more red cards by minute 45.",
+      grading: {
+        source: "auto_api_football",
+        events: { metric: "red_card", window: "1H", op: ">=", value: 1 },
+      },
+      rationale: "First-half reds are rare.",
+    };
+    const draft = suggestionToDraft(eventBet, pricingConfig);
+    if ("error" in draft) throw new Error("priced");
+    expect(draft.grading).toEqual(eventBet.grading);
+    if (draft.answerConfig.kind !== "yes_no") throw new Error("kind");
+    // Unlikely 'yes' still prices higher than 'no'.
+    expect(draft.answerConfig.payoutOverrideYes).toBeGreaterThan(
+      draft.answerConfig.payoutOverrideNo!,
+    );
+  });
+
   it("carries the stake snapshot from the pricing base stake", () => {
     const draft = suggestionToDraft(mcBase, pricingConfig);
     if ("error" in draft) throw new Error("priced");

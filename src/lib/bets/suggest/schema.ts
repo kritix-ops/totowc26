@@ -127,6 +127,45 @@ export const SUGGESTION_INPUT_SCHEMA = {
                   },
                 },
               },
+              {
+                // Event-timeline auto-grading (red card in a half, goal in
+                // a minute window). Only valid on yes_no bets. VAR is not a
+                // permitted metric — the feed under-reports it.
+                type: "object",
+                additionalProperties: false,
+                required: ["source", "events"],
+                properties: {
+                  source: { type: "string", enum: ["auto_api_football"] },
+                  events: {
+                    type: "object",
+                    additionalProperties: false,
+                    required: ["metric", "window", "op", "value"],
+                    properties: {
+                      metric: {
+                        type: "string",
+                        enum: ["red_card", "yellow_card", "card", "goal", "penalty"],
+                      },
+                      window: {
+                        oneOf: [
+                          { type: "string", enum: ["1H", "2H", "FT"] },
+                          {
+                            type: "object",
+                            additionalProperties: false,
+                            required: ["fromMinute", "toMinute"],
+                            properties: {
+                              fromMinute: { type: "number", minimum: 0, maximum: 130 },
+                              toMinute: { type: "number", minimum: 0, maximum: 130 },
+                            },
+                          },
+                        ],
+                      },
+                      op: { type: "string", enum: [">=", ">", "=", "<=", "<"] },
+                      value: { type: "number", minimum: 0 },
+                      team: { type: "string", enum: ["home", "away", "any"] },
+                    },
+                  },
+                },
+              },
             ],
           },
           rationale: { type: "string", minLength: 1 },

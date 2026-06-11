@@ -23,6 +23,7 @@ import type {
   AutoApiFootballStat,
   GradingConfig,
 } from "@/lib/bets/types";
+import type { EventMetric, EventOp } from "@/lib/bets/events-grade";
 import { isFreePickScope } from "@/lib/bets/free-pick-scopes";
 import { liveStakeCap, normalizeOdds } from "@/lib/odds-normalize";
 import {
@@ -405,6 +406,31 @@ export function BetForm({
   const [autoAfAgg, setAutoAfAgg] = useState<"sum_day" | "per_match" | "first_match">(
     initialAf?.aggregate ?? "per_match",
   );
+  // Event-timeline variant of auto_api_football (red-in-half, goal-in-
+  // window). Seeded when editing a bet that already carries an `events`
+  // spec, so an LLM-generated event bet keeps its auto-grading on save.
+  const initialAfEvents =
+    initialBet?.gradingConfig?.source === "auto_api_football" &&
+    "events" in initialBet.gradingConfig
+      ? initialBet.gradingConfig.events
+      : null;
+  const [autoAfMode, setAutoAfMode] = useState<"stats" | "events">(
+    initialAfEvents ? "events" : "stats",
+  );
+  const [evMetric, setEvMetric] = useState<string>(initialAfEvents?.metric ?? "red_card");
+  const initialWindow = initialAfEvents?.window;
+  const [evWindowKind, setEvWindowKind] = useState<"1H" | "2H" | "FT" | "range">(
+    typeof initialWindow === "object" ? "range" : (initialWindow ?? "1H"),
+  );
+  const [evFrom, setEvFrom] = useState<string>(
+    typeof initialWindow === "object" ? String(initialWindow.fromMinute) : "1",
+  );
+  const [evTo, setEvTo] = useState<string>(
+    typeof initialWindow === "object" ? String(initialWindow.toMinute) : "15",
+  );
+  const [evOp, setEvOp] = useState<string>(initialAfEvents?.op ?? ">=");
+  const [evValue, setEvValue] = useState<string>(String(initialAfEvents?.value ?? 1));
+  const [evTeam, setEvTeam] = useState<"home" | "away" | "any">(initialAfEvents?.team ?? "any");
   const initialFd =
     initialBet?.gradingConfig?.source === "auto_football_data"
       ? initialBet.gradingConfig
@@ -533,7 +559,21 @@ export function BetForm({
 
     const gradingConfig = buildGradingConfig(
       gradingSource,
-      { autoAfStat, autoAfAgg, autoFdField },
+      {
+        autoAfStat,
+        autoAfAgg,
+        autoFdField,
+        autoAfMode,
+        ev: {
+          metric: evMetric,
+          windowKind: evWindowKind,
+          from: evFrom,
+          to: evTo,
+          op: evOp,
+          value: evValue,
+          team: evTeam,
+        },
+      },
     );
     if (gradingConfig === "invalid") {
       setError(isHebrew ? "תצורת דירוג לא תקינה" : "Invalid grading config");
@@ -1196,36 +1236,156 @@ export function BetForm({
       )}
 
       {gradingSource === "auto_api_football" && (
-        <Section title={isHebrew ? "מה לדגום מ-API-Football?" : "Which API-Football stat?"}>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <select
-              value={autoAfStat}
-              onChange={(e) => setAutoAfStat(e.target.value)}
-              className="min-h-[48px] px-3 rounded border border-outline bg-surface-container-lowest text-base"
-            >
-              <option value="corners">           {isHebrew ? "קרנות" : "Corners"}</option>
-              <option value="yellow_cards">      {isHebrew ? "כרטיסים צהובים" : "Yellow cards"}</option>
-              <option value="red_cards">         {isHebrew ? "כרטיסים אדומים" : "Red cards"}</option>
-              <option value="shots">             {isHebrew ? "בעיטות (סך הכל)" : "Total shots"}</option>
-              <option value="shots_on_goal">     {isHebrew ? "בעיטות למסגרת" : "Shots on goal"}</option>
-              <option value="shots_inside_box">  {isHebrew ? "בעיטות מתוך הרחבה" : "Shots inside box"}</option>
-              <option value="shots_outside_box"> {isHebrew ? "בעיטות מחוץ לרחבה" : "Shots outside box"}</option>
-              <option value="possession">        {isHebrew ? "אחוז כדור" : "Possession %"}</option>
-              <option value="fouls">             {isHebrew ? "עבירות" : "Fouls"}</option>
-              <option value="offsides">          {isHebrew ? "נבדלים" : "Offsides"}</option>
-              <option value="saves">             {isHebrew ? "הצלות שוער" : "Goalkeeper saves"}</option>
-              <option value="total_passes">      {isHebrew ? "מסירות (סך הכל)" : "Total passes"}</option>
-              <option value="pass_accuracy">     {isHebrew ? "דיוק מסירות" : "Pass accuracy %"}</option>
-            </select>
-            <select
-              value={autoAfAgg}
-              onChange={(e) => setAutoAfAgg(e.target.value as typeof autoAfAgg)}
-              className="min-h-[48px] px-3 rounded border border-outline bg-surface-container-lowest text-base"
-            >
-              <option value="per_match">   {isHebrew ? "פר משחק" : "Per match"}</option>
-              <option value="sum_day">     {isHebrew ? "סכום על היום" : "Sum over the day"}</option>
-              <option value="first_match"> {isHebrew ? "המשחק הראשון בלבד" : "First match only"}</option>
-            </select>
+        <Section
+          title={isHebrew ? "מה לדגום מ-API-Football?" : "What to read from API-Football?"}
+          hint={
+            autoAfMode === "events"
+              ? isHebrew
+                ? "הכרעה מציר האירועים: סופרת אירוע (אדום/צהוב/גול/פנדל) בחלון זמן. רק להימורי כן/לא. ואר לא נתמך."
+                : "Event-timeline grading: counts an event (card/goal/penalty) in a time window. Yes/no bets only. VAR not supported."
+              : undefined
+          }
+        >
+          <div className="flex flex-col gap-3">
+            <SegmentedRow
+              options={[
+                { value: "stats", label: isHebrew ? "סטטיסטיקה (מספר)" : "Stats (number)" },
+                { value: "events", label: isHebrew ? "אירוע בחלון זמן" : "Event in window" },
+              ]}
+              value={autoAfMode}
+              onChange={(v) => setAutoAfMode(v as "stats" | "events")}
+            />
+
+            {autoAfMode === "stats" ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <select
+                  value={autoAfStat}
+                  onChange={(e) => setAutoAfStat(e.target.value)}
+                  className="min-h-[48px] px-3 rounded border border-outline bg-surface-container-lowest text-base"
+                >
+                  <option value="corners">           {isHebrew ? "קרנות" : "Corners"}</option>
+                  <option value="yellow_cards">      {isHebrew ? "כרטיסים צהובים" : "Yellow cards"}</option>
+                  <option value="red_cards">         {isHebrew ? "כרטיסים אדומים" : "Red cards"}</option>
+                  <option value="shots">             {isHebrew ? "בעיטות (סך הכל)" : "Total shots"}</option>
+                  <option value="shots_on_goal">     {isHebrew ? "בעיטות למסגרת" : "Shots on goal"}</option>
+                  <option value="shots_inside_box">  {isHebrew ? "בעיטות מתוך הרחבה" : "Shots inside box"}</option>
+                  <option value="shots_outside_box"> {isHebrew ? "בעיטות מחוץ לרחבה" : "Shots outside box"}</option>
+                  <option value="possession">        {isHebrew ? "אחוז כדור" : "Possession %"}</option>
+                  <option value="fouls">             {isHebrew ? "עבירות" : "Fouls"}</option>
+                  <option value="offsides">          {isHebrew ? "נבדלים" : "Offsides"}</option>
+                  <option value="saves">             {isHebrew ? "הצלות שוער" : "Goalkeeper saves"}</option>
+                  <option value="total_passes">      {isHebrew ? "מסירות (סך הכל)" : "Total passes"}</option>
+                  <option value="pass_accuracy">     {isHebrew ? "דיוק מסירות" : "Pass accuracy %"}</option>
+                </select>
+                <select
+                  value={autoAfAgg}
+                  onChange={(e) => setAutoAfAgg(e.target.value as typeof autoAfAgg)}
+                  className="min-h-[48px] px-3 rounded border border-outline bg-surface-container-lowest text-base"
+                >
+                  <option value="per_match">   {isHebrew ? "פר משחק" : "Per match"}</option>
+                  <option value="sum_day">     {isHebrew ? "סכום על היום" : "Sum over the day"}</option>
+                  <option value="first_match"> {isHebrew ? "המשחק הראשון בלבד" : "First match only"}</option>
+                </select>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-3">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <label className="flex flex-col gap-1.5">
+                    <LabelCaps>{isHebrew ? "אירוע" : "Event"}</LabelCaps>
+                    <select
+                      value={evMetric}
+                      onChange={(e) => setEvMetric(e.target.value)}
+                      className="min-h-[48px] px-3 rounded border border-outline bg-surface-container-lowest text-base"
+                    >
+                      <option value="red_card">    {isHebrew ? "כרטיס אדום" : "Red card"}</option>
+                      <option value="yellow_card"> {isHebrew ? "כרטיס צהוב" : "Yellow card"}</option>
+                      <option value="card">        {isHebrew ? "כרטיס (כל סוג)" : "Card (any)"}</option>
+                      <option value="goal">        {isHebrew ? "גול" : "Goal"}</option>
+                      <option value="penalty">     {isHebrew ? "פנדל שהובקע" : "Penalty scored"}</option>
+                    </select>
+                  </label>
+                  <label className="flex flex-col gap-1.5">
+                    <LabelCaps>{isHebrew ? "קבוצה" : "Team"}</LabelCaps>
+                    <select
+                      value={evTeam}
+                      onChange={(e) => setEvTeam(e.target.value as "home" | "away" | "any")}
+                      className="min-h-[48px] px-3 rounded border border-outline bg-surface-container-lowest text-base"
+                    >
+                      <option value="any">  {isHebrew ? "כל קבוצה" : "Either team"}</option>
+                      <option value="home"> {isHebrew ? "בית" : "Home"}</option>
+                      <option value="away"> {isHebrew ? "חוץ" : "Away"}</option>
+                    </select>
+                  </label>
+                </div>
+                <label className="flex flex-col gap-1.5">
+                  <LabelCaps>{isHebrew ? "חלון זמן" : "Time window"}</LabelCaps>
+                  <SegmentedRow
+                    options={[
+                      { value: "1H", label: isHebrew ? "מחצית 1" : "1st half" },
+                      { value: "2H", label: isHebrew ? "מחצית 2" : "2nd half" },
+                      { value: "FT", label: isHebrew ? "כל המשחק" : "Full match" },
+                      { value: "range", label: isHebrew ? "טווח דקות" : "Minute range" },
+                    ]}
+                    value={evWindowKind}
+                    onChange={(v) => setEvWindowKind(v as "1H" | "2H" | "FT" | "range")}
+                  />
+                </label>
+                {evWindowKind === "range" && (
+                  <div className="flex items-end gap-3">
+                    <label className="flex flex-col gap-1.5">
+                      <LabelCaps>{isHebrew ? "מדקה" : "From min"}</LabelCaps>
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        value={evFrom}
+                        onChange={(e) => setEvFrom(e.target.value)}
+                        className="min-h-[48px] w-24 px-3 rounded border border-outline bg-surface-container-lowest text-base tabular-nums"
+                        dir="ltr"
+                      />
+                    </label>
+                    <label className="flex flex-col gap-1.5">
+                      <LabelCaps>{isHebrew ? "עד דקה" : "To min"}</LabelCaps>
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        value={evTo}
+                        onChange={(e) => setEvTo(e.target.value)}
+                        className="min-h-[48px] w-24 px-3 rounded border border-outline bg-surface-container-lowest text-base tabular-nums"
+                        dir="ltr"
+                      />
+                    </label>
+                  </div>
+                )}
+                <div className="flex items-end gap-3">
+                  <label className="flex flex-col gap-1.5">
+                    <LabelCaps>{isHebrew ? "השוואה" : "Compare"}</LabelCaps>
+                    <select
+                      value={evOp}
+                      onChange={(e) => setEvOp(e.target.value)}
+                      className="min-h-[48px] px-3 rounded border border-outline bg-surface-container-lowest text-base"
+                      dir="ltr"
+                    >
+                      <option value=">=">{"≥"}</option>
+                      <option value=">">{">"}</option>
+                      <option value="=">{"="}</option>
+                      <option value="<=">{"≤"}</option>
+                      <option value="<">{"<"}</option>
+                    </select>
+                  </label>
+                  <label className="flex flex-col gap-1.5">
+                    <LabelCaps>{isHebrew ? "כמות" : "Count"}</LabelCaps>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      value={evValue}
+                      onChange={(e) => setEvValue(e.target.value)}
+                      className="min-h-[48px] w-24 px-3 rounded border border-outline bg-surface-container-lowest text-base tabular-nums"
+                      dir="ltr"
+                    />
+                  </label>
+                </div>
+              </div>
+            )}
           </div>
         </Section>
       )}
@@ -1633,10 +1793,23 @@ function buildGradingConfig(
     autoAfStat: string;
     autoAfAgg: "sum_day" | "per_match" | "first_match";
     autoFdField: AutoFdField;
+    autoAfMode: "stats" | "events";
+    ev: {
+      metric: string;
+      windowKind: "1H" | "2H" | "FT" | "range";
+      from: string;
+      to: string;
+      op: string;
+      value: string;
+      team: "home" | "away" | "any";
+    };
   },
 ): GradingConfig | "invalid" {
   if (source === "manual") return null;
   if (source === "auto_api_football") {
+    if (fields.autoAfMode === "events") {
+      return buildEventGradingConfig(fields.ev);
+    }
     if (!fields.autoAfStat) return "invalid";
     return {
       source: "auto_api_football",
@@ -1647,6 +1820,45 @@ function buildGradingConfig(
   return {
     source: "auto_football_data",
     field: fields.autoFdField,
+  };
+}
+
+// Assemble + validate the event-timeline grading config from the form
+// fields. Returns "invalid" on a malformed window/count so the submit
+// surfaces a clear error rather than persisting a spec the grader skips.
+function buildEventGradingConfig(ev: {
+  metric: string;
+  windowKind: "1H" | "2H" | "FT" | "range";
+  from: string;
+  to: string;
+  op: string;
+  value: string;
+  team: "home" | "away" | "any";
+}): GradingConfig | "invalid" {
+  const value = parseInt(ev.value, 10);
+  if (!Number.isFinite(value) || value < 0) return "invalid";
+
+  let window: "1H" | "2H" | "FT" | { fromMinute: number; toMinute: number };
+  if (ev.windowKind === "range") {
+    const from = parseInt(ev.from, 10);
+    const to = parseInt(ev.to, 10);
+    if (!Number.isFinite(from) || !Number.isFinite(to) || from > to || from < 0) {
+      return "invalid";
+    }
+    window = { fromMinute: from, toMinute: to };
+  } else {
+    window = ev.windowKind;
+  }
+
+  return {
+    source: "auto_api_football",
+    events: {
+      metric: ev.metric as EventMetric,
+      window,
+      op: ev.op as EventOp,
+      value,
+      ...(ev.team !== "any" ? { team: ev.team } : {}),
+    },
   };
 }
 
