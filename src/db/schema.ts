@@ -452,6 +452,12 @@ export const settings = pgTable("settings", {
   // the cost/quality trade-off can be tuned without a redeploy. Falls back
   // to the catalogue default if the stored id is ever retired.
   suggestModel: text("suggest_model").notNull().default("claude-sonnet-4-6"),
+  // Rules engine for auto-seeding live-bet drafts. When enabled, the
+  // /api/cron/live-autogen cron generates draft suggestions for every
+  // upcoming match within the lead window that has no custom bets yet.
+  // Off by default — opt-in, and still admin-approved before publish.
+  liveAutogenEnabled: boolean("live_autogen_enabled").notNull().default(false),
+  liveAutogenLeadHours: smallint("live_autogen_lead_hours").notNull().default(30),
   // 7-way prize split (king 1/2/3, matches/live/duels winner, reserve).
   // Sum MUST be 100 - DB CHECK constraint enforces this. The legacy
   // prizePct1-4 columns below are kept for backwards compatibility until

@@ -454,6 +454,41 @@ export async function setSuggestModel(
   }
 }
 
+// Toggle + tune the auto-generation rule (settings.live_autogen_*). When
+// enabled, the daily /api/cron/live-autogen cron seeds draft suggestions
+// for upcoming matches with no bets yet. Lead hours is clamped to a sane
+// band so a typo can't make the cron scan the whole tournament at once.
+export async function setAutogenConfig(input: {
+  enabled: boolean;
+  leadHours: number;
+}): Promise<{ ok: true } | { ok: false; error: Err }> {
+  const user = await getUser();
+  if (!user) return { ok: false, error: "unauth" };
+  if (!(await isAdmin(user.id))) {
+    console.warn("[autogen-config denied]", { userId: user.id });
+    return { ok: false, error: "forbidden" };
+  }
+  if (typeof input.enabled !== "boolean") {
+    return { ok: false, error: "invalid_input" };
+  }
+  const leadHours = Math.round(input.leadHours);
+  if (!Number.isFinite(leadHours) || leadHours < 1 || leadHours > 72) {
+    return { ok: false, error: "invalid_input" };
+  }
+  try {
+    await db
+      .update(settings)
+      .set({ liveAutogenEnabled: input.enabled, liveAutogenLeadHours: leadHours })
+      .where(eq(settings.id, 1));
+    console.info("[autogen-config set]", { adminId: user.id, enabled: input.enabled, leadHours });
+    revalidatePath("/[lang]/admin/live-bets/suggestions", "page");
+    return { ok: true };
+  } catch (err) {
+    console.error("[autogen-config set] failed:", err);
+    return { ok: false, error: "db" };
+  }
+}
+
 // Count fixtures still to be played (scheduled, kickoff in the future).
 // Drives the end-of-tournament cost projection on the AI model card.
 export async function countRemainingMatches(): Promise<number> {

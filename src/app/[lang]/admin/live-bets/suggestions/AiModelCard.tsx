@@ -13,7 +13,7 @@ import {
   costPerCall,
   projectCost,
 } from "@/lib/bets/suggest/models";
-import { setSuggestModel } from "./actions";
+import { setSuggestModel, setAutogenConfig } from "./actions";
 
 // Admin control: pick the Claude model the live-bet generator uses, see
 // each model's price, and a projected cost to cover every remaining match
@@ -23,10 +23,14 @@ import { setSuggestModel } from "./actions";
 export function AiModelCard({
   currentModelId,
   remainingMatches,
+  autogenEnabled,
+  autogenLeadHours,
   locale,
 }: {
   currentModelId: string;
   remainingMatches: number;
+  autogenEnabled: boolean;
+  autogenLeadHours: number;
   locale: Locale;
 }) {
   const router = useRouter();
@@ -34,6 +38,15 @@ export function AiModelCard({
   const { pending, run } = usePendingAction();
   const [selected, setSelected] = useState(currentModelId);
   const [gens, setGens] = useState(DEFAULT_GENS_PER_MATCH);
+  const [autoOn, setAutoOn] = useState(autogenEnabled);
+  const [leadHours, setLeadHours] = useState(autogenLeadHours);
+
+  const saveAutogen = (enabled: boolean, hours: number) => {
+    void run(async () => {
+      await setAutogenConfig({ enabled, leadHours: hours });
+      router.refresh();
+    });
+  };
 
   const pick = (id: string) => {
     if (id === selected || pending) return;
@@ -127,6 +140,54 @@ export function AiModelCard({
           );
         })}
       </ul>
+
+      <div className="flex flex-col gap-3 rounded-xl border border-outline-variant bg-surface-container-lowest p-3">
+        <label className="flex items-start gap-3 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={autoOn}
+            disabled={pending}
+            onChange={(e) => {
+              setAutoOn(e.target.checked);
+              saveAutogen(e.target.checked, leadHours);
+            }}
+            className="mt-0.5 h-5 w-5 shrink-0 accent-[var(--color-primary)]"
+          />
+          <span className="flex flex-col gap-0.5">
+            <span className="font-bold text-on-surface text-sm">
+              {isHebrew ? "ייצור אוטומטי יומי" : "Auto-generate daily"}
+            </span>
+            <span className="text-xs text-on-surface-variant">
+              {isHebrew
+                ? "כל יום, צור טיוטות AI למשחקים הקרובים שאין להם הימורים. אתה עדיין מאשר ידנית."
+                : "Each day, seed AI drafts for upcoming matches with no bets. You still approve manually."}
+            </span>
+          </span>
+        </label>
+        {autoOn && (
+          <label className="flex items-center gap-3 flex-wrap ps-8">
+            <LabelCaps>{isHebrew ? "שעות לפני פתיחה" : "Lead hours"}</LabelCaps>
+            <input
+              type="number"
+              min={1}
+              max={72}
+              value={leadHours}
+              disabled={pending}
+              onChange={(e) => {
+                const n = parseInt(e.target.value || "1", 10);
+                const clamped = Number.isFinite(n) ? Math.max(1, Math.min(72, n)) : 1;
+                setLeadHours(clamped);
+              }}
+              onBlur={() => saveAutogen(autoOn, leadHours)}
+              className="h-11 w-20 px-3 rounded border border-outline bg-surface-container-lowest text-base font-bold tabular-nums text-center focus:outline-none focus:border-primary"
+              dir="ltr"
+            />
+            <span className="text-xs text-on-surface-variant">
+              {isHebrew ? "כמה זמן לפני המשחק לזרוע" : "how early before kickoff to seed"}
+            </span>
+          </label>
+        )}
+      </div>
 
       <p className="text-[11px] text-tertiary-fixed-dim">
         {isHebrew

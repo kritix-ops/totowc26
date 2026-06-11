@@ -111,13 +111,13 @@ export default async function LiveBetSuggestionsPage({
   const sp = await searchParams;
   const date = resolveDate(sp.date);
 
-  const [fixtures, oddsConfig, availableDates, templates, suggestModel, remainingMatches] =
+  const [fixtures, oddsConfig, availableDates, templates, aiSettings, remainingMatches] =
     await Promise.all([
       listFixturesForDate(date),
       loadOddsConfig(),
       listLiveBetsDates(),
       listBetTemplates(50),
-      loadSuggestModel(),
+      loadAiSettings(),
       countRemainingMatches(),
     ]);
   // Split templates by scope so the per-fixture row only shows match
@@ -193,8 +193,10 @@ export default async function LiveBetSuggestionsPage({
       </header>
 
       <AiModelCard
-        currentModelId={suggestModel}
+        currentModelId={aiSettings.suggestModel}
         remainingMatches={remainingMatches}
+        autogenEnabled={aiSettings.autogenEnabled}
+        autogenLeadHours={aiSettings.autogenLeadHours}
         locale={locale}
       />
 
@@ -636,11 +638,23 @@ async function loadOddsConfig(): Promise<OddsNormConfig> {
   };
 }
 
-async function loadSuggestModel(): Promise<string> {
+async function loadAiSettings(): Promise<{
+  suggestModel: string;
+  autogenEnabled: boolean;
+  autogenLeadHours: number;
+}> {
   const [s] = await db
-    .select({ suggestModel: settings.suggestModel })
+    .select({
+      suggestModel: settings.suggestModel,
+      autogenEnabled: settings.liveAutogenEnabled,
+      autogenLeadHours: settings.liveAutogenLeadHours,
+    })
     .from(settings)
     .where(eq(settings.id, 1))
     .limit(1);
-  return s?.suggestModel ?? DEFAULT_SUGGEST_MODEL;
+  return {
+    suggestModel: s?.suggestModel ?? DEFAULT_SUGGEST_MODEL,
+    autogenEnabled: s?.autogenEnabled ?? false,
+    autogenLeadHours: s?.autogenLeadHours ?? 30,
+  };
 }
