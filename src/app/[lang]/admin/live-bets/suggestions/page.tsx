@@ -25,6 +25,7 @@ import {
 import { PublishRow } from "./PublishRow";
 import { PublishMarketGroup } from "./PublishMarketGroup";
 import { RefreshFixtureButton } from "./RefreshFixtureButton";
+import { GenerateAiButton } from "./GenerateAiButton";
 
 // Markets we skip in the suggestions UI:
 //   - Match Winner is already covered by the main 1/X/2 bet, so
@@ -249,6 +250,8 @@ export default async function LiveBetSuggestionsPage({
                     <RefreshFixtureButton matchId={f.id} locale={locale} />
                   </div>
                 </header>
+
+                <GenerateAiButton matchId={f.id} locale={locale} />
 
                 {matchTemplates.length > 0 && (
                   <QuickAddRow

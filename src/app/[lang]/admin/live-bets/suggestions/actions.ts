@@ -1,12 +1,22 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { customBets, matches as matchesTable, matchdays } from "@/db/schema";
+import { execFirstRow } from "@/db/helpers";
+import {
+  customBets,
+  matches as matchesTable,
+  matchdays,
+  settings,
+} from "@/db/schema";
 import { getUser } from "@/lib/supabase/auth";
 import { isAdmin } from "@/lib/admin";
 import { getDeadlineContext } from "@/lib/deadlines";
+import { liveStakeCap } from "@/lib/odds-normalize";
+import { generateSuggestions, type FixtureContext } from "@/lib/bets/suggest/generate";
+import { suggestionToDraft } from "@/lib/bets/suggest/transform";
+import { createCustomBet } from "../../bets/actions";
 
 // Server actions for the admin "Live bet suggestions" page.
 //
@@ -321,6 +331,175 @@ export async function refreshOddsForFixture(
   console.info("[odds refresh]", { adminId: user.id, matchId });
   revalidatePath("/[lang]/admin/live-bets/suggestions", "page");
   return { ok: true };
+}
+
+// ─── AI suggestion generation ─────────────────────────────────────
+//
+// Ask the LLM for a batch of live bets for one fixture, price each via the
+// shared probability→odds pipeline, and insert them as DRAFTS through
+// createCustomBet (which re-validates + re-derives payouts). Nothing
+// publishes — the admin reviews the drafts in /admin/bets and publishes the
+// ones they like. Per the user's decision: generation is automatic, the
+// approval is a deliberate tap. See
+// _plans/2026-06-12-live-bets-llm-overhaul.md Phase 2.
+export type GenerateAiResult =
+  | { ok: true; created: number; failed: number; total: number }
+  | { ok: false; error: Err | "no_key" | "llm_failed" | "match_started" };
+
+export async function generateAiSuggestions(
+  matchId: string,
+): Promise<GenerateAiResult> {
+  const user = await getUser();
+  if (!user) return { ok: false, error: "unauth" };
+  if (!(await isAdmin(user.id))) {
+    console.warn("[live-gen denied]", { userId: user.id, matchId });
+    return { ok: false, error: "forbidden" };
+  }
+
+  // Fixture context for the prompt + the lock anchor. Only schedulable
+  // (not-yet-started) matches qualify — a started match can't take new
+  // live bets and createCustomBet would reject the past lockAt anyway.
+  const fx = await loadFixtureContext(matchId);
+  if (!fx) return { ok: false, error: "match_not_found" };
+  if (fx.status !== "scheduled") return { ok: false, error: "match_started" };
+
+  const lockAt = await resolveSuggestionLockAt(fx.kickoffAt, "custom_match");
+  if (lockAt.getTime() <= Date.now()) {
+    return { ok: false, error: "match_started" };
+  }
+
+  const gen = await generateSuggestions(fx.context);
+  if (!gen.ok) {
+    return { ok: false, error: gen.error === "no_key" ? "no_key" : "llm_failed" };
+  }
+
+  const pricingConfig = await loadLivePricingConfig();
+  const lockAtIso = lockAt.toISOString();
+  let created = 0;
+  let failed = 0;
+
+  for (const suggestion of gen.suggestions) {
+    const draft = suggestionToDraft(suggestion, pricingConfig);
+    if ("error" in draft) {
+      failed += 1;
+      console.warn("[live-gen draft skip]", { reason: draft.error, q: suggestion.questionEn });
+      continue;
+    }
+    const gradingSource =
+      draft.grading == null ? "manual" : draft.grading.source;
+    const res = await createCustomBet({
+      scope: "match",
+      matchId,
+      questionHe: draft.questionHe,
+      questionEn: draft.questionEn,
+      gradingRuleHe: draft.gradingRuleHe,
+      gradingRuleEn: draft.gradingRuleEn,
+      answerType: draft.answerType,
+      answerConfig: draft.answerConfig,
+      stakeSnapshot: draft.stakeSnapshot,
+      payoutSnapshot: draft.payoutSnapshot,
+      decimalOdds: null,
+      gradingSource,
+      gradingConfig: draft.grading,
+      lockAt: lockAtIso,
+    });
+    if (res.ok) {
+      created += 1;
+    } else {
+      failed += 1;
+      console.warn("[live-gen create failed]", { error: res.error, q: draft.questionEn });
+    }
+  }
+
+  console.info("[live-gen persisted]", {
+    adminId: user.id,
+    matchId,
+    created,
+    failed,
+    total: gen.suggestions.length,
+  });
+  revalidatePath("/[lang]/admin/bets", "page");
+  revalidatePath("/[lang]/admin/live-bets/suggestions", "page");
+  return { ok: true, created, failed, total: gen.suggestions.length };
+}
+
+// Load the fixture's bilingual team names, stage and kickoff for the
+// generation prompt + lock anchor.
+async function loadFixtureContext(matchId: string): Promise<
+  | { kickoffAt: Date; status: string; context: FixtureContext }
+  | null
+> {
+  const row = await execFirstRow<{
+    kickoffAt: string;
+    status: string;
+    stage: string | null;
+    homeNameHe: string;
+    homeNameEn: string;
+    awayNameHe: string;
+    awayNameEn: string;
+  }>(sql`
+    select
+      m.kickoff_at::text as "kickoffAt",
+      m.status::text     as "status",
+      m.stage::text      as "stage",
+      ht.name_he         as "homeNameHe",
+      ht.name_en         as "homeNameEn",
+      at.name_he         as "awayNameHe",
+      at.name_en         as "awayNameEn"
+    from public.matches m
+    join public.teams ht on ht.code = m.home_team
+    join public.teams at on at.code = m.away_team
+    where m.id = ${matchId}::uuid
+    limit 1
+  `);
+  if (!row) return null;
+  const kickoffAt = new Date(row.kickoffAt);
+  const kickoffLabel = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Jerusalem",
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(kickoffAt);
+  return {
+    kickoffAt,
+    status: row.status,
+    context: {
+      homeNameHe: row.homeNameHe,
+      homeNameEn: row.homeNameEn,
+      awayNameHe: row.awayNameHe,
+      awayNameEn: row.awayNameEn,
+      stage: row.stage ?? "Group Stage",
+      kickoffLabel,
+    },
+  };
+}
+
+// Canonical live pricing config from settings (baseStake / cap / edge).
+// Mirrors the same loader in admin/bets/actions.ts; the odds the suggestion
+// transform derives are config-independent (1/p), but the snapshot payout
+// uses these and createCustomBet re-derives from the same source.
+async function loadLivePricingConfig() {
+  const [s] = await db
+    .select({
+      baseStake: settings.liveOddsBaseStake,
+      houseEdgePct: settings.liveOddsHouseEdgePct,
+      ratio: settings.liveOddsMaxPayoutRatio,
+      ceiling: settings.liveOddsMaxPayoutCeiling,
+    })
+    .from(settings)
+    .where(eq(settings.id, 1))
+    .limit(1);
+  const baseStake = s?.baseStake ?? 3;
+  return {
+    baseStake,
+    houseEdgePct: s?.houseEdgePct ?? 5,
+    maxPayout: liveStakeCap(baseStake, {
+      maxPayoutRatio: s?.ratio ?? 8,
+      maxPayoutCeiling: s?.ceiling ?? 100,
+    }),
+  };
 }
 
 // Pull the per-type lock offset from the deadlines table (managed via
