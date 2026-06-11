@@ -22,6 +22,16 @@ export type YesNoConfig = {
   // _plans/2026-06-05-flat-tournament-bets-per-option-odds.md.
   payoutOverrideYes?: number;
   payoutOverrideNo?: number;
+  // Per-side bookmaker decimal odds for live (match/day) yes/no bets.
+  // These are what the variable-stake submit path reads to reprice each
+  // outcome against the player's chosen stake — the per-side analogue of
+  // MultiChoiceConfig.decimalOddsByValue. Without them a yes/no live bet
+  // falls back to the single bet-level decimal_odds, which prices both
+  // outcomes identically (the original "no VAR pays 5x" flat-odds bug for
+  // binary markets). Derived in code from an admin/LLM probability, never
+  // trusted raw. See _plans/2026-06-12-live-bets-llm-overhaul.md.
+  decimalOddsYes?: number;
+  decimalOddsNo?: number;
 };
 
 export type NumberUnit =

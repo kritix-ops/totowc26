@@ -9,6 +9,7 @@ import {
   customBets,
   matches as matchesTable,
   groups,
+  settings,
   userCustomBetPicks,
 } from "@/db/schema";
 import { getUser } from "@/lib/supabase/auth";
@@ -19,6 +20,11 @@ import type {
   ResolvedValue,
 } from "@/lib/bets/types";
 import { resolvePickPayoutAtGrade } from "@/lib/bets/payout";
+import {
+  repriceAnswerConfigFromOdds,
+  validateLiveOddsConfig,
+} from "@/lib/bets/price-options";
+import { liveStakeCap, type OddsNormConfig } from "@/lib/odds-normalize";
 
 // Discriminated result so the client can branch on the error string.
 type Err =
@@ -126,11 +132,21 @@ export async function createCustomBet(
   if (!validateAnswerConfig(input.answerType, input.answerConfig)) {
     return { ok: false, error: "invalid_answer_config" };
   }
+  // 4b) Any captured per-choice live odds must be real decimals (> 1).
+  if (!validateLiveOddsConfig(input.answerConfig)) {
+    return { ok: false, error: "invalid_answer_config" };
+  }
 
   // 5) Grading config shape ↔ grading source.
   if (!validateGradingConfig(input.gradingSource, input.gradingConfig)) {
     return { ok: false, error: "invalid_grading_config" };
   }
+
+  // 5b) Re-derive per-choice payouts from the odds server-side so a stale
+  // or tampered client payout can never be the stored value. The odds are
+  // the trusted input; the payout integers + bet-level snapshot are
+  // recomputed from the canonical live pricing config.
+  const priced = await repriceLiveBet(input);
 
   // 6) lockAt must be a parseable date and in the future.
   const lockAtDate = new Date(input.lockAt);
@@ -179,9 +195,9 @@ export async function createCustomBet(
         gradingRuleHe: input.gradingRuleHe.trim(),
         gradingRuleEn: input.gradingRuleEn.trim(),
         answerType: input.answerType,
-        answerConfig: input.answerConfig,
-        stakeSnapshot: input.stakeSnapshot,
-        payoutSnapshot: input.payoutSnapshot,
+        answerConfig: priced.answerConfig,
+        stakeSnapshot: priced.stakeSnapshot,
+        payoutSnapshot: priced.payoutSnapshot,
         // drizzle's `numeric` maps to JS string; store with 2dp to match
         // the column precision (see migration 0047). Only live scopes
         // get a value — validated above.
@@ -261,9 +277,13 @@ export async function updateCustomBet(
   if (!validateAnswerConfig(input.answerType, input.answerConfig)) {
     return { ok: false, error: "invalid_answer_config" };
   }
+  if (!validateLiveOddsConfig(input.answerConfig)) {
+    return { ok: false, error: "invalid_answer_config" };
+  }
   if (!validateGradingConfig(input.gradingSource, input.gradingConfig)) {
     return { ok: false, error: "invalid_grading_config" };
   }
+  const priced = await repriceLiveBet(input);
   const lockAtDate = new Date(input.lockAt);
   if (Number.isNaN(lockAtDate.getTime()) || lockAtDate.getTime() <= Date.now()) {
     return { ok: false, error: "invalid_lock_at" };
@@ -325,9 +345,9 @@ export async function updateCustomBet(
         gradingRuleHe: input.gradingRuleHe.trim(),
         gradingRuleEn: input.gradingRuleEn.trim(),
         answerType: input.answerType,
-        answerConfig: input.answerConfig,
-        stakeSnapshot: input.stakeSnapshot,
-        payoutSnapshot: input.payoutSnapshot,
+        answerConfig: priced.answerConfig,
+        stakeSnapshot: priced.stakeSnapshot,
+        payoutSnapshot: priced.payoutSnapshot,
         decimalOdds:
           input.decimalOdds != null ? input.decimalOdds.toFixed(2) : null,
         gradingSource: input.gradingSource,
@@ -601,6 +621,65 @@ function validateGradingConfig(
     );
   }
   return false;
+}
+
+// Re-derive a live bet's per-choice payouts from its captured odds using
+// the canonical pricing config, returning the rewritten answer config plus
+// the bet-level stake/payout snapshot. Non-live scopes and bets without
+// captured odds pass through untouched. Centralises the "server owns the
+// payout math" rule (rule 13) so the manual form, the suggestions page,
+// and the future LLM path all persist the same numbers.
+async function repriceLiveBet(input: CreateCustomBetInput): Promise<{
+  answerConfig: AnswerConfig;
+  stakeSnapshot: number;
+  payoutSnapshot: number;
+}> {
+  const isLive = input.scope === "match" || input.scope === "day";
+  const cfg = input.answerConfig;
+  const hasOdds =
+    (cfg.kind === "multi_choice" && !!cfg.decimalOddsByValue) ||
+    (cfg.kind === "yes_no" &&
+      (cfg.decimalOddsYes !== undefined || cfg.decimalOddsNo !== undefined));
+  if (!isLive || !hasOdds) {
+    return {
+      answerConfig: input.answerConfig,
+      stakeSnapshot: input.stakeSnapshot,
+      payoutSnapshot: input.payoutSnapshot,
+    };
+  }
+  const pricing = await loadLivePricingConfig();
+  const { config, maxPayout } = repriceAnswerConfigFromOdds(input.answerConfig, pricing);
+  return {
+    answerConfig: config,
+    stakeSnapshot: maxPayout != null ? pricing.baseStake : input.stakeSnapshot,
+    payoutSnapshot: maxPayout ?? input.payoutSnapshot,
+  };
+}
+
+// Load the canonical live pricing config (baseStake / cap / house edge)
+// from settings. Mirrors the cap math the user-facing bet card uses, so
+// the snapshot payout the server stores equals what a player sees at the
+// default stake pill.
+async function loadLivePricingConfig(): Promise<OddsNormConfig> {
+  const [s] = await db
+    .select({
+      baseStake: settings.liveOddsBaseStake,
+      houseEdgePct: settings.liveOddsHouseEdgePct,
+      ratio: settings.liveOddsMaxPayoutRatio,
+      ceiling: settings.liveOddsMaxPayoutCeiling,
+    })
+    .from(settings)
+    .where(eq(settings.id, 1))
+    .limit(1);
+  const baseStake = s?.baseStake ?? 3;
+  return {
+    baseStake,
+    houseEdgePct: s?.houseEdgePct ?? 5,
+    maxPayout: liveStakeCap(baseStake, {
+      maxPayoutRatio: s?.ratio ?? 8,
+      maxPayoutCeiling: s?.ceiling ?? 100,
+    }),
+  };
 }
 
 // Find-or-create a matchday row keyed by the Asia/Jerusalem calendar date

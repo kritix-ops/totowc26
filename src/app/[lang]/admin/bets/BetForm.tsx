@@ -25,6 +25,10 @@ import type {
 } from "@/lib/bets/types";
 import { isFreePickScope } from "@/lib/bets/free-pick-scopes";
 import { liveStakeCap, normalizeOdds } from "@/lib/odds-normalize";
+import {
+  priceOptionsFromProbabilities,
+  priceYesNo,
+} from "@/lib/bets/price-options";
 import type { AdminAnchorMatch, AdminAnchorDay, BetTemplate } from "@/db/admin-queries";
 import type { BetTypeKey } from "@/db/schema";
 import { createCustomBet, updateCustomBet } from "./actions";
@@ -172,12 +176,20 @@ export function BetForm({
   );
   const initialMc =
     initialBet?.answerConfig.kind === "multi_choice" ? initialBet.answerConfig : null;
+  // Seed each option's probability (live-scope pricing) from the stored
+  // decimal odds when editing — p = 1 / odds, shown as a whole percent.
+  // Falls back to "" so a fresh draft prompts the admin to fill it.
   const [mcOptions, setMcOptions] = useState<
-    Array<{ value: string; labelHe: string; labelEn: string }>
+    Array<{ value: string; labelHe: string; labelEn: string; probability: string }>
   >(
-    initialMc?.options ?? [
-      { value: "", labelHe: "", labelEn: "" },
-      { value: "", labelHe: "", labelEn: "" },
+    initialMc?.options?.map((o) => ({
+      value: o.value,
+      labelHe: o.labelHe,
+      labelEn: o.labelEn,
+      probability: oddsToPercentString(initialMc.decimalOddsByValue?.[o.value]),
+    })) ?? [
+      { value: "", labelHe: "", labelEn: "", probability: "" },
+      { value: "", labelHe: "", labelEn: "", probability: "" },
     ],
   );
   const initialFt =
@@ -187,6 +199,16 @@ export function BetForm({
   );
   const [freeTextPlaceholderEn, setFreeTextPlaceholderEn] = useState(
     initialFt?.placeholderEn ?? "",
+  );
+
+  // Yes-probability for live (match/day) yes/no bets, as a whole-percent
+  // string. Drives priceYesNo so each side prices on its own odds instead
+  // of sharing one bet-level number. Seeded from decimalOddsYes when
+  // editing; empty on a fresh draft.
+  const initialYesNo =
+    initialBet?.answerConfig.kind === "yes_no" ? initialBet.answerConfig : null;
+  const [yesProbability, setYesProbability] = useState<string>(
+    oddsToPercentString(initialYesNo?.decimalOddsYes),
   );
 
   // ---- Pricing (scope-aware) ----
@@ -260,6 +282,63 @@ export function BetForm({
     return { stake: previewStake, payout: previewPayout };
   }, [parsedDecimalOdds, defaults]);
 
+  // Shared pricing config for the probability→odds path (live multi-choice
+  // and live yes/no). Same baseStake / cap / edge the user-facing card
+  // uses at the default ★ pill, so the admin preview matches what a player
+  // sees when they stake the default amount.
+  const livePricingConfig = useMemo(() => {
+    if (!defaults) return null;
+    return {
+      baseStake: defaults.liveOddsBaseStake,
+      maxPayout: liveStakeCap(defaults.liveOddsBaseStake, {
+        maxPayoutRatio: defaults.liveOddsMaxPayoutRatio,
+        maxPayoutCeiling: defaults.liveOddsMaxPayoutCeiling,
+      }),
+      houseEdgePct: defaults.liveOddsHouseEdgePct,
+    };
+  }, [defaults]);
+
+  // Per-option live pricing for a multi-choice exotic market. Parses each
+  // option's probability %, renormalises + prices via the shared module,
+  // and returns a map keyed by option value so the render can show the
+  // payout next to each option and the submit can embed it. null until at
+  // least one valid probability is entered, so the UI degrades cleanly.
+  const isLiveMultiChoice = isLiveScope && answerType === "multi_choice";
+  const liveMcPricing = useMemo(() => {
+    if (!isLiveMultiChoice || !livePricingConfig) return null;
+    const parsed = mcOptions.map((o) => ({
+      value: o.value.trim(),
+      probability: parsePercent(o.probability),
+    }));
+    if (!parsed.some((p) => p.probability != null)) return null;
+    const priced = priceOptionsFromProbabilities(
+      parsed.map((p) => ({
+        value: p.value || "_",
+        probability: p.probability ?? 0,
+      })),
+      livePricingConfig,
+    );
+    const byIndex = priced.map((pr) => ({
+      payout: pr.payout,
+      decimalOdds: pr.decimalOdds,
+      probability: pr.probability,
+    }));
+    return byIndex;
+  }, [isLiveMultiChoice, livePricingConfig, mcOptions]);
+
+  // Per-side live pricing for a yes/no exotic market.
+  const isLiveYesNo = isLiveScope && answerType === "yes_no";
+  const parsedYesProbability = useMemo(
+    () => parsePercent(yesProbability),
+    [yesProbability],
+  );
+  const liveYesNoPricing = useMemo(() => {
+    if (!isLiveYesNo || !livePricingConfig || parsedYesProbability == null) {
+      return null;
+    }
+    return priceYesNo(parsedYesProbability, livePricingConfig);
+  }, [isLiveYesNo, livePricingConfig, parsedYesProbability]);
+
   // Snap stake/payout to the computed preview when decimal_odds is the
   // source of truth — keeps the saved snapshot consistent with what the
   // user-facing card will show at the default pill.
@@ -268,16 +347,32 @@ export function BetForm({
     setPayout(liveOddsPreview.payout);
   }
 
-  // Live scope without decimal_odds yet — snap to the live default
+  const liveFallbackStake = defaults?.liveOddsBaseStake ?? 3;
+
+  // Live multi-choice / yes-no priced from probabilities: the bet-level
+  // snapshot stake is the base stake and the snapshot payout is the
+  // HIGHEST priced outcome. Per-option/per-side payouts live in
+  // answer_config; this bet-level pair is only the grade/fallback anchor.
+  const liveProbMaxPayout = liveMcPricing
+    ? Math.max(...liveMcPricing.map((p) => p.payout))
+    : liveYesNoPricing
+      ? Math.max(liveYesNoPricing.payoutYes, liveYesNoPricing.payoutNo)
+      : null;
+
+  if (liveProbMaxPayout != null) {
+    if (stake !== liveFallbackStake) setStake(liveFallbackStake);
+    if (payout !== liveProbMaxPayout) setPayout(liveProbMaxPayout);
+  }
+
+  // Live scope without any odds/probability yet — snap to the live default
   // stake (settings.liveOddsBaseStake) so the saved snapshot still
   // represents a sensible default ★ pill. Payout falls back to the
   // answer-type default (yes/no=3, etc.) which the linear-scale
   // fallback path in write-core then uses as the scaling baseline.
-  const liveFallbackStake = defaults?.liveOddsBaseStake ?? 3;
-  if (isLiveScope && !liveOddsPreview && stake !== liveFallbackStake) {
+  if (isLiveScope && !liveOddsPreview && liveProbMaxPayout == null && stake !== liveFallbackStake) {
     setStake(liveFallbackStake);
   }
-  if (isLiveScope && !liveOddsPreview && payout !== defaultStakePayout.payout) {
+  if (isLiveScope && !liveOddsPreview && liveProbMaxPayout == null && payout !== defaultStakePayout.payout) {
     setPayout(defaultStakePayout.payout);
   }
 
@@ -342,12 +437,16 @@ export function BetForm({
               value: o.value,
               labelHe: o.labelHe,
               labelEn: o.labelEn,
+              probability: oddsToPercentString(cfg.decimalOddsByValue?.[o.value]),
             }))
           : [
-              { value: "", labelHe: "", labelEn: "" },
-              { value: "", labelHe: "", labelEn: "" },
+              { value: "", labelHe: "", labelEn: "", probability: "" },
+              { value: "", labelHe: "", labelEn: "", probability: "" },
             ],
       );
+    }
+    if (cfg?.kind === "yes_no") {
+      setYesProbability(oddsToPercentString(cfg.decimalOddsYes));
     }
     if (cfg?.kind === "free_text") {
       setFreeTextPlaceholderHe(cfg.placeholderHe ?? "");
@@ -395,15 +494,38 @@ export function BetForm({
     e.preventDefault();
     setError(null);
 
-    const answerConfig = buildAnswerConfig(
+    const built = buildAnswerConfig(
       answerType,
       { numberUnit, numberMin, numberMax },
       mcOptions,
       { freeTextPlaceholderHe, freeTextPlaceholderEn },
     );
-    if (answerConfig === "invalid") {
+    if (built === "invalid") {
       setError(isHebrew ? "תצורת תשובה לא תקינה" : "Invalid answer config");
       return;
+    }
+
+    // Embed per-choice live pricing derived from the admin's probabilities.
+    // Returns "incomplete" when some-but-not-all options carry a
+    // probability — partial pricing would silently flatten the rest, the
+    // very bug we're fixing, so block it with a clear message.
+    let answerConfig: AnswerConfig = built;
+    let betLevelDecimalOdds: number | null = isLiveScope ? parsedDecimalOdds : null;
+    if (isLiveScope && livePricingConfig) {
+      const priced = embedLivePricing(built, mcOptions, yesProbability, livePricingConfig);
+      if (priced === "incomplete") {
+        setError(
+          isHebrew
+            ? "מלא הסתברות לכל האפשרויות (או השאר את כולן ריקות)."
+            : "Fill a probability for every option (or leave them all empty).",
+        );
+        return;
+      }
+      if (priced) {
+        answerConfig = priced;
+        // Per-option/per-side pricing supersedes a single bet-level odds.
+        betLevelDecimalOdds = null;
+      }
     }
 
     const gradingConfig = buildGradingConfig(
@@ -439,9 +561,12 @@ export function BetForm({
       answerConfig,
       stakeSnapshot: stake,
       payoutSnapshot: payout,
-      // Only live scopes ship a decimal_odds value. The server re-asserts
-      // the scope gate and rejects a stray value on free-pick scopes.
-      decimalOdds: isLiveScope ? parsedDecimalOdds : null,
+      // Only live scopes ship a decimal_odds value, and only when pricing
+      // is a single outcome (number/free-text). Per-option/per-side priced
+      // bets carry their odds inside answer_config and null this out. The
+      // server re-asserts the scope gate and rejects a stray value on
+      // free-pick scopes.
+      decimalOdds: betLevelDecimalOdds,
       gradingSource,
       gradingConfig,
       lockAt: lockAtIso,
@@ -705,49 +830,92 @@ export function BetForm({
       )}
 
       {answerType === "multi_choice" && (
-        <Section title={isHebrew ? "אפשרויות בחירה" : "Choice options"}>
+        <Section
+          title={isHebrew ? "אפשרויות בחירה" : "Choice options"}
+          hint={
+            isLiveMultiChoice
+              ? isHebrew
+                ? "להימור לייב מקובץ (למשל ואר: מחצית 1 / מחצית 2 / אין): תן הסתברות באחוזים לכל אפשרות. המערכת מנרמלת אותן ל-100% ומחשבת יחס ותשלום נפרדים לכל בחירה — אפשרות סבירה משלמת מעט, אאוטסיידר משלם הרבה."
+                : "For a grouped live market (e.g. VAR: 1st half / 2nd half / none): give each option a probability %. The system renormalises to 100% and prices each choice on its own odds — likely outcomes pay little, longshots pay big."
+              : undefined
+          }
+        >
           <div className="flex flex-col gap-3">
-            {mcOptions.map((opt, i) => (
-              <div
-                key={i}
-                className="grid grid-cols-1 md:grid-cols-[80px_1fr_1fr_44px] gap-2 md:items-center"
-              >
-                <LabeledInput
-                  label={isHebrew ? "ערך" : "Value"}
-                  value={opt.value}
-                  onChange={(v) => updateMc(i, "value", v, mcOptions, setMcOptions)}
-                  placeholder="brazil"
-                />
-                <LabeledInput
-                  label="HE"
-                  value={opt.labelHe}
-                  onChange={(v) => updateMc(i, "labelHe", v, mcOptions, setMcOptions)}
-                  placeholder="ברזיל"
-                  dir="rtl"
-                />
-                <LabeledInput
-                  label="EN"
-                  value={opt.labelEn}
-                  onChange={(v) => updateMc(i, "labelEn", v, mcOptions, setMcOptions)}
-                  placeholder="Brazil"
-                />
-                <button
-                  type="button"
-                  onClick={() => removeMc(i, mcOptions, setMcOptions)}
-                  disabled={mcOptions.length <= 2}
-                  className="self-end md:self-center min-w-[44px] min-h-[44px] rounded-full border border-outline text-on-surface-variant hover:text-error disabled:opacity-40 flex items-center justify-center"
-                  aria-label={isHebrew ? "הסר אפשרות" : "Remove option"}
+            {mcOptions.map((opt, i) => {
+              const priced = liveMcPricing?.[i];
+              return (
+                <div
+                  key={i}
+                  className="flex flex-col gap-2 rounded-lg border border-outline-variant bg-surface-container-lowest p-2 md:border-0 md:bg-transparent md:p-0"
                 >
-                  <Trash2 className="h-4 w-4" strokeWidth={2} />
-                </button>
-              </div>
-            ))}
+                  <div className="grid grid-cols-1 md:grid-cols-[80px_1fr_1fr_44px] gap-2 md:items-center">
+                    <LabeledInput
+                      label={isHebrew ? "ערך" : "Value"}
+                      value={opt.value}
+                      onChange={(v) => updateMc(i, "value", v, mcOptions, setMcOptions)}
+                      placeholder="brazil"
+                    />
+                    <LabeledInput
+                      label="HE"
+                      value={opt.labelHe}
+                      onChange={(v) => updateMc(i, "labelHe", v, mcOptions, setMcOptions)}
+                      placeholder="ברזיל"
+                      dir="rtl"
+                    />
+                    <LabeledInput
+                      label="EN"
+                      value={opt.labelEn}
+                      onChange={(v) => updateMc(i, "labelEn", v, mcOptions, setMcOptions)}
+                      placeholder="Brazil"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => removeMc(i, mcOptions, setMcOptions)}
+                      disabled={mcOptions.length <= 2}
+                      className="self-end md:self-center min-w-[44px] min-h-[44px] rounded-full border border-outline text-on-surface-variant hover:text-error disabled:opacity-40 flex items-center justify-center"
+                      aria-label={isHebrew ? "הסר אפשרות" : "Remove option"}
+                    >
+                      <Trash2 className="h-4 w-4" strokeWidth={2} />
+                    </button>
+                  </div>
+                  {isLiveMultiChoice && (
+                    <div className="flex items-end gap-3 ps-0 md:ps-[88px]">
+                      <label className="flex flex-col gap-1.5">
+                        <LabelCaps>{isHebrew ? "הסתברות %" : "Probability %"}</LabelCaps>
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          value={opt.probability}
+                          onChange={(e) =>
+                            updateMc(i, "probability", e.target.value, mcOptions, setMcOptions)
+                          }
+                          placeholder="33"
+                          dir="ltr"
+                          className="min-h-[48px] w-24 px-3 rounded border border-outline bg-surface-container-lowest text-base font-bold tabular-nums focus:outline-none focus:border-primary"
+                        />
+                      </label>
+                      {priced && (
+                        <div className="flex items-center gap-2 pb-2 text-sm text-on-surface-variant">
+                          <Chip className="tabular-nums">×{priced.decimalOdds.toFixed(2)}</Chip>
+                          <span>
+                            {isHebrew ? "תשלום" : "Pays"}{" "}
+                            <bdi className="tabular-nums font-bold text-on-surface">
+                              {priced.payout}
+                            </bdi>
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
             <button
               type="button"
               onClick={() =>
                 setMcOptions([
                   ...mcOptions,
-                  { value: "", labelHe: "", labelEn: "" },
+                  { value: "", labelHe: "", labelEn: "", probability: "" },
                 ])
               }
               className="self-start inline-flex items-center gap-2 min-h-[44px] px-4 rounded-full border border-outline bg-surface-container-lowest text-on-surface text-sm font-bold hover:bg-surface-container"
@@ -785,10 +953,18 @@ export function BetForm({
       <Section
         title={isHebrew ? "תמחור" : "Pricing"}
         hint={
-          isLiveScope
+          isLiveMultiChoice
             ? isHebrew
-              ? "בהימור לייב השחקן בוחר בעצמו כמה לסכן (1-30) על כרטיס ההימור. כל מה שצריך ממך כאן זה ה-decimal odds מהבוקמייקר — המערכת תחשב לבד את ה-payout המדויק לכל סכום שיבחר."
-              : "On a live bet the player picks how much to risk (1-30) on the card themselves. All you need to enter here is the bookmaker decimal odds — the system reprices the payout for every chosen stake."
+              ? "התמחור לכל אפשרות נקבע מההסתברויות שמילאת למעלה. כאן רק תצוגה מסכמת."
+              : "Per-option pricing comes from the probabilities you set above. This is just a summary."
+            : isLiveYesNo
+              ? isHebrew
+                ? "תן הסתברות באחוזים שהתשובה היא 'כן'. המערכת מתמחרת 'כן' ו'לא' בנפרד — כך 'לא יהיה ואר' (סביר) לא משלם כמו אאוטסיידר."
+                : "Give the probability the answer is 'yes'. The system prices yes and no separately, so a likely 'no' can't pay like a longshot."
+              : isLiveScope
+                ? isHebrew
+                  ? "בהימור לייב השחקן בוחר בעצמו כמה לסכן (1-30). כל מה שצריך כאן זה ה-decimal odds — המערכת תחשב את ה-payout לכל סכום."
+                  : "On a live bet the player picks how much to risk (1-30). Enter the bookmaker decimal odds — the system reprices the payout for every stake."
             : isFreePickFormScope
               ? isHebrew
                 ? "הימור טורניר/שלב/בית הוא ללא עלות לשחקן. השדה למטה הוא רק fallback אם אין מחיר לכל אפשרות."
@@ -798,11 +974,74 @@ export function BetForm({
                 : `Default for this answer type: stake ${defaultStakePayout.stake} / payout ${defaultStakePayout.payout}.`
         }
       >
-        {/* Live (match/day): single input for the bookmaker odds. The
-            stake/payout snapshot is computed automatically; no manual
-            entry needed because the player picks the stake themselves
-            on the bet card. */}
-        {isLiveScope && (
+        {/* Live multi-choice: pricing is per-option from the probabilities
+            above. Show a summary + a nudge if some options are unpriced. */}
+        {isLiveMultiChoice && (
+          <div className="flex flex-col gap-2">
+            {liveMcPricing ? (
+              <p className="text-sm text-on-surface-variant">
+                {isHebrew ? "טווח תשלום" : "Payout range"}:{" "}
+                <bdi className="tabular-nums font-bold text-on-surface">
+                  {Math.min(...liveMcPricing.map((p) => p.payout))}–
+                  {Math.max(...liveMcPricing.map((p) => p.payout))}
+                </bdi>{" "}
+                {isHebrew
+                  ? `(סיכון ברירת מחדל ${liveFallbackStake})`
+                  : `(default risk ${liveFallbackStake})`}
+              </p>
+            ) : (
+              <p className="text-xs text-tertiary-fixed-dim">
+                {isHebrew
+                  ? "מלא הסתברות לכל אפשרות למעלה כדי לתמחר. בלי הסתברויות, כל האפשרויות יקבלו את אותו תשלום (הבאג הישן)."
+                  : "Fill a probability for each option above to price them. Without probabilities every option gets the same payout (the old bug)."}
+              </p>
+            )}
+          </div>
+        )}
+
+        {/* Live yes/no: single yes-probability drives per-side pricing. */}
+        {isLiveYesNo && (
+          <div className="flex flex-wrap items-end gap-3">
+            <label className="flex flex-col gap-1.5">
+              <LabelCaps>
+                {isHebrew ? "הסתברות ל'כן' %" : "Probability of yes %"}
+              </LabelCaps>
+              <input
+                type="text"
+                inputMode="decimal"
+                placeholder="35"
+                value={yesProbability}
+                onChange={(e) => setYesProbability(e.target.value)}
+                className="min-h-[48px] w-24 px-3 rounded border border-outline bg-surface-container-lowest text-base font-bold tabular-nums focus:outline-none focus:border-primary"
+                dir="ltr"
+              />
+            </label>
+            {liveYesNoPricing ? (
+              <div className="flex items-center gap-3 pb-2 text-sm text-on-surface-variant">
+                <span className="inline-flex items-center gap-1.5">
+                  {isHebrew ? "כן" : "Yes"}
+                  <Chip className="tabular-nums">×{liveYesNoPricing.decimalOddsYes.toFixed(2)}</Chip>
+                  <bdi className="tabular-nums font-bold text-on-surface">{liveYesNoPricing.payoutYes}</bdi>
+                </span>
+                <span className="inline-flex items-center gap-1.5">
+                  {isHebrew ? "לא" : "No"}
+                  <Chip className="tabular-nums">×{liveYesNoPricing.decimalOddsNo.toFixed(2)}</Chip>
+                  <bdi className="tabular-nums font-bold text-on-surface">{liveYesNoPricing.payoutNo}</bdi>
+                </span>
+              </div>
+            ) : (
+              <p className="text-xs text-tertiary-fixed-dim pb-2">
+                {isHebrew
+                  ? "בלי הסתברות, שני הצדדים מקבלים אותו תשלום (הבאג הישן)."
+                  : "Without a probability both sides get the same payout (the old bug)."}
+              </p>
+            )}
+          </div>
+        )}
+
+        {/* Live number / free-text: single bookmaker odds drives the
+            variable-stake math (one outcome, one price). */}
+        {isLiveScope && !isLiveMultiChoice && !isLiveYesNo && (
           <div className="flex flex-col gap-3">
             <div className="flex flex-wrap items-end gap-3">
               <label className="flex flex-col gap-1">
@@ -1235,12 +1474,19 @@ function NumberStepper({
   );
 }
 
+type McOption = {
+  value: string;
+  labelHe: string;
+  labelEn: string;
+  probability: string;
+};
+
 function updateMc(
   i: number,
-  field: "value" | "labelHe" | "labelEn",
+  field: "value" | "labelHe" | "labelEn" | "probability",
   value: string,
-  list: Array<{ value: string; labelHe: string; labelEn: string }>,
-  setter: (l: typeof list) => void,
+  list: McOption[],
+  setter: (l: McOption[]) => void,
 ) {
   const next = list.slice();
   next[i] = { ...next[i], [field]: value };
@@ -1249,11 +1495,29 @@ function updateMc(
 
 function removeMc(
   i: number,
-  list: Array<{ value: string; labelHe: string; labelEn: string }>,
-  setter: (l: typeof list) => void,
+  list: McOption[],
+  setter: (l: McOption[]) => void,
 ) {
   if (list.length <= 2) return;
   setter(list.filter((_, idx) => idx !== i));
+}
+
+// Parse a whole/decimal percent string ("33", "12.5") into a 0..1
+// probability. Returns null for empty/non-numeric/out-of-range input so
+// callers can treat "not filled" distinctly from 0.
+function parsePercent(raw: string): number | null {
+  const trimmed = raw.trim().replace(/%$/, "");
+  if (trimmed === "") return null;
+  const n = Number(trimmed);
+  if (!Number.isFinite(n) || n <= 0 || n >= 100) return null;
+  return n / 100;
+}
+
+// Inverse: a stored decimal odds back to a whole-percent string for the
+// edit-mode form seed (p = 1 / odds). Empty string when no odds present.
+function oddsToPercentString(odds: number | undefined): string {
+  if (typeof odds !== "number" || !Number.isFinite(odds) || odds <= 1) return "";
+  return String(Math.round((1 / odds) * 100));
 }
 
 function buildAnswerConfig(
@@ -1304,6 +1568,60 @@ function buildAnswerConfig(
         placeholderEn: freeText.freeTextPlaceholderEn.trim() || undefined,
       };
   }
+}
+
+// Derive per-choice live pricing from the admin's probabilities and embed
+// it into the answer config. Three outcomes:
+//   - an AnswerConfig with pricing maps filled (all options/sides priced)
+//   - null  → no probabilities entered; keep the legacy flat-payout shape
+//   - "incomplete" → some but not all options priced; caller blocks submit
+// Only multi_choice and yes_no carry per-choice pricing; other types
+// return null. The decimal odds are re-derived from the probabilities so
+// the stored map matches exactly what the player-facing card recomputes.
+function embedLivePricing(
+  config: AnswerConfig,
+  mcOptions: McOption[],
+  yesProbability: string,
+  pricingConfig: { baseStake: number; maxPayout: number; houseEdgePct: number },
+): AnswerConfig | null | "incomplete" {
+  if (config.kind === "multi_choice") {
+    const probByValue = new Map<string, number | null>();
+    for (const o of mcOptions) {
+      probByValue.set(o.value.trim(), parsePercent(o.probability));
+    }
+    const probs = config.options.map((o) => probByValue.get(o.value) ?? null);
+    const filled = probs.filter((p) => p != null).length;
+    if (filled === 0) return null; // legacy flat payout
+    if (filled < config.options.length) return "incomplete";
+
+    const priced = priceOptionsFromProbabilities(
+      config.options.map((o, i) => ({ value: o.value, probability: probs[i] as number })),
+      pricingConfig,
+    );
+    const decimalOddsByValue: Record<string, number> = {};
+    const payoutOverridesByValue: Record<string, number> = {};
+    const options = config.options.map((o, i) => {
+      decimalOddsByValue[o.value] = priced[i].decimalOdds;
+      payoutOverridesByValue[o.value] = priced[i].payout;
+      return { ...o, payoutOverride: priced[i].payout };
+    });
+    return { ...config, options, decimalOddsByValue, payoutOverridesByValue };
+  }
+
+  if (config.kind === "yes_no") {
+    const p = parsePercent(yesProbability);
+    if (p == null) return null; // legacy flat payout
+    const yn = priceYesNo(p, pricingConfig);
+    return {
+      ...config,
+      decimalOddsYes: yn.decimalOddsYes,
+      decimalOddsNo: yn.decimalOddsNo,
+      payoutOverrideYes: yn.payoutYes,
+      payoutOverrideNo: yn.payoutNo,
+    };
+  }
+
+  return null;
 }
 
 function buildGradingConfig(
