@@ -134,7 +134,7 @@ export type AdminUserBetRow = {
   payoutSnapshot: number;
   resolvedValue: unknown | null;
   lockAt: string;
-  status: "open" | "locked";
+  status: "open" | "locked" | "graded";
   // Match-anchored bets carry the matchup for display. NULL for non-match
   // scopes.
   homeCode: string | null;
@@ -192,7 +192,7 @@ export async function fetchUserBetsForAdmin(
     left join public.matches m on m.id = cb.match_id
     left join public.teams ht on ht.code = m.home_team
     left join public.teams at on at.code = m.away_team
-    where cb.status in ('open', 'locked')
+    where cb.status in ('open', 'locked', 'graded')
     order by
       case cb.scope::text
         when 'tournament' then 1

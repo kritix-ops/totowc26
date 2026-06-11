@@ -315,10 +315,20 @@ function BetRow({
           {isHebrew ? row.questionHe : row.questionEn}
         </h3>
         <div className="flex flex-col items-end gap-1 shrink-0">
-          <Chip tone={row.status === "open" ? "primary" : "default"}>
+          <Chip
+            tone={
+              row.status === "open"
+                ? "primary"
+                : row.status === "graded"
+                  ? "secondary"
+                  : "default"
+            }
+          >
             {row.status === "open"
               ? isHebrew ? "פתוח" : "Open"
-              : isHebrew ? "נסגר" : "Locked"}
+              : row.status === "graded"
+                ? isHebrew ? "נגמר" : "Settled"
+                : isHebrew ? "נסגר" : "Locked"}
           </Chip>
           <span className="text-xs text-on-surface-variant tabular-nums inline-flex items-center gap-1">
             <Lock className="h-3 w-3" strokeWidth={2} />
