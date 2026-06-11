@@ -54,8 +54,13 @@ import { MS_PER_MINUTE } from "./time";
 // global cap.
 export const FALLBACK_OFFSET_MINUTES: Record<BetTypeKey, number> = {
   match_score: 60,
-  custom_match: 60,
-  custom_day: 60,
+  // Live (match/day) bets close 5 minutes before kickoff so a player who
+  // sees a fresh news flash on the TV right before the whistle still has
+  // a chance to place. Matches the row in bet_lock_defaults seeded by
+  // migration 0048. Tournament/stage/group keep 60 min — the longer
+  // buffer is by design for outright/longer-horizon bets.
+  custom_match: 5,
+  custom_day: 5,
   custom_stage: 60,
   custom_group: 60,
   custom_tournament: 60,
