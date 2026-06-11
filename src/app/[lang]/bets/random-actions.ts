@@ -56,8 +56,10 @@ export async function fillRandomPicks(
     if (target.surface === "matches") {
       const matches = await listFillableMatches(user.id);
       const inputs = await loadScoreInputs(matches.map((m) => m.matchId));
+      const sourceCounts: Record<string, number> = { odds: 0, rank: 0, default: 0 };
       for (const m of matches) {
         const score = predictScore(inputs.get(m.matchId) ?? {});
+        sourceCounts[score.source] = (sourceCounts[score.source] ?? 0) + 1;
         const res = await writeMatchPick(
           principal,
           { matchId: m.matchId, home: score.home, away: score.away },
@@ -66,6 +68,11 @@ export async function fillRandomPicks(
         if (res.status === "filled") filled++;
         else skipped++;
       }
+      console.info("[fill-random matches]", {
+        userId: user.id,
+        considered: matches.length,
+        sourceCounts,
+      });
     } else {
       const bets = await loadCustomBets(user.id, target);
       // Build pick answers, dropping bets the generator can't sensibly fill
@@ -116,7 +123,8 @@ export async function suggestMatchScore(
 
   try {
     const inputs = await loadScoreInputs([matchId]);
-    const { home, away } = predictScore(inputs.get(matchId) ?? {});
+    const { home, away, source } = predictScore(inputs.get(matchId) ?? {});
+    console.info("[suggest-match-score]", { matchId, home, away, source });
     return { ok: true, home, away };
   } catch (err) {
     console.error("[suggest-match-score] failed", err);

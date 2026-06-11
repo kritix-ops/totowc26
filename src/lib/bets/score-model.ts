@@ -55,18 +55,28 @@ const WC_AVERAGE_TOTAL = 2.6;
 // and the matrix never collapses to a single cell.
 const MIN_LAMBDA = 0.15;
 // Cap on the favourite's goal margin estimate, both odds- and rank-derived.
-const MAX_SUPREMACY = 2.4;
-// If the favourite's modelled win probability is at least this high (a clear
-// 3-in-4 favourite), we forbid the underdog from winning before sampling
-// (draws and favourite wins stay). This is the guardrail that enforces common
-// sense — a clear favourite is never handed a loss — while genuinely
-// competitive games keep their realistic upset chance. Tunable.
-const UPSET_CAP_THRESHOLD = 0.75;
-// Goal-margin added per unit of rank gap on the fallback (no-odds) path.
-const RANK_SUPREMACY_K = 0.06;
+const MAX_SUPREMACY = 2.6;
+// If the favourite's modelled win probability is at least this high we forbid
+// the underdog from winning before sampling (draws and favourite wins stay).
+// 0.60 catches anyone who's a clear-on-paper favourite — Spain vs Saudi Arabia,
+// Brazil vs Iran — not just the 3-in-4 monsters. The cap kills the embarrassing
+// "auto-fill picks the no-hope outsider" outputs while genuinely competitive
+// games (gap < ~15 ranks) keep their realistic upset chance.
+const UPSET_CAP_THRESHOLD = 0.6;
+// Goal-margin added per unit of rank gap on the fallback (no-odds) path. 0.08
+// means a 30-rank gap (e.g. Spain vs Cape Verde) gives a 2.4-goal supremacy,
+// already hitting the MAX_SUPREMACY ceiling — exactly what we want for those
+// fixtures.
+const RANK_SUPREMACY_K = 0.08;
 // Maps the de-vigged 1X2 win-probability gap to a goal margin on the odds path
 // when no Asian handicap line is available.
 const WIN_GAP_TO_SUPREMACY = 2.2;
+// Rank-gap threshold above which we treat team-strength as a hard sanity check.
+// At gap >= 18 the underdog is forbidden from winning even if the bookmaker
+// odds disagree — this is the defence against bad/stale/mis-mapped odds. WC
+// 2026 examples: Spain (5) vs Saudi (28) = gap 23 → capped; Spain vs Croatia
+// (10) = gap 5 → not capped, treated as a real contest.
+const STRONG_RANK_GAP = 18;
 
 function clamp(x: number, lo: number, hi: number): number {
   return Math.min(hi, Math.max(lo, x));
@@ -173,28 +183,39 @@ function sampleFromMatrix(
 }
 
 // Build a (favourite-capped) score matrix from a total + supremacy pair, then
-// sample it. Shared by the odds and rank paths.
+// sample it. Shared by the odds and rank paths. When both teams' ranks are
+// known and the gap is wide enough, the rank-favourite is ALSO upset-capped —
+// this is the cross-check that protects us against misleading odds (e.g. a
+// stale snapshot, a mis-mapped fixture, a market with the home/away swapped).
 function sampleFromTotalSupremacy(
   total: number,
   supremacy: number,
+  ranks: { home: number | null; away: number | null },
   rng: Rng,
 ): { home: number; away: number } {
   const sup = clamp(supremacy, -MAX_SUPREMACY, MAX_SUPREMACY);
   const lambdaHome = (total + sup) / 2;
   const lambdaAway = (total - sup) / 2;
-  const matrix = scoreMatrix(lambdaHome, lambdaAway);
+  let matrix = scoreMatrix(lambdaHome, lambdaAway);
   const favourite = lambdaHome >= lambdaAway ? "home" : "away";
-  const finalMatrix =
-    favouriteWinProbability(matrix, favourite) >= UPSET_CAP_THRESHOLD
-      ? applyUpsetCap(matrix, favourite)
-      : matrix;
-  return sampleFromMatrix(finalMatrix, rng);
+  if (favouriteWinProbability(matrix, favourite) >= UPSET_CAP_THRESHOLD) {
+    matrix = applyUpsetCap(matrix, favourite);
+  }
+  if (typeof ranks.home === "number" && typeof ranks.away === "number") {
+    const rankGap = Math.abs(ranks.home - ranks.away);
+    if (rankGap >= STRONG_RANK_GAP) {
+      const rankFavourite = ranks.home < ranks.away ? "home" : "away";
+      matrix = applyUpsetCap(matrix, rankFavourite);
+    }
+  }
+  return sampleFromMatrix(matrix, rng);
 }
 
 // Odds path: needs at least the 1X2 market. Returns null when it cannot be used
 // so the caller can fall back.
 function predictFromOdds(
   odds: OddsInput,
+  ranks: { home: number | null; away: number | null },
   rng: Rng,
 ): { home: number; away: number } | null {
   const win = odds.win;
@@ -214,7 +235,7 @@ function predictFromOdds(
       ? -odds.handicap.homeLine
       : (probs.pH - probs.pA) * WIN_GAP_TO_SUPREMACY;
 
-  return sampleFromTotalSupremacy(total, supremacy, rng);
+  return sampleFromTotalSupremacy(total, supremacy, ranks, rng);
 }
 
 // Rank fallback: a sensible supremacy from the strength-rank gap, average total.
@@ -225,26 +246,42 @@ function predictFromRank(
 ): { home: number; away: number } {
   const gap = rankAway - rankHome; // positive => home is stronger
   const supremacy = gap * RANK_SUPREMACY_K;
-  return sampleFromTotalSupremacy(WC_AVERAGE_TOTAL, supremacy, rng);
+  return sampleFromTotalSupremacy(
+    WC_AVERAGE_TOTAL,
+    supremacy,
+    { home: rankHome, away: rankAway },
+    rng,
+  );
 }
 
 // Resolve a realistic, varied scoreline for one fixture, walking the fallback
 // chain: stored odds -> team-strength rank -> plain goal distribution. The
-// `source` tag records which path produced the pick, for later audit.
+// `source` tag records which path produced the pick, for later audit. We pass
+// the ranks into the odds path too, so a wide rank gap upset-caps even an
+// odds-derived prediction — this is the belt-and-braces guard against bad odds.
 export function predictScore(
   input: ScoreModelInput,
   rng: Rng = Math.random,
 ): ScorePrediction {
+  const ranks = {
+    home: typeof input.rankHome === "number" ? input.rankHome : null,
+    away: typeof input.rankAway === "number" ? input.rankAway : null,
+  };
   if (input.odds) {
-    const fromOdds = predictFromOdds(input.odds, rng);
+    const fromOdds = predictFromOdds(input.odds, ranks, rng);
     if (fromOdds) return { ...fromOdds, source: "odds" };
   }
-  if (
-    typeof input.rankHome === "number" &&
-    typeof input.rankAway === "number"
-  ) {
-    const fromRank = predictFromRank(input.rankHome, input.rankAway, rng);
+  if (ranks.home !== null && ranks.away !== null) {
+    const fromRank = predictFromRank(ranks.home, ranks.away, rng);
     return { ...fromRank, source: "rank" };
   }
+  // No odds, no ranks: a team-agnostic goal sample. Should never happen for a
+  // WC 2026 fixture (every team is in TEAM_RANK) — surface it so a stale team
+  // code or missing row gets noticed instead of quietly producing nonsense.
+  console.warn("[score-model] falling back to default goal distribution", {
+    hasOdds: Boolean(input.odds),
+    rankHome: input.rankHome,
+    rankAway: input.rankAway,
+  });
   return { ...randomMatchScore(rng), source: "default" };
 }
