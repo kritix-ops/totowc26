@@ -1,0 +1,122 @@
+name: Fixtures cron
+
+# Pings /api/cron/sync on the deployed app every 5 minutes during the
+# World Cup, so live scores, statuses, and auto-grading land in the DB
+# within ~5 minutes of the upstream change rather than waiting for the
+# daily vercel.json cron at 06:00 UTC.
+#
+# Why this exists: vercel.json schedules /api/cron/sync only once a day
+# (Hobby plan rejects more frequent crons at deploy time). That's enough
+# for pre-tournament metadata but invisible during match windows — the
+# /live page reads from matches.status='live' and matches.home_score,
+# both of which only move when syncFixtures runs. Without this workflow,
+# every match would render as "scheduled" with no score until the next
+# 06:00 UTC fire.
+#
+# The same syncFixtures call also drives:
+#   - 1/X/2 match-bet grading (scoreFinalMatches)
+#   - auto-graded custom_bets (scoreAutoCustomBets, incl. group winners)
+#   - duel auto-settle on api-football stats (scoreAutoSettleDuels)
+#   - lock-reminder emails (sendDueReminders)
+#   - expired-custom-bet auto-lock (lockExpiredCustomBets)
+#   - expired-open-duel auto-cancel (cancelExpiredOpenDuels)
+# so a higher cadence here also tightens every downstream loop, not just
+# the visible scoreboard.
+#
+# Cost shape: 5-minute cadence = 288 firings/day. Each ping triggers
+# 2 api-football calls (/fixtures + /standings); 576/day = 7.7 % of the
+# Pro plan's 7,500/day cap. Safe margin even if a match day adds another
+# ~50 stats calls from the live page enrichment.
+#
+# Required repo secrets (same as news-cron.yml, already configured):
+# - APP_URL: prod deployed origin, no trailing slash.
+# - CRON_SECRET: same value as the CRON_SECRET env var on prod Vercel.
+#
+# Optional repo secrets (fan-out to sandbox the same way news-cron does):
+# - SANDBOX_APP_URL
+# - SANDBOX_CRON_SECRET (falls back to CRON_SECRET when unset)
+#
+# Manual run: Actions tab → "Fixtures cron" → "Run workflow".
+
+on:
+  schedule:
+    # GitHub may delay scheduled runs under load; */5 is the tightest
+    # cadence GitHub recommends. Worst-case real lag ≈ 7-10 minutes on
+    # a high-traffic day, which is still far below the 24-hour gap
+    # vercel.json would otherwise impose.
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+# Cancel an in-flight run if a new schedule fires before the previous
+# one finished. syncFixtures takes ~14-16s in steady state so this is
+# defensive — but if a sync ever takes longer than 5 min, we don't want
+# them piling up against the api-football quota or the DB pool.
+concurrency:
+  group: fixtures-cron
+  cancel-in-progress: true
+
+jobs:
+  ping-fixtures-cron:
+    name: Ping /api/cron/sync
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Validate secrets
+        env:
+          APP_URL: ${{ secrets.APP_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$APP_URL" ]; then
+            echo "::error::Repo secret APP_URL is missing. Add it under Settings → Secrets and variables → Actions."
+            exit 1
+          fi
+          if [ -z "$CRON_SECRET" ]; then
+            echo "::error::Repo secret CRON_SECRET is missing. It must match the CRON_SECRET env var on Vercel."
+            exit 1
+          fi
+
+      - name: POST /api/cron/sync (prod)
+        env:
+          APP_URL: ${{ secrets.APP_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        # Steady-state run is ~14-16s. Give it 120s headroom for
+        # api-football slow days. -f turns non-2xx into a non-zero exit
+        # so the Actions tab goes red on failure. We deliberately drop
+        # the response body to keep secret-bearing payloads out of logs.
+        run: |
+          set -euo pipefail
+          curl -fsS -X POST \
+            --max-time 120 \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            -H "Accept: application/json" \
+            -o /dev/null \
+            -w "status=%{http_code} duration=%{time_total}s\n" \
+            "$APP_URL/api/cron/sync"
+
+      - name: POST /api/cron/sync (sandbox)
+        # Same fan-out pattern as news-cron.yml: only runs when
+        # SANDBOX_APP_URL is configured, and a sandbox outage never
+        # fails the prod ping that already succeeded above.
+        env:
+          SANDBOX_APP_URL: ${{ secrets.SANDBOX_APP_URL }}
+          SANDBOX_CRON_SECRET: ${{ secrets.SANDBOX_CRON_SECRET }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          if [ -z "${SANDBOX_APP_URL:-}" ]; then
+            echo "SANDBOX_APP_URL not configured — skipping sandbox ping."
+            exit 0
+          fi
+          SECRET="${SANDBOX_CRON_SECRET:-$CRON_SECRET}"
+          if [ -z "$SECRET" ]; then
+            echo "::warning::SANDBOX_APP_URL is set but neither SANDBOX_CRON_SECRET nor CRON_SECRET is available. Skipping sandbox ping."
+            exit 0
+          fi
+          curl -fsS -X POST \
+            --max-time 120 \
+            -H "Authorization: Bearer $SECRET" \
+            -H "Accept: application/json" \
+            -o /dev/null \
+            -w "status=%{http_code} duration=%{time_total}s\n" \
+            "$SANDBOX_APP_URL/api/cron/sync"
