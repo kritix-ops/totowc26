@@ -49,6 +49,10 @@ export default async function EditBetPage({
           stakeFreeText: settings.stakeFreeText,
           payoutFreeText: settings.payoutFreeText,
           betLockMinutes: settings.betLockMinutes,
+          liveOddsBaseStake: settings.liveOddsBaseStake,
+          liveOddsHouseEdgePct: settings.liveOddsHouseEdgePct,
+          liveOddsMaxPayoutRatio: settings.liveOddsMaxPayoutRatio,
+          liveOddsMaxPayoutCeiling: settings.liveOddsMaxPayoutCeiling,
         })
         .from(settings)
         .where(eq(settings.id, 1))
@@ -79,6 +83,7 @@ export default async function EditBetPage({
     answerConfig: bet.answerConfig as AnswerConfig,
     stakeSnapshot: bet.stakeSnapshot,
     payoutSnapshot: bet.payoutSnapshot,
+    decimalOdds: bet.decimalOdds,
     gradingSource: bet.gradingSource,
     gradingConfig: bet.gradingConfig as GradingConfig,
     lockAt: bet.lockAt,

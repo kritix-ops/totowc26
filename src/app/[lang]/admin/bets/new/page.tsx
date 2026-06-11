@@ -36,6 +36,13 @@ export default async function NewBetPage({
           stakeFreeText: settings.stakeFreeText,
           payoutFreeText: settings.payoutFreeText,
           betLockMinutes: settings.betLockMinutes,
+          // Live-bet pricing knobs — the form reads these to convert the
+          // admin's decimal_odds into the suggested stake/payout preview
+          // and to mirror the user-side payout cap math byte-for-byte.
+          liveOddsBaseStake: settings.liveOddsBaseStake,
+          liveOddsHouseEdgePct: settings.liveOddsHouseEdgePct,
+          liveOddsMaxPayoutRatio: settings.liveOddsMaxPayoutRatio,
+          liveOddsMaxPayoutCeiling: settings.liveOddsMaxPayoutCeiling,
         })
         .from(settings)
         .where(eq(settings.id, 1))

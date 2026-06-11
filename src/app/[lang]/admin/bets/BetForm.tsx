@@ -23,6 +23,8 @@ import type {
   AutoApiFootballStat,
   GradingConfig,
 } from "@/lib/bets/types";
+import { isFreePickScope } from "@/lib/bets/free-pick-scopes";
+import { liveStakeCap, normalizeOdds } from "@/lib/odds-normalize";
 import type { AdminAnchorMatch, AdminAnchorDay } from "@/db/admin-queries";
 import type { BetTypeKey } from "@/db/schema";
 import { createCustomBet, updateCustomBet } from "./actions";
@@ -63,6 +65,13 @@ type Defaults = {
   // Tournament anchor (settings.tournament_start_at). null = no
   // explicit admin choice; falls back to earliest fixture kickoff.
   tournamentStartAt: string | null;
+  // Live-bet pricing knobs — drive the decimal-odds → stake/payout
+  // preview for match/day scopes and mirror the user-side payout cap
+  // math byte-for-byte.
+  liveOddsBaseStake: number;
+  liveOddsHouseEdgePct: number;
+  liveOddsMaxPayoutRatio: number;
+  liveOddsMaxPayoutCeiling: number;
 };
 
 export type InitialBet = {
@@ -79,6 +88,10 @@ export type InitialBet = {
   answerConfig: AnswerConfig;
   stakeSnapshot: number;
   payoutSnapshot: number;
+  // Bookmaker decimal odds as a NUMERIC-mapped string (e.g. "2.50"), or
+  // null when the bet pre-dates the variable-stake feature or is a
+  // free-pick scope. Edit-mode seeds the form from this.
+  decimalOdds: string | null;
   gradingSource: GradingSource;
   gradingConfig: GradingConfig;
   lockAt: string; // ISO 8601 (UTC)
@@ -155,7 +168,23 @@ export function BetForm({
     initialFt?.placeholderEn ?? "",
   );
 
-  // ---- Pricing (default by answer type, overridable) ----
+  // ---- Pricing (scope-aware) ----
+  //
+  // Three modes, picked by the bet's scope:
+  //   • Live (match/day) with decimal_odds   → admin enters the bookmaker
+  //     odds; the form auto-computes stake (= liveOddsBaseStake) and the
+  //     payout via normalizeOdds. This is the path that gives the user-
+  //     facing bet card exact variable-stake math.
+  //   • Live (match/day) without decimal_odds → falls back to manual
+  //     stake/payout entry. Submit-time math then linearly scales from
+  //     this snapshot — works but with rounding drift at non-default
+  //     stakes (logged on the server as `no_odds_fallback`).
+  //   • Free pick (tournament/stage/group)   → stake is force-zero at
+  //     submit time; the form only collects payout as a flat fallback for
+  //     bets without per-option pricing.
+  const isLiveScope = scope === "match" || scope === "day";
+  const isFreePickFormScope = isFreePickScope(scope);
+
   const defaultStakePayout = useMemo(() => {
     if (!defaults) return { stake: 1, payout: 3 };
     switch (answerType) {
@@ -165,6 +194,11 @@ export function BetForm({
       case "free_text":    return { stake: defaults.stakeFreeText,     payout: defaults.payoutFreeText };
     }
   }, [answerType, defaults]);
+
+  const [decimalOddsInput, setDecimalOddsInput] = useState<string>(
+    initialBet?.decimalOdds ?? "",
+  );
+
   const [stake, setStake] = useState<number>(
     initialBet?.stakeSnapshot ?? defaultStakePayout.stake,
   );
@@ -176,10 +210,54 @@ export function BetForm({
   // value is "touched" already because it came from the saved row.
   const [stakeTouched, setStakeTouched] = useState(mode === "edit");
   const [payoutTouched, setPayoutTouched] = useState(mode === "edit");
-  if (!stakeTouched && stake !== defaultStakePayout.stake) {
+
+  // Parse the live decimal-odds input and, when valid, derive the
+  // stake/payout the user-facing card will land on at the default ★ pill.
+  // Same math as src/lib/odds-normalize.ts so admin and player agree.
+  const parsedDecimalOdds = useMemo(() => {
+    if (!isLiveScope) return null;
+    const trimmed = decimalOddsInput.trim();
+    if (!trimmed) return null;
+    const n = Number(trimmed);
+    if (!Number.isFinite(n) || n <= 1) return null;
+    return n;
+  }, [decimalOddsInput, isLiveScope]);
+
+  const liveOddsPreview = useMemo(() => {
+    if (parsedDecimalOdds == null || !defaults) return null;
+    const { stake: previewStake, payout: previewPayout } = normalizeOdds(
+      parsedDecimalOdds,
+      {
+        baseStake: defaults.liveOddsBaseStake,
+        maxPayout: liveStakeCap(defaults.liveOddsBaseStake, {
+          maxPayoutRatio: defaults.liveOddsMaxPayoutRatio,
+          maxPayoutCeiling: defaults.liveOddsMaxPayoutCeiling,
+        }),
+        houseEdgePct: defaults.liveOddsHouseEdgePct,
+      },
+    );
+    return { stake: previewStake, payout: previewPayout };
+  }, [parsedDecimalOdds, defaults]);
+
+  // Snap stake/payout to the computed preview when decimal_odds is the
+  // source of truth — keeps the saved snapshot consistent with what the
+  // user-facing card will show at the default pill.
+  if (liveOddsPreview && (stake !== liveOddsPreview.stake || payout !== liveOddsPreview.payout)) {
+    setStake(liveOddsPreview.stake);
+    setPayout(liveOddsPreview.payout);
+  }
+
+  // Free-pick scopes ignore stake at submit, but the DB still accepts a
+  // value. Force it to 0 so a stale form field doesn't write a misleading
+  // number to the row.
+  if (isFreePickFormScope && stake !== 0) {
+    setStake(0);
+  }
+
+  if (!stakeTouched && !liveOddsPreview && !isFreePickFormScope && stake !== defaultStakePayout.stake) {
     setStake(defaultStakePayout.stake);
   }
-  if (!payoutTouched && payout !== defaultStakePayout.payout) {
+  if (!payoutTouched && !liveOddsPreview && payout !== defaultStakePayout.payout) {
     setPayout(defaultStakePayout.payout);
   }
 
@@ -278,6 +356,9 @@ export function BetForm({
       answerConfig,
       stakeSnapshot: stake,
       payoutSnapshot: payout,
+      // Only live scopes ship a decimal_odds value. The server re-asserts
+      // the scope gate and rejects a stray value on free-pick scopes.
+      decimalOdds: isLiveScope ? parsedDecimalOdds : null,
       gradingSource,
       gradingConfig,
       lockAt: lockAtIso,
@@ -595,42 +676,105 @@ export function BetForm({
         </Section>
       )}
 
-      {/* 7. Pricing */}
+      {/* 7. Pricing — scope-aware. Live (match/day) prefers decimal odds
+          (variable-stake math); free pick hides stake; legacy path shows
+          manual stake/payout fields when no odds are supplied. */}
       <Section
         title={isHebrew ? "תמחור" : "Pricing"}
-        hint={isHebrew
-          ? `ברירת המחדל לסוג תשובה זה: ${defaultStakePayout.stake} / ${defaultStakePayout.payout}.`
-          : `Default for this answer type: stake ${defaultStakePayout.stake} / payout ${defaultStakePayout.payout}.`}
+        hint={
+          isLiveScope
+            ? isHebrew
+              ? "השחקן בוחר כמה לסכן (1-30) על כרטיס ההימור. הזן את ה-decimal odds מהבוקמייקר; המערכת תחשב את ה-payout המדויק לכל סכום שהשחקן בוחר. ★ הברירת מחדל מסומנת בכרטיס היא הסכום שכאן למטה."
+              : "Player picks how much to risk (1-30) on the bet card. Enter the bookmaker decimal odds; the system reprices the payout for every chosen stake. The stake shown below is what the ★ default pill on the card will be."
+            : isFreePickFormScope
+              ? isHebrew
+                ? "הימור טורניר/שלב/בית הוא ללא עלות לשחקן. השדה למטה הוא רק fallback אם אין מחיר לכל אפשרות."
+                : "Tournament/stage/group bets are free for the player. The field below is only a fallback when there's no per-option pricing."
+              : isHebrew
+                ? `ברירת המחדל לסוג תשובה זה: ${defaultStakePayout.stake} / ${defaultStakePayout.payout}.`
+                : `Default for this answer type: stake ${defaultStakePayout.stake} / payout ${defaultStakePayout.payout}.`
+        }
       >
-        <div className="flex flex-wrap gap-3 items-end">
-          <NumberStepper
-            label={isHebrew ? "עלות (stake)" : "Stake"}
-            value={stake}
-            onChange={(n) => { setStake(n); setStakeTouched(true); }}
-            min={0}
-          />
-          <NumberStepper
-            label={isHebrew ? "תשלום (payout)" : "Payout"}
-            value={payout}
-            onChange={(n) => { setPayout(n); setPayoutTouched(true); }}
-            min={1}
-          />
-          {(stakeTouched || payoutTouched) && (
-            <button
-              type="button"
-              onClick={() => {
-                setStake(defaultStakePayout.stake);
-                setPayout(defaultStakePayout.payout);
-                setStakeTouched(false);
-                setPayoutTouched(false);
-              }}
-              className="self-end inline-flex items-center gap-1.5 min-h-[40px] px-4 rounded-full border border-outline text-on-surface-variant text-sm hover:bg-surface-container"
-            >
-              <RotateCcw className="h-3.5 w-3.5" strokeWidth={2} />
-              {isHebrew ? "ברירת מחדל" : "Reset to default"}
-            </button>
-          )}
-        </div>
+        {isLiveScope && (
+          <div className="flex flex-col gap-3">
+            <div className="flex flex-wrap items-end gap-3">
+              <label className="flex flex-col gap-1">
+                <LabelCaps>
+                  {isHebrew ? "Decimal odds (בוקמייקר)" : "Decimal odds"}
+                </LabelCaps>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  placeholder="2.50"
+                  value={decimalOddsInput}
+                  onChange={(e) => setDecimalOddsInput(e.target.value)}
+                  className="min-h-[48px] w-32 px-3 rounded border border-outline bg-surface-container-lowest text-base font-bold tabular-nums focus:outline-none focus:border-primary"
+                  dir="ltr"
+                />
+              </label>
+              {liveOddsPreview && (
+                <div className="flex items-end gap-3 text-sm text-on-surface-variant pb-2">
+                  <span>
+                    {isHebrew ? "ברירת מחדל" : "Default"}:{" "}
+                    <bdi className="tabular-nums font-bold text-on-surface">
+                      {liveOddsPreview.stake}
+                    </bdi>{" "}
+                    {isHebrew ? "סיכון" : "risk"} ·{" "}
+                    <bdi className="tabular-nums font-bold text-on-surface">
+                      {liveOddsPreview.payout}
+                    </bdi>{" "}
+                    {isHebrew ? "תשלום" : "payout"}
+                  </span>
+                </div>
+              )}
+            </div>
+            {!parsedDecimalOdds && (
+              <p className="text-xs text-tertiary-fixed-dim">
+                {isHebrew
+                  ? "אם לא תזין odds, ההימור ייפול על חישוב לינארי-מקירוב בעת ה-submit (יעבוד, אך פחות מדויק לסכומים שונים מברירת המחדל). מומלץ למלא תמיד."
+                  : "If no odds are entered, the submit path falls back to linear scaling (works, but less accurate at non-default stakes). Filling it in is recommended."}
+              </p>
+            )}
+          </div>
+        )}
+
+        {/* Manual stake/payout — shown only when the live path isn't
+            handling pricing, i.e. either the scope is non-live or the
+            admin chose to skip the decimal-odds field. Free-pick scopes
+            still see payout (as a flat fallback) but never stake. */}
+        {(!isLiveScope || !parsedDecimalOdds) && (
+          <div className="flex flex-wrap gap-3 items-end mt-3">
+            {!isFreePickFormScope && (
+              <NumberStepper
+                label={isHebrew ? "עלות (stake)" : "Stake"}
+                value={stake}
+                onChange={(n) => { setStake(n); setStakeTouched(true); }}
+                min={0}
+              />
+            )}
+            <NumberStepper
+              label={isHebrew ? "תשלום (payout)" : "Payout"}
+              value={payout}
+              onChange={(n) => { setPayout(n); setPayoutTouched(true); }}
+              min={1}
+            />
+            {(stakeTouched || payoutTouched) && (
+              <button
+                type="button"
+                onClick={() => {
+                  setStake(isFreePickFormScope ? 0 : defaultStakePayout.stake);
+                  setPayout(defaultStakePayout.payout);
+                  setStakeTouched(false);
+                  setPayoutTouched(false);
+                }}
+                className="self-end inline-flex items-center gap-1.5 min-h-[40px] px-4 rounded-full border border-outline text-on-surface-variant text-sm hover:bg-surface-container"
+              >
+                <RotateCcw className="h-3.5 w-3.5" strokeWidth={2} />
+                {isHebrew ? "ברירת מחדל" : "Reset to default"}
+              </button>
+            )}
+          </div>
+        )}
       </Section>
 
       {/* 8. Grading source */}

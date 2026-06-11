@@ -419,6 +419,11 @@ export type AdminCustomBetDetail = {
   answerConfig: unknown;
   stakeSnapshot: number;
   payoutSnapshot: number;
+  // Bookmaker decimal odds (string from numeric col) — present on live
+  // (match/day) bets created via either the suggestions page or the
+  // BetForm with the field set; null for legacy live bets and for every
+  // free-pick scope.
+  decimalOdds: string | null;
   gradingSource: "auto_api_football" | "auto_football_data" | "manual";
   gradingConfig: unknown;
   resolvedValue: unknown;
@@ -453,6 +458,7 @@ export async function getAdminCustomBetDetail(
       cb.answer_config                            as "answerConfig",
       cb.stake_snapshot                           as "stakeSnapshot",
       cb.payout_snapshot                          as "payoutSnapshot",
+      cb.decimal_odds::text                       as "decimalOdds",
       cb.grading_source::text                     as "gradingSource",
       cb.grading_config                           as "gradingConfig",
       cb.resolved_value                           as "resolvedValue",
