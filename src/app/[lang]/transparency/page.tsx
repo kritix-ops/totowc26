@@ -5,6 +5,10 @@ import { clsx } from "clsx";
 import { getDictionary, hasLocale, type Locale } from "../dictionaries";
 import { Card, Chip, LabelCaps, ScoreLine } from "@/components/ui";
 import { TransparencyTabs } from "@/components/TransparencyTabs";
+import {
+  TransparencySearch,
+  type TransparencySearchItem,
+} from "@/components/TransparencySearch";
 import { getRequestUser } from "@/lib/request-user";
 import {
   getTransparencyByQuestion,
@@ -201,18 +205,30 @@ export default async function TransparencyPage({
           {dict.transparency.empty}
         </Card>
       ) : (
-        <ul className="flex flex-col gap-3">
-          {rows.map((row) => (
-            <li key={row.questionId}>
-              <QuestionCard
-                tab={tab}
-                row={row}
-                locale={locale}
-                dict={dict}
-              />
-            </li>
-          ))}
-        </ul>
+        // Cards are rendered here on the server and handed to the search
+        // island pre-built, so the per-row pick data never has to ship
+        // to the client — only the lower-cased `text` haystack does.
+        <TransparencySearch
+          locale={locale}
+          placeholder={dict.transparency.searchPlaceholder}
+          noResultsLabel={dict.transparency.searchNoResults}
+          items={rows.map(
+            (row): TransparencySearchItem => ({
+              id: row.questionId,
+              text: [row.question, ...row.pickers.map((pk) => pk.displayName)]
+                .join(" ")
+                .toLowerCase(),
+              node: (
+                <QuestionCard
+                  tab={tab}
+                  row={row}
+                  locale={locale}
+                  dict={dict}
+                />
+              ),
+            }),
+          )}
+        />
       )}
     </section>
   );

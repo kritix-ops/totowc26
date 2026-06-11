@@ -299,6 +299,8 @@
     "filterApply": "Filter",
     "filterClear": "Clear",
     "empty": "No bets match the current filters.",
+    "searchPlaceholder": "Search by player or match…",
+    "searchNoResults": "No results for your search",
     "categoryMatch": "Match pick",
     "categoryLive": "Live bet",
     "categoryTournament": "Tournament bet",

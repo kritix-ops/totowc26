@@ -299,6 +299,8 @@
     "filterApply": "סנן",
     "filterClear": "נקה",
     "empty": "אין הימורים שמתאימים לסינון.",
+    "searchPlaceholder": "חיפוש לפי משתתף או משחק…",
+    "searchNoResults": "לא נמצאו תוצאות לחיפוש",
     "categoryMatch": "ניחוש משחק",
     "categoryLive": "הימור לייב",
     "categoryTournament": "הימור טורניר",
