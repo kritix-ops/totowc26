@@ -132,6 +132,27 @@ function Dialog(props: Props & { onClose: () => void }) {
   const [reason, setReason] = useState("");
   const [lockBypassed, setLockBypassed] = useState(false);
 
+  // The current draft selection. Lifted to the dialog so a single bottom
+  // "Save" button can read it after the user has filled the reason field
+  // and (when needed) ticked the lock-bypass checkbox. Earlier versions
+  // fired save on every answer-pill tap, which forced the user to re-tap
+  // after typing the reason — and they understandably didn't, so the
+  // save silently failed with `missing_reason`. One save button, one
+  // submit, no surprises.
+  const [customDraft, setCustomDraft] = useState<PickAnswer | null>(
+    props.surface === "custom" ? props.currentAnswer : null,
+  );
+  const [matchHome, setMatchHome] = useState<string>(
+    props.surface === "match" && props.currentHomeScore != null
+      ? String(props.currentHomeScore)
+      : "",
+  );
+  const [matchAway, setMatchAway] = useState<string>(
+    props.surface === "match" && props.currentAwayScore != null
+      ? String(props.currentAwayScore)
+      : "",
+  );
+
   // Snapshot the lock state when the dialog opens. The bet's `lockAt` is
   // a fixed instant, so a re-render mid-edit doesn't change whether the
   // checkbox is needed. Computing inside useState keeps Date.now() pure
@@ -161,6 +182,13 @@ function Dialog(props: Props & { onClose: () => void }) {
   function handleSaveCustom(answer: PickAnswer) {
     if (props.surface !== "custom") return;
     setError(null);
+    console.info("[admin pick editor] save_custom", {
+      targetUserId: props.targetUserId,
+      customBetId: props.customBetId,
+      reasonLen: reason.trim().length,
+      lockBypassed,
+      lockHasPassed,
+    });
     startTransition(async () => {
       const result = await adminSetCustomBetPick({
         targetUserId: props.targetUserId,
@@ -171,6 +199,7 @@ function Dialog(props: Props & { onClose: () => void }) {
       });
       const msg = translateResult(result);
       if (msg) {
+        console.info("[admin pick editor] save_custom_failed", { msg });
         setError(msg);
         return;
       }
@@ -182,6 +211,15 @@ function Dialog(props: Props & { onClose: () => void }) {
   function handleSaveMatch(home: number, away: number) {
     if (props.surface !== "match") return;
     setError(null);
+    console.info("[admin pick editor] save_match", {
+      targetUserId: props.targetUserId,
+      matchId: props.matchId,
+      home,
+      away,
+      reasonLen: reason.trim().length,
+      lockBypassed,
+      lockHasPassed,
+    });
     startTransition(async () => {
       const result = await adminSetMatchPick({
         targetUserId: props.targetUserId,
@@ -193,12 +231,61 @@ function Dialog(props: Props & { onClose: () => void }) {
       });
       const msg = translateResult(result);
       if (msg) {
+        console.info("[admin pick editor] save_match_failed", { msg });
         setError(msg);
         return;
       }
       props.onSaved?.();
       props.onClose();
     });
+  }
+
+  // Validation for the bottom Save button. Mirrors the server gates so
+  // a click never fires a request that's destined to fail with a clear
+  // client-side cause (empty reason, no draft, lock passed without
+  // bypass ticked). Server still re-validates.
+  const matchScoreValid = (() => {
+    if (props.surface !== "match") return false;
+    if (matchHome.trim() === "" || matchAway.trim() === "") return false;
+    const h = Number(matchHome);
+    const a = Number(matchAway);
+    return (
+      Number.isFinite(h) && Number.isFinite(a) && h >= 0 && a >= 0 &&
+      Number.isInteger(h) && Number.isInteger(a)
+    );
+  })();
+  const customDraftValid = props.surface === "custom" && customDraft != null;
+  const hasDraft = props.surface === "custom" ? customDraftValid : matchScoreValid;
+  const reasonValid = reason.trim().length > 0;
+  const lockOk = !lockHasPassed || lockBypassed;
+  const canSave = hasDraft && reasonValid && lockOk && !pending;
+
+  function onSavePress() {
+    if (!canSave) {
+      // Surface the exact gate the user is missing — they can't tell
+      // why a generic disabled state isn't lifting.
+      if (!hasDraft) {
+        setError(
+          props.surface === "custom"
+            ? isHebrew ? "בחר תשובה" : "Pick an answer"
+            : isHebrew ? "הזן תוצאה" : "Enter a score",
+        );
+      } else if (!reasonValid) {
+        setError(isHebrew ? "חובה לכתוב סיבה" : "Reason is required");
+      } else if (!lockOk) {
+        setError(
+          isHebrew
+            ? "ההימור נעול — סמן 'עוקף את מועד הסגירה'"
+            : "Bet is locked — tick 'bypass lock'",
+        );
+      }
+      return;
+    }
+    if (props.surface === "custom" && customDraft) {
+      handleSaveCustom(customDraft);
+    } else if (props.surface === "match") {
+      handleSaveMatch(Number(matchHome), Number(matchAway));
+    }
   }
 
   function handleClear() {
@@ -272,23 +359,28 @@ function Dialog(props: Props & { onClose: () => void }) {
                 : props.matchupEn}
           </p>
 
-          {/* Answer input */}
+          {/* Answer input — draft only, never fires a save itself. The
+              single bottom Save button is the only submit path so the
+              user's reason + bypass tick always carry over. */}
           {props.surface === "custom" ? (
             <CustomAnswerInput
               answerType={props.answerType}
               answerConfig={props.answerConfig}
-              currentAnswer={props.currentAnswer}
+              value={customDraft}
               locale={props.locale}
               pending={pending}
-              onSubmit={handleSaveCustom}
+              onChange={setCustomDraft}
             />
           ) : (
             <MatchScoreInput
-              currentHomeScore={props.currentHomeScore}
-              currentAwayScore={props.currentAwayScore}
+              home={matchHome}
+              away={matchAway}
               locale={props.locale}
               pending={pending}
-              onSubmit={handleSaveMatch}
+              onChange={(h, a) => {
+                setMatchHome(h);
+                setMatchAway(a);
+              }}
             />
           )}
 
@@ -349,7 +441,10 @@ function Dialog(props: Props & { onClose: () => void }) {
             </p>
           )}
 
-          {/* Clear pick + cancel */}
+          {/* Footer: Clear (destructive, secondary) + Save (primary). The
+              Save button is the single submit path — it reads the draft,
+              reason, and bypass tick from local state, validates them all
+              client-side for clear messaging, then fires the action. */}
           <div className="flex flex-col-reverse md:flex-row md:items-center md:justify-between gap-2 pt-3 border-t border-outline-variant">
             <button
               type="button"
@@ -364,11 +459,23 @@ function Dialog(props: Props & { onClose: () => void }) {
               <Trash2 className="h-4 w-4" strokeWidth={2} />
               {isHebrew ? "מחק ניחוש" : "Clear pick"}
             </button>
-            <span className="text-xs text-on-surface-variant md:ms-auto md:me-2">
-              {isHebrew
-                ? "השמירה דרך הכפתור מעל ההזנה"
-                : "Save with the button above the input"}
-            </span>
+            <button
+              type="button"
+              onClick={onSavePress}
+              disabled={pending}
+              className={clsx(
+                "inline-flex items-center justify-center gap-2 min-h-[48px] px-6 rounded-full text-base font-bold transition-colors",
+                "bg-primary text-on-primary shadow-md",
+                "hover:bg-surface-tint",
+                "disabled:opacity-50 disabled:cursor-not-allowed",
+                !canSave && !pending && "opacity-60",
+              )}
+            >
+              <Check className="h-4 w-4" strokeWidth={2.5} />
+              {pending
+                ? isHebrew ? "שומר…" : "Saving…"
+                : isHebrew ? "שמור ניחוש" : "Save pick"}
+            </button>
           </div>
         </div>
       </div>
@@ -379,36 +486,30 @@ function Dialog(props: Props & { onClose: () => void }) {
 function CustomAnswerInput({
   answerType,
   answerConfig,
-  currentAnswer,
+  value,
   locale,
   pending,
-  onSubmit,
+  onChange,
 }: {
   answerType: "yes_no" | "number" | "multi_choice" | "free_text";
   answerConfig: unknown;
-  currentAnswer: PickAnswer | null;
+  value: PickAnswer | null;
   locale: Locale;
   pending: boolean;
-  onSubmit: (answer: PickAnswer) => void;
+  onChange: (answer: PickAnswer | null) => void;
 }) {
   const isHebrew = locale === "he";
-  const [draft, setDraft] = useState<PickAnswer | null>(currentAnswer);
-
-  function save(value: PickAnswer) {
-    setDraft(value);
-    onSubmit(value);
-  }
 
   if (answerType === "yes_no") {
     return (
       <div className="flex gap-2">
         {[true, false].map((v) => {
-          const active = draft?.type === "yes_no" && draft.value === v;
+          const active = value?.type === "yes_no" && value.value === v;
           return (
             <button
               key={String(v)}
               type="button"
-              onClick={() => save({ type: "yes_no", value: v })}
+              onClick={() => onChange({ type: "yes_no", value: v })}
               disabled={pending}
               className={clsx(
                 "flex-1 min-h-[48px] rounded-full border text-base font-bold transition-colors",
@@ -428,16 +529,13 @@ function CustomAnswerInput({
 
   if (answerType === "multi_choice") {
     const cfg = answerConfig as Partial<MultiChoiceConfig> | null;
-    // Dynamic-roster bets (top scorer / golden ball) keep options=[] and
-    // hydrate the ~1,357-row player list client-side, so the button grid
-    // below would render empty. Swap in the searchable picker instead.
     if (cfg?.dynamicSource === "players") {
       return (
         <DynamicPlayerPicker
           locale={locale}
-          currentValue={draft?.type === "multi_choice" ? draft.value : null}
+          currentValue={value?.type === "multi_choice" ? value.value : null}
           pending={pending}
-          onPick={(value) => save({ type: "multi_choice", value })}
+          onPick={(v) => onChange({ type: "multi_choice", value: v })}
         />
       );
     }
@@ -445,12 +543,12 @@ function CustomAnswerInput({
     return (
       <div className="flex flex-col gap-2">
         {options.map((o) => {
-          const active = draft?.type === "multi_choice" && draft.value === o.value;
+          const active = value?.type === "multi_choice" && value.value === o.value;
           return (
             <button
               key={o.value}
               type="button"
-              onClick={() => save({ type: "multi_choice", value: o.value })}
+              onClick={() => onChange({ type: "multi_choice", value: o.value })}
               disabled={pending}
               className={clsx(
                 "min-h-[48px] px-4 rounded-full border text-base font-bold transition-colors text-start",
@@ -471,10 +569,20 @@ function CustomAnswerInput({
   if (answerType === "number") {
     return (
       <NumberInputRow
-        currentValue={draft?.type === "number" ? draft.value : null}
-        locale={locale}
+        value={value?.type === "number" ? String(value.value) : ""}
         pending={pending}
-        onSave={(n) => save({ type: "number", value: n })}
+        onChange={(text) => {
+          if (text === "") {
+            onChange(null);
+            return;
+          }
+          const n = Number(text);
+          if (!Number.isFinite(n)) {
+            onChange(null);
+            return;
+          }
+          onChange({ type: "number", value: n });
+        }}
       />
     );
   }
@@ -482,10 +590,15 @@ function CustomAnswerInput({
   // free_text
   return (
     <FreeTextInputRow
-      currentValue={draft?.type === "free_text" ? draft.value : ""}
-      locale={locale}
+      value={value?.type === "free_text" ? value.value : ""}
       pending={pending}
-      onSave={(s) => save({ type: "free_text", value: s })}
+      onChange={(text) => {
+        if (text.trim() === "") {
+          onChange(null);
+        } else {
+          onChange({ type: "free_text", value: text });
+        }
+      }}
     />
   );
 }
@@ -542,145 +655,85 @@ function DynamicPlayerPicker({
 }
 
 function NumberInputRow({
-  currentValue,
-  locale,
+  value,
   pending,
-  onSave,
+  onChange,
 }: {
-  currentValue: number | null;
-  locale: Locale;
+  value: string;
   pending: boolean;
-  onSave: (n: number) => void;
+  onChange: (text: string) => void;
 }) {
-  const isHebrew = locale === "he";
-  const [text, setText] = useState<string>(
-    currentValue == null ? "" : String(currentValue),
-  );
-  const valid = text.trim().length > 0 && Number.isFinite(Number(text));
   return (
-    <div className="flex gap-2 items-end">
-      <input
-        type="number"
-        inputMode="numeric"
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        disabled={pending}
-        className="flex-1 min-h-[48px] px-3 rounded-lg border border-outline-variant bg-surface text-base text-on-surface focus:outline-none focus:border-primary"
-      />
-      <button
-        type="button"
-        onClick={() => valid && onSave(Number(text))}
-        disabled={pending || !valid}
-        className="inline-flex items-center gap-1 min-h-[48px] px-4 rounded-full bg-primary text-on-primary text-sm font-bold disabled:opacity-40 disabled:cursor-not-allowed"
-      >
-        <Check className="h-4 w-4" strokeWidth={2.5} />
-        {isHebrew ? "שמור" : "Save"}
-      </button>
-    </div>
+    <input
+      type="number"
+      inputMode="numeric"
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      disabled={pending}
+      className="w-full min-h-[48px] px-3 rounded-lg border border-outline-variant bg-surface text-base text-on-surface focus:outline-none focus:border-primary"
+    />
   );
 }
 
 function FreeTextInputRow({
-  currentValue,
-  locale,
+  value,
   pending,
-  onSave,
+  onChange,
 }: {
-  currentValue: string;
-  locale: Locale;
+  value: string;
   pending: boolean;
-  onSave: (s: string) => void;
+  onChange: (text: string) => void;
 }) {
-  const isHebrew = locale === "he";
-  const [text, setText] = useState<string>(currentValue);
-  const valid = text.trim().length > 0;
   return (
-    <div className="flex flex-col gap-2">
-      <textarea
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        disabled={pending}
-        rows={3}
-        className="min-h-[80px] px-3 py-2 rounded-lg border border-outline-variant bg-surface text-base text-on-surface focus:outline-none focus:border-primary"
-      />
-      <button
-        type="button"
-        onClick={() => valid && onSave(text.trim())}
-        disabled={pending || !valid}
-        className="inline-flex items-center justify-center gap-1 min-h-[48px] px-4 rounded-full bg-primary text-on-primary text-sm font-bold disabled:opacity-40 disabled:cursor-not-allowed"
-      >
-        <Check className="h-4 w-4" strokeWidth={2.5} />
-        {isHebrew ? "שמור" : "Save"}
-      </button>
-    </div>
+    <textarea
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      disabled={pending}
+      rows={3}
+      className="w-full min-h-[80px] px-3 py-2 rounded-lg border border-outline-variant bg-surface text-base text-on-surface focus:outline-none focus:border-primary"
+    />
   );
 }
 
 function MatchScoreInput({
-  currentHomeScore,
-  currentAwayScore,
+  home,
+  away,
   locale,
   pending,
-  onSubmit,
+  onChange,
 }: {
-  currentHomeScore: number | null;
-  currentAwayScore: number | null;
+  home: string;
+  away: string;
   locale: Locale;
   pending: boolean;
-  onSubmit: (home: number, away: number) => void;
+  onChange: (home: string, away: string) => void;
 }) {
   const isHebrew = locale === "he";
-  const [home, setHome] = useState<string>(
-    currentHomeScore == null ? "" : String(currentHomeScore),
-  );
-  const [away, setAway] = useState<string>(
-    currentAwayScore == null ? "" : String(currentAwayScore),
-  );
-  const hNum = Number(home);
-  const aNum = Number(away);
-  const valid =
-    home.trim() !== "" &&
-    away.trim() !== "" &&
-    Number.isFinite(hNum) &&
-    Number.isFinite(aNum) &&
-    hNum >= 0 &&
-    aNum >= 0;
   return (
-    <div className="flex flex-col gap-2">
-      <div className="flex items-center gap-2">
-        <input
-          type="number"
-          inputMode="numeric"
-          min={0}
-          value={home}
-          onChange={(e) => setHome(e.target.value)}
-          aria-label={isHebrew ? "ביתית" : "Home"}
-          disabled={pending}
-          className="flex-1 min-h-[56px] px-3 rounded-lg border border-outline-variant bg-surface text-2xl font-bold text-center text-on-surface focus:outline-none focus:border-primary tabular-nums"
-        />
-        <span className="text-xl font-bold text-on-surface-variant" aria-hidden>
-          –
-        </span>
-        <input
-          type="number"
-          inputMode="numeric"
-          min={0}
-          value={away}
-          onChange={(e) => setAway(e.target.value)}
-          aria-label={isHebrew ? "חוצית" : "Away"}
-          disabled={pending}
-          className="flex-1 min-h-[56px] px-3 rounded-lg border border-outline-variant bg-surface text-2xl font-bold text-center text-on-surface focus:outline-none focus:border-primary tabular-nums"
-        />
-      </div>
-      <button
-        type="button"
-        onClick={() => valid && onSubmit(hNum, aNum)}
-        disabled={pending || !valid}
-        className="inline-flex items-center justify-center gap-1 min-h-[48px] px-4 rounded-full bg-primary text-on-primary text-sm font-bold disabled:opacity-40 disabled:cursor-not-allowed"
-      >
-        <Check className="h-4 w-4" strokeWidth={2.5} />
-        {isHebrew ? "שמור" : "Save"}
-      </button>
+    <div className="flex items-center gap-2">
+      <input
+        type="number"
+        inputMode="numeric"
+        min={0}
+        value={home}
+        onChange={(e) => onChange(e.target.value, away)}
+        aria-label={isHebrew ? "ביתית" : "Home"}
+        disabled={pending}
+        className="flex-1 min-h-[56px] px-3 rounded-lg border border-outline-variant bg-surface text-2xl font-bold text-center text-on-surface focus:outline-none focus:border-primary tabular-nums"
+      />
+      <span className="text-xl font-bold text-on-surface-variant" aria-hidden>
+        –
+      </span>
+      <input
+        type="number"
+        inputMode="numeric"
+        min={0}
+        value={away}
+        onChange={(e) => onChange(home, e.target.value)}
+        aria-label={isHebrew ? "חוצית" : "Away"}
+        disabled={pending}
+        className="flex-1 min-h-[56px] px-3 rounded-lg border border-outline-variant bg-surface text-2xl font-bold text-center text-on-surface focus:outline-none focus:border-primary tabular-nums"
+      />
     </div>
   );
 }
