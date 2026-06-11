@@ -8,6 +8,17 @@
 // and gets covered by unit tests. The DB function calls these helpers
 // after its query returns.
 
+// The five bet surfaces a /transparency tab can show. Defined here (the
+// server-neutral lib) rather than in the server-only db/queries module
+// so client components — the tab list and search — can import the type
+// without pulling a `server-only` guard into the client bundle.
+export type TransparencyCategory =
+  | "match"
+  | "live"
+  | "tournament"
+  | "group"
+  | "duel";
+
 export type TransparencyPicker = {
   userId: string;
   displayName: string;
@@ -94,4 +105,36 @@ export function filterToUser(
       pickers: row.pickers.filter((pk) => pk.userId === userId),
       nonBettors: [],
     }));
+}
+
+// Free-text search used by the per-tab search box (TransparencyList).
+// Two intents share one query, resolved per row:
+//   * the query matches the QUESTION text  -> keep the whole card, every
+//     picker (e.g. searching a team/match name).
+//   * otherwise it matches PICKER names    -> keep the card but only the
+//     matching people's rows, and drop nonBettors (the "didn't bet" list
+//     is a pool-wide answer that does not apply once narrowed to a name).
+// Case-insensitive substring; an empty/whitespace query returns the rows
+// unchanged. Rows that match neither the question nor any picker are
+// dropped entirely.
+export function filterRowsByQuery(
+  rows: ReadonlyArray<TransparencyQuestionRow>,
+  query: string,
+): TransparencyQuestionRow[] {
+  const q = query.trim().toLowerCase();
+  if (!q) return rows as TransparencyQuestionRow[];
+  const out: TransparencyQuestionRow[] = [];
+  for (const row of rows) {
+    if (row.question.toLowerCase().includes(q)) {
+      out.push(row);
+      continue;
+    }
+    const pickers = row.pickers.filter((pk) =>
+      pk.displayName.toLowerCase().includes(q),
+    );
+    if (pickers.length > 0) {
+      out.push({ ...row, pickers, nonBettors: [] });
+    }
+  }
+  return out;
 }

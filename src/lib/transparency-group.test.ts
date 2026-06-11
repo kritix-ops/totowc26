@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   attachNonBettors,
+  filterRowsByQuery,
   filterToUser,
   groupPickerRows,
   type TransparencyPickerRow,
@@ -182,5 +183,72 @@ describe("filterToUser", () => {
       questionWith([{ userId: "u3", label: "No" }]),
     ];
     expect(filterToUser(rows, "u1")).toEqual([]);
+  });
+});
+
+describe("filterRowsByQuery", () => {
+  function q(
+    question: string,
+    pickerNames: string[],
+  ): TransparencyQuestionRow {
+    return {
+      questionId: `q-${question}`,
+      question,
+      eventTime: "2026-06-13T18:00:00Z",
+      pickers: pickerNames.map((name, i) => ({
+        userId: `u-${name}-${i}`,
+        displayName: name,
+        pickLabel: "1-0",
+        stake: 0,
+        pointsEarned: null,
+        status: "open",
+      })),
+      nonBettors: [{ userId: "nb1", displayName: "Someone Else" }],
+    };
+  }
+
+  const rows = [
+    q("מקסיקו vs דרום אפריקה", ["אוהד ניסן", "carozyotam", "אילן מזרחי"]),
+    q("ארגנטינה vs ברזיל", ["יואב מזרחי", "Or Lederman"]),
+  ];
+
+  it("returns all rows untouched for an empty/whitespace query", () => {
+    expect(filterRowsByQuery(rows, "")).toBe(rows);
+    expect(filterRowsByQuery(rows, "   ")).toBe(rows);
+  });
+
+  it("keeps the whole card when the QUESTION matches", () => {
+    const out = filterRowsByQuery(rows, "מקסיקו");
+    expect(out).toHaveLength(1);
+    // Question match → every picker stays, nonBettors preserved.
+    expect(out[0].pickers).toHaveLength(3);
+    expect(out[0].nonBettors).toHaveLength(1);
+  });
+
+  it("narrows to only the matching picker rows on a name search", () => {
+    // This is the bug the redesign fixes: searching "אוהד" must collapse
+    // the card to Ohad's single row, not show the whole roster.
+    const out = filterRowsByQuery(rows, "אוהד");
+    expect(out).toHaveLength(1);
+    expect(out[0].pickers.map((p) => p.displayName)).toEqual(["אוהד ניסן"]);
+    // Non-bettor list is dropped once narrowed to a person.
+    expect(out[0].nonBettors).toEqual([]);
+  });
+
+  it("matches a name across multiple cards and keeps each card's matches", () => {
+    const out = filterRowsByQuery(rows, "מזרחי");
+    expect(out).toHaveLength(2);
+    expect(out[0].pickers.map((p) => p.displayName)).toEqual(["אילן מזרחי"]);
+    expect(out[1].pickers.map((p) => p.displayName)).toEqual(["יואב מזרחי"]);
+  });
+
+  it("is case-insensitive", () => {
+    const out = filterRowsByQuery(rows, "OR LEDERMAN");
+    expect(out).toHaveLength(1);
+    expect(out[0].pickers.map((p) => p.displayName)).toEqual(["Or Lederman"]);
+  });
+
+  it("drops rows that match neither the question nor any picker", () => {
+    expect(filterRowsByQuery(rows, "zzzznope")).toEqual([]);
   });
 });

@@ -1,14 +1,10 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { Eye, X, ChevronDown } from "lucide-react";
-import { clsx } from "clsx";
+import { Eye, X } from "lucide-react";
 import { getDictionary, hasLocale, type Locale } from "../dictionaries";
-import { Card, Chip, LabelCaps, ScoreLine } from "@/components/ui";
+import { Card, Chip } from "@/components/ui";
 import { TransparencyTabs } from "@/components/TransparencyTabs";
-import {
-  TransparencySearch,
-  type TransparencySearchItem,
-} from "@/components/TransparencySearch";
+import { TransparencyList } from "@/components/TransparencyList";
 import { getRequestUser } from "@/lib/request-user";
 import {
   getTransparencyByQuestion,
@@ -16,7 +12,6 @@ import {
   type TransparencyCategory,
 } from "@/db/queries";
 import { localePath } from "@/lib/paths";
-import { formatDateTime } from "@/lib/format";
 import { gatePage } from "@/lib/page-visibility";
 
 type SearchSP = {
@@ -205,175 +200,18 @@ export default async function TransparencyPage({
           {dict.transparency.empty}
         </Card>
       ) : (
-        // Cards are rendered here on the server and handed to the search
-        // island pre-built, so the per-row pick data never has to ship
-        // to the client — only the lower-cased `text` haystack does.
-        <TransparencySearch
+        <TransparencyList
+          rows={rows}
+          tab={tab}
           locale={locale}
-          placeholder={dict.transparency.searchPlaceholder}
-          noResultsLabel={dict.transparency.searchNoResults}
-          items={rows.map(
-            (row): TransparencySearchItem => ({
-              id: row.questionId,
-              text: [row.question, ...row.pickers.map((pk) => pk.displayName)]
-                .join(" ")
-                .toLowerCase(),
-              node: (
-                <QuestionCard
-                  tab={tab}
-                  row={row}
-                  locale={locale}
-                  dict={dict}
-                />
-              ),
-            }),
-          )}
+          categoryLabel={categoryLabel(tab, dict)}
+          stakeLabel={dict.transparency.stakeLabel}
+          searchPlaceholder={dict.transparency.searchPlaceholder}
+          searchNoResults={dict.transparency.searchNoResults}
         />
       )}
     </section>
   );
-}
-
-function QuestionCard({
-  tab,
-  row,
-  locale,
-  dict,
-}: {
-  tab: TransparencyCategory;
-  row: Awaited<ReturnType<typeof getTransparencyByQuestion>>[number];
-  locale: Locale;
-  dict: Awaited<ReturnType<typeof getDictionary>>;
-}) {
-  const isHebrew = locale === "he";
-  return (
-    <Card className="p-3 md:p-4 flex flex-col gap-3">
-      <header className="flex items-start justify-between gap-3">
-        <div className="flex flex-col gap-1 min-w-0">
-          <Chip tone={categoryTone(tab)} className="self-start shrink-0">
-            {categoryLabel(tab, dict)}
-          </Chip>
-          <span className="text-sm md:text-base font-bold text-on-surface">
-            {row.question}
-          </span>
-        </div>
-        <time
-          className="text-[11px] text-on-surface-variant whitespace-nowrap shrink-0"
-          dateTime={row.eventTime}
-        >
-          {formatDateTime(row.eventTime, locale, {
-            day: "numeric",
-            month: "short",
-            hour: "2-digit",
-            minute: "2-digit",
-          })}
-        </time>
-      </header>
-
-      {/* Full-bleed zebra rows. With 30+ names a flat gapped list reads
-          as one undifferentiated wall (the home digit and points float
-          far from the name across an empty middle). Alternating row
-          tints band each name to its own score/points line, and the
-          points sit in a fixed-width right-aligned column so every
-          +10 / +5 / 0 stacks into a scannable column. min-h-11 keeps
-          each row a 44px touch target. */}
-      <ul className="flex flex-col -mx-3 md:-mx-4 rounded-lg overflow-hidden">
-        {row.pickers.map((pk, idx) => (
-          <li
-            key={`${row.questionId}:${pk.userId}:${idx}`}
-            className={clsx(
-              "flex items-center justify-between gap-3 text-sm px-3 md:px-4 py-2 min-h-11",
-              idx % 2 === 1 && "bg-surface-container-high/70",
-            )}
-          >
-            <span className="font-bold text-on-surface truncate min-w-0">
-              {pk.displayName}
-            </span>
-            <span className="flex items-center gap-3 shrink-0">
-              {pk.stake > 0 && (
-                <span className="bidi-ltr text-[11px] text-on-surface-variant">
-                  ({dict.transparency.stakeLabel}: {pk.stake})
-                </span>
-              )}
-              <span className="text-on-surface-variant">
-                <PickLabel tab={tab} label={pk.pickLabel} />
-              </span>
-              {pk.pointsEarned !== null && (
-                <span
-                  className={clsx(
-                    "min-w-[2.75rem] text-end font-[family-name:var(--font-score)] text-sm leading-none font-bold tabular-nums",
-                    pk.pointsEarned > 0
-                      ? "text-secondary"
-                      : pk.pointsEarned < 0
-                        ? "text-error"
-                        : "text-on-surface",
-                  )}
-                >
-                  <bdi>
-                    {pk.pointsEarned > 0 ? "+" : ""}
-                    {pk.pointsEarned}
-                  </bdi>
-                </span>
-              )}
-            </span>
-          </li>
-        ))}
-      </ul>
-
-      {tab !== "duel" && row.nonBettors.length > 0 && (
-        <details className="group">
-          <summary className="list-none [&::-webkit-details-marker]:hidden cursor-pointer select-none press-down inline-flex items-center gap-1.5 h-11 px-4 rounded-full bg-surface-container-low border border-outline-variant text-xs font-bold text-on-surface-variant">
-            <ChevronDown
-              className="h-3.5 w-3.5 transition-transform group-open:rotate-180"
-              strokeWidth={2.5}
-            />
-            {isHebrew
-              ? `+${row.nonBettors.length} לא הימרו`
-              : `+${row.nonBettors.length} didn't bet`}
-          </summary>
-          <ul className="mt-2 flex flex-wrap gap-1.5">
-            {row.nonBettors.map((nb) => (
-              <li key={nb.userId}>
-                <Chip tone="default" className="text-[11px]">
-                  {nb.displayName}
-                </Chip>
-              </li>
-            ))}
-          </ul>
-        </details>
-      )}
-
-      <LabelCaps as="div" className="self-end">
-        {row.pickers[0]?.status ?? ""}
-      </LabelCaps>
-    </Card>
-  );
-}
-
-// Match score picks arrive as a flat "home-away" string from SQL
-// (`mb.home_score || '-' || mb.away_score`). Rendering that string in an
-// RTL paragraph puts the home digit on the LEFT (LTR-isolated number
-// run) — the opposite of where the home team's name sits in every other
-// fixture surface in the app, so Hebrew readers see "3-1" with the 1
-// next to Mexico and conclude their pick flipped. ScoreLine renders the
-// two digits as separate flex children that flow with the document
-// direction, lining the home digit up under the home team. The match
-// branch is the only one that uses a "H-A" shape; all other tabs have
-// prose labels and render unchanged.
-function PickLabel({
-  tab,
-  label,
-}: {
-  tab: TransparencyCategory;
-  label: string;
-}) {
-  if (tab === "match") {
-    const m = /^(\d+)-(\d+)$/.exec(label);
-    if (m) {
-      return <ScoreLine home={Number(m[1])} away={Number(m[2])} />;
-    }
-  }
-  return <span>{label}</span>;
 }
 
 function categoryLabel(
@@ -391,23 +229,6 @@ function categoryLabel(
       return dict.transparency.categoryGroup;
     case "duel":
       return dict.transparency.categoryDuel;
-  }
-}
-
-function categoryTone(
-  category: TransparencyCategory,
-): "primary" | "default" | "secondary" | "warning" {
-  switch (category) {
-    case "match":
-      return "default";
-    case "live":
-      return "primary";
-    case "tournament":
-      return "warning";
-    case "group":
-      return "default";
-    case "duel":
-      return "secondary";
   }
 }
 

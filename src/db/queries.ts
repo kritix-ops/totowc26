@@ -11,6 +11,7 @@ import {
   attachNonBettors,
   filterToUser,
   groupPickerRows,
+  type TransparencyCategory,
   type TransparencyPicker,
   type TransparencyPickerRow,
   type TransparencyQuestionRow,
@@ -2149,12 +2150,10 @@ export const getTournamentStart = unstable_cache(
 // who navigates the app via /bets, /bets/tournament, /bets/groups,
 // /bets/live can use the same mental model when filtering here.
 
-export type TransparencyCategory =
-  | "match"
-  | "live"
-  | "tournament"
-  | "group"
-  | "duel";
+// TransparencyCategory now lives in @/lib/transparency-group (imported
+// above) so client components can use it without a server-only guard.
+// Re-exported here so existing `@/db/queries` import sites keep working.
+export type { TransparencyCategory };
 
 export async function getTransparencyUsers(): Promise<
   Array<{ id: string; displayName: string }>
