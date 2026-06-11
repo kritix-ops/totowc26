@@ -35,6 +35,10 @@ export type ScoringPayload = {
   duelMaxStake: number;
   duelDefaultJoinWindowHours: number;
   duelDailyLimit: number;
+  // Negative-balance lock: knobs from migration 0050. See
+  // _plans/2026-06-11-negative-balance-lock.md.
+  maxOverdraft: number;
+  lockBetsWhenNegative: boolean;
   liveOddsBaseStake: number;
   liveOddsMaxPayout: number;
   liveOddsHouseEdgePct: number;
@@ -79,6 +83,7 @@ const INTEGER_KEYS = [
   "duelMaxStake",
   "duelDefaultJoinWindowHours",
   "duelDailyLimit",
+  "maxOverdraft",
   "liveOddsBaseStake",
   "liveOddsMaxPayout",
   "liveOddsHouseEdgePct",
@@ -111,6 +116,7 @@ const INTEGER_KEYS = [
 const BOOLEAN_KEYS = [
   "matchRiskEnabled",
   "dailyRenewalEnabled",
+  "lockBetsWhenNegative",
 ] as const satisfies ReadonlyArray<keyof ScoringPayload>;
 
 export type SaveScoringResult =
@@ -151,6 +157,11 @@ export async function saveScoringSettings(
     return { ok: false, error: "invalid" };
   }
   if (payload.duelMaxStake < 1 || payload.duelMaxStake > 20) {
+    return { ok: false, error: "invalid" };
+  }
+  // Overdraft cap: 0 collapses to the legacy "balance >= stake" rule,
+  // 500 is a generous upper bound — way past any sane stake cap.
+  if (payload.maxOverdraft < 0 || payload.maxOverdraft > 500) {
     return { ok: false, error: "invalid" };
   }
   if (payload.liveOddsHouseEdgePct > 50) {
@@ -221,6 +232,8 @@ export async function saveScoringSettings(
         duelMaxStake: payload.duelMaxStake,
         duelDefaultJoinWindowHours: payload.duelDefaultJoinWindowHours,
         duelDailyLimit: payload.duelDailyLimit,
+        maxOverdraft: payload.maxOverdraft,
+        lockBetsWhenNegative: payload.lockBetsWhenNegative,
         liveOddsBaseStake: payload.liveOddsBaseStake,
         liveOddsMaxPayout: payload.liveOddsMaxPayout,
         liveOddsHouseEdgePct: payload.liveOddsHouseEdgePct,

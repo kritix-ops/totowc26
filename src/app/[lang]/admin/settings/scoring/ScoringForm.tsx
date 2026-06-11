@@ -34,7 +34,10 @@ type Field =
 // Subset of ScoringPayload keys whose value is a number.
 type NumberKey = Exclude<keyof ScoringPayload, BooleanKey>;
 // Subset whose value is a boolean.
-type BooleanKey = "matchRiskEnabled" | "dailyRenewalEnabled";
+type BooleanKey =
+  | "matchRiskEnabled"
+  | "dailyRenewalEnabled"
+  | "lockBetsWhenNegative";
 
 type Group = {
   title: { he: string; en: string };
@@ -155,6 +158,35 @@ const GROUPS: Group[] = [
         hint: {
           he: "מקסימום דו-קרבים שמשתמש יכול לפתוח ב-24 שעות.",
           en: "Cap on duels one user can open in any 24h window.",
+        },
+      },
+    ],
+  },
+  {
+    title: { he: "כללי בנק (מינוס)", en: "Bank rules (negative balance)" },
+    hint: {
+      he: "מאפשר הימור אחד של לייב או דו-קרב לדחוף את הבנק למינוס עד התקרה. ברגע שהיתרה שלילית, הימורי לייב ודו-קרב חסומים עד שהמשתתף חוזר ל-0 דרך ניחושי משחקים, טורניר או בתים. כיבוי הכפתור מחזיר את הכלל הישן (חייב יתרה ≥ השקעה).",
+      en: "Lets a single live or duel placement push the bank below 0, up to the cap. While the balance is negative the player is locked out of further live + duel bets until they recover via match picks, tournament or group bets. Toggling the switch off reverts to the legacy 'balance ≥ stake' rule.",
+    },
+    fields: [
+      {
+        kind: "toggle",
+        key: "lockBetsWhenNegative",
+        label: {
+          he: "נעילה כשהיתרה שלילית",
+          en: "Lock when balance is negative",
+        },
+        hint: {
+          he: "כיל-סוויץ' לפיצ'ר. ברירת מחדל: דלוק.",
+          en: "Feature kill-switch. Default: on.",
+        },
+      },
+      {
+        key: "maxOverdraft",
+        label: { he: "תקרת מינוס", en: "Max overdraft" },
+        hint: {
+          he: "מקסימום נקודות שהימור יחיד יכול לדחוף לפיו את הבנק (0-500). 0 = ביטול אפקטיבי של הפיצ'ר. ברירת מחדל: 30.",
+          en: "Deepest a single placement can drive the bank (0-500). 0 effectively disables overdraft. Default: 30.",
         },
       },
     ],

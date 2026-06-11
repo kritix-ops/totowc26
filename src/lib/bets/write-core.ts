@@ -10,7 +10,12 @@ import {
   userCustomBetPicks,
   type StageKey,
 } from "@/db/schema";
-import { bankBalanceSql, lockUserForBetting } from "@/lib/bank";
+import {
+  assertBettingAllowed,
+  bankBalanceSql,
+  getOverdraftConfig,
+  lockUserForBetting,
+} from "@/lib/bank";
 import type { PickAnswer } from "@/lib/bets/types";
 import { resolvePickPayoutAtSubmit } from "@/lib/bets/payout";
 import { isFreePickScope } from "@/lib/bets/free-pick-scopes";
@@ -71,6 +76,8 @@ export type SkipReason =
   | "locked"
   | "closed"
   | "unaffordable"
+  | "negative_balance_locked"
+  | "overdraft_exceeded"
   | "not_allowed";
 
 export type WriteOutcome =
@@ -451,11 +458,53 @@ async function writeCustomPickTx(
   const balance = Number(
     (balanceRows as unknown as Array<{ balance: number }>)[0]?.balance ?? 0,
   );
+  // The pick being overwritten was already debited; treat it as a refund
+  // so editing an existing pick doesn't fail just because the bank shows
+  // the old stake still subtracted.
   const refund = existing?.stakePaid ?? 0;
   const effectiveBalance = balance + refund;
-  const needed = effectiveStake - effectiveBalance;
-  if (needed > 0) {
-    return { status: "skipped", reason: "unaffordable", needed };
+  // Free picks (tournament/stage/group) never touch the bank. Skip the
+  // guard so a player currently locked from live/duel can still place /
+  // edit free picks — the recovery path back to a positive bank.
+  if (!isFreePick) {
+    const overdraft = await getOverdraftConfig();
+    const guard = assertBettingAllowed({
+      balance: effectiveBalance,
+      stake: effectiveStake,
+      maxOverdraft: overdraft.maxOverdraft,
+      lockWhenNegative: overdraft.lockBetsWhenNegative,
+    });
+    if (!guard.ok) {
+      if (guard.reason === "negative_balance_locked") {
+        console.info("[bets guard] negative_balance_locked", {
+          userId: principal.userId,
+          betId: input.customBetId,
+          balance: guard.balance,
+        });
+        return { status: "skipped", reason: "negative_balance_locked" };
+      }
+      console.info("[bets guard] overdraft_exceeded", {
+        userId: principal.userId,
+        betId: input.customBetId,
+        balance: guard.balance,
+        stake: effectiveStake,
+        cap: guard.cap,
+      });
+      return {
+        status: "skipped",
+        reason: "overdraft_exceeded",
+        needed: guard.needed,
+      };
+    }
+    if (effectiveBalance - effectiveStake < 0) {
+      console.info("[bets guard] overdraft_taken", {
+        userId: principal.userId,
+        betId: input.customBetId,
+        balanceBefore: effectiveBalance,
+        balanceAfter: effectiveBalance - effectiveStake,
+        cap: overdraft.maxOverdraft,
+      });
+    }
   }
 
   if (existing) {

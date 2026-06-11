@@ -24,6 +24,9 @@ type Props = {
   // value verbatim — never recomputed client-side.
   stake: number;
   bankBalance: number;
+  // True when the viewer's bank is < 0 and the kill-switch is on. Hides
+  // the join CTA and renders a recovery banner in its place.
+  lockedFromBetting: boolean;
   iAmOpener: boolean;
   isAdmin: boolean;
   canEdit: boolean;
@@ -37,6 +40,7 @@ export function DuelActions({
   status,
   stake,
   bankBalance,
+  lockedFromBetting,
   iAmOpener,
   isAdmin,
   canEdit,
@@ -132,6 +136,22 @@ export function DuelActions({
       <Card key="join" className="p-5 md:p-6 flex flex-col gap-3">
         {!canEdit ? (
           <p className="text-sm text-on-surface-variant">{labels.notPaid}</p>
+        ) : lockedFromBetting ? (
+          // Bank is < 0 and the kill-switch is on. Server would reject the
+          // join anyway — surface the same explanation up front so the
+          // joiner knows what to do instead of pressing a blocked button.
+          <div className="flex flex-col gap-2 text-sm">
+            <p className="font-bold text-error">
+              {isHebrew
+                ? `נעילה זמנית: היתרה שלך ${bankBalance} נקודות.`
+                : `Locked: your bank is at ${bankBalance} points.`}
+            </p>
+            <p className="text-on-surface-variant">
+              {isHebrew
+                ? "תוכל להצטרף לדו-קרבים שוב ברגע שהיתרה תחזור ל-0. ניחושי משחקים, טורניר ובתים פתוחים כדרך התאוששות."
+                : "Joining duels reopens once you climb back to 0. Match picks, tournament and group bets stay open as your recovery path."}
+            </p>
+          </div>
         ) : (
           <>
             {/* What happens to YOUR bank if you join.
@@ -162,7 +182,7 @@ export function DuelActions({
             <PillButton
               type="button"
               onClick={join}
-              disabled={pending || bankBalance < stake}
+              disabled={pending}
               className={clsx("min-h-[48px]", pending && "opacity-60 cursor-not-allowed")}
             >
               {pending ? labels.pending : labels.joinCta}

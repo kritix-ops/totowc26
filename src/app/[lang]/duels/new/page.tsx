@@ -6,7 +6,7 @@ import { ChevronLeft, ChevronRight } from "lucide-react";
 import { getDictionary, hasLocale, type Locale } from "../../dictionaries";
 import { getRequestUser } from "@/lib/request-user";
 import { getUserAccess } from "@/lib/access";
-import { getBankBalance } from "@/lib/bank";
+import { getBankBalance, getOverdraftConfig } from "@/lib/bank";
 import { db } from "@/db";
 import { execRows } from "@/db/helpers";
 import { settings } from "@/db/schema";
@@ -46,6 +46,7 @@ export default async function NewDuelPage({ params }: PageParams) {
   const [
     [config],
     balance,
+    overdraft,
     upcomingMatches,
     upcomingMatchdays,
   ] = await Promise.all([
@@ -57,12 +58,15 @@ export default async function NewDuelPage({ params }: PageParams) {
       .from(settings)
       .where(eq(settings.id, 1)),
     getBankBalance(user.id),
+    getOverdraftConfig(),
     loadUpcomingFixtures(locale),
     loadUpcomingMatchdays(locale),
   ]);
 
   const duelMaxStake = config?.duelMaxStake ?? 5;
   const defaultJoinWindow = config?.duelDefaultJoinWindowHours ?? 24;
+  // Negative-balance lock — see _plans/2026-06-11-negative-balance-lock.md.
+  const lockedFromBetting = overdraft.lockBetsWhenNegative && balance < 0;
 
   return (
     <section className="px-4 md:px-16 py-6 md:py-12 flex flex-col gap-6 md:gap-8 max-w-3xl mx-auto w-full pb-24">
@@ -83,6 +87,8 @@ export default async function NewDuelPage({ params }: PageParams) {
         locale={locale}
         dict={dict}
         balance={balance}
+        maxOverdraft={overdraft.maxOverdraft}
+        lockedFromBetting={lockedFromBetting}
         duelMaxStake={duelMaxStake}
         defaultJoinWindow={defaultJoinWindow}
         upcomingMatches={upcomingMatches}

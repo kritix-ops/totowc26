@@ -87,6 +87,8 @@ export function CustomBetCard({
   bankBalance,
   editable,
   liveStakeConfig,
+  maxOverdraft = 0,
+  lockedFromBetting = false,
 }: {
   locale: Locale;
   bet: CustomBetCardData;
@@ -99,6 +101,15 @@ export function CustomBetCard({
   // page reads it via getLiveStakeConfig() and threads it through every
   // card so the pill row + payout preview match the server byte-for-byte.
   liveStakeConfig?: LiveStakeUiConfig;
+  // Negative-balance feature props. `maxOverdraft` shifts the overdrawn
+  // floor from 0 to `-maxOverdraft` so live bets that dip into a
+  // controlled overdraft still submit. `lockedFromBetting` mirrors the
+  // server guard for the "already negative" case; when true, live-bet
+  // submit is blocked client-side too with a clear explanation.
+  // Both default to "feature off" so existing call sites stay correct.
+  // See _plans/2026-06-11-negative-balance-lock.md.
+  maxOverdraft?: number;
+  lockedFromBetting?: boolean;
 }) {
   const isHebrew = locale === "he";
 
@@ -165,7 +176,14 @@ export function CustomBetCard({
   const newCost = hasChoice ? effectiveStake : 0;
   const effective = bankBalance + refund;
   const bankAfter = effective - newCost;
-  const overdrawn = hasChoice && bankAfter < 0;
+  // Overdraft floor: free picks never overdraw; live picks may dip to
+  // `-maxOverdraft` per the negative-balance feature. `lockedFromBetting`
+  // is a separate "you're already in the negative" gate — handled below.
+  const overdraftFloor = isFreePick ? 0 : -maxOverdraft;
+  const overdrawn = hasChoice && bankAfter < overdraftFloor;
+  // Negative-balance lock applies only to priced (live) picks. Free picks
+  // are the recovery path back to a positive bank, so they stay enabled.
+  const locked = !isFreePick && lockedFromBetting;
 
   // Recompute the gross payout for the chosen stake (live bets only).
   // Free-pick scopes fall back to the legacy per-option resolver.
@@ -213,7 +231,7 @@ export function CustomBetCard({
   };
 
   const onSubmit = () => {
-    if (!draft || !editable || overdrawn || pending) return;
+    if (!draft || !editable || overdrawn || locked || pending) return;
     setError(null);
     setSavedFlash(false);
     setCancelFlash(false);
@@ -349,10 +367,15 @@ export function CustomBetCard({
           computed against the chosen stake for live bets so the pill
           row and the bank preview agree. Free-pick scopes use the
           per-option resolver (outright curves). */}
+      {/* Scenarios always render the prospective stake row, even before the
+          user has tapped an answer pill — that's the row that makes "אם תטעה"
+          read as a loss of the staked points (post-stake balance) instead
+          of misleadingly showing 0 → currentBalance. Free-pick scopes still
+          get stake=0 because their cost is genuinely zero. */}
       <PickScenarios
         locale={locale}
         currentBalance={effective}
-        stake={hasChoice ? effectiveStake : 0}
+        stake={effectiveStake}
         scenarios={[
           {
             label: isHebrew ? "אם תפגע" : "If correct",
@@ -486,7 +509,7 @@ export function CustomBetCard({
             <button
               type="button"
               onClick={onSubmit}
-              disabled={!editable || pending || overdrawn || !hasChoice || !dirty}
+              disabled={!editable || pending || overdrawn || locked || !hasChoice || !dirty}
               className={clsx(
                 "press-down inline-flex items-center justify-center gap-2 min-h-[44px] px-5 rounded-full text-sm font-bold transition-colors",
                 "bg-primary text-on-primary shadow-md hover:bg-surface-tint",
@@ -495,11 +518,13 @@ export function CustomBetCard({
             >
               {pending && !confirmingCancel
                 ? isHebrew ? "שומר…" : "Saving…"
-                : overdrawn
-                  ? isHebrew ? "אין מספיק בבנק" : "Insufficient bank"
-                  : bet.myAnswer
-                    ? isHebrew ? "עדכן ניחוש" : "Update pick"
-                    : isHebrew ? "שמור ניחוש" : "Save pick"}
+                : locked
+                  ? isHebrew ? "נעול: יתרה שלילית" : "Locked: negative bank"
+                  : overdrawn
+                    ? isHebrew ? "חורג מתקרת המינוס" : "Past overdraft cap"
+                    : bet.myAnswer
+                      ? isHebrew ? "עדכן ניחוש" : "Update pick"
+                      : isHebrew ? "שמור ניחוש" : "Save pick"}
             </button>
           </div>
         </div>

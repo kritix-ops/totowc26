@@ -13,7 +13,11 @@ import {
 } from "@/components/CustomBetCard";
 import { getRequestUser } from "@/lib/request-user";
 import { getUserAccess } from "@/lib/access";
-import { getBankBalance, getLiveStakeConfig } from "@/lib/bank";
+import {
+  getBankBalance,
+  getLiveStakeConfig,
+  getOverdraftConfig,
+} from "@/lib/bank";
 import { localePath } from "@/lib/paths";
 import { formatDateTime } from "@/lib/format";
 import { serverNow } from "@/lib/server-now";
@@ -87,6 +91,12 @@ export default async function BetsLiveDayPage({
   // threaded through every CustomBetCard so the pill row matches the
   // server-side payout math byte-for-byte.
   const liveStakeConfig = await getLiveStakeConfig();
+  // Negative-balance lock + overdraft cap — see
+  // _plans/2026-06-11-negative-balance-lock.md. Read once so every
+  // CustomBetCard on the page shares the same gate state.
+  const overdraft = await getOverdraftConfig();
+  const lockedFromBetting =
+    overdraft.lockBetsWhenNegative && bankBalance < 0;
   // Compute "is this bet still editable?" once on the server so the
   // CustomBetCard client component doesn't have to call Date.now()
   // during its render.
@@ -214,6 +224,8 @@ export default async function BetsLiveDayPage({
                           bankBalance={bankBalance}
                           editable={isEditable(b)}
                           liveStakeConfig={liveStakeConfig}
+                          maxOverdraft={overdraft.maxOverdraft}
+                          lockedFromBetting={lockedFromBetting}
                           bet={toCardData(b, "match", isHebrew, m.homeCode, m.awayCode)}
                         />
                       ))}
@@ -246,6 +258,8 @@ export default async function BetsLiveDayPage({
                 bankBalance={bankBalance}
                 editable={isEditable(b)}
                 liveStakeConfig={liveStakeConfig}
+                maxOverdraft={overdraft.maxOverdraft}
+                lockedFromBetting={lockedFromBetting}
                 bet={toCardData(b, "day", isHebrew)}
               />
             ))}

@@ -194,6 +194,72 @@ export async function getBankBreakdown(userId: string): Promise<BankBreakdown> {
   return cached();
 }
 
+// Single placement guard used by every stake-bearing path
+// (live custom-bet picks, duel open, duel join). Rules:
+//
+//   1. If the bank is already negative AND the kill-switch is on, reject —
+//      the player must recover to >= 0 via free bets / admin adjustment
+//      before placing more live-bet / duel stakes.
+//   2. Otherwise the bet is allowed as long as `balance - stake >= -maxOverdraft`,
+//      i.e. a single placement may push the bank to at most -maxOverdraft.
+//
+// When `lockWhenNegative` is false the legacy behavior wins: any bet that
+// would drop the bank below -maxOverdraft is rejected; balance < 0 by itself
+// is NOT a lock condition. Setting `maxOverdraft = 0` collapses this to the
+// pre-feature "balance >= stake" rule.
+//
+// Pure function so it's unit-testable without spinning a DB. Callers pass
+// the already-read balance + the snapshot settings.
+//
+// See _plans/2026-06-11-negative-balance-lock.md.
+export type BettingGuardResult =
+  | { ok: true }
+  | { ok: false; reason: "negative_balance_locked"; balance: number }
+  | { ok: false; reason: "overdraft_exceeded"; balance: number; cap: number; needed: number };
+
+export function assertBettingAllowed(opts: {
+  balance: number;
+  stake: number;
+  maxOverdraft: number;
+  lockWhenNegative: boolean;
+}): BettingGuardResult {
+  const { balance, stake, maxOverdraft, lockWhenNegative } = opts;
+  if (lockWhenNegative && balance < 0) {
+    return { ok: false, reason: "negative_balance_locked", balance };
+  }
+  // After this placement the bank would sit at `balance - stake`. Allowed
+  // floor is `-maxOverdraft`. Anything deeper is rejected.
+  const after = balance - stake;
+  if (after < -maxOverdraft) {
+    return {
+      ok: false,
+      reason: "overdraft_exceeded",
+      balance,
+      cap: maxOverdraft,
+      needed: -maxOverdraft - after,
+    };
+  }
+  return { ok: true };
+}
+
+// Read the two negative-balance knobs in one query. Cheap enough to call
+// inside the placement txn — same row already read by other settings
+// helpers, but kept separate so this file stays the bank source of truth.
+export type OverdraftConfig = {
+  maxOverdraft: number;
+  lockBetsWhenNegative: boolean;
+};
+
+export async function getOverdraftConfig(): Promise<OverdraftConfig> {
+  const row = await execFirstRow<OverdraftConfig>(sql`
+    select
+      max_overdraft           as "maxOverdraft",
+      lock_bets_when_negative as "lockBetsWhenNegative"
+    from public.settings where id = 1
+  `);
+  return row ?? { maxOverdraft: 30, lockBetsWhenNegative: true };
+}
+
 // Take the per-user advisory lock that all bet-submission server actions
 // hold while reading the balance and writing the stake snapshot. Without
 // this two tabs could race and spend more than the bank holds.
