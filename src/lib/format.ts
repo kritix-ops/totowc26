@@ -8,10 +8,22 @@ export function formatDateTime(
   locale: Locale,
   options: Intl.DateTimeFormatOptions,
 ): string {
+  // Safety net: Intl.DateTimeFormat.format() throws RangeError "Invalid
+  // time value" on an unparseable/NaN date. This helper runs inside
+  // server-component render on every list page, so one bad row (a null
+  // or malformed timestamp slipping through a query) would 500 the WHOLE
+  // page instead of just rendering one cell wrong. Guard the parse and
+  // degrade to an em-dash so the page always renders. Valid inputs are
+  // unaffected.
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    console.warn("[formatDateTime] invalid date value", { value });
+    return "—";
+  }
   const raw = new Intl.DateTimeFormat(locale === "he" ? "he-IL" : "en-GB", {
     ...options,
     timeZone: IL_TIMEZONE,
-  }).format(value instanceof Date ? value : new Date(value));
+  }).format(date);
   // Intl returns weekday="שבת" while every other Hebrew weekday comes
   // through as "יום X" — the only day without the "יום" prefix. The
   // QA agent flagged the inconsistency. Prepend "יום" so all seven days

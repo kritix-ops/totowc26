@@ -76,3 +76,42 @@ describe("formatDateTime — Hebrew Saturday prefix", () => {
     expect(twice).toBe(once);
   });
 });
+
+describe("formatDateTime — invalid input guard", () => {
+  // Intl.DateTimeFormat.format() throws RangeError on a NaN date. Because
+  // this helper renders inside server components on every list page, an
+  // unhandled throw 500s the whole page. The guard must degrade to a
+  // dash instead. These cover every way a bad value can reach the parse.
+  const opts: Intl.DateTimeFormatOptions = {
+    day: "numeric",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  };
+
+  it("returns an em-dash for an unparseable string instead of throwing", () => {
+    expect(() => formatDateTime("not-a-date", "he", opts)).not.toThrow();
+    expect(formatDateTime("not-a-date", "he", opts)).toBe("—");
+  });
+
+  it("returns an em-dash for an empty string", () => {
+    expect(formatDateTime("", "en", opts)).toBe("—");
+  });
+
+  it("returns an em-dash for an Invalid Date object", () => {
+    expect(formatDateTime(new Date("nope"), "en", opts)).toBe("—");
+  });
+
+  it("returns an em-dash for NaN", () => {
+    expect(formatDateTime(Number.NaN, "he", opts)).toBe("—");
+  });
+
+  it("still formats a Postgres text timestamp (space separator, +00)", () => {
+    // The transparency feed casts timestamptz to ::text, producing
+    // "2026-06-11 22:00:00+00" (space, not ISO 'T'). V8 parses it; the
+    // guard must NOT swallow a valid value.
+    const out = formatDateTime("2026-06-11 19:00:00+00", "en", opts);
+    expect(out).not.toBe("—");
+    expect(out).toMatch(/\d/);
+  });
+});
