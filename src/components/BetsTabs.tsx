@@ -22,7 +22,7 @@ const TABS: TabDef[] = [
   { key: "tournament",  path: "bets/tournament", he: "הימורי טורניר", en: "Tournament" },
   { key: "groups",      path: "bets/groups",     he: "דירוגי בתים",   en: "Group rankings" },
   { key: "live",        path: "bets/live",       he: "הימורי לייב",   en: "Live bets" },
-  { key: "duels",       path: "duels",           he: "דו-קרבים",      en: "Duels" },
+  { key: "duels",       path: "duels",           he: "דו-קרב",        en: "Duels" },
 ];
 
 export function BetsTabs({
