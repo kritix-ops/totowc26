@@ -156,6 +156,11 @@ export type AutoApiFootballConfig = {
 
 export type AutoFootballDataConfig = {
   source: "auto_football_data";
+  // Mirrored from AutoFootballField in src/lib/sync.ts. Three buckets:
+  //   - raw values pulled straight from the final match row
+  //   - derived yes/no flags (BTTS, over X.5 goals, clean sheets, halves)
+  //   - derived numeric fields (winning margin, second-half total)
+  // See coerceMatchField in src/lib/sync.ts for the resolver.
   field:
     | "home_score"
     | "away_score"
@@ -163,7 +168,22 @@ export type AutoFootballDataConfig = {
     | "ht_score"
     | "total_goals"
     | "ht_total"
-    | "went_to_penalties";
+    | "went_to_penalties"
+    | "btts"
+    | "home_scored"
+    | "away_scored"
+    | "clean_sheet_home"
+    | "clean_sheet_away"
+    | "first_half_goal"
+    | "second_half_goal"
+    | "both_halves_scored"
+    | "over_0_5_goals"
+    | "over_1_5_goals"
+    | "over_2_5_goals"
+    | "over_3_5_goals"
+    | "over_4_5_goals"
+    | "winning_margin"
+    | "second_half_total";
 };
 
 export type GradingConfig = AutoApiFootballConfig | AutoFootballDataConfig | null;

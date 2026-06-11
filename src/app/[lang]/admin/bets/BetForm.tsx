@@ -47,7 +47,22 @@ type AutoFdField =
   | "ht_score"
   | "total_goals"
   | "ht_total"
-  | "went_to_penalties";
+  | "went_to_penalties"
+  | "btts"
+  | "home_scored"
+  | "away_scored"
+  | "clean_sheet_home"
+  | "clean_sheet_away"
+  | "first_half_goal"
+  | "second_half_goal"
+  | "both_halves_scored"
+  | "over_0_5_goals"
+  | "over_1_5_goals"
+  | "over_2_5_goals"
+  | "over_3_5_goals"
+  | "over_4_5_goals"
+  | "winning_margin"
+  | "second_half_total";
 
 type Defaults = {
   stakeYesNo: number; payoutYesNo: number;
@@ -816,19 +831,49 @@ export function BetForm({
 
       {/* 9. Grading config (dynamic) */}
       {gradingSource === "auto_football_data" && (
-        <Section title={isHebrew ? "מה לדגום מהתוצאה?" : "Which field to read?"}>
+        <Section
+          title={isHebrew ? "מה לדגום מהתוצאה?" : "Which field to read?"}
+          hint={isHebrew
+            ? "ההגדרה חייבת להתאים לסוג התשובה שבחרת — כן/לא לשדות yes/no, מספר לשדות number וכו'. אחרת ההימור יישאר ידני."
+            : "Field must match the answer type you picked (yes/no for boolean fields, number for numeric, etc.). Mismatched bets fall back to manual grading."}
+        >
           <select
             value={autoFdField}
             onChange={(e) => setAutoFdField(e.target.value as AutoFdField)}
             className="min-h-[48px] w-full px-3 rounded border border-outline bg-surface-container-lowest text-base"
           >
-            <option value="total_goals">      {isHebrew ? "סך השערים במשחק" : "Total goals in match"}</option>
-            <option value="ht_total">          {isHebrew ? "סך השערים במחצית" : "Halftime total goals"}</option>
-            <option value="home_score">        {isHebrew ? "שערי בית" : "Home score"}</option>
-            <option value="away_score">        {isHebrew ? "שערי חוץ" : "Away score"}</option>
-            <option value="winner">            {isHebrew ? "מנצח (1/X/2)" : "Winner (1/X/2)"}</option>
-            <option value="ht_score">          {isHebrew ? "תוצאת מחצית מדויקת" : "Exact halftime score"}</option>
-            <option value="went_to_penalties"> {isHebrew ? "האם הוכרע בפנדלים" : "Went to penalties"}</option>
+            <optgroup label={isHebrew ? "תוצאה כללית" : "General result"}>
+              <option value="winner">            {isHebrew ? "מנצח (1/X/2) — בחירה" : "Winner (1/X/2) — multi-choice"}</option>
+              <option value="ht_score">          {isHebrew ? "תוצאת מחצית מדויקת — בחירה" : "Exact halftime score — multi-choice"}</option>
+              <option value="went_to_penalties"> {isHebrew ? "האם הוכרע בפנדלים — כן/לא" : "Went to penalties — yes/no"}</option>
+            </optgroup>
+            <optgroup label={isHebrew ? "ספירת שערים" : "Goal counts"}>
+              <option value="total_goals">       {isHebrew ? "סך השערים במשחק — מספר" : "Total goals in match — number"}</option>
+              <option value="ht_total">          {isHebrew ? "סך השערים במחצית 1 — מספר" : "First-half total goals — number"}</option>
+              <option value="second_half_total"> {isHebrew ? "סך השערים במחצית 2 — מספר" : "Second-half total goals — number"}</option>
+              <option value="home_score">        {isHebrew ? "שערי הבית — מספר" : "Home goals — number"}</option>
+              <option value="away_score">        {isHebrew ? "שערי החוץ — מספר" : "Away goals — number"}</option>
+              <option value="winning_margin">    {isHebrew ? "הפרש שערים סופי — מספר" : "Winning margin — number"}</option>
+            </optgroup>
+            <optgroup label={isHebrew ? "מעל / מתחת לשערים" : "Over/Under goals"}>
+              <option value="over_0_5_goals">    {isHebrew ? "מעל 0.5 שערים — כן/לא" : "Over 0.5 goals — yes/no"}</option>
+              <option value="over_1_5_goals">    {isHebrew ? "מעל 1.5 שערים — כן/לא" : "Over 1.5 goals — yes/no"}</option>
+              <option value="over_2_5_goals">    {isHebrew ? "מעל 2.5 שערים — כן/לא" : "Over 2.5 goals — yes/no"}</option>
+              <option value="over_3_5_goals">    {isHebrew ? "מעל 3.5 שערים — כן/לא" : "Over 3.5 goals — yes/no"}</option>
+              <option value="over_4_5_goals">    {isHebrew ? "מעל 4.5 שערים — כן/לא" : "Over 4.5 goals — yes/no"}</option>
+            </optgroup>
+            <optgroup label={isHebrew ? "BTTS וקבוצות" : "BTTS & per-team"}>
+              <option value="btts">              {isHebrew ? "שתי הקבוצות יבקיעו (BTTS) — כן/לא" : "Both teams to score (BTTS) — yes/no"}</option>
+              <option value="home_scored">       {isHebrew ? "האם הבית הבקיעה — כן/לא" : "Did home score — yes/no"}</option>
+              <option value="away_scored">       {isHebrew ? "האם החוץ הבקיעה — כן/לא" : "Did away score — yes/no"}</option>
+              <option value="clean_sheet_home">  {isHebrew ? "שער יבש לקבוצת הבית — כן/לא" : "Home kept clean sheet — yes/no"}</option>
+              <option value="clean_sheet_away">  {isHebrew ? "שער יבש לקבוצת החוץ — כן/לא" : "Away kept clean sheet — yes/no"}</option>
+            </optgroup>
+            <optgroup label={isHebrew ? "מחציות" : "Halves"}>
+              <option value="first_half_goal">   {isHebrew ? "שער במחצית 1 — כן/לא" : "Goal in 1st half — yes/no"}</option>
+              <option value="second_half_goal">  {isHebrew ? "שער במחצית 2 — כן/לא" : "Goal in 2nd half — yes/no"}</option>
+              <option value="both_halves_scored">{isHebrew ? "שער בשתי המחציות — כן/לא" : "Goal in both halves — yes/no"}</option>
+            </optgroup>
           </select>
         </Section>
       )}

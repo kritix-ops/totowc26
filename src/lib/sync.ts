@@ -723,7 +723,8 @@ async function scoreFinalMatches(): Promise<{
 //   group scope → resolves to the group winner once every group-stage
 //                 match for that group is final (see resolveGroupScope).
 //   tournament  → not auto-graded here (manual)
-type AutoFootballField =
+export type AutoFootballField =
+  // Raw values from the final match row.
   | "home_score"
   | "away_score"
   | "winner"
@@ -731,7 +732,24 @@ type AutoFootballField =
   | "total_goals"
   | "ht_total"
   | "went_to_penalties"
-  | "group_winner";
+  | "group_winner"
+  // Derived yes/no fields — computed from home/away + ht_*.
+  | "btts"
+  | "home_scored"
+  | "away_scored"
+  | "clean_sheet_home"
+  | "clean_sheet_away"
+  | "first_half_goal"
+  | "second_half_goal"
+  | "both_halves_scored"
+  | "over_0_5_goals"
+  | "over_1_5_goals"
+  | "over_2_5_goals"
+  | "over_3_5_goals"
+  | "over_4_5_goals"
+  // Derived numeric fields — also from the same row.
+  | "winning_margin"
+  | "second_half_total";
 
 type CandidateBet = {
   id: string;
@@ -1198,7 +1216,7 @@ function coerceApiFootballStat(
   return { type: "number", value };
 }
 
-function coerceMatchField(
+export function coerceMatchField(
   answerType: "yes_no" | "number" | "multi_choice" | "free_text",
   field: AutoFootballField,
   m: {
@@ -1246,6 +1264,85 @@ function coerceMatchField(
       // resolveGroupScope upstream and never reaches this match-scope
       // coercer. Listed here only so the union is exhaustive.
       return "skip";
+    // ---- Derived yes/no fields. All require the same source data the
+    // existing fields already validated (final + non-null scores). The
+    // halves-based ones additionally need both htHome and htAway.
+    case "btts":
+      return answerType === "yes_no"
+        ? { type: "yes_no", value: m.homeScore > 0 && m.awayScore > 0 }
+        : "skip";
+    case "home_scored":
+      return answerType === "yes_no"
+        ? { type: "yes_no", value: m.homeScore > 0 }
+        : "skip";
+    case "away_scored":
+      return answerType === "yes_no"
+        ? { type: "yes_no", value: m.awayScore > 0 }
+        : "skip";
+    case "clean_sheet_home":
+      return answerType === "yes_no"
+        ? { type: "yes_no", value: m.awayScore === 0 }
+        : "skip";
+    case "clean_sheet_away":
+      return answerType === "yes_no"
+        ? { type: "yes_no", value: m.homeScore === 0 }
+        : "skip";
+    case "over_0_5_goals":
+      return answerType === "yes_no"
+        ? { type: "yes_no", value: m.homeScore + m.awayScore > 0 }
+        : "skip";
+    case "over_1_5_goals":
+      return answerType === "yes_no"
+        ? { type: "yes_no", value: m.homeScore + m.awayScore > 1 }
+        : "skip";
+    case "over_2_5_goals":
+      return answerType === "yes_no"
+        ? { type: "yes_no", value: m.homeScore + m.awayScore > 2 }
+        : "skip";
+    case "over_3_5_goals":
+      return answerType === "yes_no"
+        ? { type: "yes_no", value: m.homeScore + m.awayScore > 3 }
+        : "skip";
+    case "over_4_5_goals":
+      return answerType === "yes_no"
+        ? { type: "yes_no", value: m.homeScore + m.awayScore > 4 }
+        : "skip";
+    case "first_half_goal":
+      if (answerType !== "yes_no") return "skip";
+      if (m.htHomeScore === null || m.htAwayScore === null) return "skip";
+      return { type: "yes_no", value: m.htHomeScore + m.htAwayScore > 0 };
+    case "second_half_goal":
+      if (answerType !== "yes_no") return "skip";
+      if (m.htHomeScore === null || m.htAwayScore === null) return "skip";
+      return {
+        type: "yes_no",
+        value:
+          (m.homeScore + m.awayScore) - (m.htHomeScore + m.htAwayScore) > 0,
+      };
+    case "both_halves_scored":
+      if (answerType !== "yes_no") return "skip";
+      if (m.htHomeScore === null || m.htAwayScore === null) return "skip";
+      return {
+        type: "yes_no",
+        value:
+          m.htHomeScore + m.htAwayScore > 0 &&
+          (m.homeScore + m.awayScore) - (m.htHomeScore + m.htAwayScore) > 0,
+      };
+    // ---- Derived numeric fields. winning_margin uses the absolute
+    // score difference (always >= 0). second_half_total subtracts the
+    // halftime score; both halves' raw scores are required.
+    case "winning_margin":
+      return answerType === "number"
+        ? { type: "number", value: Math.abs(m.homeScore - m.awayScore) }
+        : "skip";
+    case "second_half_total":
+      if (answerType !== "number") return "skip";
+      if (m.htHomeScore === null || m.htAwayScore === null) return "skip";
+      return {
+        type: "number",
+        value:
+          (m.homeScore + m.awayScore) - (m.htHomeScore + m.htAwayScore),
+      };
   }
 }
 
