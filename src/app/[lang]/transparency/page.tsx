@@ -3,7 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { Eye, X } from "lucide-react";
 import { clsx } from "clsx";
 import { getDictionary, hasLocale, type Locale } from "../dictionaries";
-import { Card, Chip, LabelCaps } from "@/components/ui";
+import { Card, Chip, LabelCaps, ScoreLine } from "@/components/ui";
 import { getRequestUser } from "@/lib/request-user";
 import {
   getTransparencyFeed,
@@ -209,8 +209,9 @@ export default async function TransparencyPage({
                     {row.question}
                   </span>
                   <div className="flex items-center gap-3 text-[11px] text-on-surface-variant">
-                    <span className="font-bold">
-                      {dict.transparency.pickedLabel}: {row.pickLabel}
+                    <span className="font-bold inline-flex items-center gap-1">
+                      {dict.transparency.pickedLabel}:
+                      <PickLabel category={row.category} label={row.pickLabel} />
                     </span>
                     {row.stake > 0 && (
                       <span className="bidi-ltr">
@@ -254,6 +255,32 @@ export default async function TransparencyPage({
       )}
     </section>
   );
+}
+
+// Match score picks arrive as a flat "home-away" string from SQL
+// (`mb.home_score || '-' || mb.away_score`). Rendering that string in an
+// RTL paragraph puts the home digit on the LEFT (LTR-isolated number
+// run) — the opposite of where the home team's name sits in every other
+// fixture surface in the app, so Hebrew readers see "3-1" with the 1
+// next to Mexico and conclude their pick flipped. ScoreLine renders the
+// two digits as separate flex children that flow with the document
+// direction, lining the home digit up under the home team. The match
+// branch is the only one that uses a "H-A" shape; all other categories
+// have prose labels and render unchanged.
+function PickLabel({
+  category,
+  label,
+}: {
+  category: TransparencyCategory;
+  label: string;
+}) {
+  if (category === "match") {
+    const m = /^(\d+)-(\d+)$/.exec(label);
+    if (m) {
+      return <ScoreLine home={Number(m[1])} away={Number(m[2])} />;
+    }
+  }
+  return <span>{label}</span>;
 }
 
 function categoryLabel(
