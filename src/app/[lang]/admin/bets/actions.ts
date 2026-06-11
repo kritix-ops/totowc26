@@ -517,9 +517,17 @@ function validateGradingConfig(
     );
   }
   if (source === "auto_football_data") {
+    // Must stay in sync with AutoFootballDataConfig.field in
+    // src/lib/bets/types.ts and the resolver branches in
+    // src/lib/sync.ts (coerceMatchField). Adding a field in only one
+    // place quietly rejects every bet that uses it as
+    // "invalid_grading_config", which is exactly what just happened on
+    // 2026-06-11 when btts/over_X/halves/clean_sheet were added to the
+    // type + resolver + form but not here.
     return (
       config.source === "auto_football_data" &&
       [
+        // Raw values from the final match row.
         "home_score",
         "away_score",
         "winner",
@@ -527,6 +535,23 @@ function validateGradingConfig(
         "total_goals",
         "ht_total",
         "went_to_penalties",
+        // Derived yes/no fields.
+        "btts",
+        "home_scored",
+        "away_scored",
+        "clean_sheet_home",
+        "clean_sheet_away",
+        "first_half_goal",
+        "second_half_goal",
+        "both_halves_scored",
+        "over_0_5_goals",
+        "over_1_5_goals",
+        "over_2_5_goals",
+        "over_3_5_goals",
+        "over_4_5_goals",
+        // Derived numeric fields.
+        "winning_margin",
+        "second_half_total",
       ].includes(config.field)
     );
   }
