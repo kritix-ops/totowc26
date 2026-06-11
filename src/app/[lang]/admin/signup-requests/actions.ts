@@ -6,7 +6,7 @@ import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import { signupRequests, profiles } from "@/db/schema";
 import { isAdmin } from "@/lib/admin";
-import { buildInviteCallbackUrl, getUser } from "@/lib/supabase/auth";
+import { buildAuthConfirmUrl, getUser } from "@/lib/supabase/auth";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 import { sendEmail } from "@/lib/email/client";
 import { getEmailCopy, interpolate } from "@/lib/email/copy";
@@ -116,7 +116,7 @@ export async function approveSignupRequest(
   }
   const hashedToken = link.data.properties?.hashed_token;
   if (!hashedToken) return { ok: false, error: "no_link" };
-  const recoveryUrl = buildInviteCallbackUrl({
+  const recoveryUrl = buildAuthConfirmUrl({
     origin,
     hashedToken,
     type: "recovery",

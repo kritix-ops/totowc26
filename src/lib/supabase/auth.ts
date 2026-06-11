@@ -9,25 +9,4 @@ export const getUser = cache(async () => {
   return data.user;
 });
 
-// Build a callback URL that routes the user through our own /auth/callback
-// instead of Supabase's hosted verify endpoint. The callback hands the
-// hashed token to verifyOtp server-side and writes the session into our
-// cookie store so /set-password (and any other guarded route in `next`)
-// sees an authenticated user.
-export function buildInviteCallbackUrl({
-  origin,
-  hashedToken,
-  type,
-  next,
-}: {
-  origin: string;
-  hashedToken: string;
-  type: "recovery" | "invite" | "magiclink";
-  next: string;
-}): string {
-  const u = new URL(`${origin}/auth/callback`);
-  u.searchParams.set("token_hash", hashedToken);
-  u.searchParams.set("type", type);
-  u.searchParams.set("next", next);
-  return u.toString();
-}
+export { buildAuthConfirmUrl } from "./confirm-url";

@@ -11,7 +11,7 @@ import {
   passwordResetAudit,
 } from "@/db/schema";
 import { isAdmin } from "@/lib/admin";
-import { buildInviteCallbackUrl, getUser } from "@/lib/supabase/auth";
+import { buildAuthConfirmUrl, getUser } from "@/lib/supabase/auth";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 import { lockUserForBetting, getBankBalanceWith } from "@/lib/bank";
 import { ENTRY_FEE_ILS } from "@/lib/paybox";
@@ -307,7 +307,7 @@ export async function invitePlayer(
   }
   const hashedToken = link.data.properties?.hashed_token;
   if (!hashedToken) return { ok: false, error: "no_link" };
-  const url = buildInviteCallbackUrl({
+  const url = buildAuthConfirmUrl({
     origin,
     hashedToken,
     type: "recovery",
@@ -334,7 +334,7 @@ export async function regenerateInviteLink(
   if (link.error) return { ok: false, error: link.error.message };
   const hashedToken = link.data.properties?.hashed_token;
   if (!hashedToken) return { ok: false, error: "no_link" };
-  const url = buildInviteCallbackUrl({
+  const url = buildAuthConfirmUrl({
     origin,
     hashedToken,
     type: "recovery",
@@ -376,7 +376,7 @@ export async function resetUserPassword(
     if (link.error) return { ok: false, error: link.error.message };
     const hashedToken = link.data.properties?.hashed_token;
     if (!hashedToken) return { ok: false, error: "no_link" };
-    const url = buildInviteCallbackUrl({
+    const url = buildAuthConfirmUrl({
       origin,
       hashedToken,
       type: "recovery",
