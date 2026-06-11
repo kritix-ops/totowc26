@@ -26,7 +26,7 @@ import {
 import type { Locale } from "../../dictionaries";
 import { localePath } from "@/lib/paths";
 import { formatDateTime } from "@/lib/format";
-import { Card, LabelCaps, SectionHeading, MatchupLabel } from "@/components/ui";
+import { Card, LabelCaps, SectionHeading, MatchupLabel, ScoreLine } from "@/components/ui";
 import { AdminPickEditor } from "../users/[id]/bets/AdminPickEditor";
 import {
   loadUserBetDetail,
@@ -820,9 +820,11 @@ function DrawerMatchRow({
       {hasPick ? (
         <span className="text-sm font-bold tabular-nums shrink-0 inline-flex items-center gap-1">
           <Check className="h-3.5 w-3.5 text-secondary" strokeWidth={2.5} />
-          <bdi>
-            {row.pickHomeScore}–{row.pickAwayScore}
-          </bdi>
+          {/* ScoreLine so the home digit sits on the home side in RTL —
+              same fix as /transparency, /live and the per-user admin bets
+              list. A bdi-isolated "H–A" run rendered LTR and flipped the
+              score relative to the team names. */}
+          <ScoreLine home={row.pickHomeScore!} away={row.pickAwayScore!} separator="–" />
         </span>
       ) : (
         <span className="text-xs text-on-surface-variant italic shrink-0">—</span>

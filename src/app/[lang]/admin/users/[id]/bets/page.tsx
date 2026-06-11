@@ -23,7 +23,7 @@ import {
   type AdminUserBetRow,
   type AdminUserMatchPickRow,
 } from "../../queries";
-import { Card, Chip, SectionHeading, LabelCaps, MatchupLabel } from "@/components/ui";
+import { Card, Chip, SectionHeading, LabelCaps, MatchupLabel, ScoreLine } from "@/components/ui";
 import { localePath } from "@/lib/paths";
 import { formatDateTime } from "@/lib/format";
 import { AdminPickEditor } from "./AdminPickEditor";
@@ -477,9 +477,11 @@ function MatchPickRow({
       {hasPick ? (
         <span className="text-sm font-bold tabular-nums shrink-0 inline-flex items-center gap-1">
           <Check className="h-3.5 w-3.5 text-secondary" strokeWidth={2.5} />
-          <bdi>
-            {row.pickHomeScore}–{row.pickAwayScore}
-          </bdi>
+          {/* ScoreLine (not a <bdi>-isolated "H–A" run) so the home digit
+              sits on the home side in RTL — same fix as /transparency and
+              /live. A bdi run forced LTR, putting Mexico's score next to
+              South Africa for Hebrew admins. */}
+          <ScoreLine home={row.pickHomeScore!} away={row.pickAwayScore!} separator="–" />
         </span>
       ) : (
         <span className="text-xs text-on-surface-variant italic shrink-0 inline-flex items-center gap-1">
