@@ -423,6 +423,13 @@ export const settings = pgTable("settings", {
   duelMaxStake: smallint("duel_max_stake").notNull().default(5),
   duelDefaultJoinWindowHours: smallint("duel_default_join_window_hours").notNull().default(24),
   duelDailyLimit: smallint("duel_daily_limit").notNull().default(20),
+  // Negative-balance rules. A live-bet or duel placement may push the
+  // bank to at most -maxOverdraft. Once balance is < 0, both placement
+  // paths reject until the player recovers via free bets / admin adjust.
+  // Kill-switch reverts to the legacy "balance >= stake" rule.
+  // See _plans/2026-06-11-negative-balance-lock.md.
+  maxOverdraft: integer("max_overdraft").notNull().default(30),
+  lockBetsWhenNegative: boolean("lock_bets_when_negative").notNull().default(true),
   // Live-bet odds → stake/payout normalization. Used by PR 2's
   // src/lib/odds-normalize.ts when converting bookmaker decimal odds into
   // our point system. The house edge trims a slice off the bookmaker
@@ -661,6 +668,13 @@ export const customBets = pgTable(
     gradingSource: gradingSourceEnum("grading_source").notNull(),
     gradingConfig: jsonb("grading_config"),
     resolvedValue: jsonb("resolved_value"),
+
+    // Hide-from-template-picker flag. Off by default; admin flips it
+    // from /admin/bets/[id] once a question stops being useful as a
+    // template ("Will Mexico finish 1st in Group A?" after the group
+    // stage ends). Player-facing surfaces ignore this column.
+    // See migration 0049.
+    templateArchived: boolean("template_archived").notNull().default(false),
 
     // Lifecycle
     status: betStatusEnum("status").notNull().default("draft"),

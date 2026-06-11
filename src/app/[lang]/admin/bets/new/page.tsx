@@ -16,6 +16,7 @@ import {
 import { getDeadlineContext } from "@/lib/deadlines";
 import { BetForm, type InitialBet } from "../BetForm";
 import type { AnswerConfig, GradingConfig } from "@/lib/bets/types";
+import { adaptTemplateText } from "@/lib/bets/template-adapt";
 
 export default async function NewBetPage({
   params,
@@ -172,71 +173,3 @@ export default async function NewBetPage({
   );
 }
 
-// Find-and-replace the template's source-match team names with the
-// target match's team names inside the question + grading-rule text.
-// Hebrew and English are swapped independently because templates carry
-// both locales. We use plain string `split/join` instead of a regex so
-// the swap is unicode-safe for Hebrew without an extra escape pass.
-//
-// Safety: only swaps when we have BOTH source and target team names
-// for the locale we're updating, AND they actually differ. Mid-word
-// hits are still possible in theory (a team name appearing as a
-// substring of an unrelated word), but for the World Cup roster the
-// names are distinct enough that the practical risk is negligible. The
-// admin always reviews + edits before publishing anyway.
-function adaptTemplateText(
-  template: {
-    questionHe: string;
-    questionEn: string;
-    gradingRuleHe: string;
-    gradingRuleEn: string;
-    sourceHomeNameHe?: string | null;
-    sourceHomeNameEn?: string | null;
-    sourceAwayNameHe?: string | null;
-    sourceAwayNameEn?: string | null;
-  },
-  target: {
-    homeNameHe: string;
-    homeNameEn: string;
-    awayNameHe: string;
-    awayNameEn: string;
-  },
-): {
-  questionHe: string;
-  questionEn: string;
-  gradingRuleHe: string;
-  gradingRuleEn: string;
-} {
-  const swapHe = (text: string) =>
-    swapPair(text, template.sourceHomeNameHe, target.homeNameHe, template.sourceAwayNameHe, target.awayNameHe);
-  const swapEn = (text: string) =>
-    swapPair(text, template.sourceHomeNameEn, target.homeNameEn, template.sourceAwayNameEn, target.awayNameEn);
-  return {
-    questionHe:    swapHe(template.questionHe),
-    questionEn:    swapEn(template.questionEn),
-    gradingRuleHe: swapHe(template.gradingRuleHe),
-    gradingRuleEn: swapEn(template.gradingRuleEn),
-  };
-}
-
-function swapPair(
-  text: string,
-  fromHome: string | null | undefined,
-  toHome: string,
-  fromAway: string | null | undefined,
-  toAway: string,
-): string {
-  let out = text;
-  // Order matters: do home first then away. If the source home name is
-  // a substring of the source away name (rare but possible), swapping
-  // the longer string first avoids a partial overwrite. Sort by length
-  // desc to be safe.
-  const pairs: Array<[string, string]> = [];
-  if (fromHome && fromHome !== toHome) pairs.push([fromHome, toHome]);
-  if (fromAway && fromAway !== toAway) pairs.push([fromAway, toAway]);
-  pairs.sort((a, b) => b[0].length - a[0].length);
-  for (const [from, to] of pairs) {
-    out = out.split(from).join(to);
-  }
-  return out;
-}

@@ -436,6 +436,10 @@ export type AdminCustomBetDetail = {
   matchLabel: string | null;
   stage: string | null;
   groupId: string | null;
+  // Whether the bet still surfaces in the template picker / quick-add
+  // chips. Toggled from /admin/bets/[id]/page.tsx via the Template
+  // section. See migration 0049.
+  templateArchived: boolean;
   createdAt: string;
   picks: AdminCustomBetPickRow[];
 };
@@ -473,6 +477,7 @@ export async function getAdminCustomBetDetail(
         else null end                             as "matchLabel",
       cb.stage::text                              as "stage",
       cb.group_id                                 as "groupId",
+      cb.template_archived                        as "templateArchived",
       cb.created_at                               as "createdAt"
     from public.custom_bets cb
     left join public.matchdays md on md.id = cb.matchday_id
@@ -641,6 +646,7 @@ export async function listBetTemplates(
         )                                           as rn
       from public.custom_bets cb
       where cb.status <> 'cancelled'
+        and cb.template_archived = false
     )
     select
       id::text         as "id",

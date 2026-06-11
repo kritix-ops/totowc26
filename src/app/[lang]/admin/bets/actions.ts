@@ -356,6 +356,51 @@ export async function updateCustomBet(
   }
 }
 
+export type SetTemplateArchivedResult =
+  | { ok: true }
+  | { ok: false; error: Err };
+
+// Flip a bet's template_archived flag so it stops surfacing in the
+// template picker / quick-add chip strips. Does NOT touch the bet's
+// status, score, picks or any player-visible field — purely admin-side
+// catalog hygiene. Setting it back to false un-archives.
+export async function setTemplateArchived(
+  id: string,
+  archived: boolean,
+): Promise<SetTemplateArchivedResult> {
+  const user = await getUser();
+  if (!user) return { ok: false, error: "unauth" };
+  if (!(await isAdmin(user.id))) {
+    console.warn("[template archive denied]", { userId: user.id, id });
+    return { ok: false, error: "forbidden" };
+  }
+
+  try {
+    const updated = await db
+      .update(customBets)
+      .set({ templateArchived: archived, updatedAt: new Date() })
+      .where(eq(customBets.id, id))
+      .returning({ id: customBets.id });
+    if (updated.length === 0) return { ok: false, error: "bet_not_found" };
+
+    console.info("[template archive]", { id, archived, by: user.id });
+
+    // The picker mounts on /admin/bets/new + /admin/live-bets/suggestions
+    // + /admin/bets/quick-add; bust all three so the flag flip is
+    // visible without a hard refresh. The detail page revalidates so the
+    // button label flips immediately.
+    revalidatePath("/[lang]/admin/bets", "page");
+    revalidatePath("/[lang]/admin/bets/new", "page");
+    revalidatePath("/[lang]/admin/bets/quick-add", "page");
+    revalidatePath("/[lang]/admin/live-bets/suggestions", "page");
+    revalidatePath(`/[lang]/admin/bets/${id}`, "page");
+    return { ok: true };
+  } catch (err) {
+    console.error("[template archive] update failed:", err);
+    return { ok: false, error: "db" };
+  }
+}
+
 export type PublishCustomBetResult =
   | { ok: true }
   | { ok: false; error: Err };

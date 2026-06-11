@@ -4,7 +4,7 @@ import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { AlertCircle, Plus, RotateCcw, Trash2 } from "lucide-react";
 import { clsx } from "clsx";
-import { PillButton, LabelCaps } from "@/components/ui";
+import { Chip, PillButton, LabelCaps } from "@/components/ui";
 import {
   COMMON_ADMIN_ERRORS,
   translateAdminError,
@@ -487,30 +487,15 @@ export function BetForm({
           title={isHebrew ? "טען מהימור קודם" : "Load from previous bet"}
           hint={
             isHebrew
-              ? "בחר הימור קיים כדי להעתיק שאלה, כלל ניקוד, סוג תשובה ומקור דירוג. ה-scope, המשחק/יום, זמן הנעילה וה-odds לא יועתקו — תזין מחדש למשחק הנוכחי."
-              : "Pick a past bet to copy the question, grading rule, answer type, and grading source. Scope, match/day, lock time, and odds are not copied — re-enter for the current target."
+              ? "בחר הימור קיים כדי להעתיק שאלה, כלל ניקוד, סוג תשובה ומקור דירוג. אם הוא מכיל {HOME}/{AWAY} או את שמות הקבוצות המקוריות, הטקסט יותאם אוטומטית למשחק הנוכחי."
+              : "Pick a past bet to copy the question, grading rule, answer type, and grading source. {HOME}/{AWAY} placeholders and source team names get swapped to the current match automatically."
           }
         >
-          <select
-            defaultValue=""
-            onChange={(e) => {
-              const t = templates.find((x) => x.id === e.target.value);
-              if (t) applyTemplate(t);
-              e.target.value = "";
-            }}
-            className="min-h-[48px] w-full px-3 rounded border border-outline bg-surface-container-lowest text-base"
-          >
-            <option value="" disabled>
-              {isHebrew ? "— בחר טמפלט —" : "— pick a template —"}
-            </option>
-            {templates.map((t) => (
-              <option key={t.id} value={t.id}>
-                {`[${scopeShortLabel(t.scope, isHebrew)}] `}
-                {isHebrew ? t.questionHe : t.questionEn}
-                {t.appliedLabel ? ` · ${t.appliedLabel}` : ""}
-              </option>
-            ))}
-          </select>
+          <TemplatePicker
+            locale={locale}
+            templates={templates}
+            onPick={applyTemplate}
+          />
         </Section>
       )}
 
@@ -1402,6 +1387,85 @@ function suggestDefaultLockAt(
   // is what the admin actually expects to see, even when the browser
   // is in another timezone.
   return isoToLocalInputValue(lock.toISOString());
+}
+
+// Searchable template picker. Renders a text input + a scrollable list
+// filtered by case-insensitive substring against the locale-active
+// question text, the applied-anchor label (so an admin can type "MEX"
+// to find every bet they wrote on Mexico fixtures), and the scope tag.
+function TemplatePicker({
+  locale,
+  templates,
+  onPick,
+}: {
+  locale: Locale;
+  templates: BetTemplate[];
+  onPick: (t: BetTemplate) => void;
+}) {
+  const isHebrew = locale === "he";
+  const [query, setQuery] = useState("");
+  const q = query.trim().toLowerCase();
+
+  const filtered = useMemo(() => {
+    if (!q) return templates;
+    return templates.filter((t) => {
+      const haystack = [
+        isHebrew ? t.questionHe : t.questionEn,
+        t.appliedLabel ?? "",
+        scopeShortLabel(t.scope, isHebrew),
+        scopeShortLabel(t.scope, !isHebrew),
+      ]
+        .join(" ")
+        .toLowerCase();
+      return haystack.includes(q);
+    });
+  }, [q, templates, isHebrew]);
+
+  return (
+    <div className="flex flex-col gap-2">
+      <input
+        type="text"
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        placeholder={
+          isHebrew ? "חפש לפי טקסט / משחק / סוג…" : "Search by text / match / scope…"
+        }
+        className="min-h-[48px] w-full px-3 rounded border border-outline bg-surface-container-lowest text-base font-bold focus:outline-none focus:border-primary"
+      />
+      <ul className="flex flex-col gap-1 max-h-72 overflow-y-auto rounded border border-outline-variant bg-surface-container-lowest">
+        {filtered.length === 0 ? (
+          <li className="px-3 py-3 text-xs text-on-surface-variant text-center">
+            {isHebrew ? "אין תוצאות תואמות." : "No matching templates."}
+          </li>
+        ) : (
+          filtered.map((t) => (
+            <li key={t.id}>
+              <button
+                type="button"
+                onClick={() => {
+                  onPick(t);
+                  setQuery("");
+                }}
+                className="press-down w-full text-start min-h-11 px-3 py-2 hover:bg-surface-container flex flex-col gap-0.5"
+              >
+                <span className="text-sm font-bold text-on-surface line-clamp-2">
+                  <Chip className="me-1 text-[10px]">
+                    {scopeShortLabel(t.scope, isHebrew)}
+                  </Chip>
+                  {isHebrew ? t.questionHe : t.questionEn}
+                </span>
+                {t.appliedLabel && (
+                  <span className="text-[11px] text-on-surface-variant tabular-nums">
+                    {isHebrew ? "הוחל על:" : "Last applied to:"} {t.appliedLabel}
+                  </span>
+                )}
+              </button>
+            </li>
+          ))
+        )}
+      </ul>
+    </div>
+  );
 }
 
 // Tight 2-3 char label for the template-picker chip. Lets the dropdown
