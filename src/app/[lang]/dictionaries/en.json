@@ -294,7 +294,6 @@
     "title": "Full transparency",
     "subtitle": "Who picked what. Each pick becomes public the moment it locks - not before.",
     "filterUser": "Player",
-    "filterCategory": "Category",
     "filterDate": "Date",
     "filterAny": "Any",
     "filterApply": "Filter",
@@ -305,7 +304,6 @@
     "categoryTournament": "Tournament bet",
     "categoryGroup": "Group ranking",
     "categoryDuel": "Duel",
-    "pickedLabel": "Picked",
     "stakeLabel": "Stake"
   },
   "leaderboard": {

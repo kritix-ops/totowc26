@@ -1,12 +1,13 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { Eye, X } from "lucide-react";
+import { Eye, X, ChevronDown } from "lucide-react";
 import { clsx } from "clsx";
 import { getDictionary, hasLocale, type Locale } from "../dictionaries";
 import { Card, Chip, LabelCaps, ScoreLine } from "@/components/ui";
+import { TransparencyTabs } from "@/components/TransparencyTabs";
 import { getRequestUser } from "@/lib/request-user";
 import {
-  getTransparencyFeed,
+  getTransparencyByQuestion,
   getTransparencyUsers,
   type TransparencyCategory,
 } from "@/db/queries";
@@ -16,7 +17,8 @@ import { gatePage } from "@/lib/page-visibility";
 
 type SearchSP = {
   user?: string | string[];
-  category?: string | string[];
+  tab?: string | string[];
+  category?: string | string[]; // legacy alias of `tab`
   date?: string | string[];
 };
 
@@ -32,6 +34,7 @@ const CATEGORIES: TransparencyCategory[] = [
   "group",
   "duel",
 ];
+const DEFAULT_TAB: TransparencyCategory = "match";
 
 export default async function TransparencyPage({
   params,
@@ -49,34 +52,44 @@ export default async function TransparencyPage({
 
   const sp = await searchParams;
   const rawUser = Array.isArray(sp.user) ? sp.user[0] : sp.user;
-  const rawCategory = Array.isArray(sp.category) ? sp.category[0] : sp.category;
+  const rawTab = Array.isArray(sp.tab) ? sp.tab[0] : sp.tab;
+  const rawLegacyCategory = Array.isArray(sp.category)
+    ? sp.category[0]
+    : sp.category;
   const rawDate = Array.isArray(sp.date) ? sp.date[0] : sp.date;
 
-  const userId = rawUser && /^[0-9a-f-]{36}$/i.test(rawUser) ? rawUser : undefined;
-  const category =
-    rawCategory && (CATEGORIES as string[]).includes(rawCategory)
-      ? (rawCategory as TransparencyCategory)
-      : undefined;
-  const date = rawDate && /^\d{4}-\d{2}-\d{2}$/.test(rawDate) ? rawDate : undefined;
+  const userId =
+    rawUser && /^[0-9a-f-]{36}$/i.test(rawUser) ? rawUser : undefined;
+  const date =
+    rawDate && /^\d{4}-\d{2}-\d{2}$/.test(rawDate) ? rawDate : undefined;
+
+  // Old links carry `?category=` from the previous flat-feed UI. Map it
+  // to the new `?tab=` param so external links (and the dashboard
+  // digest "see all" links) keep working until we cycle them out.
+  const tabSource = rawTab ?? rawLegacyCategory;
+  const tab: TransparencyCategory =
+    tabSource && (CATEGORIES as string[]).includes(tabSource)
+      ? (tabSource as TransparencyCategory)
+      : DEFAULT_TAB;
 
   // Defensive: this is a public-trust surface that "must always be up".
   // Each data dependency gets its own try/catch with a logged error and
   // a safe default so a single query throw degrades to an empty feed /
   // empty filter list instead of a full-page 500. Mirrors the same
   // pattern already used on /bets/live/[date].
-  let feed: Awaited<ReturnType<typeof getTransparencyFeed>> = [];
+  let rows: Awaited<ReturnType<typeof getTransparencyByQuestion>> = [];
   let users: Awaited<ReturnType<typeof getTransparencyUsers>> = [];
   try {
-    feed = await getTransparencyFeed({
+    rows = await getTransparencyByQuestion({
+      tab,
       userId,
-      category,
       date,
       locale: locale === "he" ? "he" : "en",
     });
   } catch (err) {
-    console.error("[transparency] getTransparencyFeed threw", {
+    console.error("[transparency] getTransparencyByQuestion threw", {
+      tab,
       userId,
-      category,
       date,
       err,
     });
@@ -94,11 +107,10 @@ export default async function TransparencyPage({
           label: users.find((u) => u.id === userId)?.displayName ?? userId,
         }
       : null,
-    category
-      ? { key: "category", label: categoryLabel(category, dict) }
-      : null,
     date ? { key: "date", label: date } : null,
   ].filter((f): f is { key: string; label: string } => Boolean(f));
+
+  const clearHref = `${localePath(locale, "transparency")}?tab=${tab}`;
 
   return (
     <section className="px-4 md:px-16 py-6 md:py-12 flex flex-col gap-6 md:gap-8 max-w-3xl mx-auto w-full pb-24">
@@ -112,12 +124,22 @@ export default async function TransparencyPage({
         </p>
       </header>
 
+      <TransparencyTabs
+        locale={locale}
+        active={tab}
+        userId={userId}
+        date={date}
+      />
+
       <Card className="p-4 md:p-5 flex flex-col gap-3">
         <form
           method="GET"
           action={localePath(locale, "transparency")}
-          className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end"
+          className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-end"
         >
+          {/* Keep the active tab when the user submits the filter form
+              so the page does not reset to the default tab on filter. */}
+          <input type="hidden" name="tab" value={tab} />
           <label className="flex flex-col gap-1.5 text-xs font-bold text-on-surface">
             {dict.transparency.filterUser}
             <select
@@ -134,21 +156,6 @@ export default async function TransparencyPage({
             </select>
           </label>
           <label className="flex flex-col gap-1.5 text-xs font-bold text-on-surface">
-            {dict.transparency.filterCategory}
-            <select
-              name="category"
-              defaultValue={category ?? ""}
-              className="h-12 px-3 rounded-lg border border-outline bg-surface-container-lowest text-sm"
-            >
-              <option value="">{dict.transparency.filterAny}</option>
-              {CATEGORIES.map((c) => (
-                <option key={c} value={c}>
-                  {categoryLabel(c, dict)}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="flex flex-col gap-1.5 text-xs font-bold text-on-surface">
             {dict.transparency.filterDate}
             <input
               type="date"
@@ -158,7 +165,7 @@ export default async function TransparencyPage({
               dir="ltr"
             />
           </label>
-          <div className="sm:col-span-3 flex items-center gap-2 flex-wrap">
+          <div className="sm:col-span-2 flex items-center gap-2 flex-wrap">
             <button
               type="submit"
               className="press-down h-10 px-4 rounded-full bg-primary text-on-primary font-bold text-sm"
@@ -167,7 +174,7 @@ export default async function TransparencyPage({
             </button>
             {activeFilters.length > 0 && (
               <Link
-                href={localePath(locale, "transparency")}
+                href={clearHref}
                 className="press-down h-10 px-4 inline-flex items-center gap-1.5 rounded-full bg-surface-container-low border border-outline text-on-surface font-bold text-sm"
               >
                 <X className="h-3.5 w-3.5" strokeWidth={2.5} />
@@ -189,71 +196,129 @@ export default async function TransparencyPage({
         )}
       </Card>
 
-      {feed.length === 0 ? (
+      {rows.length === 0 ? (
         <Card className="p-6 text-center text-on-surface-variant">
           {dict.transparency.empty}
         </Card>
       ) : (
-        <ul className="flex flex-col gap-2">
-          {feed.map((row) => (
-            <li key={`${row.category}:${row.bookId}`}>
-              <Card className="p-3 md:p-4 flex items-center gap-3">
-                <Chip tone={categoryTone(row.category)} className="shrink-0">
-                  {categoryLabel(row.category, dict)}
-                </Chip>
-                <div className="flex-1 min-w-0 flex flex-col gap-0.5">
-                  <span className="text-sm md:text-base font-bold text-on-surface truncate">
-                    {row.displayName}
-                  </span>
-                  <span className="text-xs text-on-surface-variant truncate">
-                    {row.question}
-                  </span>
-                  <div className="flex items-center gap-3 text-[11px] text-on-surface-variant">
-                    <span className="font-bold inline-flex items-center gap-1">
-                      {dict.transparency.pickedLabel}:
-                      <PickLabel category={row.category} label={row.pickLabel} />
-                    </span>
-                    {row.stake > 0 && (
-                      <span className="bidi-ltr">
-                        {dict.transparency.stakeLabel}: {row.stake}
-                      </span>
-                    )}
-                    <span>
-                      {formatDateTime(row.eventTime, locale, {
-                        day: "numeric",
-                        month: "short",
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })}
-                    </span>
-                  </div>
-                </div>
-                <div className="text-end shrink-0 flex flex-col items-end gap-0.5">
-                  {row.pointsEarned !== null && (
-                    <span
-                      className={clsx(
-                        "font-[family-name:var(--font-score)] text-lg leading-none font-bold tabular-nums",
-                        row.pointsEarned > 0
-                          ? "text-secondary"
-                          : row.pointsEarned < 0
-                            ? "text-error"
-                            : "text-on-surface",
-                      )}
-                    >
-                      <bdi>
-                        {row.pointsEarned > 0 ? "+" : ""}
-                        {row.pointsEarned}
-                      </bdi>
-                    </span>
-                  )}
-                  <LabelCaps as="div">{row.status}</LabelCaps>
-                </div>
-              </Card>
+        <ul className="flex flex-col gap-3">
+          {rows.map((row) => (
+            <li key={row.questionId}>
+              <QuestionCard
+                tab={tab}
+                row={row}
+                locale={locale}
+                dict={dict}
+              />
             </li>
           ))}
         </ul>
       )}
     </section>
+  );
+}
+
+function QuestionCard({
+  tab,
+  row,
+  locale,
+  dict,
+}: {
+  tab: TransparencyCategory;
+  row: Awaited<ReturnType<typeof getTransparencyByQuestion>>[number];
+  locale: Locale;
+  dict: Awaited<ReturnType<typeof getDictionary>>;
+}) {
+  const isHebrew = locale === "he";
+  return (
+    <Card className="p-3 md:p-4 flex flex-col gap-3">
+      <header className="flex items-start justify-between gap-3">
+        <div className="flex flex-col gap-1 min-w-0">
+          <Chip tone={categoryTone(tab)} className="self-start shrink-0">
+            {categoryLabel(tab, dict)}
+          </Chip>
+          <span className="text-sm md:text-base font-bold text-on-surface">
+            {row.question}
+          </span>
+        </div>
+        <time
+          className="text-[11px] text-on-surface-variant whitespace-nowrap shrink-0"
+          dateTime={row.eventTime}
+        >
+          {formatDateTime(row.eventTime, locale, {
+            day: "numeric",
+            month: "short",
+            hour: "2-digit",
+            minute: "2-digit",
+          })}
+        </time>
+      </header>
+
+      <ul className="flex flex-col gap-1.5">
+        {row.pickers.map((pk, idx) => (
+          <li
+            key={`${row.questionId}:${pk.userId}:${idx}`}
+            className="flex items-center justify-between gap-3 text-sm"
+          >
+            <span className="font-bold text-on-surface truncate">
+              {pk.displayName}
+            </span>
+            <span className="flex items-center gap-2 shrink-0 text-on-surface-variant">
+              <PickLabel tab={tab} label={pk.pickLabel} />
+              {pk.stake > 0 && (
+                <span className="bidi-ltr text-[11px]">
+                  ({dict.transparency.stakeLabel}: {pk.stake})
+                </span>
+              )}
+              {pk.pointsEarned !== null && (
+                <span
+                  className={clsx(
+                    "font-[family-name:var(--font-score)] text-sm leading-none font-bold tabular-nums",
+                    pk.pointsEarned > 0
+                      ? "text-secondary"
+                      : pk.pointsEarned < 0
+                        ? "text-error"
+                        : "text-on-surface",
+                  )}
+                >
+                  <bdi>
+                    {pk.pointsEarned > 0 ? "+" : ""}
+                    {pk.pointsEarned}
+                  </bdi>
+                </span>
+              )}
+            </span>
+          </li>
+        ))}
+      </ul>
+
+      {tab !== "duel" && row.nonBettors.length > 0 && (
+        <details className="group">
+          <summary className="list-none [&::-webkit-details-marker]:hidden cursor-pointer select-none press-down inline-flex items-center gap-1.5 h-11 px-4 rounded-full bg-surface-container-low border border-outline-variant text-xs font-bold text-on-surface-variant">
+            <ChevronDown
+              className="h-3.5 w-3.5 transition-transform group-open:rotate-180"
+              strokeWidth={2.5}
+            />
+            {isHebrew
+              ? `+${row.nonBettors.length} לא הימרו`
+              : `+${row.nonBettors.length} didn't bet`}
+          </summary>
+          <ul className="mt-2 flex flex-wrap gap-1.5">
+            {row.nonBettors.map((nb) => (
+              <li key={nb.userId}>
+                <Chip tone="default" className="text-[11px]">
+                  {nb.displayName}
+                </Chip>
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+
+      <LabelCaps as="div" className="self-end">
+        {row.pickers[0]?.status ?? ""}
+      </LabelCaps>
+    </Card>
   );
 }
 
@@ -265,16 +330,16 @@ export default async function TransparencyPage({
 // next to Mexico and conclude their pick flipped. ScoreLine renders the
 // two digits as separate flex children that flow with the document
 // direction, lining the home digit up under the home team. The match
-// branch is the only one that uses a "H-A" shape; all other categories
-// have prose labels and render unchanged.
+// branch is the only one that uses a "H-A" shape; all other tabs have
+// prose labels and render unchanged.
 function PickLabel({
-  category,
+  tab,
   label,
 }: {
-  category: TransparencyCategory;
+  tab: TransparencyCategory;
   label: string;
 }) {
-  if (category === "match") {
+  if (tab === "match") {
     const m = /^(\d+)-(\d+)$/.exec(label);
     if (m) {
       return <ScoreLine home={Number(m[1])} away={Number(m[2])} />;
@@ -317,3 +382,4 @@ function categoryTone(
       return "secondary";
   }
 }
+

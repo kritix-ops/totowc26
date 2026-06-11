@@ -294,7 +294,6 @@
     "title": "שקיפות מלאה",
     "subtitle": "מי הימר על מה. הימור גלוי לכולם ברגע שננעל - לא לפני.",
     "filterUser": "משתתף",
-    "filterCategory": "קטגוריה",
     "filterDate": "תאריך",
     "filterAny": "הכל",
     "filterApply": "סנן",
@@ -305,7 +304,6 @@
     "categoryTournament": "הימור טורניר",
     "categoryGroup": "דירוג בית",
     "categoryDuel": "דו-קרב",
-    "pickedLabel": "ניחש",
     "stakeLabel": "השקעה"
   },
   "leaderboard": {

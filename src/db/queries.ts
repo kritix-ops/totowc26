@@ -7,6 +7,14 @@ import { approvedPotIlsSql, paidParticipantsSql } from "./pot";
 import type { MultiChoiceOption } from "@/lib/bets/types";
 import { bankBalanceSql, duelCaseSql, duelDeltaSql } from "@/lib/bank";
 import { STAR_PLAYER_RANK, TEAM_RANK } from "@/lib/players/curation";
+import {
+  attachNonBettors,
+  filterToUser,
+  groupPickerRows,
+  type TransparencyPicker,
+  type TransparencyPickerRow,
+  type TransparencyQuestionRow,
+} from "@/lib/transparency-group";
 
 // Cache tags used to invalidate cross-request cached queries from the
 // server actions that mutate the underlying tables. Mutations call
@@ -2148,178 +2156,6 @@ export type TransparencyCategory =
   | "group"
   | "duel";
 
-export type TransparencyRow = {
-  category: TransparencyCategory;
-  eventTime: string;
-  userId: string;
-  displayName: string;
-  question: string;
-  pickLabel: string;
-  stake: number;
-  pointsEarned: number | null;
-  status: string;
-  bookId: string;
-};
-
-export type TransparencyFilters = {
-  userId?: string;
-  category?: TransparencyCategory;
-  date?: string;
-  locale: "he" | "en";
-};
-
-export async function getTransparencyFeed(
-  filters: TransparencyFilters,
-  limit = 100,
-): Promise<TransparencyRow[]> {
-  console.info("[transparency feed] query", {
-    category: filters.category ?? "all",
-    userId: filters.userId ?? "all",
-    date: filters.date ?? "all",
-    locale: filters.locale,
-    limit,
-  });
-  const homeNameCol = filters.locale === "he" ? sql`ht.name_he` : sql`ht.name_en`;
-  const awayNameCol = filters.locale === "he" ? sql`at.name_he` : sql`at.name_en`;
-  const questionCol = filters.locale === "he" ? sql`cb.question_he` : sql`cb.question_en`;
-  const duelQuestionCol = filters.locale === "he" ? sql`d.question_he` : sql`d.question_en`;
-  const yesLabel = filters.locale === "he" ? sql`'כן'` : sql`'Yes'`;
-  const noLabel = filters.locale === "he" ? sql`'לא'` : sql`'No'`;
-
-  // Build the WHERE clause from optional filters. Each one is an AND
-  // condition; if none are supplied we omit the WHERE entirely.
-  //
-  // The combined CTE projects event_time and user_id as ::text (the JS
-  // layer wants strings), so the filters must cast them back to their
-  // real types before a typed comparison: `text at time zone` and
-  // `text = uuid` are both undefined operators and throw 42883, which
-  // is what blanked /transparency?date=... and ?user=... to a 500.
-  // Do not drop these casts.
-  const conds: ReturnType<typeof sql>[] = [];
-  if (filters.category) conds.push(sql`src.category = ${filters.category}`);
-  if (filters.userId) conds.push(sql`src.user_id::uuid = ${filters.userId}::uuid`);
-  if (filters.date) {
-    conds.push(
-      sql`(src.event_time::timestamptz at time zone 'Asia/Jerusalem')::date = ${filters.date}::date`,
-    );
-  }
-  let whereClause = sql``;
-  if (conds.length > 0) {
-    whereClause = sql`where ${conds[0]}`;
-    for (let i = 1; i < conds.length; i += 1) {
-      whereClause = sql`${whereClause} and ${conds[i]}`;
-    }
-  }
-
-  const rows = await execRows<TransparencyRow>(sql`
-    with combined as (
-      select
-        'match'::text                                              as category,
-        m.kickoff_at::text                                         as event_time,
-        mb.user_id::text                                           as user_id,
-        p.display_name                                             as display_name,
-        (${homeNameCol} || ' vs ' || ${awayNameCol})               as question,
-        (mb.home_score || '-' || mb.away_score)                    as pick_label,
-        coalesce(mb.stake_paid_main, 0)::int                       as stake,
-        mb.points_earned                                           as points_earned,
-        m.status::text                                             as status,
-        mb.id::text                                                as book_id
-      from public.match_bets mb
-      join public.matches m  on m.id  = mb.match_id
-      join public.teams ht   on ht.code = m.home_team
-      join public.teams at   on at.code = m.away_team
-      join public.profiles p on p.id  = mb.user_id
-      where m.status in ('live', 'final')
-
-      union all
-
-      -- All locked custom_bets in one branch; the category column is
-      -- derived from cb.scope so /bets, /bets/tournament, /bets/groups
-      -- and /bets/live each have a matching filter row in the UI.
-      select
-        case cb.scope::text
-          when 'tournament' then 'tournament'
-          when 'stage'      then 'tournament'
-          when 'group'      then 'group'
-          else 'live'  -- scope in ('match', 'day')
-        end::text                                                  as category,
-        cb.lock_at::text                                           as event_time,
-        pk.user_id::text                                           as user_id,
-        p.display_name                                             as display_name,
-        ${questionCol}                                             as question,
-        case pk.answer->>'value'
-          when 'true'  then ${yesLabel}
-          when 'false' then ${noLabel}
-          else coalesce(pk.answer->>'value', '?')
-        end                                                        as pick_label,
-        pk.stake_paid::int                                         as stake,
-        pk.points_earned                                           as points_earned,
-        cb.status::text                                            as status,
-        pk.id::text                                                as book_id
-      from public.user_custom_bet_picks pk
-      join public.custom_bets cb on cb.id = pk.custom_bet_id
-      join public.profiles p     on p.id  = pk.user_id
-      where cb.lock_at <= now()
-
-      union all
-
-      select
-        'duel'::text                                               as category,
-        d.created_at::text                                         as event_time,
-        d.opener_id::text                                          as user_id,
-        po.display_name                                            as display_name,
-        ${duelQuestionCol}                                         as question,
-        case when d.opener_answer then ${yesLabel} else ${noLabel} end as pick_label,
-        d.stake::int                                               as stake,
-        case when d.status = 'settled'
-             then case when d.resolved_value = d.opener_answer then d.stake else -d.stake end
-             else null
-        end                                                        as points_earned,
-        d.status::text                                             as status,
-        d.id::text                                                 as book_id
-      from public.duels d
-      join public.profiles po on po.id = d.opener_id
-
-      union all
-
-      select
-        'duel'::text                                               as category,
-        coalesce(d.joined_at, d.created_at)::text                  as event_time,
-        d.joiner_id::text                                          as user_id,
-        pj.display_name                                            as display_name,
-        ${duelQuestionCol}                                         as question,
-        case when d.opener_answer then ${noLabel} else ${yesLabel} end as pick_label,
-        d.stake::int                                               as stake,
-        case when d.status = 'settled'
-             then case when d.resolved_value = d.opener_answer then -d.stake else d.stake end
-             else null
-        end                                                        as points_earned,
-        d.status::text                                             as status,
-        ('joiner:' || d.id::text)                                  as book_id
-      from public.duels d
-      join public.profiles pj on pj.id = d.joiner_id
-      where d.joiner_id is not null
-    )
-    select
-      src.category       as "category",
-      src.event_time     as "eventTime",
-      src.user_id        as "userId",
-      src.display_name   as "displayName",
-      src.question       as "question",
-      src.pick_label     as "pickLabel",
-      src.stake          as "stake",
-      src.points_earned  as "pointsEarned",
-      src.status         as "status",
-      src.book_id        as "bookId"
-    from combined src
-    ${whereClause}
-    order by src.event_time desc
-    limit ${limit}
-  `);
-  console.info("[transparency feed] result", { rows: rows.length });
-  return rows;
-}
-
 export async function getTransparencyUsers(): Promise<
   Array<{ id: string; displayName: string }>
 > {
@@ -2331,6 +2167,190 @@ export async function getTransparencyUsers(): Promise<
        or exists (select 1 from public.duels d where d.opener_id = p.id or d.joiner_id = p.id)
     order by p.display_name asc
   `);
+}
+
+// /transparency feed: one row per question per tab, with picks folded
+// into a `pickers` array and the rest of the paid pool folded into
+// `nonBettors`. Drives the tabbed UI added in
+// _plans/2026-06-12-transparency-tabs-redesign.md. Pure grouping +
+// filter logic lives in src/lib/transparency-group.ts so it can be
+// covered by unit tests; this function owns the SQL only.
+
+// Re-export the shared types so /transparency callers can keep
+// importing them from @/db/queries (the public surface).
+export type { TransparencyPicker, TransparencyQuestionRow };
+
+export type TransparencyByQuestionFilters = {
+  tab: TransparencyCategory;
+  userId?: string;
+  date?: string;
+  locale: "he" | "en";
+};
+
+// Paid pool baseline: every user whose CURRENT payment is approved
+// (same definition as paidParticipantsSql in pot.ts). This is the
+// universe against which "didn't bet" is computed for non-duel tabs.
+// Duel rows ignore this — duels are 1v1 by design.
+async function loadPaidPool(): Promise<
+  Array<{ userId: string; displayName: string }>
+> {
+  return execRows<{ userId: string; displayName: string }>(sql`
+    with latest as (
+      select distinct on (user_id) user_id, status
+      from public.payments
+      order by user_id, submitted_at desc
+    )
+    select p.id::text as "userId", p.display_name as "displayName"
+    from latest
+    join public.profiles p on p.id = latest.user_id
+    where latest.status = 'approved'
+    order by p.display_name asc
+  `);
+}
+
+export async function getTransparencyByQuestion(
+  filters: TransparencyByQuestionFilters,
+  limit = 100,
+): Promise<TransparencyQuestionRow[]> {
+  console.info("[transparency tab] query", {
+    tab: filters.tab,
+    userId: filters.userId ?? "all",
+    date: filters.date ?? "all",
+    locale: filters.locale,
+    limit,
+  });
+
+  const homeNameCol = filters.locale === "he" ? sql`ht.name_he` : sql`ht.name_en`;
+  const awayNameCol = filters.locale === "he" ? sql`at.name_he` : sql`at.name_en`;
+  const questionCol = filters.locale === "he" ? sql`cb.question_he` : sql`cb.question_en`;
+  const duelQuestionCol = filters.locale === "he" ? sql`d.question_he` : sql`d.question_en`;
+  const yesLabel = filters.locale === "he" ? sql`'כן'` : sql`'Yes'`;
+  const noLabel = filters.locale === "he" ? sql`'לא'` : sql`'No'`;
+
+  // Each branch returns the SAME picker-row shape so the page layer
+  // never has to special-case a tab. The `question_id` is whatever
+  // groups picks together for that tab: match_id for match, custom_bet
+  // id for live/tournament/group, duel id for duels.
+  let pickerRows: TransparencyPickerRow[];
+  if (filters.tab === "match") {
+    pickerRows = await execRows<TransparencyPickerRow>(sql`
+      select
+        m.id::text                                      as "questionId",
+        (${homeNameCol} || ' vs ' || ${awayNameCol})    as "question",
+        m.kickoff_at::text                              as "eventTime",
+        mb.user_id::text                                as "userId",
+        p.display_name                                  as "displayName",
+        (mb.home_score || '-' || mb.away_score)         as "pickLabel",
+        coalesce(mb.stake_paid_main, 0)::int            as "stake",
+        mb.points_earned                                as "pointsEarned",
+        m.status::text                                  as "status"
+      from public.match_bets mb
+      join public.matches m  on m.id  = mb.match_id
+      join public.teams ht   on ht.code = m.home_team
+      join public.teams at   on at.code = m.away_team
+      join public.profiles p on p.id  = mb.user_id
+      where m.status in ('live', 'final')
+        ${filters.date ? sql`and (m.kickoff_at at time zone 'Asia/Jerusalem')::date = ${filters.date}::date` : sql``}
+      order by m.kickoff_at desc, p.display_name asc
+    `);
+  } else if (filters.tab === "duel") {
+    pickerRows = await execRows<TransparencyPickerRow>(sql`
+      select
+        d.id::text                                      as "questionId",
+        ${duelQuestionCol}                              as "question",
+        d.created_at::text                              as "eventTime",
+        d.opener_id::text                               as "userId",
+        po.display_name                                 as "displayName",
+        case when d.opener_answer then ${yesLabel} else ${noLabel} end as "pickLabel",
+        d.stake::int                                    as "stake",
+        case when d.status = 'settled'
+             then case when d.resolved_value = d.opener_answer then d.stake else -d.stake end
+             else null
+        end                                             as "pointsEarned",
+        d.status::text                                  as "status"
+      from public.duels d
+      join public.profiles po on po.id = d.opener_id
+      ${filters.date ? sql`where (d.created_at at time zone 'Asia/Jerusalem')::date = ${filters.date}::date` : sql``}
+
+      union all
+
+      select
+        d.id::text                                      as "questionId",
+        ${duelQuestionCol}                              as "question",
+        coalesce(d.joined_at, d.created_at)::text      as "eventTime",
+        d.joiner_id::text                               as "userId",
+        pj.display_name                                 as "displayName",
+        case when d.opener_answer then ${noLabel} else ${yesLabel} end as "pickLabel",
+        d.stake::int                                    as "stake",
+        case when d.status = 'settled'
+             then case when d.resolved_value = d.opener_answer then -d.stake else d.stake end
+             else null
+        end                                             as "pointsEarned",
+        d.status::text                                  as "status"
+      from public.duels d
+      join public.profiles pj on pj.id = d.joiner_id
+      where d.joiner_id is not null
+        ${filters.date ? sql`and (coalesce(d.joined_at, d.created_at) at time zone 'Asia/Jerusalem')::date = ${filters.date}::date` : sql``}
+      order by "eventTime" desc, "displayName" asc
+    `);
+  } else {
+    // live / tournament / group — all backed by custom_bets, scoped by
+    // mapped from cb.scope: tournament+stage roll up to "tournament",
+    // group is its own bucket, match+day are "live". Mirrors the
+    // /bets/* tab layout per [[project_bet_scopes_mapping]].
+    const scopeCond =
+      filters.tab === "tournament"
+        ? sql`cb.scope::text in ('tournament', 'stage')`
+        : filters.tab === "group"
+          ? sql`cb.scope::text = 'group'`
+          : sql`cb.scope::text in ('match', 'day')`; // live
+    pickerRows = await execRows<TransparencyPickerRow>(sql`
+      select
+        cb.id::text                                     as "questionId",
+        ${questionCol}                                  as "question",
+        cb.lock_at::text                                as "eventTime",
+        pk.user_id::text                                as "userId",
+        p.display_name                                  as "displayName",
+        case pk.answer->>'value'
+          when 'true'  then ${yesLabel}
+          when 'false' then ${noLabel}
+          else coalesce(pk.answer->>'value', '?')
+        end                                             as "pickLabel",
+        pk.stake_paid::int                              as "stake",
+        pk.points_earned                                as "pointsEarned",
+        cb.status::text                                 as "status"
+      from public.user_custom_bet_picks pk
+      join public.custom_bets cb on cb.id = pk.custom_bet_id
+      join public.profiles p     on p.id  = pk.user_id
+      where cb.lock_at <= now()
+        and ${scopeCond}
+        ${filters.date ? sql`and (cb.lock_at at time zone 'Asia/Jerusalem')::date = ${filters.date}::date` : sql``}
+      order by cb.lock_at desc, p.display_name asc
+    `);
+  }
+
+  let result = groupPickerRows(pickerRows);
+  // Duels are 1v1 by design — skip the paid-pool diff there.
+  if (filters.tab !== "duel") {
+    attachNonBettors(result, await loadPaidPool());
+  }
+  if (filters.userId) {
+    result = filterToUser(result, filters.userId);
+  }
+  if (result.length > limit) result = result.slice(0, limit);
+
+  const totalPickers = result.reduce((acc, r) => acc + r.pickers.length, 0);
+  const totalNonBettors = result.reduce(
+    (acc, r) => acc + r.nonBettors.length,
+    0,
+  );
+  console.info("[transparency tab] result", {
+    tab: filters.tab,
+    questions: result.length,
+    pickers: totalPickers,
+    nonBettors: totalNonBettors,
+  });
+  return result;
 }
 
 // Pool digest for the dashboard widget. Returns an aggregated view of
