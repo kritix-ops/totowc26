@@ -19,6 +19,7 @@ import {
   type FDMatch,
 } from "./football-data";
 import {
+  fetchFixtureEvents,
   fetchFixtureStats,
   fetchWorldCupFixtures,
   fetchWorldCupGroupMap,
@@ -27,6 +28,7 @@ import {
   type ApiFootballStats,
 } from "./api-football";
 import type { AutoApiFootballStat } from "./bets/types";
+import { gradeEventBet, type EventGradeSpec } from "./bets/events-grade";
 import { pickGroupWinner, type GroupStandingRow } from "./grade-group";
 import { sendEmail } from "./email/client";
 import { getEmailCopy, interpolate } from "./email/copy";
@@ -769,6 +771,9 @@ type CandidateBet = {
     field?: string;
     stat?: string;
     aggregate?: "sum_day" | "per_match" | "first_match";
+    // Present for event-timeline grading (red-in-half, goal-in-window).
+    // Discriminates the auto_api_football branch from the stats path.
+    events?: EventGradeSpec;
   } | null;
 };
 
@@ -955,6 +960,13 @@ async function tryResolve(
     return "skip";
   }
   if (bet.gradingSource === "auto_api_football") {
+    // Event-timeline grading is discriminated by the `events` config and
+    // only applies at match scope (a timeline belongs to one fixture).
+    const events = bet.gradingConfig?.events;
+    if (events) {
+      if (bet.scope !== "match") return "skip";
+      return resolveMatchScopeApiFootballEvents(bet, events);
+    }
     const stat = bet.gradingConfig?.stat as AutoApiFootballStat | undefined;
     const aggregate = bet.gradingConfig?.aggregate;
     if (!stat || !aggregate) return "skip";
@@ -1152,6 +1164,48 @@ async function resolveMatchScopeApiFootball(
   if (!stats) return "not_ready";
 
   return coerceApiFootballStat(stat, stats.combined);
+}
+
+// Event-timeline grading for a match-scope bet (red card in the first
+// half, goal in the opening 15 minutes). Fetches the fixture's event feed
+// on demand — like the stats path, no events are persisted — and grades
+// via the pure evaluator. "not_ready" until the match is final, mapped,
+// and the feed is reachable; "skip" for unsupported specs (VAR, non
+// yes/no-or-number answer types) so the bet drops to the manual queue.
+async function resolveMatchScopeApiFootballEvents(
+  bet: CandidateBet,
+  spec: EventGradeSpec,
+): Promise<Resolved | "not_ready" | "skip"> {
+  if (!bet.matchId) return "skip";
+  if (bet.answerType !== "yes_no" && bet.answerType !== "number") return "skip";
+
+  const [row] = await execRows<{
+    status: string;
+    apiId: number | null;
+    homeApiId: number | null;
+    awayApiId: number | null;
+  }>(drizzleSql`
+    select
+      m.status::text             as "status",
+      m.api_football_fixture_id  as "apiId",
+      ht.api_football_team_id    as "homeApiId",
+      at.api_football_team_id    as "awayApiId"
+    from public.matches m
+    join public.teams ht on ht.code = m.home_team
+    join public.teams at on at.code = m.away_team
+    where m.id = ${bet.matchId}::uuid
+    limit 1
+  `);
+  if (!row || row.status !== "final") return "not_ready";
+  if (row.apiId === null) return "not_ready";
+
+  const events = await fetchFixtureEvents(row.apiId);
+  if (!events) return "not_ready";
+
+  return gradeEventBet(events, spec, bet.answerType, {
+    homeTeamId: row.homeApiId ?? undefined,
+    awayTeamId: row.awayApiId ?? undefined,
+  });
 }
 
 async function resolveDayScopeApiFootball(

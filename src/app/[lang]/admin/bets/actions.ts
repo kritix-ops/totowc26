@@ -574,12 +574,20 @@ function validateGradingConfig(
   if (source === "manual") return config === null;
   if (!config) return false;
   if (source === "auto_api_football") {
-    return (
-      config.source === "auto_api_football" &&
-      typeof config.stat === "string" &&
-      config.stat.length > 0 &&
-      ["sum_day", "per_match", "first_match"].includes(config.aggregate)
-    );
+    if (config.source !== "auto_api_football") return false;
+    // Two shapes share this source: the stats path (stat + aggregate) and
+    // the event-timeline path (events spec). Discriminate on which is set.
+    if ("events" in config && config.events) {
+      return validateEventSpec(config.events);
+    }
+    if ("stat" in config) {
+      return (
+        typeof config.stat === "string" &&
+        config.stat.length > 0 &&
+        ["sum_day", "per_match", "first_match"].includes(config.aggregate)
+      );
+    }
+    return false;
   }
   if (source === "auto_football_data") {
     // Must stay in sync with AutoFootballDataConfig.field in
@@ -619,6 +627,35 @@ function validateGradingConfig(
         "second_half_total",
       ].includes(config.field)
     );
+  }
+  return false;
+}
+
+// Validate an event-timeline grading spec (red-in-half, goal-in-window).
+// Mirrors the shape in src/lib/bets/events-grade.ts so a malformed spec is
+// rejected at author time rather than silently skipped at grade time.
+function validateEventSpec(spec: unknown): boolean {
+  if (!spec || typeof spec !== "object") return false;
+  const s = spec as {
+    metric?: unknown;
+    window?: unknown;
+    op?: unknown;
+    value?: unknown;
+    team?: unknown;
+  };
+  const metrics = ["red_card", "yellow_card", "card", "goal", "penalty", "var"];
+  const ops = [">=", ">", "=", "<=", "<"];
+  if (typeof s.metric !== "string" || !metrics.includes(s.metric)) return false;
+  if (typeof s.op !== "string" || !ops.includes(s.op)) return false;
+  if (typeof s.value !== "number" || !Number.isFinite(s.value)) return false;
+  if (s.team !== undefined && !["home", "away", "any"].includes(s.team as string)) {
+    return false;
+  }
+  const w = s.window;
+  if (w === "1H" || w === "2H" || w === "FT") return true;
+  if (typeof w === "object" && w !== null) {
+    const o = w as { fromMinute?: unknown; toMinute?: unknown };
+    return typeof o.fromMinute === "number" && typeof o.toMinute === "number";
   }
   return false;
 }

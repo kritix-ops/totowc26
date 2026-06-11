@@ -394,8 +394,11 @@ export function BetForm({
   const [gradingSource, setGradingSource] = useState<GradingSource>(
     initialBet?.gradingSource ?? "manual",
   );
+  // Only the stats variant of auto_api_football seeds these fields; the
+  // events variant has no stat/aggregate (it carries an `events` spec).
   const initialAf =
-    initialBet?.gradingConfig?.source === "auto_api_football"
+    initialBet?.gradingConfig?.source === "auto_api_football" &&
+    "stat" in initialBet.gradingConfig
       ? initialBet.gradingConfig
       : null;
   const [autoAfStat, setAutoAfStat] = useState<string>(initialAf?.stat ?? "corners");
@@ -455,7 +458,7 @@ export function BetForm({
 
     setGradingSource(t.gradingSource);
     const gc = t.gradingConfig as GradingConfig | undefined;
-    if (gc?.source === "auto_api_football") {
+    if (gc?.source === "auto_api_football" && "stat" in gc) {
       setAutoAfStat(gc.stat);
       setAutoAfAgg(gc.aggregate);
     } else if (gc?.source === "auto_football_data") {

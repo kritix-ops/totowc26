@@ -154,6 +154,83 @@ export async function fetchFixtureStats(
   return parseStatsResponse(json as ApiFootballStatsResponse);
 }
 
+// ─── /fixtures/events (timeline: cards, goals, VAR) ───────────────
+//
+// Powers event-window auto-grading (red card in the first half, goal in
+// the opening 15 minutes, etc.) — the timeline `/fixtures/statistics`
+// can't express because it only carries per-team totals. Same graceful
+// contract as fetchFixtureStats: null when the key is unset, the fixture
+// is unmapped, or the upstream errors, so the grader leaves the bet in
+// the manual queue and retries next sync.
+//
+// VAR caveat: API-Football emits `type:"Var"` events only when the feed
+// provider records one, and they frequently miss silent checks (the WC
+// opener returned zero Var events despite on-field checks). The event
+// grader therefore never infers "no VAR" from their absence — VAR bets
+// stay manual. See _plans/2026-06-12-live-bets-llm-overhaul.md Phase 3.
+
+export type ApiFootballEvent = {
+  // Clock minute (API `time.elapsed`): 1..90 in regulation, 90+ in extra
+  // time. Stoppage stays in `extra`, NOT folded into `minute`, so a 45+2
+  // first-half card keeps minute=45 and buckets into the first half
+  // correctly. See bucketing in events-grade.ts.
+  minute: number;
+  // Stoppage-time addition (API `time.extra`), e.g. 2 for 45+2. null when
+  // the event is at a clean clock minute.
+  extra: number | null;
+  teamId: number;
+  // Raw API strings: "Goal" | "Card" | "subst" | "Var".
+  type: string;
+  // "Yellow Card" | "Red Card" | "Normal Goal" | "Penalty" |
+  // "Goal cancelled" | "Penalty confirmed" | ...
+  detail: string;
+};
+
+export async function fetchFixtureEvents(
+  apiFootballFixtureId: number,
+): Promise<ApiFootballEvent[] | null> {
+  const json = await apiFootballFetch(
+    `/fixtures/events?fixture=${apiFootballFixtureId}`,
+    {
+      cache: { revalidateSeconds: 60 },
+      logContext: "fixture-events",
+      logExtra: { apiFootballFixtureId },
+    },
+  );
+  if (!json) return null;
+  return parseEventsResponse(json as ApiFootballEventsResponse);
+}
+
+type ApiFootballEventsResponse = {
+  response?: Array<{
+    time?: { elapsed?: number | null; extra?: number | null };
+    team?: { id?: number | null };
+    type?: string | null;
+    detail?: string | null;
+  }>;
+};
+
+function parseEventsResponse(
+  json: ApiFootballEventsResponse,
+): ApiFootballEvent[] {
+  const rows = json.response ?? [];
+  const out: ApiFootballEvent[] = [];
+  for (const r of rows) {
+    const elapsed = r.time?.elapsed;
+    const teamId = r.team?.id;
+    if (typeof elapsed !== "number" || typeof teamId !== "number") continue;
+    const extra = typeof r.time?.extra === "number" ? r.time.extra : null;
+    out.push({
+      minute: elapsed,
+      extra,
+      teamId,
+      type: typeof r.type === "string" ? r.type : "",
+      detail: typeof r.detail === "string" ? r.detail : "",
+    });
+  }
+  return out;
+}
+
 // ─── /status (quota card in admin) ────────────────────────────────
 //
 // One-shot lookup for "how many of the Pro daily 7,500 calls have we

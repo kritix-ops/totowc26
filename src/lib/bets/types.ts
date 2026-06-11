@@ -6,6 +6,10 @@
 // answer / resolved value), so a single jsonb column on custom_bets can
 // carry every variant without losing type safety at the call site.
 
+// Type-only import: events-grade.ts type-imports ApiFootballEvent, so this
+// stays free of the server-only runtime and is safe in client bundles.
+import type { EventGradeSpec } from "./events-grade";
+
 export type YesNoConfig = {
   kind: "yes_no";
   // Per-option payout overrides for yes_no bets that price the two
@@ -164,6 +168,18 @@ export type AutoApiFootballConfig = {
   aggregate: "sum_day" | "per_match" | "first_match";
 };
 
+// Event-timeline grading (red card in the first half, goal in the opening
+// 15 minutes, more than 2 cards). Shares the `auto_api_football` source but
+// is discriminated by the presence of `events` instead of `stat`, so it
+// rides the existing grading_source enum without a migration. The grader
+// (src/lib/sync.ts) routes on the config shape; the evaluator lives in
+// src/lib/bets/events-grade.ts. See
+// _plans/2026-06-12-live-bets-llm-overhaul.md Phase 3.
+export type AutoApiFootballEventsConfig = {
+  source: "auto_api_football";
+  events: EventGradeSpec;
+};
+
 export type AutoFootballDataConfig = {
   source: "auto_football_data";
   // Mirrored from AutoFootballField in src/lib/sync.ts. Three buckets:
@@ -196,7 +212,11 @@ export type AutoFootballDataConfig = {
     | "second_half_total";
 };
 
-export type GradingConfig = AutoApiFootballConfig | AutoFootballDataConfig | null;
+export type GradingConfig =
+  | AutoApiFootballConfig
+  | AutoApiFootballEventsConfig
+  | AutoFootballDataConfig
+  | null;
 
 // Resolved value carried on custom_bets.resolved_value once the bet has been
 // graded. Mirrored on user_custom_bet_picks.answer (same shape) so grading
