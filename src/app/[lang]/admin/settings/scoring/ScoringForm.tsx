@@ -234,8 +234,8 @@ const GROUPS: Group[] = [
         key: "liveOddsMaxPayoutCeiling",
         label: { he: "תקרת זכייה מוחלטת", en: "Absolute payout ceiling" },
         hint: {
-          he: "מספר הנקודות הגדול ביותר שאפשר לזכות בהן בהימור יחיד. ברירת מחדל: 100.",
-          en: "Hard cap on gross payout regardless of stake. Default: 100.",
+          he: "מספר הנקודות הגדול ביותר שאפשר לזכות בהן בהימור יחיד. 0 = ללא תקרה (רק יחס התקרה מגביל). ברירת מחדל: 100.",
+          en: "Hard cap on gross payout regardless of stake. 0 = no ceiling (only the cap ratio limits). Default: 100.",
         },
       },
       {

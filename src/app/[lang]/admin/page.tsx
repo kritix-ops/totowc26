@@ -25,6 +25,7 @@ import {
   getPaymentTotals,
 } from "@/db/admin-queries";
 import { isSandbox } from "@/lib/env";
+import { requireAdminAccess } from "@/lib/admin";
 import { countPendingSignups } from "./signup-requests/queries";
 import { AdminSection, AdminTile } from "./AdminSections";
 
@@ -42,16 +43,102 @@ export default async function AdminPage({
   const locale = lang as Locale;
   const isHebrew = locale === "he";
 
+  // Resolve the viewer's role and permission set. The layout already
+  // enforced access (path-level too) — this is a render-time branch so
+  // we can hide tiles a scoped operator cannot reach.
+  const { access } = await requireAdminAccess(locale);
+  const isFullAdmin = access.role === "admin";
+  const can = (k: "liveBets" | "tournamentBets" | "tournamentOdds") =>
+    isFullAdmin || access.permissions[k] === true;
+
   const [totals, duplicateBetCount, pendingSignupCount] = await Promise.all([
-    getPaymentTotals(),
+    isFullAdmin ? getPaymentTotals() : Promise.resolve({ approvedSumIls: 0, pendingCount: 0 }),
     countDuplicateCustomBets(),
-    countPendingSignups(),
+    isFullAdmin ? countPendingSignups() : Promise.resolve(0),
   ]);
 
   // Combined attention count for the משתתפים tile — pending signup
   // requests + pending payments. Both live inside /admin/users now, so
   // a single badge reflects the total work waiting there.
   const peopleAttention = pendingSignupCount + totals.pendingCount;
+
+  if (!isFullAdmin) {
+    return (
+      <section className="px-4 md:px-10 py-6 md:py-12 flex flex-col gap-6 md:gap-8 max-w-5xl mx-auto w-full pb-24 md:pb-12">
+        <header className="flex flex-col gap-2">
+          <h1 className="font-[family-name:var(--font-display)] text-[28px] leading-9 md:text-[48px] md:leading-[52px] font-bold text-primary">
+            {isHebrew ? "ניהול" : "Admin"}
+          </h1>
+          <p className="text-sm md:text-base text-on-surface-variant">
+            {isHebrew
+              ? "אלה הכלים שיש לך הרשאה אליהם. אם חסר משהו, בקש מהאדמין הראשי להוסיף את ההרשאה."
+              : "These are the tools you have permission to use. If something is missing, ask the main admin to grant the permission."}
+          </p>
+        </header>
+
+        {can("liveBets") && (
+          <AdminSection title={isHebrew ? "הימורי לייב" : "Live bets"}>
+            <AdminTile
+              locale={locale}
+              path="admin/bets"
+              icon={<Sparkles className="h-5 w-5" strokeWidth={1.75} />}
+              label={isHebrew ? "הימורי לייב" : "Live bets"}
+            />
+            <AdminTile
+              locale={locale}
+              path="admin/live-bets/suggestions"
+              icon={<Grid3x3 className="h-5 w-5" strokeWidth={1.75} />}
+              label={isHebrew ? "הצעות יום משחקים" : "Matchday suggestions"}
+            />
+            <AdminTile
+              locale={locale}
+              path="admin/bets-overview"
+              icon={<Grid3x3 className="h-5 w-5" strokeWidth={1.75} />}
+              label={isHebrew ? "מצב הימורי כולם" : "Everyone's bets"}
+            />
+            <AdminTile
+              locale={locale}
+              path="admin/deadlines"
+              icon={<Clock className="h-5 w-5" strokeWidth={1.75} />}
+              label={isHebrew ? "מועדי סגירה" : "Deadlines"}
+            />
+            {duplicateBetCount > 0 && (
+              <AdminTile
+                locale={locale}
+                path="admin/bets/duplicates"
+                icon={<Copy className="h-5 w-5" strokeWidth={1.75} />}
+                label={isHebrew ? "כפילויות הימורים" : "Duplicate bets"}
+                badge={duplicateBetCount}
+                tone="warning"
+              />
+            )}
+          </AdminSection>
+        )}
+
+        {can("tournamentBets") && (
+          <AdminSection title={isHebrew ? "הימורי טורניר" : "Tournament bets"}>
+            <AdminTile
+              locale={locale}
+              path="admin/tournament-suggestions"
+              icon={<Trophy className="h-5 w-5" strokeWidth={1.75} />}
+              label={isHebrew ? "הימורי טורניר" : "Tournament bets"}
+            />
+          </AdminSection>
+        )}
+
+        {can("tournamentOdds") && (
+          <AdminSection title={isHebrew ? "יחסים" : "Odds"}>
+            <AdminTile
+              locale={locale}
+              path="admin/tournament-odds"
+              icon={<ScrollText className="h-5 w-5" strokeWidth={1.75} />}
+              label={isHebrew ? "יחסי טורניר" : "Tournament odds"}
+            />
+          </AdminSection>
+        )}
+      </section>
+    );
+  }
 
   return (
     <section className="px-4 md:px-10 py-6 md:py-12 flex flex-col gap-6 md:gap-8 max-w-5xl mx-auto w-full pb-24 md:pb-12">

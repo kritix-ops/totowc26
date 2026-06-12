@@ -9,16 +9,22 @@ import {
   customBets,
   matches as matchesTable,
   groups,
+  settings,
   userCustomBetPicks,
 } from "@/db/schema";
 import { getUser } from "@/lib/supabase/auth";
-import { isAdmin } from "@/lib/admin";
+import { hasPermission } from "@/lib/admin";
 import type {
   AnswerConfig,
   GradingConfig,
   ResolvedValue,
 } from "@/lib/bets/types";
 import { resolvePickPayoutAtGrade } from "@/lib/bets/payout";
+import {
+  repriceAnswerConfigFromOdds,
+  validateLiveOddsConfig,
+} from "@/lib/bets/price-options";
+import { liveStakeCap, type OddsNormConfig } from "@/lib/odds-normalize";
 
 // Discriminated result so the client can branch on the error string.
 type Err =
@@ -81,7 +87,7 @@ export async function createCustomBet(
 ): Promise<CreateCustomBetResult> {
   const user = await getUser();
   if (!user) return { ok: false, error: "unauth" };
-  if (!(await isAdmin(user.id))) {
+  if (!(await hasPermission(user.id, "liveBets"))) {
     console.warn("[bet create denied]", { userId: user.id });
     return { ok: false, error: "forbidden" };
   }
@@ -126,11 +132,21 @@ export async function createCustomBet(
   if (!validateAnswerConfig(input.answerType, input.answerConfig)) {
     return { ok: false, error: "invalid_answer_config" };
   }
+  // 4b) Any captured per-choice live odds must be real decimals (> 1).
+  if (!validateLiveOddsConfig(input.answerConfig)) {
+    return { ok: false, error: "invalid_answer_config" };
+  }
 
   // 5) Grading config shape ↔ grading source.
   if (!validateGradingConfig(input.gradingSource, input.gradingConfig)) {
     return { ok: false, error: "invalid_grading_config" };
   }
+
+  // 5b) Re-derive per-choice payouts from the odds server-side so a stale
+  // or tampered client payout can never be the stored value. The odds are
+  // the trusted input; the payout integers + bet-level snapshot are
+  // recomputed from the canonical live pricing config.
+  const priced = await repriceLiveBet(input);
 
   // 6) lockAt must be a parseable date and in the future.
   const lockAtDate = new Date(input.lockAt);
@@ -179,9 +195,9 @@ export async function createCustomBet(
         gradingRuleHe: input.gradingRuleHe.trim(),
         gradingRuleEn: input.gradingRuleEn.trim(),
         answerType: input.answerType,
-        answerConfig: input.answerConfig,
-        stakeSnapshot: input.stakeSnapshot,
-        payoutSnapshot: input.payoutSnapshot,
+        answerConfig: priced.answerConfig,
+        stakeSnapshot: priced.stakeSnapshot,
+        payoutSnapshot: priced.payoutSnapshot,
         // drizzle's `numeric` maps to JS string; store with 2dp to match
         // the column precision (see migration 0047). Only live scopes
         // get a value — validated above.
@@ -227,7 +243,7 @@ export async function updateCustomBet(
 ): Promise<UpdateCustomBetResult> {
   const user = await getUser();
   if (!user) return { ok: false, error: "unauth" };
-  if (!(await isAdmin(user.id))) {
+  if (!(await hasPermission(user.id, "liveBets"))) {
     console.warn("[bet update denied]", { userId: user.id, id });
     return { ok: false, error: "forbidden" };
   }
@@ -261,9 +277,13 @@ export async function updateCustomBet(
   if (!validateAnswerConfig(input.answerType, input.answerConfig)) {
     return { ok: false, error: "invalid_answer_config" };
   }
+  if (!validateLiveOddsConfig(input.answerConfig)) {
+    return { ok: false, error: "invalid_answer_config" };
+  }
   if (!validateGradingConfig(input.gradingSource, input.gradingConfig)) {
     return { ok: false, error: "invalid_grading_config" };
   }
+  const priced = await repriceLiveBet(input);
   const lockAtDate = new Date(input.lockAt);
   if (Number.isNaN(lockAtDate.getTime()) || lockAtDate.getTime() <= Date.now()) {
     return { ok: false, error: "invalid_lock_at" };
@@ -325,9 +345,9 @@ export async function updateCustomBet(
         gradingRuleHe: input.gradingRuleHe.trim(),
         gradingRuleEn: input.gradingRuleEn.trim(),
         answerType: input.answerType,
-        answerConfig: input.answerConfig,
-        stakeSnapshot: input.stakeSnapshot,
-        payoutSnapshot: input.payoutSnapshot,
+        answerConfig: priced.answerConfig,
+        stakeSnapshot: priced.stakeSnapshot,
+        payoutSnapshot: priced.payoutSnapshot,
         decimalOdds:
           input.decimalOdds != null ? input.decimalOdds.toFixed(2) : null,
         gradingSource: input.gradingSource,
@@ -370,7 +390,7 @@ export async function setTemplateArchived(
 ): Promise<SetTemplateArchivedResult> {
   const user = await getUser();
   if (!user) return { ok: false, error: "unauth" };
-  if (!(await isAdmin(user.id))) {
+  if (!(await hasPermission(user.id, "liveBets"))) {
     console.warn("[template archive denied]", { userId: user.id, id });
     return { ok: false, error: "forbidden" };
   }
@@ -413,7 +433,7 @@ export async function publishCustomBet(
 ): Promise<PublishCustomBetResult> {
   const user = await getUser();
   if (!user) return { ok: false, error: "unauth" };
-  if (!(await isAdmin(user.id))) {
+  if (!(await hasPermission(user.id, "liveBets"))) {
     console.warn("[bet publish denied]", { userId: user.id, id });
     return { ok: false, error: "forbidden" };
   }
@@ -457,7 +477,7 @@ export async function cancelCustomBet(
 ): Promise<{ ok: true } | { ok: false; error: Err }> {
   const user = await getUser();
   if (!user) return { ok: false, error: "unauth" };
-  if (!(await isAdmin(user.id))) {
+  if (!(await hasPermission(user.id, "liveBets"))) {
     console.warn("[bet cancel denied]", { userId: user.id, id });
     return { ok: false, error: "forbidden" };
   }
@@ -554,12 +574,20 @@ function validateGradingConfig(
   if (source === "manual") return config === null;
   if (!config) return false;
   if (source === "auto_api_football") {
-    return (
-      config.source === "auto_api_football" &&
-      typeof config.stat === "string" &&
-      config.stat.length > 0 &&
-      ["sum_day", "per_match", "first_match"].includes(config.aggregate)
-    );
+    if (config.source !== "auto_api_football") return false;
+    // Two shapes share this source: the stats path (stat + aggregate) and
+    // the event-timeline path (events spec). Discriminate on which is set.
+    if ("events" in config && config.events) {
+      return validateEventSpec(config.events);
+    }
+    if ("stat" in config) {
+      return (
+        typeof config.stat === "string" &&
+        config.stat.length > 0 &&
+        ["sum_day", "per_match", "first_match"].includes(config.aggregate)
+      );
+    }
+    return false;
   }
   if (source === "auto_football_data") {
     // Must stay in sync with AutoFootballDataConfig.field in
@@ -601,6 +629,94 @@ function validateGradingConfig(
     );
   }
   return false;
+}
+
+// Validate an event-timeline grading spec (red-in-half, goal-in-window).
+// Mirrors the shape in src/lib/bets/events-grade.ts so a malformed spec is
+// rejected at author time rather than silently skipped at grade time.
+function validateEventSpec(spec: unknown): boolean {
+  if (!spec || typeof spec !== "object") return false;
+  const s = spec as {
+    metric?: unknown;
+    window?: unknown;
+    op?: unknown;
+    value?: unknown;
+    team?: unknown;
+  };
+  const metrics = ["red_card", "yellow_card", "card", "goal", "penalty", "var"];
+  const ops = [">=", ">", "=", "<=", "<"];
+  if (typeof s.metric !== "string" || !metrics.includes(s.metric)) return false;
+  if (typeof s.op !== "string" || !ops.includes(s.op)) return false;
+  if (typeof s.value !== "number" || !Number.isFinite(s.value)) return false;
+  if (s.team !== undefined && !["home", "away", "any"].includes(s.team as string)) {
+    return false;
+  }
+  const w = s.window;
+  if (w === "1H" || w === "2H" || w === "FT") return true;
+  if (typeof w === "object" && w !== null) {
+    const o = w as { fromMinute?: unknown; toMinute?: unknown };
+    return typeof o.fromMinute === "number" && typeof o.toMinute === "number";
+  }
+  return false;
+}
+
+// Re-derive a live bet's per-choice payouts from its captured odds using
+// the canonical pricing config, returning the rewritten answer config plus
+// the bet-level stake/payout snapshot. Non-live scopes and bets without
+// captured odds pass through untouched. Centralises the "server owns the
+// payout math" rule (rule 13) so the manual form, the suggestions page,
+// and the future LLM path all persist the same numbers.
+async function repriceLiveBet(input: CreateCustomBetInput): Promise<{
+  answerConfig: AnswerConfig;
+  stakeSnapshot: number;
+  payoutSnapshot: number;
+}> {
+  const isLive = input.scope === "match" || input.scope === "day";
+  const cfg = input.answerConfig;
+  const hasOdds =
+    (cfg.kind === "multi_choice" && !!cfg.decimalOddsByValue) ||
+    (cfg.kind === "yes_no" &&
+      (cfg.decimalOddsYes !== undefined || cfg.decimalOddsNo !== undefined));
+  if (!isLive || !hasOdds) {
+    return {
+      answerConfig: input.answerConfig,
+      stakeSnapshot: input.stakeSnapshot,
+      payoutSnapshot: input.payoutSnapshot,
+    };
+  }
+  const pricing = await loadLivePricingConfig();
+  const { config, maxPayout } = repriceAnswerConfigFromOdds(input.answerConfig, pricing);
+  return {
+    answerConfig: config,
+    stakeSnapshot: maxPayout != null ? pricing.baseStake : input.stakeSnapshot,
+    payoutSnapshot: maxPayout ?? input.payoutSnapshot,
+  };
+}
+
+// Load the canonical live pricing config (baseStake / cap / house edge)
+// from settings. Mirrors the cap math the user-facing bet card uses, so
+// the snapshot payout the server stores equals what a player sees at the
+// default stake pill.
+async function loadLivePricingConfig(): Promise<OddsNormConfig> {
+  const [s] = await db
+    .select({
+      baseStake: settings.liveOddsBaseStake,
+      houseEdgePct: settings.liveOddsHouseEdgePct,
+      ratio: settings.liveOddsMaxPayoutRatio,
+      ceiling: settings.liveOddsMaxPayoutCeiling,
+    })
+    .from(settings)
+    .where(eq(settings.id, 1))
+    .limit(1);
+  const baseStake = s?.baseStake ?? 3;
+  return {
+    baseStake,
+    houseEdgePct: s?.houseEdgePct ?? 5,
+    maxPayout: liveStakeCap(baseStake, {
+      maxPayoutRatio: s?.ratio ?? 8,
+      maxPayoutCeiling: s?.ceiling ?? 100,
+    }),
+  };
 }
 
 // Find-or-create a matchday row keyed by the Asia/Jerusalem calendar date
@@ -667,7 +783,7 @@ export async function gradeCustomBet(
 ): Promise<GradeCustomBetResult> {
   const user = await getUser();
   if (!user) return { ok: false, error: "unauth" };
-  if (!(await isAdmin(user.id))) {
+  if (!(await hasPermission(user.id, "liveBets"))) {
     console.warn("[bet grade denied]", { userId: user.id, id });
     return { ok: false, error: "forbidden" };
   }
@@ -809,7 +925,7 @@ export async function reverseCustomBetGrading(
 ): Promise<ReverseGradingResult> {
   const user = await getUser();
   if (!user) return { ok: false, error: "unauth" };
-  if (!(await isAdmin(user.id))) {
+  if (!(await hasPermission(user.id, "liveBets"))) {
     console.warn("[bet reverse denied]", { userId: user.id, id });
     return { ok: false, error: "forbidden" };
   }

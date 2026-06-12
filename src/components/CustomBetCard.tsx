@@ -32,6 +32,7 @@ import { usePickerOptions } from "@/lib/picker-options/client";
 import { usePendingAction } from "@/lib/use-pending-action";
 import { withTimeout, SAVE_TIMEOUT_MS } from "@/lib/with-timeout";
 import { resolvePickPayoutAtSubmit } from "@/lib/bets/payout";
+import { resolveYesNoSideOdds } from "@/lib/bets/price-options";
 import { isFreePickScope } from "@/lib/bets/free-pick-scopes";
 import { liveStakeCap, normalizeOdds } from "@/lib/odds-normalize";
 import type { LiveStakeUiConfig } from "@/lib/bank";
@@ -724,9 +725,13 @@ function PayoutExplainer({
             <span>
               {isHebrew ? "תקרת זכייה" : "Payout cap"}:{" "}
               <bdi className="tabular-nums font-bold text-on-surface">
-                {isHebrew
-                  ? `מינ׳(סיכון × ${config.maxPayoutRatio}, ${config.maxPayoutCeiling})`
-                  : `min(stake × ${config.maxPayoutRatio}, ${config.maxPayoutCeiling})`}
+                {config.maxPayoutCeiling > 0
+                  ? isHebrew
+                    ? `מינ׳(סיכון × ${config.maxPayoutRatio}, ${config.maxPayoutCeiling})`
+                    : `min(stake × ${config.maxPayoutRatio}, ${config.maxPayoutCeiling})`
+                  : isHebrew
+                    ? `סיכון × ${config.maxPayoutRatio}`
+                    : `stake × ${config.maxPayoutRatio}`}
               </bdi>
             </span>
           </div>
@@ -827,6 +832,12 @@ function lookupLiveOptionOdds(
     const v = cfg?.decimalOddsByValue?.[draft.value];
     if (typeof v === "number" && Number.isFinite(v) && v > 1) return v;
     return null;
+  }
+  if (bet.answerType === "yes_no" && draft?.type === "yes_no") {
+    const cfg = bet.answerConfig.kind === "yes_no" ? bet.answerConfig : null;
+    const sideOdds = resolveYesNoSideOdds(cfg, draft.value);
+    if (sideOdds != null) return sideOdds;
+    // No per-side odds — fall through to the shared bet-level value.
   }
   if (bet.decimalOdds) {
     const n = Number(bet.decimalOdds);

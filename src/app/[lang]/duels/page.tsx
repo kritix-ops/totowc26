@@ -288,6 +288,22 @@ async function loadDuels(tab: Tab, userId: string): Promise<DuelRow[]> {
     tab === "open"
       ? sql`d.status = 'open' and d.join_deadline_at > now()`
       : sql`(d.opener_id = ${userId} or d.joiner_id = ${userId})`;
+  // Ordering differs per tab. "open" is a marketplace of joinable duels —
+  // soonest deadline first so the user acts before they expire. "mine" is
+  // the user's own duels and doubles as their duel history: keep ACTIVE
+  // duels (open/matched) on top sorted by soonest deadline (they need
+  // attention), then drop PAST duels (settled/cancelled) below ordered
+  // newest-first so the most recent result sits at the top of the history
+  // block rather than being buried oldest-first at the very bottom.
+  const ordering =
+    tab === "open"
+      ? sql`d.join_deadline_at asc`
+      : sql`
+          case when d.status in ('open', 'matched') then 0 else 1 end asc,
+          case when d.status in ('open', 'matched')
+               then d.join_deadline_at end asc,
+          case when d.status in ('settled', 'cancelled')
+               then d.resolve_at end desc nulls last`;
   return execRows<DuelRow>(sql`
     select
       d.id::text                                              as "id",
@@ -312,14 +328,7 @@ async function loadDuels(tab: Tab, userId: string): Promise<DuelRow[]> {
     left join public.profiles pj on pj.id = d.joiner_id
     left join public.matches m on m.id = d.match_id
     where ${filter}
-    order by
-      case d.status
-        when 'open' then 0
-        when 'matched' then 1
-        when 'settled' then 2
-        else 3
-      end,
-      d.join_deadline_at asc
+    order by ${ordering}
     limit 100
   `);
 }

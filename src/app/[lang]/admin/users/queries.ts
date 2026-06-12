@@ -2,14 +2,14 @@ import "server-only";
 import { sql } from "drizzle-orm";
 import { execFirstRow, execRows } from "@/db/helpers";
 import { approvedPotIlsSql } from "@/db/pot";
-import type { PlayerNameMap } from "@/lib/bets/format";
 
 export type AdminUserRow = {
   id: string;
   email: string | null;
   displayName: string;
   phone: string;
-  role: "player" | "admin";
+  role: "player" | "live_bets_admin" | "admin";
+  permissions: import("@/lib/admin").AdminPermissions;
   avatarUrl: string | null;
   createdAt: string;
   paymentId: string | null;
@@ -39,6 +39,7 @@ export async function fetchAdminUsers(): Promise<AdminUserRow[]> {
       p.display_name                 as "displayName",
       p.phone                        as "phone",
       p.role::text                   as "role",
+      p.permissions                  as "permissions",
       p.avatar_url                   as "avatarUrl",
       p.created_at                   as "createdAt",
       pay.id::text                   as "paymentId",
@@ -134,7 +135,7 @@ export type AdminUserBetRow = {
   payoutSnapshot: number;
   resolvedValue: unknown | null;
   lockAt: string;
-  status: "open" | "locked";
+  status: "open" | "locked" | "graded";
   // Match-anchored bets carry the matchup for display. NULL for non-match
   // scopes.
   homeCode: string | null;
@@ -192,7 +193,7 @@ export async function fetchUserBetsForAdmin(
     left join public.matches m on m.id = cb.match_id
     left join public.teams ht on ht.code = m.home_team
     left join public.teams at on at.code = m.away_team
-    where cb.status in ('open', 'locked')
+    where cb.status in ('open', 'locked', 'graded')
     order by
       case cb.scope::text
         when 'tournament' then 1
@@ -349,38 +350,14 @@ export async function fetchAllUsersBetMatrix(): Promise<AdminBetMatrixCell[]> {
   `);
 }
 
-// Resolves the player markets (top scorer / golden ball) whose picks store a
-// raw api_football_id rather than a label — see renderPickAnswer. One small
-// query for the whole roster (~1,357 rows), returned as a lookup keyed by id
-// as a string (the pick value is stored as a string). name_he can be null for
-// not-yet-translated players, so we fall back to name_en.
-export async function fetchPlayerNamesById(): Promise<PlayerNameMap> {
-  const rows = await execRows<{
-    apiFootballId: number;
-    nameHe: string | null;
-    nameEn: string;
-  }>(sql`
-    select
-      p.api_football_id   as "apiFootballId",
-      p.name_he           as "nameHe",
-      p.name_en           as "nameEn"
-    from public.players p
-  `);
-  const map: PlayerNameMap = new Map();
-  for (const r of rows) {
-    map.set(String(r.apiFootballId), {
-      he: r.nameHe ?? r.nameEn,
-      en: r.nameEn,
-    });
-  }
-  return map;
-}
+export { fetchPlayerNamesById } from "@/lib/bets/players";
 
 export type AdminUserBasic = {
   id: string;
   displayName: string;
   phone: string;
-  role: "player" | "admin";
+  role: "player" | "live_bets_admin" | "admin";
+  permissions: import("@/lib/admin").AdminPermissions;
 };
 
 export async function fetchUserBasic(
@@ -391,7 +368,8 @@ export async function fetchUserBasic(
       p.id::text       as "id",
       p.display_name   as "displayName",
       p.phone          as "phone",
-      p.role::text     as "role"
+      p.role::text     as "role",
+      p.permissions    as "permissions"
     from public.profiles p
     where p.id = ${userId}
     limit 1

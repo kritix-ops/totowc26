@@ -18,6 +18,7 @@ import {
 } from "@/lib/bank";
 import type { PickAnswer } from "@/lib/bets/types";
 import { resolvePickPayoutAtSubmit } from "@/lib/bets/payout";
+import { resolveYesNoSideOdds } from "@/lib/bets/price-options";
 import { isFreePickScope } from "@/lib/bets/free-pick-scopes";
 import { validateAnswer } from "@/lib/bets/validate-answer";
 import { liveStakeCap, normalizeOdds } from "@/lib/odds-normalize";
@@ -1019,9 +1020,11 @@ export function resolveLiveStake(
 //     bet-level decimal_odds column.
 //   - Multi-choice bets read the per-option map written by
 //     publishMultiChoiceSuggestion.
-//   - Yes/no bets with per-side overrides could also store per-side
-//     odds in a follow-up; the publish path doesn't capture them yet,
-//     so they fall through to the linear-scale fallback in the caller.
+//   - Yes/no bets with per-side odds (decimalOddsYes/No) read the side
+//     matching the player's pick, so a lopsided binary ("no VAR" is far
+//     likelier than "VAR") prices each outcome on its own probability
+//     instead of sharing one bet-level number. Falls back to the
+//     bet-level decimal_odds when a side has no odds captured.
 // Returns null when no odds value is available — the caller logs and
 // falls back to linear scaling so the player is never blocked.
 function resolveLiveOptionOdds(args: {
@@ -1038,6 +1041,15 @@ function resolveLiveOptionOdds(args: {
     const v = cfg?.decimalOddsByValue?.[args.answer.value];
     if (typeof v === "number" && Number.isFinite(v) && v > 1) return v;
     return null;
+  }
+  if (args.answerType === "yes_no" && args.answer.type === "yes_no") {
+    const cfg = args.answerConfig as
+      | { decimalOddsYes?: number; decimalOddsNo?: number }
+      | null
+      | undefined;
+    const sideOdds = resolveYesNoSideOdds(cfg, args.answer.value);
+    if (sideOdds != null) return sideOdds;
+    // No per-side odds — fall through to the shared bet-level value.
   }
   if (args.betLevelDecimalOdds != null && Number.isFinite(args.betLevelDecimalOdds) && args.betLevelDecimalOdds > 1) {
     return args.betLevelDecimalOdds;

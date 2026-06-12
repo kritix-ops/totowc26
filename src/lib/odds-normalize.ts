@@ -56,7 +56,14 @@ export function normalizeOdds(
 // client so the bet card's live "potential win" matches what the server
 // will record.
 //
-// See _plans/2026-06-11-variable-live-bet-stake.md §4 (option 2).
+// A ceiling of 0 (the documented "no absolute cap" sentinel) DISABLES the
+// flat ceiling: the per-stake ratio guard becomes the only ceiling, so
+// staking more always wins proportionally more instead of two different
+// stakes colliding on the same flat number. The ratio guard stays as the
+// overflow backstop (stake * ratio, well inside smallint at sane stakes).
+//
+// See _plans/2026-06-11-variable-live-bet-stake.md §4 (option 2) and
+// _plans/2026-06-12-remove-live-payout-ceiling.md.
 export type LiveStakeCapConfig = {
   maxPayoutRatio: number;
   maxPayoutCeiling: number;
@@ -67,9 +74,17 @@ export function liveStakeCap(
   config: LiveStakeCapConfig,
 ): number {
   const ratio = clampPositiveInt(config.maxPayoutRatio, 1);
-  const ceiling = clampPositiveInt(config.maxPayoutCeiling, ratio);
   const safeStake = clampPositiveInt(stake, 1);
-  return Math.min(safeStake * ratio, ceiling);
+  const ratioCap = safeStake * ratio;
+  // Checked before clampPositiveInt so the 0 sentinel is honoured rather
+  // than silently bumped up to `ratio`. Non-finite / negative values are
+  // treated the same as 0 (cap disabled) — a malformed config never
+  // produces a tighter cap than the admin intended.
+  if (!Number.isFinite(config.maxPayoutCeiling) || config.maxPayoutCeiling <= 0) {
+    return ratioCap;
+  }
+  const ceiling = clampPositiveInt(config.maxPayoutCeiling, ratio);
+  return Math.min(ratioCap, ceiling);
 }
 
 // Outright/free-pick variant. Same formula as normalizeOdds but the

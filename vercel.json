@@ -11,6 +11,10 @@
     {
       "path": "/api/cron/odds-sync",
       "schedule": "0 12 * * *"
+    },
+    {
+      "path": "/api/cron/live-autogen",
+      "schedule": "0 7 * * *"
     }
   ]
 }

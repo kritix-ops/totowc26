@@ -25,6 +25,16 @@ import {
 import { PublishRow } from "./PublishRow";
 import { PublishMarketGroup } from "./PublishMarketGroup";
 import { RefreshFixtureButton } from "./RefreshFixtureButton";
+import { GenerateAiButton } from "./GenerateAiButton";
+import { AiModelCard } from "./AiModelCard";
+import { countRemainingMatches } from "./actions";
+import { DEFAULT_SUGGEST_MODEL } from "@/lib/bets/suggest/models";
+
+// The AI generate action runs in this route's function and a ~6-bet
+// Anthropic call takes ~30s, so the default (short) function timeout would
+// kill it. 60s gives the call room; the fetch itself aborts at 55s so a
+// genuinely stuck upstream still returns a clean error, not a 504.
+export const maxDuration = 60;
 
 // Markets we skip in the suggestions UI:
 //   - Match Winner is already covered by the main 1/X/2 bet, so
@@ -107,12 +117,15 @@ export default async function LiveBetSuggestionsPage({
   const sp = await searchParams;
   const date = resolveDate(sp.date);
 
-  const [fixtures, oddsConfig, availableDates, templates] = await Promise.all([
-    listFixturesForDate(date),
-    loadOddsConfig(),
-    listLiveBetsDates(),
-    listBetTemplates(50),
-  ]);
+  const [fixtures, oddsConfig, availableDates, templates, aiSettings, remainingMatches] =
+    await Promise.all([
+      listFixturesForDate(date),
+      loadOddsConfig(),
+      listLiveBetsDates(),
+      listBetTemplates(50),
+      loadAiSettings(),
+      countRemainingMatches(),
+    ]);
   // Split templates by scope so the per-fixture row only shows match
   // templates and the per-day row only shows day templates. Limited to
   // 8 each to keep the chip strip short on mobile.
@@ -185,6 +198,14 @@ export default async function LiveBetSuggestionsPage({
         </div>
       </header>
 
+      <AiModelCard
+        currentModelId={aiSettings.suggestModel}
+        remainingMatches={remainingMatches}
+        autogenEnabled={aiSettings.autogenEnabled}
+        autogenLeadHours={aiSettings.autogenLeadHours}
+        locale={locale}
+      />
+
       <DatePicker locale={locale} date={date} availableDates={availableDates} />
 
       {dayTemplates.length > 0 && (
@@ -249,6 +270,8 @@ export default async function LiveBetSuggestionsPage({
                     <RefreshFixtureButton matchId={f.id} locale={locale} />
                   </div>
                 </header>
+
+                <GenerateAiButton matchId={f.id} locale={locale} />
 
                 {matchTemplates.length > 0 && (
                   <QuickAddRow
@@ -618,5 +641,26 @@ async function loadOddsConfig(): Promise<OddsNormConfig> {
     baseStake: s?.baseStake ?? 3,
     maxPayout: s?.maxPayout ?? 25,
     houseEdgePct: s?.houseEdgePct ?? 5,
+  };
+}
+
+async function loadAiSettings(): Promise<{
+  suggestModel: string;
+  autogenEnabled: boolean;
+  autogenLeadHours: number;
+}> {
+  const [s] = await db
+    .select({
+      suggestModel: settings.suggestModel,
+      autogenEnabled: settings.liveAutogenEnabled,
+      autogenLeadHours: settings.liveAutogenLeadHours,
+    })
+    .from(settings)
+    .where(eq(settings.id, 1))
+    .limit(1);
+  return {
+    suggestModel: s?.suggestModel ?? DEFAULT_SUGGEST_MODEL,
+    autogenEnabled: s?.autogenEnabled ?? false,
+    autogenLeadHours: s?.autogenLeadHours ?? 30,
   };
 }

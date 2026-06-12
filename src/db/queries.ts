@@ -7,6 +7,15 @@ import { approvedPotIlsSql, paidParticipantsSql } from "./pot";
 import type { MultiChoiceOption } from "@/lib/bets/types";
 import { bankBalanceSql, duelCaseSql, duelDeltaSql } from "@/lib/bank";
 import { STAR_PLAYER_RANK, TEAM_RANK } from "@/lib/players/curation";
+import {
+  attachNonBettors,
+  filterToUser,
+  groupPickerRows,
+  type TransparencyCategory,
+  type TransparencyPicker,
+  type TransparencyPickerRow,
+  type TransparencyQuestionRow,
+} from "@/lib/transparency-group";
 
 // Cache tags used to invalidate cross-request cached queries from the
 // server actions that mutate the underlying tables. Mutations call
@@ -130,6 +139,207 @@ export async function getUpcomingFixtures(
     order by m.kickoff_at asc
     limit ${limit}
   `);
+}
+
+// Today's (or next match day's) fixtures + bets for a single user. Drives
+// the home-page "Your bets today" section — see
+// _plans/2026-06-11-home-todays-bets-section.md and `TodayBetsSection.tsx`.
+//
+// Date selection (Asia/Jerusalem):
+//   1. If any fixture kicks off today, pick today.
+//   2. Else pick the earliest future date that has a fixture (roll forward).
+//   3. If neither exists (tournament over), return null and the section
+//      collapses to nothing.
+//
+// "Bets" mixes three sources, all keyed by the chosen date:
+//   - match_bets for fixtures on that date (score predictions)
+//   - custom_bets scope='match' whose match.kickoff_at lands on that date
+//   - custom_bets scope='day' anchored on matchdays.date = that date
+// Tournament/stage/group scopes have no per-day anchor and are excluded.
+//
+// `totals.totalPoints` sums graded points (match_bets.points_earned + custom
+// pick net = points_earned − stake_paid). Open/locked rows don't count
+// against the total — those are pending and lighting them up red would be
+// misleading.
+//
+// Read-only. Every join to user-keyed tables is filtered by ${userId}, so
+// no other player's picks are exposed.
+export type TodayBetsFixture = {
+  id: string;
+  homeCode: string;
+  homeNameHe: string;
+  homeNameEn: string;
+  awayCode: string;
+  awayNameHe: string;
+  awayNameEn: string;
+  kickoffAt: string;
+  status: "scheduled" | "live" | "final";
+  homeScore: number | null;
+  awayScore: number | null;
+  myHome: number | null;
+  myAway: number | null;
+  myPoints: number | null;
+  myExact: boolean | null;
+};
+
+export type TodayBetsBet = {
+  id: string;
+  scope: "match" | "day";
+  matchId: string | null;
+  questionHe: string;
+  questionEn: string;
+  answerType: "yes_no" | "number" | "multi_choice" | "free_text";
+  answerConfig: unknown; // AnswerConfig — narrowed by renderPickAnswer
+  status: "open" | "locked" | "graded" | "reversed";
+  lockAt: string;
+  myAnswer: unknown; // PickAnswer | null — narrowed by renderPickAnswer
+  myStakePaid: number | null;
+  myPointsEarned: number | null;
+};
+
+export type TodayBetsSummary = {
+  date: string;
+  isToday: boolean;
+  fixtures: TodayBetsFixture[];
+  bets: TodayBetsBet[];
+  totals: {
+    matchBetCount: number;
+    customBetCount: number;
+    totalPoints: number;
+  };
+};
+
+export async function getTodayBetsSummary(
+  userId: string,
+): Promise<TodayBetsSummary | null> {
+  // Pick the active date in one round trip: today first, otherwise the
+  // earliest future fixture date. NULL out → no future fixtures at all
+  // (tournament finished) → return null and let the section collapse.
+  const dateRow = await execFirstRow<{
+    date: string | null;
+    is_today: boolean | null;
+  }>(sql`
+    with today as (
+      select (now() at time zone 'Asia/Jerusalem')::date as d
+    ),
+    today_has as (
+      select 1
+      from public.matches m, today
+      where (m.kickoff_at at time zone 'Asia/Jerusalem')::date = today.d
+      limit 1
+    ),
+    next_future as (
+      select min((m.kickoff_at at time zone 'Asia/Jerusalem')::date) as d
+      from public.matches m, today
+      where (m.kickoff_at at time zone 'Asia/Jerusalem')::date > today.d
+    )
+    select
+      to_char(coalesce(
+        case when exists (table today_has) then (select d from today) end,
+        (select d from next_future)
+      ), 'YYYY-MM-DD')                       as "date",
+      exists (table today_has)               as "is_today"
+  `);
+  const date = dateRow?.date ?? null;
+  if (!date) return null;
+  const isToday = dateRow?.is_today === true;
+
+  const fixtures = await execRows<TodayBetsFixture>(sql`
+    select
+      m.id::text                       as "id",
+      m.home_team                      as "homeCode",
+      ht.name_he                       as "homeNameHe",
+      ht.name_en                       as "homeNameEn",
+      m.away_team                      as "awayCode",
+      at.name_he                       as "awayNameHe",
+      at.name_en                       as "awayNameEn",
+      m.kickoff_at                     as "kickoffAt",
+      m.status::text                   as "status",
+      m.home_score                     as "homeScore",
+      m.away_score                     as "awayScore",
+      mb.home_score                    as "myHome",
+      mb.away_score                    as "myAway",
+      mb.points_earned                 as "myPoints",
+      mb.was_exact                     as "myExact"
+    from public.matches m
+    join public.teams ht on ht.code = m.home_team
+    join public.teams at on at.code = m.away_team
+    left join public.match_bets mb
+      on mb.match_id = m.id and mb.user_id = ${userId}
+    where (m.kickoff_at at time zone 'Asia/Jerusalem')::date = ${date}::date
+    order by m.kickoff_at asc
+  `);
+
+  // Same anchoring rules as getPlayDayDetail. We INNER JOIN
+  // user_custom_bet_picks because this section is the user's *placed* bets;
+  // admin-published rows the user skipped don't belong here.
+  const bets = await execRows<TodayBetsBet>(sql`
+    select
+      cb.id::text                                 as "id",
+      cb.scope::text                              as "scope",
+      cb.match_id::text                           as "matchId",
+      cb.question_he                              as "questionHe",
+      cb.question_en                              as "questionEn",
+      cb.answer_type::text                        as "answerType",
+      cb.answer_config                            as "answerConfig",
+      cb.status::text                             as "status",
+      cb.lock_at                                  as "lockAt",
+      pk.answer                                   as "myAnswer",
+      pk.stake_paid                               as "myStakePaid",
+      pk.points_earned                            as "myPointsEarned"
+    from public.custom_bets cb
+    left join public.matches    m  on m.id = cb.match_id
+    left join public.matchdays  md on md.id = cb.matchday_id
+    join public.user_custom_bet_picks pk
+      on pk.custom_bet_id = cb.id and pk.user_id = ${userId}
+    where cb.status in ('open', 'locked', 'graded', 'reversed')
+      and (
+        (cb.scope = 'day'   and md.date = ${date}::date) or
+        (cb.scope = 'match' and (m.kickoff_at at time zone 'Asia/Jerusalem')::date = ${date}::date)
+      )
+    order by
+      cb.scope asc,
+      cb.lock_at asc
+  `);
+
+  let matchBetCount = 0;
+  let matchPoints = 0;
+  for (const fx of fixtures) {
+    if (fx.myHome !== null && fx.myAway !== null) {
+      matchBetCount += 1;
+      if (fx.myPoints !== null) matchPoints += fx.myPoints;
+    }
+  }
+
+  let customPoints = 0;
+  for (const b of bets) {
+    // Only graded/reversed rows feed the total. Open/locked bets are still
+    // in flight; their stake is committed but recoverable on edit.
+    if (b.status === "graded" || b.status === "reversed") {
+      customPoints += (b.myPointsEarned ?? 0) - (b.myStakePaid ?? 0);
+    }
+  }
+
+  const digest: TodayBetsSummary = {
+    date,
+    isToday,
+    fixtures,
+    bets,
+    totals: {
+      matchBetCount,
+      customBetCount: bets.length,
+      totalPoints: matchPoints + customPoints,
+    },
+  };
+  console.info("[dashboard today-bets] loaded", {
+    userId,
+    date,
+    isToday,
+    fixtures: fixtures.length,
+    bets: bets.length,
+    totalPoints: digest.totals.totalPoints,
+  });
+  return digest;
 }
 
 // Latest final match for which the user has a bet (i.e. their most recent
@@ -1940,184 +2150,10 @@ export const getTournamentStart = unstable_cache(
 // who navigates the app via /bets, /bets/tournament, /bets/groups,
 // /bets/live can use the same mental model when filtering here.
 
-export type TransparencyCategory =
-  | "match"
-  | "live"
-  | "tournament"
-  | "group"
-  | "duel";
-
-export type TransparencyRow = {
-  category: TransparencyCategory;
-  eventTime: string;
-  userId: string;
-  displayName: string;
-  question: string;
-  pickLabel: string;
-  stake: number;
-  pointsEarned: number | null;
-  status: string;
-  bookId: string;
-};
-
-export type TransparencyFilters = {
-  userId?: string;
-  category?: TransparencyCategory;
-  date?: string;
-  locale: "he" | "en";
-};
-
-export async function getTransparencyFeed(
-  filters: TransparencyFilters,
-  limit = 100,
-): Promise<TransparencyRow[]> {
-  console.info("[transparency feed] query", {
-    category: filters.category ?? "all",
-    userId: filters.userId ?? "all",
-    date: filters.date ?? "all",
-    locale: filters.locale,
-    limit,
-  });
-  const homeNameCol = filters.locale === "he" ? sql`ht.name_he` : sql`ht.name_en`;
-  const awayNameCol = filters.locale === "he" ? sql`at.name_he` : sql`at.name_en`;
-  const questionCol = filters.locale === "he" ? sql`cb.question_he` : sql`cb.question_en`;
-  const duelQuestionCol = filters.locale === "he" ? sql`d.question_he` : sql`d.question_en`;
-  const yesLabel = filters.locale === "he" ? sql`'כן'` : sql`'Yes'`;
-  const noLabel = filters.locale === "he" ? sql`'לא'` : sql`'No'`;
-
-  // Build the WHERE clause from optional filters. Each one is an AND
-  // condition; if none are supplied we omit the WHERE entirely.
-  //
-  // The combined CTE projects event_time and user_id as ::text (the JS
-  // layer wants strings), so the filters must cast them back to their
-  // real types before a typed comparison: `text at time zone` and
-  // `text = uuid` are both undefined operators and throw 42883, which
-  // is what blanked /transparency?date=... and ?user=... to a 500.
-  // Do not drop these casts.
-  const conds: ReturnType<typeof sql>[] = [];
-  if (filters.category) conds.push(sql`src.category = ${filters.category}`);
-  if (filters.userId) conds.push(sql`src.user_id::uuid = ${filters.userId}::uuid`);
-  if (filters.date) {
-    conds.push(
-      sql`(src.event_time::timestamptz at time zone 'Asia/Jerusalem')::date = ${filters.date}::date`,
-    );
-  }
-  let whereClause = sql``;
-  if (conds.length > 0) {
-    whereClause = sql`where ${conds[0]}`;
-    for (let i = 1; i < conds.length; i += 1) {
-      whereClause = sql`${whereClause} and ${conds[i]}`;
-    }
-  }
-
-  const rows = await execRows<TransparencyRow>(sql`
-    with combined as (
-      select
-        'match'::text                                              as category,
-        m.kickoff_at::text                                         as event_time,
-        mb.user_id::text                                           as user_id,
-        p.display_name                                             as display_name,
-        (${homeNameCol} || ' vs ' || ${awayNameCol})               as question,
-        (mb.home_score || '-' || mb.away_score)                    as pick_label,
-        coalesce(mb.stake_paid_main, 0)::int                       as stake,
-        mb.points_earned                                           as points_earned,
-        m.status::text                                             as status,
-        mb.id::text                                                as book_id
-      from public.match_bets mb
-      join public.matches m  on m.id  = mb.match_id
-      join public.teams ht   on ht.code = m.home_team
-      join public.teams at   on at.code = m.away_team
-      join public.profiles p on p.id  = mb.user_id
-      where m.status in ('live', 'final')
-
-      union all
-
-      -- All locked custom_bets in one branch; the category column is
-      -- derived from cb.scope so /bets, /bets/tournament, /bets/groups
-      -- and /bets/live each have a matching filter row in the UI.
-      select
-        case cb.scope::text
-          when 'tournament' then 'tournament'
-          when 'stage'      then 'tournament'
-          when 'group'      then 'group'
-          else 'live'  -- scope in ('match', 'day')
-        end::text                                                  as category,
-        cb.lock_at::text                                           as event_time,
-        pk.user_id::text                                           as user_id,
-        p.display_name                                             as display_name,
-        ${questionCol}                                             as question,
-        case pk.answer->>'value'
-          when 'true'  then ${yesLabel}
-          when 'false' then ${noLabel}
-          else coalesce(pk.answer->>'value', '?')
-        end                                                        as pick_label,
-        pk.stake_paid::int                                         as stake,
-        pk.points_earned                                           as points_earned,
-        cb.status::text                                            as status,
-        pk.id::text                                                as book_id
-      from public.user_custom_bet_picks pk
-      join public.custom_bets cb on cb.id = pk.custom_bet_id
-      join public.profiles p     on p.id  = pk.user_id
-      where cb.lock_at <= now()
-
-      union all
-
-      select
-        'duel'::text                                               as category,
-        d.created_at::text                                         as event_time,
-        d.opener_id::text                                          as user_id,
-        po.display_name                                            as display_name,
-        ${duelQuestionCol}                                         as question,
-        case when d.opener_answer then ${yesLabel} else ${noLabel} end as pick_label,
-        d.stake::int                                               as stake,
-        case when d.status = 'settled'
-             then case when d.resolved_value = d.opener_answer then d.stake else -d.stake end
-             else null
-        end                                                        as points_earned,
-        d.status::text                                             as status,
-        d.id::text                                                 as book_id
-      from public.duels d
-      join public.profiles po on po.id = d.opener_id
-
-      union all
-
-      select
-        'duel'::text                                               as category,
-        coalesce(d.joined_at, d.created_at)::text                  as event_time,
-        d.joiner_id::text                                          as user_id,
-        pj.display_name                                            as display_name,
-        ${duelQuestionCol}                                         as question,
-        case when d.opener_answer then ${noLabel} else ${yesLabel} end as pick_label,
-        d.stake::int                                               as stake,
-        case when d.status = 'settled'
-             then case when d.resolved_value = d.opener_answer then -d.stake else d.stake end
-             else null
-        end                                                        as points_earned,
-        d.status::text                                             as status,
-        ('joiner:' || d.id::text)                                  as book_id
-      from public.duels d
-      join public.profiles pj on pj.id = d.joiner_id
-      where d.joiner_id is not null
-    )
-    select
-      src.category       as "category",
-      src.event_time     as "eventTime",
-      src.user_id        as "userId",
-      src.display_name   as "displayName",
-      src.question       as "question",
-      src.pick_label     as "pickLabel",
-      src.stake          as "stake",
-      src.points_earned  as "pointsEarned",
-      src.status         as "status",
-      src.book_id        as "bookId"
-    from combined src
-    ${whereClause}
-    order by src.event_time desc
-    limit ${limit}
-  `);
-  console.info("[transparency feed] result", { rows: rows.length });
-  return rows;
-}
+// TransparencyCategory now lives in @/lib/transparency-group (imported
+// above) so client components can use it without a server-only guard.
+// Re-exported here so existing `@/db/queries` import sites keep working.
+export type { TransparencyCategory };
 
 export async function getTransparencyUsers(): Promise<
   Array<{ id: string; displayName: string }>
@@ -2130,6 +2166,190 @@ export async function getTransparencyUsers(): Promise<
        or exists (select 1 from public.duels d where d.opener_id = p.id or d.joiner_id = p.id)
     order by p.display_name asc
   `);
+}
+
+// /transparency feed: one row per question per tab, with picks folded
+// into a `pickers` array and the rest of the paid pool folded into
+// `nonBettors`. Drives the tabbed UI added in
+// _plans/2026-06-12-transparency-tabs-redesign.md. Pure grouping +
+// filter logic lives in src/lib/transparency-group.ts so it can be
+// covered by unit tests; this function owns the SQL only.
+
+// Re-export the shared types so /transparency callers can keep
+// importing them from @/db/queries (the public surface).
+export type { TransparencyPicker, TransparencyQuestionRow };
+
+export type TransparencyByQuestionFilters = {
+  tab: TransparencyCategory;
+  userId?: string;
+  date?: string;
+  locale: "he" | "en";
+};
+
+// Paid pool baseline: every user whose CURRENT payment is approved
+// (same definition as paidParticipantsSql in pot.ts). This is the
+// universe against which "didn't bet" is computed for non-duel tabs.
+// Duel rows ignore this — duels are 1v1 by design.
+async function loadPaidPool(): Promise<
+  Array<{ userId: string; displayName: string }>
+> {
+  return execRows<{ userId: string; displayName: string }>(sql`
+    with latest as (
+      select distinct on (user_id) user_id, status
+      from public.payments
+      order by user_id, submitted_at desc
+    )
+    select p.id::text as "userId", p.display_name as "displayName"
+    from latest
+    join public.profiles p on p.id = latest.user_id
+    where latest.status = 'approved'
+    order by p.display_name asc
+  `);
+}
+
+export async function getTransparencyByQuestion(
+  filters: TransparencyByQuestionFilters,
+  limit = 100,
+): Promise<TransparencyQuestionRow[]> {
+  console.info("[transparency tab] query", {
+    tab: filters.tab,
+    userId: filters.userId ?? "all",
+    date: filters.date ?? "all",
+    locale: filters.locale,
+    limit,
+  });
+
+  const homeNameCol = filters.locale === "he" ? sql`ht.name_he` : sql`ht.name_en`;
+  const awayNameCol = filters.locale === "he" ? sql`at.name_he` : sql`at.name_en`;
+  const questionCol = filters.locale === "he" ? sql`cb.question_he` : sql`cb.question_en`;
+  const duelQuestionCol = filters.locale === "he" ? sql`d.question_he` : sql`d.question_en`;
+  const yesLabel = filters.locale === "he" ? sql`'כן'` : sql`'Yes'`;
+  const noLabel = filters.locale === "he" ? sql`'לא'` : sql`'No'`;
+
+  // Each branch returns the SAME picker-row shape so the page layer
+  // never has to special-case a tab. The `question_id` is whatever
+  // groups picks together for that tab: match_id for match, custom_bet
+  // id for live/tournament/group, duel id for duels.
+  let pickerRows: TransparencyPickerRow[];
+  if (filters.tab === "match") {
+    pickerRows = await execRows<TransparencyPickerRow>(sql`
+      select
+        m.id::text                                      as "questionId",
+        (${homeNameCol} || ' vs ' || ${awayNameCol})    as "question",
+        m.kickoff_at::text                              as "eventTime",
+        mb.user_id::text                                as "userId",
+        p.display_name                                  as "displayName",
+        (mb.home_score || '-' || mb.away_score)         as "pickLabel",
+        coalesce(mb.stake_paid_main, 0)::int            as "stake",
+        mb.points_earned                                as "pointsEarned",
+        m.status::text                                  as "status"
+      from public.match_bets mb
+      join public.matches m  on m.id  = mb.match_id
+      join public.teams ht   on ht.code = m.home_team
+      join public.teams at   on at.code = m.away_team
+      join public.profiles p on p.id  = mb.user_id
+      where m.status in ('live', 'final')
+        ${filters.date ? sql`and (m.kickoff_at at time zone 'Asia/Jerusalem')::date = ${filters.date}::date` : sql``}
+      order by m.kickoff_at desc, p.display_name asc
+    `);
+  } else if (filters.tab === "duel") {
+    pickerRows = await execRows<TransparencyPickerRow>(sql`
+      select
+        d.id::text                                      as "questionId",
+        ${duelQuestionCol}                              as "question",
+        d.created_at::text                              as "eventTime",
+        d.opener_id::text                               as "userId",
+        po.display_name                                 as "displayName",
+        case when d.opener_answer then ${yesLabel} else ${noLabel} end as "pickLabel",
+        d.stake::int                                    as "stake",
+        case when d.status = 'settled'
+             then case when d.resolved_value = d.opener_answer then d.stake else -d.stake end
+             else null
+        end                                             as "pointsEarned",
+        d.status::text                                  as "status"
+      from public.duels d
+      join public.profiles po on po.id = d.opener_id
+      ${filters.date ? sql`where (d.created_at at time zone 'Asia/Jerusalem')::date = ${filters.date}::date` : sql``}
+
+      union all
+
+      select
+        d.id::text                                      as "questionId",
+        ${duelQuestionCol}                              as "question",
+        coalesce(d.joined_at, d.created_at)::text      as "eventTime",
+        d.joiner_id::text                               as "userId",
+        pj.display_name                                 as "displayName",
+        case when d.opener_answer then ${noLabel} else ${yesLabel} end as "pickLabel",
+        d.stake::int                                    as "stake",
+        case when d.status = 'settled'
+             then case when d.resolved_value = d.opener_answer then -d.stake else d.stake end
+             else null
+        end                                             as "pointsEarned",
+        d.status::text                                  as "status"
+      from public.duels d
+      join public.profiles pj on pj.id = d.joiner_id
+      where d.joiner_id is not null
+        ${filters.date ? sql`and (coalesce(d.joined_at, d.created_at) at time zone 'Asia/Jerusalem')::date = ${filters.date}::date` : sql``}
+      order by "eventTime" desc, "displayName" asc
+    `);
+  } else {
+    // live / tournament / group — all backed by custom_bets, scoped by
+    // mapped from cb.scope: tournament+stage roll up to "tournament",
+    // group is its own bucket, match+day are "live". Mirrors the
+    // /bets/* tab layout per [[project_bet_scopes_mapping]].
+    const scopeCond =
+      filters.tab === "tournament"
+        ? sql`cb.scope::text in ('tournament', 'stage')`
+        : filters.tab === "group"
+          ? sql`cb.scope::text = 'group'`
+          : sql`cb.scope::text in ('match', 'day')`; // live
+    pickerRows = await execRows<TransparencyPickerRow>(sql`
+      select
+        cb.id::text                                     as "questionId",
+        ${questionCol}                                  as "question",
+        cb.lock_at::text                                as "eventTime",
+        pk.user_id::text                                as "userId",
+        p.display_name                                  as "displayName",
+        case pk.answer->>'value'
+          when 'true'  then ${yesLabel}
+          when 'false' then ${noLabel}
+          else coalesce(pk.answer->>'value', '?')
+        end                                             as "pickLabel",
+        pk.stake_paid::int                              as "stake",
+        pk.points_earned                                as "pointsEarned",
+        cb.status::text                                 as "status"
+      from public.user_custom_bet_picks pk
+      join public.custom_bets cb on cb.id = pk.custom_bet_id
+      join public.profiles p     on p.id  = pk.user_id
+      where cb.lock_at <= now()
+        and ${scopeCond}
+        ${filters.date ? sql`and (cb.lock_at at time zone 'Asia/Jerusalem')::date = ${filters.date}::date` : sql``}
+      order by cb.lock_at desc, p.display_name asc
+    `);
+  }
+
+  let result = groupPickerRows(pickerRows);
+  // Duels are 1v1 by design — skip the paid-pool diff there.
+  if (filters.tab !== "duel") {
+    attachNonBettors(result, await loadPaidPool());
+  }
+  if (filters.userId) {
+    result = filterToUser(result, filters.userId);
+  }
+  if (result.length > limit) result = result.slice(0, limit);
+
+  const totalPickers = result.reduce((acc, r) => acc + r.pickers.length, 0);
+  const totalNonBettors = result.reduce(
+    (acc, r) => acc + r.nonBettors.length,
+    0,
+  );
+  console.info("[transparency tab] result", {
+    tab: filters.tab,
+    questions: result.length,
+    pickers: totalPickers,
+    nonBettors: totalNonBettors,
+  });
+  return result;
 }
 
 // Pool digest for the dashboard widget. Returns an aggregated view of
@@ -2465,6 +2685,258 @@ export async function getLiveMatches(userId: string): Promise<LiveMatchRow[]> {
       case when m.status = 'live' then 0 else 1 end,
       m.kickoff_at asc
     limit 50
+  `);
+}
+
+// ---------- Past / history queries (newest first) ----------
+//
+// Used by the "Past" sub-toggle on the bet surfaces. Read-only by
+// construction: every function below is a SELECT, no UPDATE/INSERT
+// path. See _plans/2026-06-12-bet-history-per-surface.md.
+
+export type PastMatchPickRow = {
+  id: string;
+  homeCode: string;
+  homeNameHe: string;
+  homeNameEn: string;
+  awayCode: string;
+  awayNameHe: string;
+  awayNameEn: string;
+  kickoffAt: string;
+  // Asia/Jerusalem calendar date (YYYY-MM-DD) the page groups by. Never
+  // slice kickoffAt (that's UTC) — a late-night kickoff would land on the
+  // wrong day. See memory: Jerusalem timezone is mandatory.
+  matchDate: string;
+  stage: string;
+  // 'live' = match in play, no final score yet; 'final' = whistle blown.
+  // 'scheduled' rows that slipped under the 5-minute lock window are
+  // bucketed as 'live' from the player's POV — the match is effectively
+  // locked even if API-Football hasn't promoted the status yet.
+  status: "scheduled" | "live" | "final";
+  homeScore: number | null;
+  awayScore: number | null;
+  myHomeScore: number | null;
+  myAwayScore: number | null;
+  // Net points written by scoreFinalMatches() on grading. Null when the
+  // match hasn't been graded yet (still live, or just finished and the
+  // grader hasn't run).
+  myPointsEarned: number | null;
+  myWasExact: boolean | null;
+  myWasCorrectOutcome: boolean | null;
+};
+
+// Every match that has kicked off or finished, regardless of whether
+// the caller picked it. Newest first by kickoff_at. The user asked for
+// "everything" so we include rows with no pick — those render with "—"
+// in the my-pick column.
+export async function getPastMatchPicks(
+  userId: string,
+): Promise<PastMatchPickRow[]> {
+  return execRows<PastMatchPickRow>(sql`
+    select
+      m.id::text                                          as "id",
+      m.home_team                                         as "homeCode",
+      ht.name_he                                          as "homeNameHe",
+      ht.name_en                                          as "homeNameEn",
+      m.away_team                                         as "awayCode",
+      at.name_he                                          as "awayNameHe",
+      at.name_en                                          as "awayNameEn",
+      m.kickoff_at::text                                  as "kickoffAt",
+      to_char((m.kickoff_at at time zone 'Asia/Jerusalem')::date,
+              'YYYY-MM-DD')                               as "matchDate",
+      m.stage::text                                       as "stage",
+      m.status::text                                      as "status",
+      m.home_score                                        as "homeScore",
+      m.away_score                                        as "awayScore",
+      mb.home_score                                       as "myHomeScore",
+      mb.away_score                                       as "myAwayScore",
+      mb.points_earned                                    as "myPointsEarned",
+      mb.was_exact                                        as "myWasExact",
+      mb.was_correct_outcome                              as "myWasCorrectOutcome"
+    from public.matches m
+    join public.teams ht on ht.code = m.home_team
+    join public.teams at on at.code = m.away_team
+    left join public.match_bets mb on mb.match_id = m.id and mb.user_id = ${userId}
+    where m.status in ('live', 'final')
+       or (m.status = 'scheduled' and m.kickoff_at <= now() + interval '5 minutes')
+    order by m.kickoff_at desc
+    limit 500
+  `);
+}
+
+// Past matchdays for the live-bets index. Every Asia/Jerusalem date
+// strictly before today that has at least one match. Returned newest
+// first. We also pre-count how many of the day's custom bets the
+// caller actually picked so the card can show "{n} picks of yours".
+export type PastPlayDayRow = {
+  date: string;
+  matchCount: number;
+  firstKickoffAt: string;
+  flagsPreview: string;
+  myPickCount: number;
+};
+
+export async function listPastPlayDays(userId: string): Promise<PastPlayDayRow[]> {
+  return execRows<PastPlayDayRow>(sql`
+    with days as (
+      select to_char((m.kickoff_at at time zone 'Asia/Jerusalem')::date,
+                     'YYYY-MM-DD')                          as date,
+             min(m.kickoff_at)                              as first_kickoff,
+             count(*)::int                                  as match_count,
+             string_agg(distinct ht.flag, ' ' order by ht.flag) ||
+               ' ' ||
+               string_agg(distinct at.flag, ' ' order by at.flag) as flags
+      from public.matches m
+      join public.teams ht on ht.code = m.home_team
+      join public.teams at on at.code = m.away_team
+      where (m.kickoff_at at time zone 'Asia/Jerusalem')::date
+              < (now() at time zone 'Asia/Jerusalem')::date
+      group by (m.kickoff_at at time zone 'Asia/Jerusalem')::date
+    ),
+    picks as (
+      -- Count of custom-bet picks the caller made for each day, across
+      -- both day-scope (anchored to matchday) and match-scope (anchored
+      -- to a match on that day). Match-pick count is intentionally
+      -- excluded — those are summarised by the match-picks past view.
+      select day, sum(c)::int as pick_count
+      from (
+        select to_char(md.date, 'YYYY-MM-DD') as day,
+               count(*)::int as c
+        from public.user_custom_bet_picks pk
+        join public.custom_bets cb on cb.id = pk.custom_bet_id
+        join public.matchdays md on md.id = cb.matchday_id
+        where pk.user_id = ${userId}
+          and cb.scope = 'day'
+        group by md.date
+        union all
+        select to_char((m.kickoff_at at time zone 'Asia/Jerusalem')::date,
+                       'YYYY-MM-DD') as day,
+               count(*)::int
+        from public.user_custom_bet_picks pk
+        join public.custom_bets cb on cb.id = pk.custom_bet_id
+        join public.matches m on m.id = cb.match_id
+        where pk.user_id = ${userId}
+          and cb.scope = 'match'
+        group by (m.kickoff_at at time zone 'Asia/Jerusalem')::date
+      ) per_scope
+      group by day
+    )
+    select
+      d.date                                  as "date",
+      d.match_count                           as "matchCount",
+      d.first_kickoff::text                   as "firstKickoffAt",
+      d.flags                                 as "flagsPreview",
+      coalesce(p.pick_count, 0)::int          as "myPickCount"
+    from days d
+    left join picks p on p.day = d.date
+    order by d.date desc
+    limit 200
+  `);
+}
+
+// Past tournament/stage custom bets. Includes graded, reversed and
+// cancelled - the user wants to see everything that has closed. Rows
+// where the caller didn't pick are kept so the past view stays
+// symmetric with the upcoming view.
+export type PastTournamentBetRow = {
+  id: string;
+  scope: "tournament" | "stage";
+  stage: "group" | "r32" | "r16" | "qf" | "sf" | "third_place" | "final" | null;
+  questionHe: string;
+  questionEn: string;
+  gradingRuleHe: string;
+  gradingRuleEn: string;
+  answerType: "yes_no" | "number" | "multi_choice" | "free_text";
+  answerConfig: unknown;
+  stakeSnapshot: number;
+  payoutSnapshot: number;
+  lockAt: string;
+  gradedAt: string | null;
+  status: "graded" | "reversed" | "cancelled";
+  resolvedValue: unknown | null;
+  myAnswer: unknown | null;
+  myStakePaid: number | null;
+  myPointsEarned: number | null;
+  myWasCorrect: boolean | null;
+};
+
+export async function getPastTournamentBets(
+  userId: string,
+): Promise<PastTournamentBetRow[]> {
+  return execRows<PastTournamentBetRow>(sql`
+    select
+      cb.id::text                                 as "id",
+      cb.scope::text                              as "scope",
+      cb.stage::text                              as "stage",
+      cb.question_he                              as "questionHe",
+      cb.question_en                              as "questionEn",
+      cb.grading_rule_he                          as "gradingRuleHe",
+      cb.grading_rule_en                          as "gradingRuleEn",
+      cb.answer_type::text                        as "answerType",
+      cb.answer_config                            as "answerConfig",
+      cb.stake_snapshot                           as "stakeSnapshot",
+      cb.payout_snapshot                          as "payoutSnapshot",
+      cb.lock_at::text                            as "lockAt",
+      cb.graded_at::text                          as "gradedAt",
+      cb.status::text                             as "status",
+      cb.resolved_value                           as "resolvedValue",
+      pk.answer                                   as "myAnswer",
+      pk.stake_paid                               as "myStakePaid",
+      pk.points_earned                            as "myPointsEarned",
+      pk.was_correct                              as "myWasCorrect"
+    from public.custom_bets cb
+    left join public.user_custom_bet_picks pk
+      on pk.custom_bet_id = cb.id and pk.user_id = ${userId}
+    where cb.status in ('graded', 'reversed', 'cancelled')
+      and cb.scope in ('tournament', 'stage')
+    order by
+      coalesce(cb.graded_at, cb.lock_at) desc
+    limit 200
+  `);
+}
+
+// Past group-scope custom bets. Same shape as past tournament bets,
+// scoped to cb.scope='group', with the group id surfaced so the page
+// can bucket by group like the upcoming view does.
+export type PastGroupBetRow = Omit<PastTournamentBetRow, "scope" | "stage"> & {
+  groupId: string;
+  groupDisplayOrder: number;
+};
+
+export async function getPastGroupBets(
+  userId: string,
+): Promise<PastGroupBetRow[]> {
+  return execRows<PastGroupBetRow>(sql`
+    select
+      cb.id::text                                 as "id",
+      cb.group_id                                 as "groupId",
+      g.display_order                             as "groupDisplayOrder",
+      cb.question_he                              as "questionHe",
+      cb.question_en                              as "questionEn",
+      cb.grading_rule_he                          as "gradingRuleHe",
+      cb.grading_rule_en                          as "gradingRuleEn",
+      cb.answer_type::text                        as "answerType",
+      cb.answer_config                            as "answerConfig",
+      cb.stake_snapshot                           as "stakeSnapshot",
+      cb.payout_snapshot                          as "payoutSnapshot",
+      cb.lock_at::text                            as "lockAt",
+      cb.graded_at::text                          as "gradedAt",
+      cb.status::text                             as "status",
+      cb.resolved_value                           as "resolvedValue",
+      pk.answer                                   as "myAnswer",
+      pk.stake_paid                               as "myStakePaid",
+      pk.points_earned                            as "myPointsEarned",
+      pk.was_correct                              as "myWasCorrect"
+    from public.custom_bets cb
+    join public.groups g on g.id = cb.group_id
+    left join public.user_custom_bet_picks pk
+      on pk.custom_bet_id = cb.id and pk.user_id = ${userId}
+    where cb.status in ('graded', 'reversed', 'cancelled')
+      and cb.scope = 'group'
+    order by
+      coalesce(cb.graded_at, cb.lock_at) desc,
+      g.display_order asc
+    limit 200
   `);
 }
 

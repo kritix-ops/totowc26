@@ -5,7 +5,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import { db } from "@/db";
 import { customBets } from "@/db/schema";
 import { getUser } from "@/lib/supabase/auth";
-import { isAdmin } from "@/lib/admin";
+import { hasPermission } from "@/lib/admin";
 import { outrightSurfaceForQuestion } from "@/lib/bets/outright-surfaces";
 import { publishSurfaceToBet } from "@/app/[lang]/admin/tournament-odds/actions";
 import type { AnswerConfig } from "@/lib/bets/types";
@@ -61,7 +61,7 @@ export async function publishTournamentTemplate(
 ): Promise<PublishTournamentResult> {
   const user = await getUser();
   if (!user) return { ok: false, error: "unauth" };
-  if (!(await isAdmin(user.id))) {
+  if (!(await hasPermission(user.id, "tournamentBets"))) {
     console.warn("[tournament publish denied]", { userId: user.id });
     return { ok: false, error: "forbidden" };
   }

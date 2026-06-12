@@ -1,12 +1,23 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { customBets, matches as matchesTable, matchdays } from "@/db/schema";
+import { execFirstRow } from "@/db/helpers";
+import {
+  customBets,
+  matches as matchesTable,
+  matchdays,
+  settings,
+} from "@/db/schema";
 import { getUser } from "@/lib/supabase/auth";
-import { isAdmin } from "@/lib/admin";
+import { hasPermission } from "@/lib/admin";
 import { getDeadlineContext } from "@/lib/deadlines";
+import { liveStakeCap } from "@/lib/odds-normalize";
+import { generateSuggestions, type FixtureContext } from "@/lib/bets/suggest/generate";
+import { suggestionToDraft } from "@/lib/bets/suggest/transform";
+import { SUGGEST_MODELS } from "@/lib/bets/suggest/models";
+import { createCustomBet } from "../../bets/actions";
 
 // Server actions for the admin "Live bet suggestions" page.
 //
@@ -59,7 +70,7 @@ export async function publishSuggestion(
 ): Promise<PublishSuggestionResult> {
   const user = await getUser();
   if (!user) return { ok: false, error: "unauth" };
-  if (!(await isAdmin(user.id))) {
+  if (!(await hasPermission(user.id, "liveBets"))) {
     console.warn("[live-bet publish denied]", { userId: user.id });
     return { ok: false, error: "forbidden" };
   }
@@ -182,7 +193,7 @@ export async function publishMultiChoiceSuggestion(
 ): Promise<PublishSuggestionResult> {
   const user = await getUser();
   if (!user) return { ok: false, error: "unauth" };
-  if (!(await isAdmin(user.id))) {
+  if (!(await hasPermission(user.id, "liveBets"))) {
     console.warn("[live-bet multi publish denied]", { userId: user.id });
     return { ok: false, error: "forbidden" };
   }
@@ -315,12 +326,261 @@ export async function refreshOddsForFixture(
 ): Promise<{ ok: true } | { ok: false; error: Err }> {
   const user = await getUser();
   if (!user) return { ok: false, error: "unauth" };
-  if (!(await isAdmin(user.id))) {
+  if (!(await hasPermission(user.id, "liveBets"))) {
     return { ok: false, error: "forbidden" };
   }
   console.info("[odds refresh]", { adminId: user.id, matchId });
   revalidatePath("/[lang]/admin/live-bets/suggestions", "page");
   return { ok: true };
+}
+
+// ─── AI suggestion generation ─────────────────────────────────────
+//
+// Ask the LLM for a batch of live bets for one fixture, price each via the
+// shared probability→odds pipeline, and insert them as DRAFTS through
+// createCustomBet (which re-validates + re-derives payouts). Nothing
+// publishes — the admin reviews the drafts in /admin/bets and publishes the
+// ones they like. Per the user's decision: generation is automatic, the
+// approval is a deliberate tap. See
+// _plans/2026-06-12-live-bets-llm-overhaul.md Phase 2.
+export type GenerateAiResult =
+  | { ok: true; created: number; failed: number; total: number }
+  | { ok: false; error: Err | "no_key" | "llm_failed" | "match_started" };
+
+export async function generateAiSuggestions(
+  matchId: string,
+  opts?: { count?: number; instructions?: string },
+): Promise<GenerateAiResult> {
+  const user = await getUser();
+  if (!user) return { ok: false, error: "unauth" };
+  if (!(await hasPermission(user.id, "liveBets"))) {
+    console.warn("[live-gen denied]", { userId: user.id, matchId });
+    return { ok: false, error: "forbidden" };
+  }
+
+  // Fixture context for the prompt + the lock anchor. Only schedulable
+  // (not-yet-started) matches qualify — a started match can't take new
+  // live bets and createCustomBet would reject the past lockAt anyway.
+  const fx = await loadFixtureContext(matchId);
+  if (!fx) return { ok: false, error: "match_not_found" };
+  if (fx.status !== "scheduled") return { ok: false, error: "match_started" };
+
+  const lockAt = await resolveSuggestionLockAt(fx.kickoffAt, "custom_match");
+  if (lockAt.getTime() <= Date.now()) {
+    return { ok: false, error: "match_started" };
+  }
+
+  const [modelRow] = await db
+    .select({ suggestModel: settings.suggestModel })
+    .from(settings)
+    .where(eq(settings.id, 1))
+    .limit(1);
+  const gen = await generateSuggestions(fx.context, modelRow?.suggestModel, {
+    count: opts?.count,
+    instructions: opts?.instructions,
+  });
+  if (!gen.ok) {
+    return { ok: false, error: gen.error === "no_key" ? "no_key" : "llm_failed" };
+  }
+
+  const pricingConfig = await loadLivePricingConfig();
+  const lockAtIso = lockAt.toISOString();
+  let created = 0;
+  let failed = 0;
+
+  for (const suggestion of gen.suggestions) {
+    const draft = suggestionToDraft(suggestion, pricingConfig);
+    if ("error" in draft) {
+      failed += 1;
+      console.warn("[live-gen draft skip]", { reason: draft.error, q: suggestion.questionEn });
+      continue;
+    }
+    const gradingSource =
+      draft.grading == null ? "manual" : draft.grading.source;
+    const res = await createCustomBet({
+      scope: "match",
+      matchId,
+      questionHe: draft.questionHe,
+      questionEn: draft.questionEn,
+      gradingRuleHe: draft.gradingRuleHe,
+      gradingRuleEn: draft.gradingRuleEn,
+      answerType: draft.answerType,
+      answerConfig: draft.answerConfig,
+      stakeSnapshot: draft.stakeSnapshot,
+      payoutSnapshot: draft.payoutSnapshot,
+      decimalOdds: null,
+      gradingSource,
+      gradingConfig: draft.grading,
+      lockAt: lockAtIso,
+    });
+    if (res.ok) {
+      created += 1;
+    } else {
+      failed += 1;
+      console.warn("[live-gen create failed]", { error: res.error, q: draft.questionEn });
+    }
+  }
+
+  console.info("[live-gen persisted]", {
+    adminId: user.id,
+    matchId,
+    created,
+    failed,
+    total: gen.suggestions.length,
+  });
+  revalidatePath("/[lang]/admin/bets", "page");
+  revalidatePath("/[lang]/admin/live-bets/suggestions", "page");
+  return { ok: true, created, failed, total: gen.suggestions.length };
+}
+
+// Persist the admin's chosen suggestion model. Validated against the fixed
+// catalogue so a typo or retired id can't reach the generator.
+export async function setSuggestModel(
+  modelId: string,
+): Promise<{ ok: true } | { ok: false; error: Err }> {
+  const user = await getUser();
+  if (!user) return { ok: false, error: "unauth" };
+  if (!(await hasPermission(user.id, "liveBets"))) {
+    console.warn("[suggest-model denied]", { userId: user.id });
+    return { ok: false, error: "forbidden" };
+  }
+  if (!SUGGEST_MODELS.some((m) => m.id === modelId)) {
+    return { ok: false, error: "invalid_input" };
+  }
+  try {
+    await db.update(settings).set({ suggestModel: modelId }).where(eq(settings.id, 1));
+    console.info("[suggest-model set]", { adminId: user.id, modelId });
+    revalidatePath("/[lang]/admin/live-bets/suggestions", "page");
+    return { ok: true };
+  } catch (err) {
+    console.error("[suggest-model set] failed:", err);
+    return { ok: false, error: "db" };
+  }
+}
+
+// Toggle + tune the auto-generation rule (settings.live_autogen_*). When
+// enabled, the daily /api/cron/live-autogen cron seeds draft suggestions
+// for upcoming matches with no bets yet. Lead hours is clamped to a sane
+// band so a typo can't make the cron scan the whole tournament at once.
+export async function setAutogenConfig(input: {
+  enabled: boolean;
+  leadHours: number;
+}): Promise<{ ok: true } | { ok: false; error: Err }> {
+  const user = await getUser();
+  if (!user) return { ok: false, error: "unauth" };
+  if (!(await hasPermission(user.id, "liveBets"))) {
+    console.warn("[autogen-config denied]", { userId: user.id });
+    return { ok: false, error: "forbidden" };
+  }
+  if (typeof input.enabled !== "boolean") {
+    return { ok: false, error: "invalid_input" };
+  }
+  const leadHours = Math.round(input.leadHours);
+  if (!Number.isFinite(leadHours) || leadHours < 1 || leadHours > 72) {
+    return { ok: false, error: "invalid_input" };
+  }
+  try {
+    await db
+      .update(settings)
+      .set({ liveAutogenEnabled: input.enabled, liveAutogenLeadHours: leadHours })
+      .where(eq(settings.id, 1));
+    console.info("[autogen-config set]", { adminId: user.id, enabled: input.enabled, leadHours });
+    revalidatePath("/[lang]/admin/live-bets/suggestions", "page");
+    return { ok: true };
+  } catch (err) {
+    console.error("[autogen-config set] failed:", err);
+    return { ok: false, error: "db" };
+  }
+}
+
+// Count fixtures still to be played (scheduled, kickoff in the future).
+// Drives the end-of-tournament cost projection on the AI model card.
+export async function countRemainingMatches(): Promise<number> {
+  const row = await execFirstRow<{ n: number }>(sql`
+    select count(*)::int as "n"
+    from public.matches
+    where status = 'scheduled' and kickoff_at > now()
+  `);
+  return row?.n ?? 0;
+}
+
+// Load the fixture's bilingual team names, stage and kickoff for the
+// generation prompt + lock anchor.
+async function loadFixtureContext(matchId: string): Promise<
+  | { kickoffAt: Date; status: string; context: FixtureContext }
+  | null
+> {
+  const row = await execFirstRow<{
+    kickoffAt: string;
+    status: string;
+    stage: string | null;
+    homeNameHe: string;
+    homeNameEn: string;
+    awayNameHe: string;
+    awayNameEn: string;
+  }>(sql`
+    select
+      m.kickoff_at::text as "kickoffAt",
+      m.status::text     as "status",
+      m.stage::text      as "stage",
+      ht.name_he         as "homeNameHe",
+      ht.name_en         as "homeNameEn",
+      at.name_he         as "awayNameHe",
+      at.name_en         as "awayNameEn"
+    from public.matches m
+    join public.teams ht on ht.code = m.home_team
+    join public.teams at on at.code = m.away_team
+    where m.id = ${matchId}::uuid
+    limit 1
+  `);
+  if (!row) return null;
+  const kickoffAt = new Date(row.kickoffAt);
+  const kickoffLabel = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Jerusalem",
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(kickoffAt);
+  return {
+    kickoffAt,
+    status: row.status,
+    context: {
+      homeNameHe: row.homeNameHe,
+      homeNameEn: row.homeNameEn,
+      awayNameHe: row.awayNameHe,
+      awayNameEn: row.awayNameEn,
+      stage: row.stage ?? "Group Stage",
+      kickoffLabel,
+    },
+  };
+}
+
+// Canonical live pricing config from settings (baseStake / cap / edge).
+// Mirrors the same loader in admin/bets/actions.ts; the odds the suggestion
+// transform derives are config-independent (1/p), but the snapshot payout
+// uses these and createCustomBet re-derives from the same source.
+async function loadLivePricingConfig() {
+  const [s] = await db
+    .select({
+      baseStake: settings.liveOddsBaseStake,
+      houseEdgePct: settings.liveOddsHouseEdgePct,
+      ratio: settings.liveOddsMaxPayoutRatio,
+      ceiling: settings.liveOddsMaxPayoutCeiling,
+    })
+    .from(settings)
+    .where(eq(settings.id, 1))
+    .limit(1);
+  const baseStake = s?.baseStake ?? 3;
+  return {
+    baseStake,
+    houseEdgePct: s?.houseEdgePct ?? 5,
+    maxPayout: liveStakeCap(baseStake, {
+      maxPayoutRatio: s?.ratio ?? 8,
+      maxPayoutCeiling: s?.ceiling ?? 100,
+    }),
+  };
 }
 
 // Pull the per-type lock offset from the deadlines table (managed via

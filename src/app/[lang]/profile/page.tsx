@@ -35,6 +35,12 @@ import {
 } from "@/db/queries";
 import { db } from "@/db";
 import { profiles, settings } from "@/db/schema";
+import {
+  ADMIN_PERMISSION_KEYS,
+  PERMISSION_LABELS,
+  hasAnyPermission,
+  type AdminPermissions,
+} from "@/lib/admin-paths";
 import { eq } from "drizzle-orm";
 import { Card, LabelCaps, ScoreLine, SectionHeading, Chip } from "@/components/ui";
 import { Flag } from "@/components/Flag";
@@ -45,12 +51,8 @@ import { isWhatsAppCardDismissed } from "@/lib/whatsapp-dismiss";
 import { countUnreadNotifications } from "@/lib/notifications";
 import { localePath } from "@/lib/paths";
 import { formatDateTime } from "@/lib/format";
-import type {
-  AnswerConfig,
-  MultiChoiceConfig,
-  PickAnswer,
-  ResolvedValue,
-} from "@/lib/bets/types";
+import { renderPickAnswer, type PlayerNameMap } from "@/lib/bets/format";
+import { fetchPlayerNamesById } from "@/lib/bets/players";
 
 export default async function ProfilePage({
   params,
@@ -107,12 +109,14 @@ export default async function ProfilePage({
     duelPicks,
     unreadCount,
     [settingsRow],
+    playerNames,
   ] = await Promise.all([
     safe(
       db
         .select({
           displayName: profiles.displayName,
           role: profiles.role,
+          permissions: profiles.permissions,
           pushOptIn: profiles.pushOptIn,
           smartHubEnabled: profiles.smartHubEnabled,
           pushLockReminders: profiles.pushLockReminders,
@@ -123,7 +127,8 @@ export default async function ProfilePage({
         .limit(1),
       [] as Array<{
         displayName: string;
-        role: "player" | "admin";
+        role: "player" | "live_bets_admin" | "admin";
+        permissions: AdminPermissions;
         pushOptIn: boolean;
         smartHubEnabled: boolean;
         pushLockReminders: boolean;
@@ -153,6 +158,11 @@ export default async function ProfilePage({
         .limit(1),
       [] as Array<{ whatsappGroupUrl: string | null }>,
       "settings row",
+    ),
+    safe(
+      fetchPlayerNamesById(),
+      new Map() as PlayerNameMap,
+      "fetchPlayerNamesById",
     ),
   ]);
 
@@ -196,6 +206,14 @@ export default async function ProfilePage({
               {isHebrew ? "אדמין" : "Admin"}
             </p>
           )}
+          {profile && profile.role !== "admin" && hasAnyPermission(profile.permissions) && (
+            <p className="text-xs font-bold text-secondary">
+              {isHebrew ? "מנהל עם הרשאות:" : "Operator:"}{" "}
+              {ADMIN_PERMISSION_KEYS.filter((k) => profile.permissions[k])
+                .map((k) => (isHebrew ? PERMISSION_LABELS[k].he : PERMISSION_LABELS[k].en))
+                .join(isHebrew ? ", " : ", ")}
+            </p>
+          )}
         </div>
       </header>
 
@@ -216,6 +234,7 @@ export default async function ProfilePage({
         liveBetPicks={liveBetPicks}
         tournamentBetPicks={tournamentBetPicks}
         duelPicks={duelPicks}
+        playerNames={playerNames}
       />
 
       <section className="flex flex-col gap-4">
@@ -716,6 +735,7 @@ function MyPicksSection({
   liveBetPicks,
   tournamentBetPicks,
   duelPicks,
+  playerNames,
 }: {
   locale: Locale;
   dict: Awaited<ReturnType<typeof getDictionary>>;
@@ -723,6 +743,7 @@ function MyPicksSection({
   liveBetPicks: MyCustomPickRow[];
   tournamentBetPicks: MyCustomPickRow[];
   duelPicks: MyDuelRow[];
+  playerNames: PlayerNameMap;
 }) {
   return (
     <section className="flex flex-col gap-5 md:gap-6">
@@ -763,7 +784,12 @@ function MyPicksSection({
         <ul className="flex flex-col gap-2 md:gap-3">
           {liveBetPicks.map((p) => (
             <li key={p.pickId}>
-              <CustomBetPickRow locale={locale} dict={dict} pick={p} />
+              <CustomBetPickRow
+                locale={locale}
+                dict={dict}
+                pick={p}
+                playerNames={playerNames}
+              />
             </li>
           ))}
         </ul>
@@ -781,7 +807,12 @@ function MyPicksSection({
         <ul className="flex flex-col gap-2 md:gap-3">
           {tournamentBetPicks.map((p) => (
             <li key={p.pickId}>
-              <CustomBetPickRow locale={locale} dict={dict} pick={p} />
+              <CustomBetPickRow
+                locale={locale}
+                dict={dict}
+                pick={p}
+                playerNames={playerNames}
+              />
             </li>
           ))}
         </ul>
@@ -977,23 +1008,29 @@ function CustomBetPickRow({
   locale,
   dict,
   pick,
+  playerNames,
 }: {
   locale: Locale;
   dict: Awaited<ReturnType<typeof getDictionary>>;
   pick: MyCustomPickRow;
+  playerNames: PlayerNameMap;
 }) {
   const isHebrew = locale === "he";
   const question = isHebrew ? pick.questionHe : pick.questionEn;
-  const answerLabel = formatPickAnswer(
-    pick.myAnswer as PickAnswer,
-    pick.answerConfig as AnswerConfig | null,
-    locale,
+  const answerLabel = renderPickAnswer(
+    pick.answerType,
+    pick.answerConfig,
+    pick.myAnswer,
+    isHebrew,
+    playerNames,
   );
   const resolvedLabel = pick.resolvedValue
-    ? formatPickAnswer(
-        pick.resolvedValue as ResolvedValue,
-        pick.answerConfig as AnswerConfig | null,
-        locale,
+    ? renderPickAnswer(
+        pick.answerType,
+        pick.answerConfig,
+        pick.resolvedValue,
+        isHebrew,
+        playerNames,
       )
     : null;
   const isGraded = pick.status === "graded";
@@ -1261,39 +1298,6 @@ function PointsBadge({
       </span>
     </span>
   );
-}
-
-// Formats a custom-bet PickAnswer or ResolvedValue into a readable
-// string for display in a row. Multi-choice answers get translated
-// through the bet's answer_config.options so we show "Argentina" rather
-// than the option's machine value "ARG".
-function formatPickAnswer(
-  answer: PickAnswer | null,
-  cfg: AnswerConfig | null,
-  locale: Locale,
-): string {
-  if (!answer) return "—";
-  const isHebrew = locale === "he";
-  switch (answer.type) {
-    case "yes_no":
-      return answer.value
-        ? isHebrew ? "כן" : "Yes"
-        : isHebrew ? "לא" : "No";
-    case "number":
-      return String(answer.value);
-    case "multi_choice": {
-      if (cfg && cfg.kind === "multi_choice") {
-        const mc = cfg as MultiChoiceConfig;
-        const opt = mc.options.find((o) => o.value === answer.value);
-        if (opt) return isHebrew ? opt.labelHe : opt.labelEn;
-      }
-      return String(answer.value);
-    }
-    case "free_text":
-      return String(answer.value);
-    default:
-      return "—";
-  }
 }
 
 // Decides what label to put on the small "scope" chip in a custom-bet

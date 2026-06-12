@@ -30,6 +30,7 @@ import {
   Link2,
   MessageCircle,
   KeyRound,
+  Sparkles,
 } from "lucide-react";
 import Link from "next/link";
 import type { Locale } from "../../dictionaries";
@@ -44,6 +45,7 @@ import { usePendingAction } from "@/lib/use-pending-action";
 import { PillButton, LabelCaps, Chip } from "@/components/ui";
 import {
   setUserRole,
+  setUserPermissions,
   updateUserProfile,
   decidePayment,
   manualMarkPaid,
@@ -55,8 +57,15 @@ import {
   regenerateInviteLink,
 } from "./actions";
 import type { AdminUserRow } from "./queries";
+import {
+  ADMIN_PERMISSION_KEYS,
+  PERMISSION_LABELS,
+  hasAnyPermission,
+  type AdminPermissionKey,
+  type AdminPermissions,
+} from "@/lib/admin-paths";
 
-type FilterKey = "all" | "approved" | "pending" | "unpaid" | "admin";
+type FilterKey = "all" | "approved" | "pending" | "unpaid" | "admin" | "scoped";
 type SortKey = "newest" | "oldest" | "points_desc" | "points_asc" | "name";
 
 const FILTERS_HE: Record<FilterKey, string> = {
@@ -65,6 +74,7 @@ const FILTERS_HE: Record<FilterKey, string> = {
   pending: "ממתינים",
   unpaid: "לא שילמו",
   admin: "אדמינים",
+  scoped: "עם הרשאות",
 };
 const FILTERS_EN: Record<FilterKey, string> = {
   all: "All",
@@ -72,6 +82,7 @@ const FILTERS_EN: Record<FilterKey, string> = {
   pending: "Pending",
   unpaid: "Unpaid",
   admin: "Admins",
+  scoped: "With permissions",
 };
 
 const SORTS_HE: Record<SortKey, string> = {
@@ -120,6 +131,8 @@ export function UsersExplorer({
       if (filter === "pending") return u.paymentStatus === "pending";
       if (filter === "unpaid") return !u.paymentStatus;
       if (filter === "admin") return u.role === "admin";
+      if (filter === "scoped")
+        return u.role !== "admin" && hasAnyPermission(u.permissions);
       return true;
     });
     list = [...list].sort((a, b) => {
@@ -418,7 +431,7 @@ function UsersTable({
                 </div>
               </td>
               <td className="px-3 py-3">
-                <RoleBadge role={u.role} isHebrew={isHebrew} />
+                <RoleBadge role={u.role} permissions={u.permissions} isHebrew={isHebrew} />
               </td>
               <td className="px-3 py-3">
                 <PaymentBadge status={u.paymentStatus} method={u.paymentMethod} isHebrew={isHebrew} />
@@ -496,7 +509,7 @@ function UserCard({
         </span>
       </div>
       <div className="flex items-center gap-2 flex-wrap">
-        <RoleBadge role={user.role} isHebrew={isHebrew} />
+        <RoleBadge role={user.role} permissions={user.permissions} isHebrew={isHebrew} />
         <PaymentBadge status={user.paymentStatus} method={user.paymentMethod} isHebrew={isHebrew} />
         <span className="text-xs text-on-surface-variant ms-auto">
           {formatDate(user.createdAt, locale)}
@@ -525,7 +538,15 @@ function Avatar({ name }: { name: string }) {
   );
 }
 
-function RoleBadge({ role, isHebrew }: { role: "player" | "admin"; isHebrew: boolean }) {
+function RoleBadge({
+  role,
+  permissions,
+  isHebrew,
+}: {
+  role: "player" | "live_bets_admin" | "admin";
+  permissions: AdminPermissions;
+  isHebrew: boolean;
+}) {
   if (role === "admin") {
     return (
       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-tertiary-fixed text-on-tertiary-fixed-variant border border-tertiary-fixed-dim text-xs font-bold">
@@ -534,10 +555,118 @@ function RoleBadge({ role, isHebrew }: { role: "player" | "admin"; isHebrew: boo
       </span>
     );
   }
+  const grantedCount = ADMIN_PERMISSION_KEYS.reduce(
+    (n, k) => n + (permissions[k] ? 1 : 0),
+    0,
+  );
+  if (grantedCount > 0) {
+    return (
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-secondary-container text-on-secondary-container border border-secondary-fixed text-xs font-bold">
+        <Sparkles className="h-3 w-3" strokeWidth={2} />
+        {isHebrew
+          ? `${grantedCount} הרשאות`
+          : `${grantedCount} permission${grantedCount > 1 ? "s" : ""}`}
+      </span>
+    );
+  }
   return (
     <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-surface-variant text-on-surface-variant border border-outline-variant text-xs font-bold">
       {isHebrew ? "משתתף" : "Player"}
     </span>
+  );
+}
+
+// Inline editor for role + scoped permissions. Two concerns in one
+// block:
+//   1. A full-width primary action toggles the binary admin role.
+//      Demoting a full admin opens the existing confirm modal in the
+//      parent so it never happens by accident.
+//   2. A checkbox list lets the admin grant any combination of scoped
+//      permissions (live bets, tournament bets, tournament odds, etc).
+//      The checkboxes stay enabled even when the user is currently a
+//      full admin — the value is persisted but ignored while role is
+//      admin, so a future demotion to player reveals the prepared scope
+//      without a second round trip.
+function PermissionsEditor({
+  user,
+  isHebrew,
+  pending,
+  onToggleAdmin,
+  onTogglePermission,
+}: {
+  user: AdminUserRow;
+  isHebrew: boolean;
+  pending: boolean;
+  onToggleAdmin: (makeAdmin: boolean) => void;
+  onTogglePermission: (key: AdminPermissionKey, value: boolean) => void;
+}) {
+  const isAdminRole = user.role === "admin";
+  return (
+    <div className="flex flex-col gap-3">
+      <button
+        type="button"
+        disabled={pending}
+        onClick={() => onToggleAdmin(!isAdminRole)}
+        className={clsx(
+          "press-down min-h-[48px] w-full flex items-center gap-3 px-4 py-3 rounded-lg border text-base font-bold text-start transition-colors",
+          isAdminRole
+            ? "border-tertiary-fixed-dim bg-tertiary-fixed text-on-tertiary-fixed-variant"
+            : "border-outline-variant bg-surface-container-lowest hover:bg-surface-container",
+          pending && "opacity-60 cursor-wait",
+        )}
+      >
+        {isAdminRole ? (
+          <ShieldOff className="h-4 w-4" />
+        ) : (
+          <Shield className="h-4 w-4" />
+        )}
+        <span className="flex-1">
+          {isAdminRole
+            ? isHebrew ? "הסר הרשאת אדמין מלאה" : "Revoke full admin"
+            : isHebrew ? "הפוך לאדמין מלא" : "Make full admin"}
+        </span>
+      </button>
+
+      <div className="bg-surface-container-lowest border border-outline-variant rounded-lg p-3 flex flex-col gap-2">
+        <LabelCaps>
+          {isHebrew ? "הרשאות מותאמות" : "Scoped permissions"}
+        </LabelCaps>
+        <p className="text-xs text-on-surface-variant leading-5">
+          {isHebrew
+            ? "אדמין מלא מקבל הכל אוטומטית. ההרשאות כאן מעניקות גישה מצומצמת לעמודי הניהול הספציפיים — בלי שאר הניהול."
+            : "Full admin gets everything implicitly. The flags below grant scoped access to specific admin pages and nothing else."}
+        </p>
+        {ADMIN_PERMISSION_KEYS.map((k) => {
+          const checked = user.permissions[k] === true;
+          const label = PERMISSION_LABELS[k];
+          return (
+            <label
+              key={k}
+              className={clsx(
+                "flex items-start gap-3 p-2 rounded-md cursor-pointer transition-colors hover:bg-surface-container",
+                pending && "opacity-60 cursor-wait",
+              )}
+            >
+              <input
+                type="checkbox"
+                checked={checked}
+                disabled={pending}
+                onChange={(e) => onTogglePermission(k, e.target.checked)}
+                className="mt-1 w-5 h-5 accent-primary cursor-pointer shrink-0"
+              />
+              <div className="flex flex-col min-w-0">
+                <span className="font-bold text-sm">
+                  {isHebrew ? label.he : label.en}
+                </span>
+                <span className="text-xs text-on-surface-variant leading-5">
+                  {isHebrew ? label.help.he : label.help.en}
+                </span>
+              </div>
+            </label>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
@@ -744,7 +873,7 @@ function UserDrawer({
           </div>
 
           <div className="flex items-center gap-2 flex-wrap">
-            <RoleBadge role={user.role} isHebrew={isHebrew} />
+            <RoleBadge role={user.role} permissions={user.permissions} isHebrew={isHebrew} />
             <PaymentBadge
               status={user.paymentStatus}
               method={user.paymentMethod}
@@ -826,16 +955,29 @@ function UserDrawer({
               () => wrap(() => manualMarkPaid(user.id, "paybox")),
             )}
 
-            {action(
-              user.role === "admin"
-                ? isHebrew ? "הסר הרשאת אדמין" : "Revoke admin"
-                : isHebrew ? "הפוך לאדמין" : "Make admin",
-              user.role === "admin" ? <ShieldOff className="h-4 w-4" /> : <Shield className="h-4 w-4" />,
-              () =>
-                user.role === "admin"
-                  ? setConfirm("demote")
-                  : wrap(() => setUserRole(user.id, "admin")),
-            )}
+            <PermissionsEditor
+              user={user}
+              isHebrew={isHebrew}
+              pending={pending}
+              onToggleAdmin={(makeAdmin) => {
+                if (user.role === "admin" && !makeAdmin) {
+                  setConfirm("demote");
+                  return;
+                }
+                wrap(() =>
+                  setUserRole(user.id, makeAdmin ? "admin" : "player"),
+                );
+              }}
+              onTogglePermission={(key, value) => {
+                const next: Record<string, boolean> = {};
+                for (const k of ADMIN_PERMISSION_KEYS) {
+                  if (user.permissions[k]) next[k] = true;
+                }
+                if (value) next[key] = true;
+                else delete next[key];
+                wrap(() => setUserPermissions(user.id, next));
+              }}
+            />
 
             {user.email && action(
               isHebrew ? "אפס סיסמה" : "Reset password",
@@ -1060,8 +1202,8 @@ function ConfirmPanel({
     demote: [
       isHebrew ? "להוריד הרשאת אדמין?" : "Revoke admin?",
       isHebrew
-        ? `${userName} יחזור לתפקיד משתתף רגיל.`
-        : `${userName} will become a regular player.`,
+        ? `${userName} יחזור לתפקיד משתתף רגיל. ההרשאות הספציפיות (לייב/טורניר/יחסים) יישמרו ויחזרו לפעולה.`
+        : `${userName} becomes a regular player. Their scoped permissions (live/tournament/odds) stay intact and resume scope-only access.`,
     ],
   };
   const [title, body] = titles[kind];
@@ -1125,6 +1267,7 @@ const ERROR_MAP = {
   no_link:            ["לא הצלחנו לייצר קישור", "Failed to generate link"],
   no_email:           ["למשתמש אין כתובת מייל", "User has no email address"],
   already_paid:       ["המשתתף כבר מסומן כשולם", "User is already marked paid"],
+  not_found:          ["המשתמש לא נמצא", "User not found"],
 } as const satisfies Record<string, LocalizedTuple>;
 
 function translateError(code: string, isHebrew: boolean): string {

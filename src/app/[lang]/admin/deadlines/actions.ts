@@ -14,12 +14,13 @@ import {
   type BetTypeKey,
   type StageKey,
 } from "@/db/schema";
-import { isAdmin } from "@/lib/admin";
+import { hasPermission } from "@/lib/admin";
 import { getUser } from "@/lib/supabase/auth";
 
 // Server actions for /admin/deadlines. Three independent saves so the
 // admin can edit one section at a time without losing in-flight values
-// in the others. Each save is gated by isAdmin() and logs the diff.
+// in the others. Each save is gated by the 'liveBets' permission (full
+// admin always passes) and logs the diff.
 
 export type SaveResult =
   | { ok: true }
@@ -28,7 +29,7 @@ export type SaveResult =
 async function requireAdminId(): Promise<string | null> {
   const user = await getUser();
   if (!user) return null;
-  const ok = await isAdmin(user.id);
+  const ok = await hasPermission(user.id, "liveBets");
   return ok ? user.id : null;
 }
 

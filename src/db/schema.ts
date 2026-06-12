@@ -18,7 +18,11 @@ import {
 import { sql } from "drizzle-orm";
 
 // Enums
-export const roleEnum = pgEnum("role", ["player", "admin"]);
+// Ordered least → most privileged. `live_bets_admin` is a scoped admin
+// who can manage live-bet definitions, matchday AI suggestions, the
+// bets-overview matrix, and per-match deadlines — and nothing else.
+// See _plans/2026-06-12-live-bets-admin-role.md.
+export const roleEnum = pgEnum("role", ["player", "live_bets_admin", "admin"]);
 export const stageEnum = pgEnum("stage", [
   "group",
   "r32",
@@ -96,12 +100,34 @@ export const duelStatusEnum = pgEnum("duel_status", [
   "cancelled",
 ]);
 
+// Canonical operator-permission keys. Drives the JSONB column on
+// profiles + the path whitelist in src/lib/admin-paths.ts + the
+// checkbox list in the user drawer. New keys are added here, then
+// surfaced everywhere via type inference. Keep alphabetised.
+export const ADMIN_PERMISSION_KEYS = [
+  "liveBets",
+  "tournamentBets",
+  "tournamentOdds",
+] as const;
+export type AdminPermissionKey = (typeof ADMIN_PERMISSION_KEYS)[number];
+
 // profiles: extends Supabase auth.users (FK added via raw SQL migration)
 export const profiles = pgTable("profiles", {
   id: uuid("id").primaryKey(), // matches auth.users.id
   displayName: text("display_name").notNull(),
   phone: text("phone").notNull(),
   role: roleEnum("role").notNull().default("player"),
+  // Per-user operator permissions. Empty object = no scoped operator
+  // powers (the user is a plain player unless role = 'admin'). Schema
+  // is { liveBets?: boolean, tournamentBets?: boolean, tournamentOdds?:
+  // boolean }. New keys are added via migration; src/lib/admin.ts
+  // validates against the canonical allowlist. Admin gets everything
+  // implicitly, so this column is ignored when role = 'admin'.
+  // See _plans/2026-06-12-live-bets-admin-role.md (revision 2).
+  permissions: jsonb("permissions")
+    .$type<Partial<Record<AdminPermissionKey, boolean>>>()
+    .notNull()
+    .default({}),
   avatarUrl: text("avatar_url"),
   // Opt-in for push notifications (lock reminders). Default false:
   // even after the browser grants permission and a subscription is
@@ -447,6 +473,17 @@ export const settings = pgTable("settings", {
   // column is kept one cycle for rollback).
   liveOddsMaxPayoutRatio: smallint("live_odds_max_payout_ratio").notNull().default(8),
   liveOddsMaxPayoutCeiling: smallint("live_odds_max_payout_ceiling").notNull().default(100),
+  // Claude model id used by the live-bet AI suggestion generator. Admin-
+  // selectable from a fixed catalogue (src/lib/bets/suggest/models.ts) so
+  // the cost/quality trade-off can be tuned without a redeploy. Falls back
+  // to the catalogue default if the stored id is ever retired.
+  suggestModel: text("suggest_model").notNull().default("claude-sonnet-4-6"),
+  // Rules engine for auto-seeding live-bet drafts. When enabled, the
+  // /api/cron/live-autogen cron generates draft suggestions for every
+  // upcoming match within the lead window that has no custom bets yet.
+  // Off by default — opt-in, and still admin-approved before publish.
+  liveAutogenEnabled: boolean("live_autogen_enabled").notNull().default(false),
+  liveAutogenLeadHours: smallint("live_autogen_lead_hours").notNull().default(30),
   // 7-way prize split (king 1/2/3, matches/live/duels winner, reserve).
   // Sum MUST be 100 - DB CHECK constraint enforces this. The legacy
   // prizePct1-4 columns below are kept for backwards compatibility until
