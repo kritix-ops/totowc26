@@ -48,11 +48,21 @@ export const SUGGEST_MODELS: ModelInfo[] = [
 
 export const DEFAULT_SUGGEST_MODEL = "claude-sonnet-4-6";
 
-// Per-call token estimates for one fixture's batch. Input = system prompt +
-// tool schema + fixture line (~2.5k); output = 6-10 bilingual bets (~4k).
-// Conservative so the projected cost errs high rather than low.
-export const EST_INPUT_TOKENS = 2500;
+// Per-call token estimates for one batch. Input = system prompt + tool schema
+// + the assembled dossier (form, injuries, key players, prediction), which is
+// the bulk now (~6k); output = 6-10 bilingual bets (~4k). Search results
+// inflate input further but vary per call, so we fold their effect into the
+// flat web-search line below rather than guessing token counts. Conservative
+// so the projected cost errs high rather than low.
+export const EST_INPUT_TOKENS = 6000;
 export const EST_OUTPUT_TOKENS = 4000;
+
+// Web search (Anthropic server tool) is billed at $10 / 1,000 searches on top
+// of tokens (verified Jun 2026). The model searches only when a call needs
+// current info and is capped at 3; ~2 per call is a realistic average for the
+// projection. Set to 0 if web search is later turned off.
+export const WEB_SEARCH_PRICE_PER_K = 10;
+export const EST_SEARCHES_PER_CALL = 2;
 
 // How many times the admin regenerates per match on average. Drives the
 // projection; surfaced as an adjustable assumption in the UI.
@@ -65,11 +75,13 @@ export function modelById(id: string | null | undefined): ModelInfo {
   );
 }
 
-// USD cost of a single generation call on this model.
+// USD cost of a single generation call on this model: input + output tokens
+// plus the average web-search surcharge.
 export function costPerCall(model: ModelInfo): number {
   return (
     (EST_INPUT_TOKENS * model.inputPricePerM) / 1_000_000 +
-    (EST_OUTPUT_TOKENS * model.outputPricePerM) / 1_000_000
+    (EST_OUTPUT_TOKENS * model.outputPricePerM) / 1_000_000 +
+    (EST_SEARCHES_PER_CALL * WEB_SEARCH_PRICE_PER_K) / 1_000
   );
 }
 

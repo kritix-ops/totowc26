@@ -26,15 +26,18 @@ import { PublishRow } from "./PublishRow";
 import { PublishMarketGroup } from "./PublishMarketGroup";
 import { RefreshFixtureButton } from "./RefreshFixtureButton";
 import { GenerateAiButton } from "./GenerateAiButton";
+import { GenerateDayAiButton } from "./GenerateDayAiButton";
 import { AiModelCard } from "./AiModelCard";
 import { countRemainingMatches } from "./actions";
 import { DEFAULT_SUGGEST_MODEL } from "@/lib/bets/suggest/models";
 
-// The AI generate action runs in this route's function and a ~6-bet
-// Anthropic call takes ~30s, so the default (short) function timeout would
-// kill it. 60s gives the call room; the fetch itself aborts at 55s so a
-// genuinely stuck upstream still returns a clean error, not a 504.
-export const maxDuration = 60;
+// The AI generate actions schedule the heavy work via `after()`, so it keeps
+// running in this function AFTER the response is sent. With the dossier +
+// focused web search a batch can take ~2 minutes (the generator's own loop
+// deadline is 110s), so the function must stay alive well past that. 300s is
+// the Vercel Pro ceiling; the action returns to the browser immediately and
+// the admin is notified when the background run finishes.
+export const maxDuration = 300;
 
 // Markets we skip in the suggestions UI:
 //   - Match Winner is already covered by the main 1/X/2 bet, so
@@ -207,6 +210,8 @@ export default async function LiveBetSuggestionsPage({
       />
 
       <DatePicker locale={locale} date={date} availableDates={availableDates} />
+
+      {fixtures.length > 0 && <GenerateDayAiButton date={date} locale={locale} />}
 
       {dayTemplates.length > 0 && (
         <QuickAddRow

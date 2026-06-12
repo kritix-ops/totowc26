@@ -7,6 +7,7 @@ import { customBets, profiles, settings } from "@/db/schema";
 import { getDeadlineContext } from "@/lib/deadlines";
 import { liveStakeCap, type OddsNormConfig } from "@/lib/odds-normalize";
 import { generateSuggestions, type FixtureContext } from "./generate";
+import { buildMatchDossier, renderDossier } from "./dossier";
 import { suggestionToDraft } from "./transform";
 
 // Rules engine for the live-bet generator. A daily cron calls
@@ -92,6 +93,8 @@ export async function runLiveAutogen(): Promise<AutogenReport> {
 type EligibleMatch = {
   matchId: string;
   kickoffAt: Date;
+  homeCode: string;
+  awayCode: string;
   context: FixtureContext;
 };
 
@@ -103,6 +106,8 @@ async function listEligibleMatches(leadHours: number): Promise<EligibleMatch[]> 
     matchId: string;
     kickoffAt: string;
     stage: string | null;
+    homeCode: string;
+    awayCode: string;
     homeNameHe: string;
     homeNameEn: string;
     awayNameHe: string;
@@ -112,6 +117,8 @@ async function listEligibleMatches(leadHours: number): Promise<EligibleMatch[]> 
       m.id::text         as "matchId",
       m.kickoff_at::text as "kickoffAt",
       m.stage::text      as "stage",
+      m.home_team        as "homeCode",
+      m.away_team        as "awayCode",
       ht.name_he         as "homeNameHe",
       ht.name_en         as "homeNameEn",
       at.name_he         as "awayNameHe",
@@ -130,6 +137,8 @@ async function listEligibleMatches(leadHours: number): Promise<EligibleMatch[]> 
   return rows.map((r) => ({
     matchId: r.matchId,
     kickoffAt: new Date(r.kickoffAt),
+    homeCode: r.homeCode,
+    awayCode: r.awayCode,
     context: {
       homeNameHe: r.homeNameHe,
       homeNameEn: r.homeNameEn,
@@ -153,7 +162,33 @@ export async function generateAndQueueForMatch(
   const lockAt = await resolveMatchLockAt(m.kickoffAt);
   if (lockAt.getTime() <= Date.now()) return { created: 0, failed: 0 };
 
-  const gen = await generateSuggestions(m.context, modelId);
+  // Same dossier the admin Generate button uses, so cron-seeded drafts are
+  // just as match-specific. Web search stays OFF here: the cron runs a tight
+  // ~45s budget per firing and search latency would risk the 60s ceiling.
+  // The match has no existing bets (eligibility filter), so no anti-repeat.
+  const dossierResult = await buildMatchDossier({
+    matchId: m.matchId,
+    homeCode: m.homeCode,
+    homeNameHe: m.context.homeNameHe,
+    homeNameEn: m.context.homeNameEn,
+    awayCode: m.awayCode,
+    awayNameHe: m.context.awayNameHe,
+    awayNameEn: m.context.awayNameEn,
+  }).catch((err) => {
+    console.error("[live-autogen dossier failed]", { matchId: m.matchId, err });
+    return null;
+  });
+
+  const label =
+    `${m.context.homeNameEn} (HE: ${m.context.homeNameHe}) vs ` +
+    `${m.context.awayNameEn} (HE: ${m.context.awayNameHe}). ` +
+    `Stage: ${m.context.stage}. Kickoff: ${m.context.kickoffLabel}.`;
+
+  const gen = await generateSuggestions({ scope: "match", label }, modelId, {
+    dossierText: dossierResult ? renderDossier(dossierResult.dossier) : undefined,
+    validPlayerIds: dossierResult?.validPlayerIds,
+    webSearchMaxUses: 0,
+  });
   if (!gen.ok) {
     console.warn("[live-autogen gen failed]", { matchId: m.matchId, error: gen.error });
     return { created: 0, failed: 0 };

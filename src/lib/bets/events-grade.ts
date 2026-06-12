@@ -44,6 +44,14 @@ export type EventGradeSpec = {
   // Restrict to one side. Requires the caller to pass the team ids in ctx;
   // without them a side filter degrades to "any" rather than mis-counting.
   team?: "home" | "away" | "any";
+  // Restrict to one player by API-Football player id (players.api_football_id
+  // joins to the event's player/assist id). Powers player-prop markets like
+  // "Messi to score" (metric goal + this id) or "X to be booked" (metric
+  // yellow_card + this id). null/undefined = team-or-match level, unchanged.
+  playerApiId?: number;
+  // When true with a `goal` metric, count goals this player ASSISTED rather
+  // than scored — the "X to assist" market. Ignored for non-goal metrics.
+  byAssist?: boolean;
 };
 
 export type EventGradeContext = {
@@ -89,11 +97,22 @@ function countEvents(
   if (side === "away") teamId = ctx?.awayTeamId;
   if (side !== "any" && teamId === undefined) return null;
 
+  // A player filter that names a specific id but the spec asks for an
+  // assist on a non-goal metric is malformed — skip to manual rather than
+  // silently counting the wrong thing.
+  if (spec.playerApiId !== undefined && spec.byAssist && spec.metric !== "goal") {
+    return null;
+  }
+
   let n = 0;
   for (const e of events) {
     if (!matchesMetric(e, spec.metric)) continue;
     if (!inWindow(e.minute, spec.window)) continue;
     if (side !== "any" && e.teamId !== teamId) continue;
+    if (spec.playerApiId !== undefined) {
+      const actorId = spec.byAssist ? e.assistId : e.playerId;
+      if (actorId !== spec.playerApiId) continue;
+    }
     n += 1;
   }
   return n;

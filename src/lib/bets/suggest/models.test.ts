@@ -7,6 +7,8 @@ import {
   DEFAULT_SUGGEST_MODEL,
   EST_INPUT_TOKENS,
   EST_OUTPUT_TOKENS,
+  EST_SEARCHES_PER_CALL,
+  WEB_SEARCH_PRICE_PER_K,
 } from "./models";
 
 describe("modelById", () => {
@@ -26,10 +28,24 @@ describe("modelById", () => {
 });
 
 describe("costPerCall", () => {
-  it("computes input+output cost for Sonnet 4.6", () => {
-    // 2500 * 3/1e6 + 4000 * 15/1e6 = 0.0075 + 0.06 = 0.0675
+  it("computes input+output+search cost for Sonnet 4.6", () => {
+    // 6000 * 3/1e6 + 4000 * 15/1e6 + 2 * 10/1000
+    //   = 0.018 + 0.060 + 0.020 = 0.098
     const sonnet = modelById("claude-sonnet-4-6");
-    expect(costPerCall(sonnet)).toBeCloseTo(0.0675, 6);
+    const expected =
+      (EST_INPUT_TOKENS * sonnet.inputPricePerM) / 1_000_000 +
+      (EST_OUTPUT_TOKENS * sonnet.outputPricePerM) / 1_000_000 +
+      (EST_SEARCHES_PER_CALL * WEB_SEARCH_PRICE_PER_K) / 1_000;
+    expect(costPerCall(sonnet)).toBeCloseTo(expected, 6);
+    expect(costPerCall(sonnet)).toBeCloseTo(0.098, 6);
+  });
+
+  it("includes the web-search surcharge on top of tokens", () => {
+    const sonnet = modelById("claude-sonnet-4-6");
+    const tokensOnly =
+      (EST_INPUT_TOKENS * sonnet.inputPricePerM) / 1_000_000 +
+      (EST_OUTPUT_TOKENS * sonnet.outputPricePerM) / 1_000_000;
+    expect(costPerCall(sonnet)).toBeGreaterThan(tokensOnly);
   });
 
   it("Haiku is cheaper than Sonnet which is cheaper than Opus", () => {

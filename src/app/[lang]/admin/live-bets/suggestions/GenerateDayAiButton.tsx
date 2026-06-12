@@ -2,27 +2,28 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Sparkles, AlertCircle, SlidersHorizontal } from "lucide-react";
+import { Sparkles, AlertCircle, SlidersHorizontal, CalendarDays } from "lucide-react";
 import { clsx } from "clsx";
 import type { Locale } from "../../../dictionaries";
 import { localePath } from "@/lib/paths";
 import { LabelCaps } from "@/components/ui";
 import { usePendingAction } from "@/lib/use-pending-action";
-import { generateAiSuggestions, type GenerateAiResult } from "./actions";
+import { generateDaySuggestions, type GenerateAiResult } from "./actions";
 
-// "Generate with AI" affordance per fixture. Asks the LLM for a batch of
-// live bets, which land as DRAFTS in /admin/bets for the admin to review
-// and publish — nothing goes live without a deliberate tap. An optional
-// panel lets the admin steer the request (free-text context) and pick how
-// many bets to ask for. The result line links straight to the review list.
+// "Generate for the whole day" affordance, the day-scope sibling of
+// GenerateAiButton. Asks the LLM for a batch of matchday bets (cross-fixture
+// day markets + per-fixture ideas) seeded with a dossier across every game
+// that day. Results land as DRAFTS in /admin/bets for the admin to review and
+// publish — nothing goes live without a deliberate tap. Same options panel
+// (count + free-text steer) as the per-fixture button.
 
 const DEFAULT_COUNT = 6;
 
-export function GenerateAiButton({
-  matchId,
+export function GenerateDayAiButton({
+  date,
   locale,
 }: {
-  matchId: string;
+  date: string;
   locale: Locale;
 }) {
   const isHebrew = locale === "he";
@@ -35,7 +36,7 @@ export function GenerateAiButton({
   const click = () => {
     setResult(null);
     void run(async () => {
-      const res = await generateAiSuggestions(matchId, {
+      const res = await generateDaySuggestions(date, {
         count,
         instructions: instructions.trim() || undefined,
       });
@@ -44,7 +45,16 @@ export function GenerateAiButton({
   };
 
   return (
-    <div className="flex flex-col items-start gap-2">
+    <div className="flex flex-col items-start gap-2 rounded-xl border border-outline-variant bg-surface-container-lowest p-3">
+      <div className="flex items-center gap-2">
+        <CalendarDays className="h-4 w-4 text-primary shrink-0" strokeWidth={1.75} />
+        <LabelCaps>{isHebrew ? "AI ליום המשחקים" : "AI for the matchday"}</LabelCaps>
+      </div>
+      <p className="text-xs text-on-surface-variant">
+        {isHebrew
+          ? "הצעות שמשתרעות על כל משחקי היום — הימורי יום חוצי-משחקים והימורים ספציפיים. נשמרות כטיוטות לאישור."
+          : "Bets that span the whole day — cross-match day markets and per-match ideas. Saved as drafts to approve."}
+      </p>
       <div className="flex items-center gap-2 flex-wrap">
         <button
           type="button"
@@ -61,7 +71,7 @@ export function GenerateAiButton({
           />
           {pending
             ? isHebrew ? "מייצר…" : "Generating…"
-            : isHebrew ? `צור ${count} הצעות AI` : `Generate ${count} with AI`}
+            : isHebrew ? `צור ${count} הצעות ליום` : `Generate ${count} for the day`}
         </button>
         <button
           type="button"
@@ -80,7 +90,7 @@ export function GenerateAiButton({
       </div>
 
       {showOptions && (
-        <div className="flex flex-col gap-3 w-full max-w-md rounded-xl border border-outline-variant bg-surface-container-lowest p-3">
+        <div className="flex flex-col gap-3 w-full max-w-md rounded-xl border border-outline-variant bg-surface-container p-3">
           <label className="flex items-center gap-3 flex-wrap">
             <LabelCaps>{isHebrew ? "כמה הצעות" : "How many"}</LabelCaps>
             <input
@@ -110,8 +120,8 @@ export function GenerateAiButton({
               dir={isHebrew ? "rtl" : "ltr"}
               placeholder={
                 isHebrew
-                  ? "למשל: התמקד בכרטיסים וקרנות, בלי הימורי ואר"
-                  : "e.g. focus on cards and corners, no VAR bets"
+                  ? "למשל: התמקד בכמה גולים יהיו היום, ובדרבי הגדול"
+                  : "e.g. focus on total goals today and the big derby"
               }
               className="min-h-[64px] px-3 py-2 rounded border border-outline bg-surface-container-lowest text-base resize-y focus:outline-none focus:border-primary"
             />
@@ -141,8 +151,8 @@ function ResultLine({
     return (
       <p className="text-xs text-on-surface-variant">
         {isHebrew
-          ? "התחלנו לייצר ברקע. תקבל התראה כשהטיוטות מוכנות. "
-          : "Generating in the background. You'll be notified when the drafts are ready. "}
+          ? "התחלנו לייצר ברקע ליום כולו. תקבל התראה כשהטיוטות מוכנות. "
+          : "Generating for the whole day in the background. You'll be notified when the drafts are ready. "}
         <Link
           href={localePath(locale, "admin/bets")}
           className="font-bold text-primary hover:underline"
@@ -165,7 +175,7 @@ function translateGenError(error: string, isHebrew: boolean): string {
     case "no_key":
       return isHebrew ? "מפתח ה-AI לא מוגדר." : "AI key not configured.";
     case "match_started":
-      return isHebrew ? "המשחק כבר התחיל." : "Match already started.";
+      return isHebrew ? "כל משחקי היום כבר התחילו או נעולים." : "The day's matches have all started or locked.";
     case "llm_failed":
       return isHebrew ? "הייצור נכשל. נסה שוב." : "Generation failed. Try again.";
     case "forbidden":
