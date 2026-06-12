@@ -508,7 +508,12 @@ function PanelContents({
                   onClick={() => onPick(o.value)}
                   className={clsx(
                     "w-full min-h-[48px] px-4 py-2 flex items-center gap-3 text-start transition-colors",
-                    isActive && "bg-surface-container",
+                    // Selected wins the background outright. Without the
+                    // `!isSelected` guard the hover/active surface (light)
+                    // would override the selected surface (dark rust) while
+                    // the text stayed near-white — rendering the currently
+                    // selected row as invisible white-on-light.
+                    isActive && !isSelected && "bg-surface-container",
                     isSelected && "bg-primary-container text-on-primary-container",
                   )}
                 >

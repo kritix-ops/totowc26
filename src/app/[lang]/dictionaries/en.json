@@ -328,7 +328,7 @@
     "save": "Save bracket"
   },
   "transparency": {
-    "title": "Full transparency",
+    "title": "Transparency",
     "subtitle": "Who picked what. Each pick becomes public the moment it locks - not before.",
     "filterUser": "Player",
     "filterDate": "Date",
