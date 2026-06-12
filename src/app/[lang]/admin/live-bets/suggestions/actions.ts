@@ -349,6 +349,7 @@ export type GenerateAiResult =
 
 export async function generateAiSuggestions(
   matchId: string,
+  opts?: { count?: number; instructions?: string },
 ): Promise<GenerateAiResult> {
   const user = await getUser();
   if (!user) return { ok: false, error: "unauth" };
@@ -374,7 +375,10 @@ export async function generateAiSuggestions(
     .from(settings)
     .where(eq(settings.id, 1))
     .limit(1);
-  const gen = await generateSuggestions(fx.context, modelRow?.suggestModel);
+  const gen = await generateSuggestions(fx.context, modelRow?.suggestModel, {
+    count: opts?.count,
+    instructions: opts?.instructions,
+  });
   if (!gen.ok) {
     return { ok: false, error: gen.error === "no_key" ? "no_key" : "llm_failed" };
   }

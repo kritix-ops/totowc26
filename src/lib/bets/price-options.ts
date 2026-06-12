@@ -240,10 +240,15 @@ function normaliseProbabilities(
   }));
 }
 
-// Decimal odds carried to 2 dp to match the numeric(6,2) decimalOdds
-// column and the bookmaker odds elsewhere in the system.
+// The pool wants clean WHOLE-NUMBER multipliers (×6, not ×5.88), so we
+// round each option's fair odds to the nearest integer. Floor at 2 — the
+// smallest whole number above the 1.0 break-even — so a heavy favourite
+// still shows a real ×2 rather than ×1 (which reads as "no win"). One
+// consequence: a near-certain pick now pays the ×2 minimum instead of a
+// sub-2 multiple, slightly more generous than its fair price. Same rounded
+// value feeds display, storage and the pick-time payout, so they agree.
 function roundOdds(odds: number): number {
-  return Math.round(odds * 100) / 100;
+  return Math.max(2, Math.round(odds));
 }
 
 function clampRange(value: number, min: number, max: number): number {

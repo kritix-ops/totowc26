@@ -79,21 +79,47 @@ function buildSystemPrompt(): string {
     "- The grading rule must be unambiguous and match the grading source when set.",
     "- rationale: one short sentence on why the probabilities are calibrated that way.",
     "",
-    "Aim for about 6 diverse bets: one or two safe ones, a grouped exotic market, and a couple of stat- or event-based ones. Quality over quantity.",
+    "Produce a varied mix: one or two safe markets, a grouped exotic market, and a couple of stat- or event-based ones. Quality over quantity.",
   ].join("\n");
 }
 
-function buildUserPrompt(fx: FixtureContext): string {
-  return [
+export type GenerateOptions = {
+  // How many bets to ask for (clamped 2..10). Default 6.
+  count?: number;
+  // Free-text admin steer appended to the prompt, e.g. "focus on cards and
+  // corners" or "no VAR bets". Untrusted text — it can only influence the
+  // wording/selection, never bypass the schema validation downstream.
+  instructions?: string;
+};
+
+const DEFAULT_COUNT = 6;
+const MIN_COUNT = 2;
+const MAX_COUNT = 10;
+
+function clampCount(count: number | undefined): number {
+  if (count === undefined || !Number.isFinite(count)) return DEFAULT_COUNT;
+  return Math.max(MIN_COUNT, Math.min(MAX_COUNT, Math.round(count)));
+}
+
+function buildUserPrompt(fx: FixtureContext, count: number, instructions?: string): string {
+  const lines = [
     `Fixture: ${fx.homeNameEn} (HE: ${fx.homeNameHe}) vs ${fx.awayNameEn} (HE: ${fx.awayNameHe}).`,
     `Stage: ${fx.stage}. Kickoff: ${fx.kickoffLabel}.`,
-    "Produce the live-bet batch now.",
-  ].join("\n");
+    `Produce about ${count} bets now.`,
+  ];
+  const steer = instructions?.trim();
+  if (steer) {
+    // Fence the admin's request so the model treats it as guidance, not as
+    // instructions that could override the hard rules above.
+    lines.push("", "Admin request (follow within the hard rules above):", steer.slice(0, 600));
+  }
+  return lines.join("\n");
 }
 
 export async function generateSuggestions(
   fx: FixtureContext,
   modelId?: string,
+  opts?: GenerateOptions,
 ): Promise<GenerateResult> {
   const key = process.env.ANTHROPIC_API_KEY;
   if (!key) {
@@ -105,17 +131,17 @@ export async function generateSuggestions(
   // default (and honouring a CLAUDE_MODEL_SUGGEST override only when no
   // explicit id is passed) so a retired id can never wedge generation.
   const model = modelById(modelId ?? process.env.CLAUDE_MODEL_SUGGEST).id;
+  const count = clampCount(opts?.count);
 
   const body = {
     model,
-    // ~6 bilingual bets land around 2k output tokens; 3072 leaves headroom
-    // without inviting a 40s+ generation that would blow the function
-    // timeout. Output-token generation is the latency bottleneck (~60 tok/s
-    // on Sonnet), so capping the batch size keeps the call inside the
-    // 55s fetch ceiling below.
-    max_tokens: 3072,
+    // ~340 output tokens per bilingual bet; scale the cap to the requested
+    // count (+headroom) but stay near 4k so even 10 bets land inside the
+    // 55s fetch ceiling. Output-token generation is the latency bottleneck
+    // (~60 tok/s on Sonnet), so the count is what governs wall-clock.
+    max_tokens: Math.min(4096, 700 + count * 420),
     system: buildSystemPrompt(),
-    messages: [{ role: "user", content: buildUserPrompt(fx) }],
+    messages: [{ role: "user", content: buildUserPrompt(fx, count, opts?.instructions) }],
     tools: [
       {
         name: SUGGESTION_TOOL_NAME,

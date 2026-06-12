@@ -939,7 +939,7 @@ export function BetForm({
                       </label>
                       {priced && (
                         <div className="flex items-center gap-2 pb-2 text-sm text-on-surface-variant">
-                          <Chip className="tabular-nums">×{priced.decimalOdds.toFixed(2)}</Chip>
+                          <Chip className="tabular-nums">×{priced.decimalOdds}</Chip>
                           <span>
                             {isHebrew ? "תשלום" : "Pays"}{" "}
                             <bdi className="tabular-nums font-bold text-on-surface">
@@ -1063,12 +1063,12 @@ export function BetForm({
               <div className="flex items-center gap-3 pb-2 text-sm text-on-surface-variant">
                 <span className="inline-flex items-center gap-1.5">
                   {isHebrew ? "כן" : "Yes"}
-                  <Chip className="tabular-nums">×{liveYesNoPricing.decimalOddsYes.toFixed(2)}</Chip>
+                  <Chip className="tabular-nums">×{liveYesNoPricing.decimalOddsYes}</Chip>
                   <bdi className="tabular-nums font-bold text-on-surface">{liveYesNoPricing.payoutYes}</bdi>
                 </span>
                 <span className="inline-flex items-center gap-1.5">
                   {isHebrew ? "לא" : "No"}
-                  <Chip className="tabular-nums">×{liveYesNoPricing.decimalOddsNo.toFixed(2)}</Chip>
+                  <Chip className="tabular-nums">×{liveYesNoPricing.decimalOddsNo}</Chip>
                   <bdi className="tabular-nums font-bold text-on-surface">{liveYesNoPricing.payoutNo}</bdi>
                 </span>
               </div>

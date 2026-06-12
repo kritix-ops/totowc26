@@ -72,8 +72,9 @@ describe("priceOptionsFromProbabilities", () => {
     );
     expect(a.probability).toBeCloseTo(2 / 3, 5);
     expect(b.probability).toBeCloseTo(1 / 3, 5);
-    expect(a.decimalOdds).toBeCloseTo(1.5, 2);
-    expect(b.decimalOdds).toBeCloseTo(3.0, 2);
+    // Odds are whole numbers: 1/(2/3)=1.5 → 2 (floored), 1/(1/3)=3 → 3.
+    expect(a.decimalOdds).toBe(2);
+    expect(b.decimalOdds).toBe(3);
   });
 
   it("clamps extreme probabilities so 1/p stays bounded", () => {
@@ -134,8 +135,9 @@ describe("priceYesNo", () => {
     const r = priceYesNo(0.25, config);
     // yes (unlikely) should pay more than no (likely).
     expect(r.payoutYes).toBeGreaterThan(r.payoutNo);
-    expect(r.decimalOddsYes).toBeCloseTo(1 / 0.25, 1);
-    expect(r.decimalOddsNo).toBeCloseTo(1 / 0.75, 1);
+    // Whole-number odds: 1/0.25=4 → 4; 1/0.75=1.33 → 2 (floored).
+    expect(r.decimalOddsYes).toBe(4);
+    expect(r.decimalOddsNo).toBe(2);
   });
 
   it("defaults a non-finite probability to a coin flip", () => {
