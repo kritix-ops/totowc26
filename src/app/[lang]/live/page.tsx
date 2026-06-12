@@ -1,10 +1,11 @@
 import { notFound, redirect } from "next/navigation";
 import { eq } from "drizzle-orm";
-import { Radio, Sparkles, Goal } from "lucide-react";
+import { Radio, Sparkles, Goal, CalendarClock } from "lucide-react";
 import { clsx } from "clsx";
 import { getDictionary, hasLocale, type Locale } from "../dictionaries";
 import { Card, Chip, LabelCaps, ScoreLine } from "@/components/ui";
 import { Flag } from "@/components/Flag";
+import { KickoffCountdown } from "@/components/KickoffCountdown";
 import { getRequestUser } from "@/lib/request-user";
 import { getLiveMatches, type LiveMatchRow } from "@/db/queries";
 import { getMatchEnrichment } from "@/lib/stats";
@@ -36,6 +37,7 @@ type ScoringConfig = {
   scoringOutcome: number;
   matchRiskEnabled: boolean;
   matchRiskPenalty: number;
+  liveShowUpcoming: boolean;
 };
 
 export default async function LiveMatchesPage({
@@ -50,18 +52,26 @@ export default async function LiveMatchesPage({
   const user = await getRequestUser();
   if (!user) redirect(localePath(locale, "login"));
 
-  const [matches, scoring] = await Promise.all([
-    getLiveMatches(user.id),
-    loadScoringConfig(),
-  ]);
+  const scoring = await loadScoringConfig();
+  const matches = await getLiveMatches(user.id, {
+    includeUpcoming: scoring.liveShowUpcoming,
+  });
 
   const liveCount = matches.filter((m) => m.status === "live").length;
+  const scheduledCount = matches.filter((m) => m.status === "scheduled").length;
 
   // Only pull events for matches that are actually live. The wrapper
   // caches 30s in live mode, so worst-case 4 simultaneous matches × 2
   // refreshes/min = 8 calls/min = well within budget. Final matches
   // keep their goals visible from the DB score, no need to hit API.
   const liveEvents = await loadLiveEvents(matches);
+
+  const subtitle =
+    liveCount > 0
+      ? dict.live.liveSubtitleWithCount.replace("{n}", String(liveCount))
+      : scheduledCount > 0
+        ? dict.live.upcomingSubtitle.replace("{n}", String(scheduledCount))
+        : dict.live.liveSubtitleEmpty;
 
   return (
     <section className="px-4 md:px-16 py-6 md:py-12 flex flex-col gap-6 md:gap-8 max-w-3xl mx-auto w-full pb-24">
@@ -76,14 +86,7 @@ export default async function LiveMatchesPage({
           />
           {dict.live.liveTitle}
         </h1>
-        <p className="text-sm text-on-surface-variant">
-          {liveCount > 0
-            ? dict.live.liveSubtitleWithCount.replace(
-                "{n}",
-                String(liveCount),
-              )
-            : dict.live.liveSubtitleEmpty}
-        </p>
+        <p className="text-sm text-on-surface-variant">{subtitle}</p>
         <p className="text-[11px] text-on-surface-variant inline-flex items-center gap-1">
           <Sparkles className="h-3 w-3" strokeWidth={2} />
           {dict.live.refreshHint}
@@ -153,6 +156,11 @@ function LiveMatchCard({
             <Chip tone="warning" className="text-xs animate-pulse">
               {dict.live.liveLabel}
             </Chip>
+          ) : match.status === "scheduled" ? (
+            <Chip tone="default" className="text-xs">
+              <CalendarClock className="h-3 w-3" strokeWidth={2.25} />
+              {dict.live.upcomingLabel}
+            </Chip>
           ) : (
             <Chip tone="secondary" className="text-xs">
               {dict.live.finalLabel}
@@ -165,6 +173,9 @@ function LiveMatchCard({
             })}
           </span>
         </div>
+        {match.status === "scheduled" && (
+          <KickoffCountdown locale={locale} kickoffAt={match.kickoffAt} />
+        )}
       </header>
 
       <div className="flex items-center gap-3 md:gap-4">
@@ -180,6 +191,10 @@ function LiveMatchCard({
             away={match.awayScore!}
             className="font-[family-name:var(--font-score)] text-3xl md:text-4xl leading-none font-bold"
           />
+        ) : match.status === "scheduled" ? (
+          <span className="font-[family-name:var(--font-label)] text-sm md:text-base leading-none font-bold tracking-[0.18em] uppercase text-on-surface-variant">
+            {isHebrew ? "נגד" : "vs"}
+          </span>
         ) : (
           <span className="font-[family-name:var(--font-score)] text-3xl md:text-4xl leading-none font-bold tabular-nums">
             -
@@ -237,31 +252,44 @@ function LiveMatchCard({
               className="font-[family-name:var(--font-score)] text-lg font-bold"
             />
           </div>
-          <div className="flex flex-col items-end gap-0.5">
-            <LabelCaps>
-              {match.status === "final"
-                ? dict.live.finalEarnedLabel
-                : dict.live.projectionLabel}
-            </LabelCaps>
-            <ProjectedPoints
-              value={
-                match.status === "final" && match.myPointsEarned !== null
-                  ? match.myPointsEarned
-                  : (projection ?? 0)
-              }
-              suffix={isHebrew ? "נק'" : "pts"}
-              provisional={match.status === "live"}
-            />
-            {match.status === "live" && (
-              <span className="text-[10px] text-on-surface-variant">
-                {dict.live.provisionalHint}
+          {match.status === "scheduled" ? (
+            <div className="flex flex-col items-end gap-0.5">
+              <LabelCaps>{dict.live.upcomingPickLabel}</LabelCaps>
+              <span className="text-xs text-on-surface-variant">
+                {dict.live.upcomingPickHint}
               </span>
-            )}
-          </div>
+            </div>
+          ) : (
+            <div className="flex flex-col items-end gap-0.5">
+              <LabelCaps>
+                {match.status === "final"
+                  ? dict.live.finalEarnedLabel
+                  : dict.live.projectionLabel}
+              </LabelCaps>
+              <ProjectedPoints
+                value={
+                  match.status === "final" && match.myPointsEarned !== null
+                    ? match.myPointsEarned
+                    : (projection ?? 0)
+                }
+                suffix={isHebrew ? "נק'" : "pts"}
+                provisional={match.status === "live"}
+              />
+              {match.status === "live" && (
+                <span className="text-[10px] text-on-surface-variant">
+                  {dict.live.provisionalHint}
+                </span>
+              )}
+            </div>
+          )}
         </div>
       ) : (
         <div className="flex items-center justify-between gap-3 pt-2 border-t border-outline-variant text-xs text-on-surface-variant">
-          <span>{dict.live.noPickLabel}</span>
+          <span>
+            {match.status === "scheduled"
+              ? dict.live.upcomingNoPickLabel
+              : dict.live.noPickLabel}
+          </span>
         </div>
       )}
     </Card>
@@ -346,6 +374,7 @@ async function loadScoringConfig(): Promise<ScoringConfig> {
       scoringOutcome: settings.scoringOutcome,
       matchRiskEnabled: settings.matchRiskEnabled,
       matchRiskPenalty: settings.matchRiskPenalty,
+      liveShowUpcoming: settings.liveShowUpcoming,
     })
     .from(settings)
     .where(eq(settings.id, 1))
@@ -355,5 +384,6 @@ async function loadScoringConfig(): Promise<ScoringConfig> {
     scoringOutcome: s?.scoringOutcome ?? 5,
     matchRiskEnabled: s?.matchRiskEnabled ?? false,
     matchRiskPenalty: s?.matchRiskPenalty ?? 5,
+    liveShowUpcoming: s?.liveShowUpcoming ?? true,
   };
 }

@@ -566,6 +566,13 @@ export const settings = pgTable("settings", {
   dashboardDigestEnabled: boolean("dashboard_digest_enabled")
     .notNull()
     .default(true),
+  // Live scoreboard "upcoming matches of the active matchday" feed. When
+  // off, /[lang]/live still shows live games + last 90 min of finals,
+  // but the scheduled rows with the kickoff countdown are hidden. Admin
+  // toggle lives on /[lang]/admin/system. See migration 0056.
+  liveShowUpcoming: boolean("live_show_upcoming")
+    .notNull()
+    .default(true),
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .notNull()
     .defaultNow(),

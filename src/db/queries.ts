@@ -2635,10 +2635,16 @@ export async function getBankStats(userId: string): Promise<BankStats> {
   };
 }
 
-// Live matches feed for /[lang]/live. Returns every fixture currently
-// in 'live' status plus matches finalised within the last 90 minutes
-// (so the page still has something to show during half-time / right
-// after the whistle) and the signed-in viewer's pick if any.
+// Live matches feed for /[lang]/live. Returns:
+//   - every fixture currently in 'live' status
+//   - matches finalised within the last 90 minutes (so the page still has
+//     something to show during half-time / right after the whistle)
+//   - every 'scheduled' fixture on the active matchday — defined as today
+//     (Asia/Jerusalem) if any non-final match falls there, otherwise the
+//     earliest future date that has a scheduled match. Gives the page a
+//     "what's coming up" feed alongside the live scoreboard, with the
+//     client-side <KickoffCountdown> ticking on each scheduled row.
+// Plus the signed-in viewer's pick if any.
 
 export type LiveMatchRow = {
   id: string;
@@ -2649,7 +2655,7 @@ export type LiveMatchRow = {
   awayNameHe: string;
   awayNameEn: string;
   kickoffAt: string;
-  status: "live" | "final";
+  status: "scheduled" | "live" | "final";
   homeScore: number | null;
   awayScore: number | null;
   myHomeScore: number | null;
@@ -2657,8 +2663,27 @@ export type LiveMatchRow = {
   myPointsEarned: number | null;
 };
 
-export async function getLiveMatches(userId: string): Promise<LiveMatchRow[]> {
+export async function getLiveMatches(
+  userId: string,
+  options: { includeUpcoming: boolean } = { includeUpcoming: true },
+): Promise<LiveMatchRow[]> {
+  const includeUpcoming = options.includeUpcoming;
   return execRows<LiveMatchRow>(sql`
+    with target as (
+      select case when ${includeUpcoming} then coalesce(
+        case when exists (
+          select 1 from public.matches m
+          where (m.kickoff_at at time zone 'Asia/Jerusalem')::date
+                  = (now() at time zone 'Asia/Jerusalem')::date
+            and m.status <> 'final'
+        ) then (now() at time zone 'Asia/Jerusalem')::date end,
+        (select min((m.kickoff_at at time zone 'Asia/Jerusalem')::date)
+         from public.matches m
+         where m.status <> 'final'
+           and (m.kickoff_at at time zone 'Asia/Jerusalem')::date
+                 > (now() at time zone 'Asia/Jerusalem')::date)
+      ) end as d
+    )
     select
       m.id::text                                          as "id",
       m.home_team                                         as "homeCode",
@@ -2667,7 +2692,8 @@ export async function getLiveMatches(userId: string): Promise<LiveMatchRow[]> {
       m.away_team                                         as "awayCode",
       at.name_he                                          as "awayNameHe",
       at.name_en                                          as "awayNameEn",
-      m.kickoff_at::text                                  as "kickoffAt",
+      to_char(m.kickoff_at at time zone 'UTC',
+              'YYYY-MM-DD"T"HH24:MI:SS"Z"')               as "kickoffAt",
       m.status::text                                      as "status",
       m.home_score                                        as "homeScore",
       m.away_score                                        as "awayScore",
@@ -2678,11 +2704,19 @@ export async function getLiveMatches(userId: string): Promise<LiveMatchRow[]> {
     join public.teams ht on ht.code = m.home_team
     join public.teams at on at.code = m.away_team
     left join public.match_bets mb on mb.match_id = m.id and mb.user_id = ${userId}
+    cross join target t
     where m.status = 'live'
        or (m.status = 'final'
            and coalesce(m.finalized_at, m.kickoff_at) > now() - interval '90 minutes')
+       or (m.status = 'scheduled'
+           and t.d is not null
+           and (m.kickoff_at at time zone 'Asia/Jerusalem')::date = t.d)
     order by
-      case when m.status = 'live' then 0 else 1 end,
+      case m.status
+        when 'live'      then 0
+        when 'scheduled' then 1
+        else                  2
+      end,
       m.kickoff_at asc
     limit 50
   `);

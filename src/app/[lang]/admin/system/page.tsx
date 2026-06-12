@@ -23,6 +23,7 @@ import { PayboxSettingsPanel } from "../PayboxSettingsPanel";
 import { PublicSignupSettingsPanel } from "../SignupSettingsPanel";
 import { WhatsAppSettingsPanel } from "../WhatsAppSettingsPanel";
 import { DashboardDigestSettingsPanel } from "../DashboardDigestSettingsPanel";
+import { LiveShowUpcomingSettingsPanel } from "../LiveShowUpcomingSettingsPanel";
 
 // "System & ops" page — the home for everything an admin sets once and
 // then forgets (URLs, view-as, signup gate) plus the heavy operational
@@ -55,6 +56,7 @@ export default async function AdminSystemPage({
         whatsappGroupUrl: settings.whatsappGroupUrl,
         publicSignupOpen: settings.publicSignupOpen,
         dashboardDigestEnabled: settings.dashboardDigestEnabled,
+        liveShowUpcoming: settings.liveShowUpcoming,
       })
       .from(settings)
       .where(eq(settings.id, 1))
@@ -108,6 +110,12 @@ export default async function AdminSystemPage({
           <DashboardDigestSettingsPanel
             locale={locale}
             current={settingsRow?.dashboardDigestEnabled ?? true}
+          />
+        </div>
+        <div className="md:col-span-2">
+          <LiveShowUpcomingSettingsPanel
+            locale={locale}
+            current={settingsRow?.liveShowUpcoming ?? true}
           />
         </div>
         <div className="md:col-span-2">
