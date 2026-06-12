@@ -169,13 +169,17 @@ export async function saveScoringSettings(
   }
   // Live stake bounds: mirror the DB CHECK in migration 0047 so the user
   // gets a clean form error rather than an opaque constraint violation.
+  // Ceiling = 0 is the "no absolute cap" sentinel (mirrors the DB CHECK in
+  // migration 0055). Any other value must sit in [ratio, 32000].
+  const ceilingDisabled = payload.liveOddsMaxPayoutCeiling === 0;
   if (
     payload.liveOddsMinStake < 1 ||
     payload.liveOddsMaxStake < payload.liveOddsMinStake ||
     payload.liveOddsMaxStake > 100 ||
     payload.liveOddsMaxPayoutRatio < 1 ||
-    payload.liveOddsMaxPayoutCeiling < payload.liveOddsMaxPayoutRatio ||
-    payload.liveOddsMaxPayoutCeiling > 32000
+    (!ceilingDisabled &&
+      (payload.liveOddsMaxPayoutCeiling < payload.liveOddsMaxPayoutRatio ||
+        payload.liveOddsMaxPayoutCeiling > 32000))
   ) {
     return { ok: false, error: "invalid" };
   }

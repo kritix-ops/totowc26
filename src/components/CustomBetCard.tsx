@@ -725,9 +725,13 @@ function PayoutExplainer({
             <span>
               {isHebrew ? "תקרת זכייה" : "Payout cap"}:{" "}
               <bdi className="tabular-nums font-bold text-on-surface">
-                {isHebrew
-                  ? `מינ׳(סיכון × ${config.maxPayoutRatio}, ${config.maxPayoutCeiling})`
-                  : `min(stake × ${config.maxPayoutRatio}, ${config.maxPayoutCeiling})`}
+                {config.maxPayoutCeiling > 0
+                  ? isHebrew
+                    ? `מינ׳(סיכון × ${config.maxPayoutRatio}, ${config.maxPayoutCeiling})`
+                    : `min(stake × ${config.maxPayoutRatio}, ${config.maxPayoutCeiling})`
+                  : isHebrew
+                    ? `סיכון × ${config.maxPayoutRatio}`
+                    : `stake × ${config.maxPayoutRatio}`}
               </bdi>
             </span>
           </div>

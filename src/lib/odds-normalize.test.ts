@@ -184,6 +184,23 @@ describe("liveStakeCap (variable stake)", () => {
     expect(liveStakeCap(10, { maxPayoutRatio: 8, maxPayoutCeiling: 50 })).toBe(50);
     expect(liveStakeCap(3, { maxPayoutRatio: 8, maxPayoutCeiling: 50 })).toBe(24);
   });
+
+  // ceiling = 0 is the "no absolute cap" sentinel (migration 0055): the
+  // ratio guard becomes the only ceiling, so a bigger stake always wins
+  // proportionally more instead of two stakes colliding on one flat number.
+  it("treats ceiling 0 as no absolute cap (ratio guard only)", () => {
+    const noCeiling = { maxPayoutRatio: 8, maxPayoutCeiling: 0 };
+    expect(liveStakeCap(20, noCeiling)).toBe(160); // 20 * 8, not 100
+    expect(liveStakeCap(30, noCeiling)).toBe(240); // 30 * 8, not 100
+    expect(liveStakeCap(3, noCeiling)).toBe(24); // small stake unchanged
+  });
+
+  it("treats a malformed (negative / non-finite) ceiling as disabled", () => {
+    expect(liveStakeCap(30, { maxPayoutRatio: 8, maxPayoutCeiling: -1 })).toBe(240);
+    expect(
+      liveStakeCap(30, { maxPayoutRatio: 8, maxPayoutCeiling: NaN }),
+    ).toBe(240);
+  });
 });
 
 // End-to-end: player-chosen stake fed through normalizeOdds with the
@@ -230,5 +247,28 @@ describe("normalizeOdds with player-chosen stake", () => {
     });
     // 3 * 2.0 * 0.95 = 5.7 → 6. Same as the existing default-stake test.
     expect(r).toEqual({ stake: 3, payout: 6 });
+  });
+
+  // The MEX–RSA fix: on the VAR red-card bet (odds 6.0), the old 100 ceiling
+  // made stake 30 and stake 20 both pay 100, so the bigger staker netted
+  // LESS. With the ceiling disabled (ceiling 0) the payout scales with stake
+  // again — bigger stake, bigger win.
+  it("uncapped (ceiling 0): bigger stake wins proportionally more", () => {
+    const noCeiling = { maxPayoutRatio: 8, maxPayoutCeiling: 0 };
+    const at30 = normalizeOdds(6.0, {
+      baseStake: 30,
+      maxPayout: liveStakeCap(30, noCeiling),
+      houseEdgePct: 5,
+    });
+    const at20 = normalizeOdds(6.0, {
+      baseStake: 20,
+      maxPayout: liveStakeCap(20, noCeiling),
+      houseEdgePct: 5,
+    });
+    // 30 * 6 * 0.95 = 171 (ratio cap 240 not hit). 20 * 6 * 0.95 = 114.
+    expect(at30).toEqual({ stake: 30, payout: 171 });
+    expect(at20).toEqual({ stake: 20, payout: 114 });
+    // Net win for the bigger staker is now strictly larger: +141 vs +94.
+    expect(at30.payout - 30).toBeGreaterThan(at20.payout - 20);
   });
 });

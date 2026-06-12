@@ -386,6 +386,13 @@
       "when": 1782170000000,
       "tag": "0054_admin_permissions",
       "breakpoints": true
+    },
+    {
+      "idx": 55,
+      "version": "7",
+      "when": 1782175000000,
+      "tag": "0055_remove_live_payout_ceiling",
+      "breakpoints": true
     }
   ]
 }
