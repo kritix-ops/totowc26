@@ -46,6 +46,7 @@ import {
 import {
   getBetLockMinutes,
   getCategoryPrizeBreakdown,
+  getCurrentStage,
   getLatestFinalForUser,
   getLeaderboard,
   getMyRankSummary,
@@ -59,6 +60,10 @@ import {
   type FixtureWithMyBet,
   type LeaderboardEntry,
 } from "@/db/queries";
+import {
+  currentStageLabel,
+  type CurrentStage,
+} from "@/lib/tournament/current-stage";
 import { loadNewsArchivePage, type NewsArchiveItem } from "@/lib/news-read";
 import type { NewsSource } from "@/lib/news";
 import {
@@ -110,9 +115,10 @@ export default async function HomePage({
   // pre-loaded code path (no streaming) so the mock data lights up
   // immediately — there is no benefit to streaming mocked data.
   if (previewPlayer && !userId) {
-    const [pool, tournamentStart, prize, lockMinutes] = await Promise.all([
+    const [pool, tournamentStart, currentStage, prize, lockMinutes] = await Promise.all([
       getPoolStats(),
       getTournamentStart(),
+      getCurrentStage(),
       getCategoryPrizeBreakdown(),
       getBetLockMinutes(),
     ]);
@@ -122,6 +128,7 @@ export default async function HomePage({
         dict={dict}
         pool={pool}
         tournamentStart={tournamentStart}
+        currentStage={currentStage}
         prize={prize}
         canEdit={true}
         lockMinutes={lockMinutes}
@@ -404,9 +411,13 @@ async function HeroStatsCardAsync({
   locale: Locale;
   dict: Awaited<ReturnType<typeof getDictionary>>;
 }) {
-  const [pool, tournamentStart] = await Promise.all([
+  // getCurrentStage joins the fan-out so the stage label paints in the
+  // same Suspense tick as the pot/participants; it is cheap and reuses
+  // CACHE_TAG_FIXTURES so admin sync keeps it honest.
+  const [pool, tournamentStart, currentStage] = await Promise.all([
     getPoolStats(),
     getTournamentStart(),
+    getCurrentStage(),
   ]);
   const isHebrew = locale === "he";
   const countdown = tournamentStart ? computeCountdown(tournamentStart) : null;
@@ -423,13 +434,13 @@ async function HeroStatsCardAsync({
             value={
               countdown
                 ? countdown.started
-                  ? (isHebrew ? "מתחיל!" : "Live")
+                  ? currentStageLabel(currentStage, locale)
                   : formatCountdownShort(countdown, locale)
                 : "-"
             }
             label={
               countdown?.started
-                ? (isHebrew ? "המונדיאל" : "Tournament")
+                ? (isHebrew ? "השלב הנוכחי" : "Current stage")
                 : dict.landing.countdownLabel
             }
           />
@@ -617,6 +628,7 @@ function PlayerHomePreview({
   dict,
   pool,
   tournamentStart,
+  currentStage,
   data,
   prize,
   canEdit,
@@ -626,6 +638,7 @@ function PlayerHomePreview({
   dict: Awaited<ReturnType<typeof getDictionary>>;
   pool: { potIls: number; participants: number };
   tournamentStart: string | null;
+  currentStage: CurrentStage | null;
   data: DashboardData;
   prize: CategoryPrizeBreakdown;
   canEdit: boolean;
@@ -650,13 +663,13 @@ function PlayerHomePreview({
               value={
                 countdown
                   ? countdown.started
-                    ? (isHebrew ? "מתחיל!" : "Live")
+                    ? currentStageLabel(currentStage, locale)
                     : formatCountdownShort(countdown, locale)
                   : "-"
               }
               label={
                 countdown?.started
-                  ? (isHebrew ? "המונדיאל" : "Tournament")
+                  ? (isHebrew ? "השלב הנוכחי" : "Current stage")
                   : dict.landing.countdownLabel
               }
             />

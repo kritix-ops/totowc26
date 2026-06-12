@@ -7,6 +7,7 @@ import { approvedPotIlsSql, paidParticipantsSql } from "./pot";
 import type { MultiChoiceOption } from "@/lib/bets/types";
 import { bankBalanceSql, duelCaseSql, duelDeltaSql } from "@/lib/bank";
 import { STAR_PLAYER_RANK, TEAM_RANK } from "@/lib/players/curation";
+import type { CurrentStage } from "@/lib/tournament/current-stage";
 import {
   attachNonBettors,
   filterToUser,
@@ -16,6 +17,8 @@ import {
   type TransparencyPickerRow,
   type TransparencyQuestionRow,
 } from "@/lib/transparency-group";
+
+export type { CurrentStage };
 
 // Cache tags used to invalidate cross-request cached queries from the
 // server actions that mutate the underlying tables. Mutations call
@@ -2131,6 +2134,50 @@ export const getTournamentStart = unstable_cache(
   },
   ["getTournamentStart"],
   { tags: [CACHE_TAG_FIXTURES], revalidate: 3600 },
+);
+
+// Stage of the tournament right now, surfaced in the landing hero stat
+// once the countdown reaches zero. "Current" = the stage of the next
+// match that is not yet final; if every match is final the tournament
+// is over and we fall back to the last-played stage so the hero card
+// reads "Final" rather than going blank. Returns null when no fixtures
+// exist, in which case the caller should keep showing the countdown.
+//
+// Why next-non-final and not "latest stage that has any started match":
+// in WC2026 the third-place match plays before the final, so we want
+// the label to advance to "Third-place match" once the semis wrap, then
+// to "Final" once the third-place match is done.
+//
+// Cached cross-request and invalidated by the same fixtures tag as
+// match-status writes (admin sync, manual edits via the bets-overview
+// matrix). A 5-minute revalidate floor keeps the label fresh during
+// matchdays without hammering the DB.
+export const getCurrentStage = unstable_cache(
+  async (): Promise<CurrentStage | null> => {
+    const row = await execFirstRow<{ stage: CurrentStage | null }>(sql`
+      with next_upcoming as (
+        select stage
+        from public.matches
+        where status in ('scheduled', 'live')
+        order by kickoff_at asc
+        limit 1
+      ),
+      last_played as (
+        select stage
+        from public.matches
+        where status = 'final'
+        order by kickoff_at desc
+        limit 1
+      )
+      select coalesce(
+        (select stage from next_upcoming),
+        (select stage from last_played)
+      ) as stage
+    `);
+    return row?.stage ?? null;
+  },
+  ["getCurrentStage"],
+  { tags: [CACHE_TAG_FIXTURES], revalidate: 300 },
 );
 
 // Transparency feed surfaces every locked bet across the pool so
