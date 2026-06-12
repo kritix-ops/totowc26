@@ -454,7 +454,7 @@ export const settings = pgTable("settings", {
   // paths reject until the player recovers via free bets / admin adjust.
   // Kill-switch reverts to the legacy "balance >= stake" rule.
   // See _plans/2026-06-11-negative-balance-lock.md.
-  maxOverdraft: integer("max_overdraft").notNull().default(30),
+  maxOverdraft: integer("max_overdraft").notNull().default(10),
   lockBetsWhenNegative: boolean("lock_bets_when_negative").notNull().default(true),
   // Live-bet odds → stake/payout normalization. Used by PR 2's
   // src/lib/odds-normalize.ts when converting bookmaker decimal odds into
@@ -467,7 +467,7 @@ export const settings = pgTable("settings", {
   // client-side and write-core re-clamps server-side. See
   // _plans/2026-06-11-variable-live-bet-stake.md.
   liveOddsMinStake: smallint("live_odds_min_stake").notNull().default(1),
-  liveOddsMaxStake: smallint("live_odds_max_stake").notNull().default(30),
+  liveOddsMaxStake: smallint("live_odds_max_stake").notNull().default(10),
   // Gross-payout cap formula = min(stake * ratio, ceiling). Replaces the
   // old single liveOddsMaxPayout cap for the user-facing path (the legacy
   // column is kept one cycle for rollback).
