@@ -39,7 +39,7 @@ export async function MobileBottomNavSection({
   const hiddenSet = new Set(hiddenList);
   const { bottom, sheet } = splitMobileNavItems(
     config,
-    { isAdmin: access.isAdmin },
+    { isAdmin: access.isAdmin, canSeeAdminMenu: access.canSeeAdminMenu },
     hiddenSet,
   );
 
@@ -54,6 +54,7 @@ export async function MobileBottomNavSection({
     console.warn("[mobile nav empty after role filter]", {
       userId,
       isAdmin: access.isAdmin,
+      canSeeAdminMenu: access.canSeeAdminMenu,
       configItems: config.items,
     });
     return null;

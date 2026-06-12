@@ -62,6 +62,7 @@ export default async function BetsLiveDayPage({
     isAdmin: false,
     isPaid: false,
     canEdit: false,
+    canSeeAdminMenu: false,
     viewingAs: null,
   };
   try {
