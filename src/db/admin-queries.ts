@@ -235,11 +235,13 @@ export async function listCustomBets(opts: {
   status?: AdminCustomBetRow["status"] | null;
   scope?: AdminCustomBetRow["scope"] | null;
   q?: string | null;
+  matchId?: string | null;
   limit?: number;
 } = {}): Promise<AdminCustomBetRow[]> {
   const status = opts.status ?? null;
   const scope = opts.scope ?? null;
   const q = opts.q?.trim() ? opts.q.trim() : null;
+  const matchId = opts.matchId?.trim() ? opts.matchId.trim() : null;
   const limit = opts.limit ?? 100;
   // ILIKE pattern wraps the user query with %...% so partial matches work.
   // The SQL stays safe because the value is bound as a parameter, never
@@ -276,6 +278,7 @@ export async function listCustomBets(opts: {
     where
       (${status}::text is null or cb.status::text = ${status}) and
       (${scope}::text  is null or cb.scope::text  = ${scope}) and
+      (${matchId}::uuid is null or cb.match_id = ${matchId}::uuid) and
       (
         ${qPattern}::text is null
         or cb.question_he ilike ${qPattern}
@@ -297,6 +300,44 @@ export async function listCustomBets(opts: {
       cb.lock_at asc nulls last,
       cb.created_at desc
     limit ${limit}
+  `);
+}
+
+// Distinct fixtures that have at least one match-scoped custom bet, so
+// the admin list can offer a "filter to one match" picker. Ordered by
+// kickoff so the most recent fixtures sit at the top of the picker.
+// Codes + both-locale names let the picker search either way.
+export type AdminBetMatchOption = {
+  matchId: string;
+  homeCode: string;
+  awayCode: string;
+  homeNameHe: string;
+  homeNameEn: string;
+  awayNameHe: string;
+  awayNameEn: string;
+  kickoffAt: string;
+  betCount: number;
+};
+
+export async function listCustomBetMatches(): Promise<AdminBetMatchOption[]> {
+  return execRows<AdminBetMatchOption>(sql`
+    select
+      m.id::text       as "matchId",
+      m.home_team      as "homeCode",
+      m.away_team      as "awayCode",
+      ht.name_he       as "homeNameHe",
+      ht.name_en       as "homeNameEn",
+      at.name_he       as "awayNameHe",
+      at.name_en       as "awayNameEn",
+      m.kickoff_at     as "kickoffAt",
+      count(cb.id)::int as "betCount"
+    from public.matches m
+    join public.custom_bets cb on cb.match_id = m.id
+    join public.teams ht on ht.code = m.home_team
+    join public.teams at on at.code = m.away_team
+    group by m.id, m.home_team, m.away_team, ht.name_he, ht.name_en,
+             at.name_he, at.name_en, m.kickoff_at
+    order by m.kickoff_at desc
   `);
 }
 

@@ -45,6 +45,10 @@ export type BetItem = {
 };
 
 type StatusKey = "all" | "open" | "locked" | "graded";
+// Fixture filter: "all" shows everything, "day" shows only the day-wide
+// bets, any other value is a specific fixture id — the structured
+// "filter to one match of this day" control the pool asked for.
+type FixtureFilterKey = "all" | "day" | string;
 
 export function BetsDayBoard({
   locale,
@@ -73,6 +77,7 @@ export function BetsDayBoard({
   const Chev = isHebrew ? ChevronLeft : ChevronRight;
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusKey>("all");
+  const [fixtureFilter, setFixtureFilter] = useState<FixtureFilterKey>("all");
 
   const q = query.trim().toLowerCase();
 
@@ -97,8 +102,18 @@ export function BetsDayBoard({
   const betMatchesText = (b: BetItem): boolean =>
     tokenMatch([b.cardData.questionHe, b.cardData.questionEn, b.cardData.scopeLabel ?? ""]);
 
+  // The fixture chip is the headline control: when a specific match is
+  // selected we narrow the whole board to that fixture (and drop the
+  // day-wide bets, which aren't tied to one match). "day" flips it the
+  // other way — only the day-wide list. "all" leaves both on, subject
+  // to the status + search filters.
+  const showFixtureSection = fixtureFilter !== "day";
+  const showDaySection = fixtureFilter === "all" || fixtureFilter === "day";
+
   const visibleFixtures = useMemo(() => {
+    if (!showFixtureSection) return [];
     return fixtures
+      .filter((f) => fixtureFilter === "all" || f.id === fixtureFilter)
       .map((f) => {
         const fixtureTokens = [
           f.homeCode,
@@ -117,23 +132,29 @@ export function BetsDayBoard({
             matchesStatus(b.cardData.status) &&
             (fixtureTextHit || betMatchesText(b)),
         );
-        const showFixture = fixtureTextHit || visibleBets.length > 0;
+        // When the user explicitly picked this fixture, always show it
+        // (even with zero matching bets) so the selection never looks
+        // broken. Under "all" we keep the old "hide empty, non-matching"
+        // rule so the list stays tight.
+        const isExplicit = f.id === fixtureFilter;
+        const showFixture = isExplicit || fixtureTextHit || visibleBets.length > 0;
         return { fixture: f, visibleBets, showFixture };
       })
       .filter((row) => row.showFixture);
-    // matchesStatus and betMatchesText close over q/statusFilter — re-run
-    // whenever those change.
+    // matchesStatus and betMatchesText close over q/statusFilter/fixtureFilter
+    // — re-run whenever those change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fixtures, q, statusFilter]);
+  }, [fixtures, q, statusFilter, fixtureFilter, showFixtureSection]);
 
-  const visibleDayBets = useMemo(
-    () =>
-      dayBets.filter((b) => matchesStatus(b.cardData.status) && betMatchesText(b)),
+  const visibleDayBets = useMemo(() => {
+    if (!showDaySection) return [];
+    return dayBets.filter(
+      (b) => matchesStatus(b.cardData.status) && betMatchesText(b),
+    );
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [dayBets, q, statusFilter],
-  );
+  }, [dayBets, q, statusFilter, showDaySection]);
 
-  const isFiltering = q !== "" || statusFilter !== "all";
+  const isFiltering = q !== "" || statusFilter !== "all" || fixtureFilter !== "all";
   const nothingShown =
     visibleFixtures.length === 0 && visibleDayBets.length === 0;
 
@@ -146,43 +167,52 @@ export function BetsDayBoard({
 
   return (
     <>
-      <div className="flex flex-col gap-3">
-        <div className="relative">
-          <Search
-            className="absolute top-1/2 -translate-y-1/2 start-3 h-4 w-4 text-on-surface-variant pointer-events-none"
-            strokeWidth={2}
-            aria-hidden
-          />
-          <input
-            type="search"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder={
-              isHebrew
-                ? "חפש משחק או הימור…"
-                : "Search fixture or bet…"
-            }
-            dir={isHebrew ? "rtl" : "ltr"}
-            inputMode="search"
-            autoComplete="off"
-            className="w-full min-h-[48px] ps-10 pe-10 rounded-full bg-surface-container-lowest border border-outline text-base focus:outline-none focus:border-primary"
-            aria-label={isHebrew ? "חיפוש" : "Search"}
-          />
-          {query !== "" && (
-            <button
-              type="button"
-              onClick={() => setQuery("")}
-              aria-label={isHebrew ? "נקה חיפוש" : "Clear search"}
-              className="absolute top-1/2 -translate-y-1/2 end-2 inline-flex items-center justify-center w-8 h-8 rounded-full hover:bg-surface-container text-on-surface-variant"
+      <div className="flex flex-col gap-4">
+        {/* Match selector — the primary "filter to one fixture" control */}
+        <div className="flex flex-col gap-1.5">
+          <LabelCaps>{isHebrew ? "משחק" : "Match"}</LabelCaps>
+          <nav
+            aria-label={isHebrew ? "סינון לפי משחק" : "Filter by match"}
+            className="flex gap-2 overflow-x-auto snap-x snap-mandatory -mx-1 px-1"
+          >
+            <FixtureChip
+              active={fixtureFilter === "all"}
+              onClick={() => setFixtureFilter("all")}
             >
-              <X className="h-4 w-4" strokeWidth={2} />
-            </button>
-          )}
+              {isHebrew ? "כל המשחקים" : "All matches"}
+            </FixtureChip>
+            {fixtures.map((f) => (
+              <FixtureChip
+                key={f.id}
+                active={fixtureFilter === f.id}
+                onClick={() => setFixtureFilter(f.id)}
+              >
+                <Flag code={f.homeCode} size={18} />
+                <span className="bidi-ltr">{f.homeCode}</span>
+                <span className="opacity-60 px-0.5">vs</span>
+                <span className="bidi-ltr">{f.awayCode}</span>
+                <Flag code={f.awayCode} size={18} />
+              </FixtureChip>
+            ))}
+            {dayBets.length > 0 && (
+              <FixtureChip
+                active={fixtureFilter === "day"}
+                onClick={() => setFixtureFilter("day")}
+              >
+                <Stamp className="h-4 w-4" strokeWidth={1.75} />
+                {isHebrew ? "יום שלם" : "Day-wide"}
+              </FixtureChip>
+            )}
+          </nav>
         </div>
-        <nav
-          aria-label={isHebrew ? "סינון לפי סטטוס" : "Filter by status"}
-          className="flex gap-2 overflow-x-auto snap-x snap-mandatory -mx-1 px-1"
-        >
+
+        {/* Status + free-text search, secondary controls */}
+        <div className="flex flex-col gap-1.5">
+          <LabelCaps>{isHebrew ? "סטטוס" : "Status"}</LabelCaps>
+          <nav
+            aria-label={isHebrew ? "סינון לפי סטטוס" : "Filter by status"}
+            className="flex gap-2 overflow-x-auto snap-x snap-mandatory -mx-1 px-1"
+          >
           {statusChips.map((s) => {
             const active = statusFilter === s.key;
             return (
@@ -202,7 +232,42 @@ export function BetsDayBoard({
               </button>
             );
           })}
-        </nav>
+          </nav>
+        </div>
+
+        {/* Free-text search, narrows within the chosen match + status */}
+        <div className="relative">
+          <Search
+            className="absolute top-1/2 -translate-y-1/2 start-3 h-4 w-4 text-on-surface-variant pointer-events-none"
+            strokeWidth={2}
+            aria-hidden
+          />
+          <input
+            type="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder={
+              isHebrew
+                ? "חפש בתוך התוצאות…"
+                : "Search within results…"
+            }
+            dir={isHebrew ? "rtl" : "ltr"}
+            inputMode="search"
+            autoComplete="off"
+            className="w-full min-h-[48px] ps-10 pe-10 rounded-full bg-surface-container-lowest border border-outline text-base focus:outline-none focus:border-primary"
+            aria-label={isHebrew ? "חיפוש" : "Search"}
+          />
+          {query !== "" && (
+            <button
+              type="button"
+              onClick={() => setQuery("")}
+              aria-label={isHebrew ? "נקה חיפוש" : "Clear search"}
+              className="absolute top-1/2 -translate-y-1/2 end-2 inline-flex items-center justify-center w-8 h-8 rounded-full hover:bg-surface-container text-on-surface-variant"
+            >
+              <X className="h-4 w-4" strokeWidth={2} />
+            </button>
+          )}
+        </div>
       </div>
 
       {visibleFixtures.length > 0 && (
@@ -338,5 +403,34 @@ function SectionTitle({
     <h2 className="font-[family-name:var(--font-display)] text-xl md:text-2xl font-bold text-on-surface">
       {children}
     </h2>
+  );
+}
+
+// One chip in the match selector row. Same pill shape as the status
+// chips but sized to hold two flags + codes without wrapping; the
+// horizontal scroll container handles overflow on narrow phones.
+function FixtureChip({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={clsx(
+        "snap-start press-down inline-flex items-center gap-1.5 min-h-[40px] px-3 rounded-full border text-sm font-bold whitespace-nowrap",
+        active
+          ? "bg-primary text-on-primary border-primary"
+          : "bg-surface-container-lowest text-on-surface border-outline-variant hover:bg-surface-container",
+      )}
+    >
+      {children}
+    </button>
   );
 }
