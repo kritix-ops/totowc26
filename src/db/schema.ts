@@ -925,7 +925,10 @@ export const duels = pgTable(
     openerId: uuid("opener_id")
       .notNull()
       .references(() => profiles.id, { onDelete: "restrict" }),
-    openerAnswer: boolean("opener_answer").notNull(),
+    // Legacy yes/no duels: NOT NULL semantically (DB CHECK enforces it).
+    // New-style custom-option duels carry the opener's pick in
+    // `openerOption` instead and leave this NULL. See migration 0058.
+    openerAnswer: boolean("opener_answer"),
     stake: smallint("stake").notNull(),
 
     // Question text
@@ -960,6 +963,21 @@ export const duels = pgTable(
     settledBy: uuid("settled_by").references(() => profiles.id, {
       onDelete: "set null",
     }),
+
+    // ------ Custom-option duels (migration 0058) ------
+    // NULL on legacy yes/no duels; both shapes coexist forever.
+    // `options` shape: [{ key: string, labelHe: string, labelEn: string,
+    //                     multiplierPct: number /* 150..500 */ }]
+    // Multiplier is stored as integer hundredths (1.5x = 150) so the
+    // bank-balance SQL doesn't need float math.
+    options: jsonb("options"),
+    openerOption: text("opener_option"),
+    joinerOption: text("joiner_option"),
+    resolvedOption: text("resolved_option"),
+    // Frozen at open/join time so the running-balance subquery can read
+    // an integer without unpacking the jsonb array on every row.
+    openerOptionMultiplierPct: smallint("opener_option_multiplier_pct"),
+    joinerOptionMultiplierPct: smallint("joiner_option_multiplier_pct"),
 
     // Optional auto-settle (added in 0015). When grading_source is
     // 'auto_api_football' and scope='match', the sync pass evaluates

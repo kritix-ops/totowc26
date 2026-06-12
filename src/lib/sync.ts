@@ -1444,11 +1444,13 @@ async function scoreAutoSettleDuels(): Promise<number> {
     grading_config: DuelGradingConfig | null;
     api_football_fixture_id: number | null;
     match_status: string;
+    options: unknown;
   }>(drizzleSql`
     select
       d.id::text                       as "id",
       d.match_id::text                 as "match_id",
       d.grading_config                 as "grading_config",
+      d.options                        as "options",
       m.api_football_fixture_id        as "api_football_fixture_id",
       m.status::text                   as "match_status"
     from public.duels d
@@ -1484,20 +1486,41 @@ async function scoreAutoSettleDuels(): Promise<number> {
       r.grading_config.threshold,
     );
 
+    // New-style custom-option duels seeded from a quick template carry
+    // a 2-option array with keys 'yes' and 'no'. Map the boolean
+    // comparator outcome onto the corresponding option key so the
+    // bank.ts SQL picks the right side. Templates are the only path
+    // that produces auto-graded options-duels (the editor disables
+    // auto-grade once you customise the option set beyond yes/no).
+    const isOptions = Array.isArray(r.options) && r.options.length > 0;
+    const resolvedOptionKey = isOptions ? (resolved ? "yes" : "no") : null;
+
     try {
-      await db.execute(drizzleSql`
-        update public.duels
-        set status = 'settled',
-            resolved_value = ${resolved},
-            settled_at = now(),
-            settled_by = null
-        where id = ${r.id}::uuid
-          and status = 'matched'
-      `);
+      if (isOptions) {
+        await db.execute(drizzleSql`
+          update public.duels
+          set status = 'settled',
+              resolved_option = ${resolvedOptionKey},
+              settled_at = now(),
+              settled_by = null
+          where id = ${r.id}::uuid
+            and status = 'matched'
+        `);
+      } else {
+        await db.execute(drizzleSql`
+          update public.duels
+          set status = 'settled',
+              resolved_value = ${resolved},
+              settled_at = now(),
+              settled_by = null
+          where id = ${r.id}::uuid
+            and status = 'matched'
+        `);
+      }
       console.info("[duel settle]", {
         duelId: r.id,
         source: "auto_api_football",
-        resolvedValue: resolved,
+        resolved: isOptions ? resolvedOptionKey : resolved,
         stat: r.grading_config.stat,
         comparator: r.grading_config.comparator,
         threshold: r.grading_config.threshold,

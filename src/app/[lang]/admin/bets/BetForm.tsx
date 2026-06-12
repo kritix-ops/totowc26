@@ -32,6 +32,8 @@ import {
 } from "@/lib/bets/price-options";
 import type { AdminAnchorMatch, AdminAnchorDay, BetTemplate } from "@/db/admin-queries";
 import type { BetTypeKey } from "@/db/schema";
+import { useAutoTranslate } from "@/lib/use-auto-translate";
+import { AutoTranslateHint } from "@/components/AutoTranslateHint";
 import { createCustomBet, updateCustomBet } from "./actions";
 
 // Shared bet-author form. Two modes:
@@ -161,6 +163,20 @@ export function BetForm({
   const [questionEn, setQuestionEn] = useState(initialBet?.questionEn ?? "");
   const [gradingRuleHe, setGradingRuleHe] = useState(initialBet?.gradingRuleHe ?? "");
   const [gradingRuleEn, setGradingRuleEn] = useState(initialBet?.gradingRuleEn ?? "");
+
+  // Auto-translate: when the admin types Hebrew and leaves the field,
+  // fill the English counterpart if it's still empty. Manual edits are
+  // never clobbered (the hook re-checks isEnglishEmpty before applying).
+  const questionTranslate = useAutoTranslate({
+    context: "question",
+    isEnglishEmpty: () => questionEn.trim().length === 0,
+    onTranslate: setQuestionEn,
+  });
+  const ruleTranslate = useAutoTranslate({
+    context: "rule",
+    isEnglishEmpty: () => gradingRuleEn.trim().length === 0,
+    onTranslate: setGradingRuleEn,
+  });
 
   // ---- Answer ----
   const [answerType, setAnswerType] = useState<AnswerType>(
@@ -788,6 +804,7 @@ export function BetForm({
             label="HE"
             value={questionHe}
             onChange={setQuestionHe}
+            onBlur={() => questionTranslate.trigger(questionHe)}
             required
             placeholder={isHebrew ? "למשל: האם תהיה הפתעה היום?" : "e.g. האם תהיה הפתעה היום?"}
             dir="rtl"
@@ -799,6 +816,7 @@ export function BetForm({
             required
             placeholder="e.g. Will today have a surprise?"
             dir="ltr"
+            hint={<AutoTranslateHint state={questionTranslate.state} isHebrew={isHebrew} />}
           />
         </div>
       </Section>
@@ -815,6 +833,7 @@ export function BetForm({
             label="HE"
             value={gradingRuleHe}
             onChange={setGradingRuleHe}
+            onBlur={() => ruleTranslate.trigger(gradingRuleHe)}
             required
             placeholder={isHebrew ? "למשל: כרטיס אדום אחד או יותר ב-90 הדקות (לא כולל הארכה) באחד המשחקים של היום." : "e.g."}
             dir="rtl"
@@ -826,6 +845,7 @@ export function BetForm({
             required
             placeholder="e.g. One or more red cards in regulation across today's matches."
             dir="ltr"
+            hint={<AutoTranslateHint state={ruleTranslate.state} isHebrew={isHebrew} />}
           />
         </div>
       </Section>
@@ -1527,18 +1547,22 @@ function LabeledInput({
   label,
   value,
   onChange,
+  onBlur,
   placeholder,
   required,
   dir,
   inputMode,
+  hint,
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
+  onBlur?: () => void;
   placeholder?: string;
   required?: boolean;
   dir?: "rtl" | "ltr";
   inputMode?: "text" | "numeric" | "decimal";
+  hint?: React.ReactNode;
 }) {
   return (
     <label className="flex flex-col gap-1.5">
@@ -1547,12 +1571,14 @@ function LabeledInput({
         type="text"
         value={value}
         onChange={(e) => onChange(e.target.value)}
+        onBlur={onBlur}
         placeholder={placeholder}
         required={required}
         dir={dir}
         inputMode={inputMode}
         className="min-h-[48px] px-3 rounded border border-outline bg-surface-container-lowest text-base"
       />
+      {hint}
     </label>
   );
 }
@@ -1561,16 +1587,20 @@ function LabeledTextarea({
   label,
   value,
   onChange,
+  onBlur,
   placeholder,
   required,
   dir,
+  hint,
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
+  onBlur?: () => void;
   placeholder?: string;
   required?: boolean;
   dir?: "rtl" | "ltr";
+  hint?: React.ReactNode;
 }) {
   return (
     <label className="flex flex-col gap-1.5">
@@ -1578,12 +1608,14 @@ function LabeledTextarea({
       <textarea
         value={value}
         onChange={(e) => onChange(e.target.value)}
+        onBlur={onBlur}
         placeholder={placeholder}
         required={required}
         dir={dir}
         rows={3}
         className="min-h-[80px] px-3 py-2 rounded border border-outline bg-surface-container-lowest text-base resize-y"
       />
+      {hint}
     </label>
   );
 }

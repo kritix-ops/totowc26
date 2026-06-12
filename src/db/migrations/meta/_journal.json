@@ -407,6 +407,13 @@
       "when": 1782185000000,
       "tag": "0057_live_max_stake_10",
       "breakpoints": true
+    },
+    {
+      "idx": 58,
+      "version": "7",
+      "when": 1782250000000,
+      "tag": "0058_duel_options",
+      "breakpoints": true
     }
   ]
 }

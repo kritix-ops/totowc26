@@ -577,6 +577,8 @@
       "already_settled": "Duel already settled or cancelled",
       "stake_too_high": "Stake exceeds max",
       "stake_too_low": "Stake must be ≥ 1",
+      "invalid_options": "Options configuration is invalid",
+      "option_taken": "That option is already taken. Pick another",
       "db": "Save failed"
     },
     "duelNew": {
@@ -593,6 +595,8 @@
       "match_locked": "Match is locked.",
       "matchday_empty": "No scheduled matches on this date.",
       "deadline_past": "Resolution date already passed.",
+      "invalid_options": "Options config is invalid. Need 2-5 options with multipliers 1.5x-5.0x and one picked as yours.",
+      "option_taken": "That option is already taken. Pick another.",
       "db": "Save failed"
     },
     "quickPick": {
