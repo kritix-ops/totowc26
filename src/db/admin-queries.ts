@@ -225,16 +225,28 @@ export type AdminCustomBetRow = {
   createdAt: string;
 };
 
-// List all custom bets for the admin surface. Filterable by status/scope -
-// passing null on a filter means "no filter on this dimension".
+// List all custom bets for the admin surface. Filterable by status/scope/free-
+// text — passing null on a filter means "no filter on this dimension".
+// `q` matches case-insensitively against question text (he + en), the team-code
+// matchup label ("BRA vs GER"), the stage label, and group id, so the admin
+// can paste a fixture code, a player-facing question fragment, or "group A"
+// and land on the right row.
 export async function listCustomBets(opts: {
   status?: AdminCustomBetRow["status"] | null;
   scope?: AdminCustomBetRow["scope"] | null;
+  q?: string | null;
   limit?: number;
 } = {}): Promise<AdminCustomBetRow[]> {
   const status = opts.status ?? null;
   const scope = opts.scope ?? null;
+  const q = opts.q?.trim() ? opts.q.trim() : null;
   const limit = opts.limit ?? 100;
+  // ILIKE pattern wraps the user query with %...% so partial matches work.
+  // The SQL stays safe because the value is bound as a parameter, never
+  // interpolated. Postgres ESCAPE defaults to a backslash, which means a
+  // literal underscore or percent in the search box becomes a wildcard;
+  // for the admin's free-text use case that's tolerable noise.
+  const qPattern = q ? `%${q}%` : null;
   return execRows<AdminCustomBetRow>(sql`
     select
       cb.id::text                                 as "id",
@@ -263,7 +275,16 @@ export async function listCustomBets(opts: {
     left join public.matches   m  on m.id  = cb.match_id
     where
       (${status}::text is null or cb.status::text = ${status}) and
-      (${scope}::text  is null or cb.scope::text  = ${scope})
+      (${scope}::text  is null or cb.scope::text  = ${scope}) and
+      (
+        ${qPattern}::text is null
+        or cb.question_he ilike ${qPattern}
+        or cb.question_en ilike ${qPattern}
+        or (m.home_team || ' vs ' || m.away_team) ilike ${qPattern}
+        or cb.stage::text ilike ${qPattern}
+        or cb.group_id ilike ${qPattern}
+        or md.date::text ilike ${qPattern}
+      )
     order by
       case cb.status
         when 'draft'     then 0

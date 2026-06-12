@@ -12,6 +12,7 @@ import {
   type AdminCustomBetRow,
 } from "@/db/admin-queries";
 import { BetsTableActions } from "./BetsTableActions";
+import { BetsSearchBox } from "./BetsSearchBox";
 
 export default async function AdminBetsPage({
   params,
@@ -25,11 +26,13 @@ export default async function AdminBetsPage({
   const sp = await searchParams;
   const statusFilter = parseStatusFilter(sp.status);
   const scopeFilter = parseScopeFilter(sp.scope);
+  const queryFilter = parseQueryFilter(sp.q);
 
   const [bets, duplicateCount] = await Promise.all([
     listCustomBets({
       status: statusFilter,
       scope: scopeFilter,
+      q: queryFilter,
       limit: 200,
     }),
     countDuplicateCustomBets(),
@@ -146,6 +149,7 @@ export default async function AdminBetsPage({
         locale={locale}
         statusFilter={statusFilter}
         scopeFilter={scopeFilter}
+        queryFilter={queryFilter}
       />
 
       {bets.length === 0 ? (
@@ -163,6 +167,15 @@ export default async function AdminBetsPage({
       )}
     </section>
   );
+}
+
+function parseQueryFilter(raw: string | string[] | undefined): string | null {
+  const v = Array.isArray(raw) ? raw[0] : raw;
+  if (typeof v !== "string") return null;
+  const trimmed = v.trim();
+  // Cap the length so a junked URL can't push a 100KB ILIKE pattern into
+  // postgres. 100 chars covers every realistic admin search.
+  return trimmed === "" ? null : trimmed.slice(0, 100);
 }
 
 function parseStatusFilter(
@@ -200,10 +213,12 @@ function FilterBar({
   locale,
   statusFilter,
   scopeFilter,
+  queryFilter,
 }: {
   locale: Locale;
   statusFilter: AdminCustomBetRow["status"] | null;
   scopeFilter: AdminCustomBetRow["scope"] | null;
+  queryFilter: string | null;
 }) {
   const isHebrew = locale === "he";
   const statuses: Array<{ key: AdminCustomBetRow["status"] | "all"; label: string }> = [
@@ -226,6 +241,10 @@ function FilterBar({
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-col gap-2">
+        <LabelCaps>{isHebrew ? "חיפוש" : "Search"}</LabelCaps>
+        <BetsSearchBox locale={locale} initialQuery={queryFilter ?? ""} />
+      </div>
+      <div className="flex flex-col gap-2">
         <LabelCaps>{isHebrew ? "סטטוס" : "Status"}</LabelCaps>
         <div className="flex flex-wrap gap-2">
           {statuses.map((s) => (
@@ -239,6 +258,9 @@ function FilterBar({
                   ? statusFilter === null
                   : statusFilter === s.key
               }
+              statusFilter={statusFilter}
+              scopeFilter={scopeFilter}
+              queryFilter={queryFilter}
             />
           ))}
         </div>
@@ -257,6 +279,9 @@ function FilterBar({
                   ? scopeFilter === null
                   : scopeFilter === s.key
               }
+              statusFilter={statusFilter}
+              scopeFilter={scopeFilter}
+              queryFilter={queryFilter}
             />
           ))}
         </div>
@@ -270,18 +295,33 @@ function FilterChip({
   paramKey,
   paramValue,
   active,
+  statusFilter,
+  scopeFilter,
+  queryFilter,
 }: {
   label: string;
   paramKey: "status" | "scope";
   paramValue: string | null;
   active: boolean;
+  statusFilter: AdminCustomBetRow["status"] | null;
+  scopeFilter: AdminCustomBetRow["scope"] | null;
+  queryFilter: string | null;
 }) {
   // The chip writes its filter into the URL query string so the page is
   // a pure server-component with no client state. `replace: true` keeps
   // the history clean while the admin scrolls through filter options.
-  const href = paramValue
-    ? `?${paramKey}=${paramValue}`
-    : `?${paramKey}=`;
+  // We rebuild the full param set on every click so the OTHER dimensions
+  // (status when toggling scope, scope when toggling status, and the
+  // free-text q) carry through instead of getting wiped, which used to
+  // force the admin back to square one when chaining filters.
+  const next = new URLSearchParams();
+  const nextStatus = paramKey === "status" ? paramValue : statusFilter;
+  const nextScope = paramKey === "scope" ? paramValue : scopeFilter;
+  if (nextStatus) next.set("status", nextStatus);
+  if (nextScope) next.set("scope", nextScope);
+  if (queryFilter) next.set("q", queryFilter);
+  const qs = next.toString();
+  const href = qs ? `?${qs}` : "?";
   return (
     <Link href={href} replace scroll={false}>
       <Chip tone={active ? "primary" : "default"} className="min-h-[36px] cursor-pointer">

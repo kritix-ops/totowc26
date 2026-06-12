@@ -549,6 +549,208 @@ export async function getLeaderboard(
   return cached();
 }
 
+// Per-user breakdown of the most recent point-changing events. Powers the
+// leaderboard accordion: each row expands to show what someone earned (or
+// lost) since the last ranking shift, sorted newest first. A single batched
+// query keeps this O(rows × LEADERBOARD_BREAKDOWN_LIMIT) instead of N+1.
+//
+// `events` are returned newest-first. `previousPoints` is the leaderboard
+// total minus the sum of these events' deltas — that's the "before the
+// last ranking" anchor the row shows. Adjustments are intentionally
+// included so a manual debit/credit is visible to everyone (transparency
+// matters more than hiding the admin's audit trail here).
+export const LEADERBOARD_BREAKDOWN_LIMIT = 8;
+
+export type LeaderboardEventKind =
+  | "match"
+  | "live"
+  | "tournament"
+  | "duel"
+  | "adjustment";
+
+export type LeaderboardEvent = {
+  kind: LeaderboardEventKind;
+  eventAt: string;
+  delta: number;
+  titleHe: string;
+  titleEn: string;
+  detailHe: string | null;
+  detailEn: string | null;
+};
+
+export type LeaderboardBreakdown = {
+  userId: string;
+  events: LeaderboardEvent[];
+};
+
+async function loadLeaderboardBreakdownsFromDb(
+  userIds: string[],
+): Promise<Map<string, LeaderboardEvent[]>> {
+  const out = new Map<string, LeaderboardEvent[]>();
+  if (userIds.length === 0) return out;
+
+  // The events CTE unions every surface that changes a user's points,
+  // each row stamped with its user_id + a comparable timestamp. We then
+  // window-rank per user and keep the top LIMIT slice. The cast through
+  // text[] keeps the parameter shape safe even when drizzle inlines.
+  const rows = await execRows<{
+    userId: string;
+    kind: LeaderboardEventKind;
+    eventAt: string;
+    delta: number;
+    titleHe: string;
+    titleEn: string;
+    detailHe: string | null;
+    detailEn: string | null;
+  }>(sql`
+    with target as (
+      select unnest(${userIds}::uuid[]) as user_id
+    ),
+    events as (
+      -- match bets: graded once the match is final. Use finalized_at
+      -- when available so a future re-grade doesn't reorder history.
+      select
+        mb.user_id                                  as user_id,
+        'match'::text                               as kind,
+        coalesce(m.finalized_at, m.kickoff_at)      as event_at,
+        coalesce(mb.points_earned, 0)::int          as delta,
+        (m.home_team || ' ' || m.away_team)         as title_he,
+        (m.home_team || ' ' || m.away_team)         as title_en,
+        (
+          'תחזית ' || coalesce(mb.home_score::text, '?') || ':' || coalesce(mb.away_score::text, '?')
+          || ' · תוצאה ' || coalesce(m.home_score::text, '?') || ':' || coalesce(m.away_score::text, '?')
+        )                                           as detail_he,
+        (
+          'Pick ' || coalesce(mb.home_score::text, '?') || ':' || coalesce(mb.away_score::text, '?')
+          || ' · result ' || coalesce(m.home_score::text, '?') || ':' || coalesce(m.away_score::text, '?')
+        )                                           as detail_en
+      from public.match_bets mb
+      join public.matches m on m.id = mb.match_id
+      join target t on t.user_id = mb.user_id
+      where m.status = 'final' and mb.points_earned is not null
+
+      union all
+
+      -- custom bet picks: live (match/day) and tournament/stage/group.
+      -- live nets stake against payout; free-pick scopes have stake=0 so
+      -- the same formula collapses to just the payout.
+      select
+        pk.user_id                                  as user_id,
+        case when cb.scope in ('match', 'day') then 'live'::text
+             else 'tournament'::text
+        end                                         as kind,
+        coalesce(cb.graded_at, cb.lock_at)          as event_at,
+        (coalesce(pk.points_earned, 0) - pk.stake_paid)::int as delta,
+        cb.question_he                              as title_he,
+        cb.question_en                              as title_en,
+        null::text                                  as detail_he,
+        null::text                                  as detail_en
+      from public.user_custom_bet_picks pk
+      join public.custom_bets cb on cb.id = pk.custom_bet_id
+      join target t on t.user_id = pk.user_id
+      where cb.status in ('graded', 'reversed') and pk.points_earned is not null
+
+      union all
+
+      -- duels settled. Use the existing duelCaseSql so the netting rules
+      -- never drift from the leaderboard total.
+      select
+        opener.user_id                              as user_id,
+        'duel'::text                                as kind,
+        coalesce(d.settled_at, d.created_at)        as event_at,
+        ${duelCaseSql(sql`opener.user_id`)}::int    as delta,
+        coalesce(d.question_he, 'דו-קרב')           as title_he,
+        coalesce(d.question_en, 'Duel')             as title_en,
+        null::text                                  as detail_he,
+        null::text                                  as detail_en
+      from public.duels d
+      join (
+        select t.user_id, d2.id as duel_id
+        from target t
+        join public.duels d2 on d2.opener_id = t.user_id
+        union all
+        select t.user_id, d2.id as duel_id
+        from target t
+        join public.duels d2 on d2.joiner_id = t.user_id
+      ) opener on opener.duel_id = d.id
+      where d.status = 'settled'
+
+      union all
+
+      -- manual point adjustments. The note is intentionally surfaced so a
+      -- debit isn't mistaken for a silent bug.
+      select
+        pa.user_id                                  as user_id,
+        'adjustment'::text                          as kind,
+        pa.created_at                               as event_at,
+        pa.delta::int                               as delta,
+        coalesce(pa.reason, 'התאמה ידנית')           as title_he,
+        coalesce(pa.reason, 'Manual adjustment')    as title_en,
+        null::text                                  as detail_he,
+        null::text                                  as detail_en
+      from public.point_adjustments pa
+      join target t on t.user_id = pa.user_id
+    ),
+    ranked as (
+      select e.*,
+        row_number() over (
+          partition by e.user_id
+          order by e.event_at desc
+        ) as rn
+      from events e
+    )
+    select
+      r.user_id::text                               as "userId",
+      r.kind                                        as "kind",
+      r.event_at                                    as "eventAt",
+      r.delta                                       as "delta",
+      r.title_he                                    as "titleHe",
+      r.title_en                                    as "titleEn",
+      r.detail_he                                   as "detailHe",
+      r.detail_en                                   as "detailEn"
+    from ranked r
+    where r.rn <= ${LEADERBOARD_BREAKDOWN_LIMIT}
+    order by r.user_id, r.event_at desc
+  `);
+
+  for (const r of rows) {
+    const arr = out.get(r.userId) ?? [];
+    arr.push({
+      kind: r.kind,
+      eventAt: r.eventAt,
+      delta: Number(r.delta ?? 0),
+      titleHe: r.titleHe,
+      titleEn: r.titleEn,
+      detailHe: r.detailHe,
+      detailEn: r.detailEn,
+    });
+    out.set(r.userId, arr);
+  }
+  return out;
+}
+
+export async function getLeaderboardBreakdowns(
+  userIds: string[],
+): Promise<Map<string, LeaderboardEvent[]>> {
+  // Same cache tag as the leaderboard itself — any grading/adjustment
+  // event that buster CACHE_TAG_LEADERBOARD also invalidates these
+  // breakdowns. Key includes the sorted id list so the cache survives
+  // re-orderings between calls.
+  const key = [...userIds].sort().join(",");
+  const cached = unstable_cache(
+    async () => {
+      const map = await loadLeaderboardBreakdownsFromDb(userIds);
+      // Maps aren't JSON-serialisable through the cache boundary; flatten
+      // to an array on the way in, rebuild on the way out.
+      return Array.from(map.entries());
+    },
+    ["leaderboard-breakdowns", key],
+    { tags: [CACHE_TAG_LEADERBOARD], revalidate: 60 },
+  );
+  const entries = await cached();
+  return new Map(entries);
+}
+
 // The monkey bot's score for one tab, computed with the SAME math the
 // leaderboard uses but for the single bot row. Rendered as a separate
 // "beat-the-monkey" benchmark line, so it never gets a rank among humans.
