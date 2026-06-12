@@ -2688,3 +2688,255 @@ export async function getLiveMatches(userId: string): Promise<LiveMatchRow[]> {
   `);
 }
 
+// ---------- Past / history queries (newest first) ----------
+//
+// Used by the "Past" sub-toggle on the bet surfaces. Read-only by
+// construction: every function below is a SELECT, no UPDATE/INSERT
+// path. See _plans/2026-06-12-bet-history-per-surface.md.
+
+export type PastMatchPickRow = {
+  id: string;
+  homeCode: string;
+  homeNameHe: string;
+  homeNameEn: string;
+  awayCode: string;
+  awayNameHe: string;
+  awayNameEn: string;
+  kickoffAt: string;
+  // Asia/Jerusalem calendar date (YYYY-MM-DD) the page groups by. Never
+  // slice kickoffAt (that's UTC) — a late-night kickoff would land on the
+  // wrong day. See memory: Jerusalem timezone is mandatory.
+  matchDate: string;
+  stage: string;
+  // 'live' = match in play, no final score yet; 'final' = whistle blown.
+  // 'scheduled' rows that slipped under the 5-minute lock window are
+  // bucketed as 'live' from the player's POV — the match is effectively
+  // locked even if API-Football hasn't promoted the status yet.
+  status: "scheduled" | "live" | "final";
+  homeScore: number | null;
+  awayScore: number | null;
+  myHomeScore: number | null;
+  myAwayScore: number | null;
+  // Net points written by scoreFinalMatches() on grading. Null when the
+  // match hasn't been graded yet (still live, or just finished and the
+  // grader hasn't run).
+  myPointsEarned: number | null;
+  myWasExact: boolean | null;
+  myWasCorrectOutcome: boolean | null;
+};
+
+// Every match that has kicked off or finished, regardless of whether
+// the caller picked it. Newest first by kickoff_at. The user asked for
+// "everything" so we include rows with no pick — those render with "—"
+// in the my-pick column.
+export async function getPastMatchPicks(
+  userId: string,
+): Promise<PastMatchPickRow[]> {
+  return execRows<PastMatchPickRow>(sql`
+    select
+      m.id::text                                          as "id",
+      m.home_team                                         as "homeCode",
+      ht.name_he                                          as "homeNameHe",
+      ht.name_en                                          as "homeNameEn",
+      m.away_team                                         as "awayCode",
+      at.name_he                                          as "awayNameHe",
+      at.name_en                                          as "awayNameEn",
+      m.kickoff_at::text                                  as "kickoffAt",
+      to_char((m.kickoff_at at time zone 'Asia/Jerusalem')::date,
+              'YYYY-MM-DD')                               as "matchDate",
+      m.stage::text                                       as "stage",
+      m.status::text                                      as "status",
+      m.home_score                                        as "homeScore",
+      m.away_score                                        as "awayScore",
+      mb.home_score                                       as "myHomeScore",
+      mb.away_score                                       as "myAwayScore",
+      mb.points_earned                                    as "myPointsEarned",
+      mb.was_exact                                        as "myWasExact",
+      mb.was_correct_outcome                              as "myWasCorrectOutcome"
+    from public.matches m
+    join public.teams ht on ht.code = m.home_team
+    join public.teams at on at.code = m.away_team
+    left join public.match_bets mb on mb.match_id = m.id and mb.user_id = ${userId}
+    where m.status in ('live', 'final')
+       or (m.status = 'scheduled' and m.kickoff_at <= now() + interval '5 minutes')
+    order by m.kickoff_at desc
+    limit 500
+  `);
+}
+
+// Past matchdays for the live-bets index. Every Asia/Jerusalem date
+// strictly before today that has at least one match. Returned newest
+// first. We also pre-count how many of the day's custom bets the
+// caller actually picked so the card can show "{n} picks of yours".
+export type PastPlayDayRow = {
+  date: string;
+  matchCount: number;
+  firstKickoffAt: string;
+  flagsPreview: string;
+  myPickCount: number;
+};
+
+export async function listPastPlayDays(userId: string): Promise<PastPlayDayRow[]> {
+  return execRows<PastPlayDayRow>(sql`
+    with days as (
+      select to_char((m.kickoff_at at time zone 'Asia/Jerusalem')::date,
+                     'YYYY-MM-DD')                          as date,
+             min(m.kickoff_at)                              as first_kickoff,
+             count(*)::int                                  as match_count,
+             string_agg(distinct ht.flag, ' ' order by ht.flag) ||
+               ' ' ||
+               string_agg(distinct at.flag, ' ' order by at.flag) as flags
+      from public.matches m
+      join public.teams ht on ht.code = m.home_team
+      join public.teams at on at.code = m.away_team
+      where (m.kickoff_at at time zone 'Asia/Jerusalem')::date
+              < (now() at time zone 'Asia/Jerusalem')::date
+      group by (m.kickoff_at at time zone 'Asia/Jerusalem')::date
+    ),
+    picks as (
+      -- Count of custom-bet picks the caller made for each day, across
+      -- both day-scope (anchored to matchday) and match-scope (anchored
+      -- to a match on that day). Match-pick count is intentionally
+      -- excluded — those are summarised by the match-picks past view.
+      select day, sum(c)::int as pick_count
+      from (
+        select to_char(md.date, 'YYYY-MM-DD') as day,
+               count(*)::int as c
+        from public.user_custom_bet_picks pk
+        join public.custom_bets cb on cb.id = pk.custom_bet_id
+        join public.matchdays md on md.id = cb.matchday_id
+        where pk.user_id = ${userId}
+          and cb.scope = 'day'
+        group by md.date
+        union all
+        select to_char((m.kickoff_at at time zone 'Asia/Jerusalem')::date,
+                       'YYYY-MM-DD') as day,
+               count(*)::int
+        from public.user_custom_bet_picks pk
+        join public.custom_bets cb on cb.id = pk.custom_bet_id
+        join public.matches m on m.id = cb.match_id
+        where pk.user_id = ${userId}
+          and cb.scope = 'match'
+        group by (m.kickoff_at at time zone 'Asia/Jerusalem')::date
+      ) per_scope
+      group by day
+    )
+    select
+      d.date                                  as "date",
+      d.match_count                           as "matchCount",
+      d.first_kickoff::text                   as "firstKickoffAt",
+      d.flags                                 as "flagsPreview",
+      coalesce(p.pick_count, 0)::int          as "myPickCount"
+    from days d
+    left join picks p on p.day = d.date
+    order by d.date desc
+    limit 200
+  `);
+}
+
+// Past tournament/stage custom bets. Includes graded, reversed and
+// cancelled - the user wants to see everything that has closed. Rows
+// where the caller didn't pick are kept so the past view stays
+// symmetric with the upcoming view.
+export type PastTournamentBetRow = {
+  id: string;
+  scope: "tournament" | "stage";
+  stage: "group" | "r32" | "r16" | "qf" | "sf" | "third_place" | "final" | null;
+  questionHe: string;
+  questionEn: string;
+  gradingRuleHe: string;
+  gradingRuleEn: string;
+  answerType: "yes_no" | "number" | "multi_choice" | "free_text";
+  answerConfig: unknown;
+  stakeSnapshot: number;
+  payoutSnapshot: number;
+  lockAt: string;
+  gradedAt: string | null;
+  status: "graded" | "reversed" | "cancelled";
+  resolvedValue: unknown | null;
+  myAnswer: unknown | null;
+  myStakePaid: number | null;
+  myPointsEarned: number | null;
+  myWasCorrect: boolean | null;
+};
+
+export async function getPastTournamentBets(
+  userId: string,
+): Promise<PastTournamentBetRow[]> {
+  return execRows<PastTournamentBetRow>(sql`
+    select
+      cb.id::text                                 as "id",
+      cb.scope::text                              as "scope",
+      cb.stage::text                              as "stage",
+      cb.question_he                              as "questionHe",
+      cb.question_en                              as "questionEn",
+      cb.grading_rule_he                          as "gradingRuleHe",
+      cb.grading_rule_en                          as "gradingRuleEn",
+      cb.answer_type::text                        as "answerType",
+      cb.answer_config                            as "answerConfig",
+      cb.stake_snapshot                           as "stakeSnapshot",
+      cb.payout_snapshot                          as "payoutSnapshot",
+      cb.lock_at::text                            as "lockAt",
+      cb.graded_at::text                          as "gradedAt",
+      cb.status::text                             as "status",
+      cb.resolved_value                           as "resolvedValue",
+      pk.answer                                   as "myAnswer",
+      pk.stake_paid                               as "myStakePaid",
+      pk.points_earned                            as "myPointsEarned",
+      pk.was_correct                              as "myWasCorrect"
+    from public.custom_bets cb
+    left join public.user_custom_bet_picks pk
+      on pk.custom_bet_id = cb.id and pk.user_id = ${userId}
+    where cb.status in ('graded', 'reversed', 'cancelled')
+      and cb.scope in ('tournament', 'stage')
+    order by
+      coalesce(cb.graded_at, cb.lock_at) desc
+    limit 200
+  `);
+}
+
+// Past group-scope custom bets. Same shape as past tournament bets,
+// scoped to cb.scope='group', with the group id surfaced so the page
+// can bucket by group like the upcoming view does.
+export type PastGroupBetRow = Omit<PastTournamentBetRow, "scope" | "stage"> & {
+  groupId: string;
+  groupDisplayOrder: number;
+};
+
+export async function getPastGroupBets(
+  userId: string,
+): Promise<PastGroupBetRow[]> {
+  return execRows<PastGroupBetRow>(sql`
+    select
+      cb.id::text                                 as "id",
+      cb.group_id                                 as "groupId",
+      g.display_order                             as "groupDisplayOrder",
+      cb.question_he                              as "questionHe",
+      cb.question_en                              as "questionEn",
+      cb.grading_rule_he                          as "gradingRuleHe",
+      cb.grading_rule_en                          as "gradingRuleEn",
+      cb.answer_type::text                        as "answerType",
+      cb.answer_config                            as "answerConfig",
+      cb.stake_snapshot                           as "stakeSnapshot",
+      cb.payout_snapshot                          as "payoutSnapshot",
+      cb.lock_at::text                            as "lockAt",
+      cb.graded_at::text                          as "gradedAt",
+      cb.status::text                             as "status",
+      cb.resolved_value                           as "resolvedValue",
+      pk.answer                                   as "myAnswer",
+      pk.stake_paid                               as "myStakePaid",
+      pk.points_earned                            as "myPointsEarned",
+      pk.was_correct                              as "myWasCorrect"
+    from public.custom_bets cb
+    join public.groups g on g.id = cb.group_id
+    left join public.user_custom_bet_picks pk
+      on pk.custom_bet_id = cb.id and pk.user_id = ${userId}
+    where cb.status in ('graded', 'reversed', 'cancelled')
+      and cb.scope = 'group'
+    order by
+      coalesce(cb.graded_at, cb.lock_at) desc,
+      g.display_order asc
+    limit 200
+  `);
+}
+

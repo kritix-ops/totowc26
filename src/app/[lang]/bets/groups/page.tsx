@@ -1,14 +1,16 @@
 import { notFound, redirect } from "next/navigation";
-import { Sparkles } from "lucide-react";
+import { History, Sparkles } from "lucide-react";
 import { sql } from "drizzle-orm";
-import { hasLocale, type Locale } from "../../dictionaries";
+import { getDictionary, hasLocale, type Locale } from "../../dictionaries";
 import { Card, SectionHeading } from "@/components/ui";
 import { Flag } from "@/components/Flag";
 import {
   CustomBetCard,
   type CustomBetCardData,
 } from "@/components/CustomBetCard";
+import { PastCustomBetRow } from "@/components/PastCustomBetRow";
 import { BetsTabs } from "@/components/BetsTabs";
+import { BetsSubTabs, parseBetsView } from "@/components/BetsSubTabs";
 import { SurpriseMeButton } from "@/components/SurpriseMeButton";
 import { getUser } from "@/lib/supabase/auth";
 import { getUserAccess } from "@/lib/access";
@@ -16,7 +18,12 @@ import { getBankBalance } from "@/lib/bank";
 import { localePath } from "@/lib/paths";
 import { serverNow } from "@/lib/server-now";
 import { execRows } from "@/db/helpers";
-import { getGroupPlayBets, type GroupPlayBetRow } from "@/db/queries";
+import {
+  getGroupPlayBets,
+  getPastGroupBets,
+  type GroupPlayBetRow,
+  type PastGroupBetRow,
+} from "@/db/queries";
 import type { AnswerConfig, PickAnswer } from "@/lib/bets/types";
 
 // Group-rankings bets. Moved here from /play/groups under the
@@ -51,19 +58,30 @@ async function listGroupTeams(): Promise<GroupTeam[]> {
 // params shape locally to avoid a build-order coupling.
 type PageParams = {
   params: Promise<{ lang: string }>;
+  searchParams: Promise<{ view?: string | string[] }>;
 };
 
 export default async function BetsGroupsPage({
   params,
+  searchParams,
 }: PageParams) {
   const { lang } = await params;
   if (!hasLocale(lang)) notFound();
   const locale = lang as Locale;
   const isHebrew = locale === "he";
 
+  const sp = await searchParams;
+  const view = parseBetsView(sp.view);
+
   const user = await getUser();
   if (!user) redirect(localePath(locale, "login"));
   const access = await getUserAccess(user.id);
+
+  if (view === "past") {
+    return (
+      <PastGroupsView locale={locale} userId={user.id} isHebrew={isHebrew} />
+    );
+  }
 
   const [bets, teams, bankBalance] = await Promise.all([
     getGroupPlayBets(user.id),
@@ -106,6 +124,7 @@ export default async function BetsGroupsPage({
           {isHebrew ? "הימורים" : "Bets"}
         </h1>
         <BetsTabs locale={locale} active="groups" />
+        <BetsSubTabs locale={locale} path="bets/groups" view="upcoming" />
         <h2 className="font-[family-name:var(--font-display)] text-lg md:text-xl font-bold text-on-surface inline-flex items-center gap-2 mt-2">
           <Sparkles className="h-5 w-5 text-tertiary-fixed-dim" strokeWidth={1.75} />
           {isHebrew ? "דירוגי בתים" : "Group rankings"}
@@ -156,6 +175,118 @@ export default async function BetsGroupsPage({
                       bankBalance={bankBalance}
                       editable={isEditable(b)}
                       bet={toCardData(b)}
+                    />
+                  ))}
+                </div>
+              </section>
+            ),
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
+// /bets/groups?view=past — graded / reversed / cancelled group bets,
+// bucketed by group in display order with the same team-flags header
+// the upcoming view uses, newest first within each group (query orders
+// by graded_at desc).
+async function PastGroupsView({
+  locale,
+  userId,
+  isHebrew,
+}: {
+  locale: Locale;
+  userId: string;
+  isHebrew: boolean;
+}) {
+  const dict = await getDictionary(locale);
+  let bets: PastGroupBetRow[] = [];
+  let teams: GroupTeam[] = [];
+  try {
+    [bets, teams] = await Promise.all([
+      getPastGroupBets(userId),
+      listGroupTeams(),
+    ]);
+  } catch (err) {
+    console.error("[bets past] groups load threw", { userId, err });
+  }
+  console.info("[bets past] groups loaded", {
+    userId,
+    rowCount: bets.length,
+    view: "past",
+  });
+
+  const groups = new Map<
+    string,
+    { displayOrder: number; teams: GroupTeam[]; bets: PastGroupBetRow[] }
+  >();
+  for (const t of teams) {
+    const entry = groups.get(t.groupId) ?? {
+      displayOrder: t.displayOrder,
+      teams: [],
+      bets: [],
+    };
+    entry.teams.push(t);
+    groups.set(t.groupId, entry);
+  }
+  for (const b of bets) {
+    const entry = groups.get(b.groupId);
+    if (entry) entry.bets.push(b);
+  }
+  const orderedGroups = Array.from(groups.entries()).sort(
+    (a, b) => a[1].displayOrder - b[1].displayOrder,
+  );
+
+  return (
+    <section className="px-4 md:px-16 py-6 md:py-12 flex flex-col gap-6 md:gap-8 max-w-3xl mx-auto w-full pb-24">
+      <header className="flex flex-col gap-3">
+        <h1 className="font-[family-name:var(--font-display)] text-[28px] leading-9 md:text-[40px] md:leading-[44px] font-bold text-primary">
+          {isHebrew ? "הימורים" : "Bets"}
+        </h1>
+        <BetsTabs locale={locale} active="groups" />
+        <BetsSubTabs locale={locale} path="bets/groups" view="past" />
+        <h2 className="font-[family-name:var(--font-display)] text-lg md:text-xl font-bold text-on-surface inline-flex items-center gap-2 mt-2">
+          <History className="h-5 w-5" strokeWidth={1.75} />
+          {dict.pastBets.groupsTitle}
+        </h2>
+        <p className="text-sm text-on-surface-variant">
+          {dict.pastBets.groupsSubtitle}
+        </p>
+      </header>
+
+      {bets.length === 0 ? (
+        <Card className="p-6 text-center text-on-surface-variant">
+          {dict.pastBets.groupsEmpty}
+        </Card>
+      ) : (
+        <div className="flex flex-col gap-6 md:gap-8">
+          {orderedGroups.map(([groupId, entry]) =>
+            entry.bets.length === 0 ? null : (
+              <section key={groupId} className="flex flex-col gap-3">
+                <SectionHeading as="h3" underline="thin">
+                  {isHebrew ? `בית ${groupId}` : `Group ${groupId}`}
+                </SectionHeading>
+                <Card className="p-4 md:p-5 flex flex-wrap items-center gap-3">
+                  {entry.teams.map((t) => (
+                    <div
+                      key={t.code}
+                      className="inline-flex items-center gap-2 min-w-0"
+                    >
+                      <Flag code={t.code} size={28} />
+                      <span className="text-sm font-bold text-on-surface truncate">
+                        {isHebrew ? t.nameHe : t.nameEn}
+                      </span>
+                    </div>
+                  ))}
+                </Card>
+                <div className="flex flex-col gap-3">
+                  {entry.bets.map((b) => (
+                    <PastCustomBetRow
+                      key={b.id}
+                      locale={locale}
+                      dict={dict}
+                      bet={b}
                     />
                   ))}
                 </div>

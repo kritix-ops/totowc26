@@ -1,7 +1,7 @@
 import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
 import { sql } from "drizzle-orm";
-import { Calendar, ListChecks } from "lucide-react";
+import { Calendar, History, ListChecks } from "lucide-react";
 import { getDictionary, hasLocale, type Locale } from "../dictionaries";
 import { Card } from "@/components/ui";
 import { PayGateBanner } from "@/components/PayGateBanner";
@@ -11,12 +11,14 @@ import { execRows } from "@/db/helpers";
 import { db } from "@/db";
 import { settings as settingsTable } from "@/db/schema";
 import { eq } from "drizzle-orm";
-import { getBetLockMinutes } from "@/db/queries";
+import { getBetLockMinutes, getPastMatchPicks } from "@/db/queries";
 import { formatDateTime } from "@/lib/format";
 import { localePath } from "@/lib/paths";
 import { BetsTabs } from "@/components/BetsTabs";
+import { BetsSubTabs, parseBetsView } from "@/components/BetsSubTabs";
 import { SurpriseMeButton } from "@/components/SurpriseMeButton";
 import { QuickPickRow, type QuickPickRowData } from "./QuickPickRow";
+import { PastMatchPickRow } from "./PastMatchPickRow";
 
 // /bets is the quick-fill picks page. One scrollable list of every
 // scheduled match across the whole tournament so the user can fill
@@ -36,6 +38,7 @@ type GroupedDay = {
 
 export default async function QuickBetsPage({
   params,
+  searchParams,
 }: PageProps<"/[lang]/bets">) {
   const { lang } = await params;
   if (!hasLocale(lang)) notFound();
@@ -43,9 +46,23 @@ export default async function QuickBetsPage({
   const dict = await getDictionary(locale);
   const isHebrew = locale === "he";
 
+  const sp = await searchParams;
+  const view = parseBetsView(sp.view);
+
   const user = await getRequestUser();
   if (!user) redirect(localePath(locale, "login"));
   const access = await getUserAccess(user.id);
+
+  if (view === "past") {
+    return (
+      <PastView
+        locale={locale}
+        dict={dict}
+        userId={user.id}
+        isHebrew={isHebrew}
+      />
+    );
+  }
 
   const [matches, lockMinutes, scoringRow] = await Promise.all([
     loadEditableMatches(user.id),
@@ -95,6 +112,7 @@ export default async function QuickBetsPage({
           {isHebrew ? "הימורים" : "Bets"}
         </h1>
         <BetsTabs locale={locale} active="match-picks" />
+        <BetsSubTabs locale={locale} path="bets" view="upcoming" />
         <h2 className="font-[family-name:var(--font-display)] text-lg md:text-xl font-bold text-on-surface inline-flex items-center gap-2 mt-2">
           <ListChecks className="h-5 w-5" strokeWidth={1.75} />
           {dict.quickBets.title}
@@ -220,3 +238,102 @@ async function loadEditableMatches(userId: string): Promise<QuickPickRowData[]> 
   `);
 }
 
+// /bets?view=past — read-only history of every match that has kicked
+// off (live or final), including ones the caller didn't pick. Grouped
+// by Asia/Jerusalem matchday like the upcoming view, but ordered
+// newest-first so the most recent matches sit at the top of the page.
+async function PastView({
+  locale,
+  dict,
+  userId,
+  isHebrew,
+}: {
+  locale: Locale;
+  dict: Awaited<ReturnType<typeof getDictionary>>;
+  userId: string;
+  isHebrew: boolean;
+}) {
+  let matches: Awaited<ReturnType<typeof getPastMatchPicks>> = [];
+  try {
+    matches = await getPastMatchPicks(userId);
+  } catch (err) {
+    console.error("[bets past] match-picks load threw", { userId, err });
+  }
+  console.info("[bets past] match-picks loaded", {
+    userId,
+    rowCount: matches.length,
+    view: "past",
+  });
+
+  // Group newest-day-first so the latest matchday's results appear at
+  // the top. Within a day, order DESC by kickoff so the last match of
+  // the night sits above the first.
+  type Day = {
+    date: string;
+    label: string;
+    matches: typeof matches;
+  };
+  const grouped = new Map<string, Day>();
+  for (const m of matches) {
+    const key = m.matchDate;
+    if (!grouped.has(key)) {
+      grouped.set(key, {
+        date: key,
+        label: formatDateTime(m.kickoffAt, locale, {
+          weekday: "long",
+          day: "numeric",
+          month: "long",
+        }),
+        matches: [],
+      });
+    }
+    grouped.get(key)!.matches.push(m);
+  }
+  const days = [...grouped.values()];
+
+  return (
+    <section className="px-4 md:px-16 py-6 md:py-12 flex flex-col gap-6 md:gap-8 max-w-3xl mx-auto w-full pb-24">
+      <header className="flex flex-col gap-3">
+        <h1 className="font-[family-name:var(--font-display)] text-[28px] leading-9 md:text-[40px] md:leading-[44px] font-bold text-primary">
+          {isHebrew ? "הימורים" : "Bets"}
+        </h1>
+        <BetsTabs locale={locale} active="match-picks" />
+        <BetsSubTabs locale={locale} path="bets" view="past" />
+        <h2 className="font-[family-name:var(--font-display)] text-lg md:text-xl font-bold text-on-surface inline-flex items-center gap-2 mt-2">
+          <History className="h-5 w-5" strokeWidth={1.75} />
+          {dict.pastBets.matchPicksTitle}
+        </h2>
+        <p className="text-sm text-on-surface-variant">
+          {dict.pastBets.matchPicksSubtitle}
+        </p>
+      </header>
+
+      {matches.length === 0 ? (
+        <Card className="p-6 text-center text-on-surface-variant">
+          {dict.pastBets.matchPicksEmpty}
+        </Card>
+      ) : (
+        <div className="flex flex-col gap-6">
+          {days.map((day) => (
+            <section key={day.date} className="flex flex-col gap-3">
+              <h2 className="font-[family-name:var(--font-display)] text-lg md:text-xl font-bold text-on-surface inline-flex items-center gap-2">
+                <Calendar
+                  className="h-4 w-4 text-tertiary-fixed-dim"
+                  strokeWidth={1.75}
+                />
+                {day.label}
+              </h2>
+              <ul className="flex flex-col gap-3">
+                {day.matches.map((m) => (
+                  <li key={m.id}>
+                    <PastMatchPickRow locale={locale} dict={dict} match={m} />
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
