@@ -45,6 +45,7 @@ import { usePendingAction } from "@/lib/use-pending-action";
 import { PillButton, LabelCaps, Chip } from "@/components/ui";
 import {
   setUserRole,
+  setUserPermissions,
   updateUserProfile,
   decidePayment,
   manualMarkPaid,
@@ -56,8 +57,15 @@ import {
   regenerateInviteLink,
 } from "./actions";
 import type { AdminUserRow } from "./queries";
+import {
+  ADMIN_PERMISSION_KEYS,
+  PERMISSION_LABELS,
+  hasAnyPermission,
+  type AdminPermissionKey,
+  type AdminPermissions,
+} from "@/lib/admin-paths";
 
-type FilterKey = "all" | "approved" | "pending" | "unpaid" | "admin" | "live_admin";
+type FilterKey = "all" | "approved" | "pending" | "unpaid" | "admin" | "scoped";
 type SortKey = "newest" | "oldest" | "points_desc" | "points_asc" | "name";
 
 const FILTERS_HE: Record<FilterKey, string> = {
@@ -66,7 +74,7 @@ const FILTERS_HE: Record<FilterKey, string> = {
   pending: "ממתינים",
   unpaid: "לא שילמו",
   admin: "אדמינים",
-  live_admin: "מנהלי לייב",
+  scoped: "עם הרשאות",
 };
 const FILTERS_EN: Record<FilterKey, string> = {
   all: "All",
@@ -74,7 +82,7 @@ const FILTERS_EN: Record<FilterKey, string> = {
   pending: "Pending",
   unpaid: "Unpaid",
   admin: "Admins",
-  live_admin: "Live admins",
+  scoped: "With permissions",
 };
 
 const SORTS_HE: Record<SortKey, string> = {
@@ -123,7 +131,8 @@ export function UsersExplorer({
       if (filter === "pending") return u.paymentStatus === "pending";
       if (filter === "unpaid") return !u.paymentStatus;
       if (filter === "admin") return u.role === "admin";
-      if (filter === "live_admin") return u.role === "live_bets_admin";
+      if (filter === "scoped")
+        return u.role !== "admin" && hasAnyPermission(u.permissions);
       return true;
     });
     list = [...list].sort((a, b) => {
@@ -422,7 +431,7 @@ function UsersTable({
                 </div>
               </td>
               <td className="px-3 py-3">
-                <RoleBadge role={u.role} isHebrew={isHebrew} />
+                <RoleBadge role={u.role} permissions={u.permissions} isHebrew={isHebrew} />
               </td>
               <td className="px-3 py-3">
                 <PaymentBadge status={u.paymentStatus} method={u.paymentMethod} isHebrew={isHebrew} />
@@ -500,7 +509,7 @@ function UserCard({
         </span>
       </div>
       <div className="flex items-center gap-2 flex-wrap">
-        <RoleBadge role={user.role} isHebrew={isHebrew} />
+        <RoleBadge role={user.role} permissions={user.permissions} isHebrew={isHebrew} />
         <PaymentBadge status={user.paymentStatus} method={user.paymentMethod} isHebrew={isHebrew} />
         <span className="text-xs text-on-surface-variant ms-auto">
           {formatDate(user.createdAt, locale)}
@@ -531,9 +540,11 @@ function Avatar({ name }: { name: string }) {
 
 function RoleBadge({
   role,
+  permissions,
   isHebrew,
 }: {
   role: "player" | "live_bets_admin" | "admin";
+  permissions: AdminPermissions;
   isHebrew: boolean;
 }) {
   if (role === "admin") {
@@ -544,11 +555,17 @@ function RoleBadge({
       </span>
     );
   }
-  if (role === "live_bets_admin") {
+  const grantedCount = ADMIN_PERMISSION_KEYS.reduce(
+    (n, k) => n + (permissions[k] ? 1 : 0),
+    0,
+  );
+  if (grantedCount > 0) {
     return (
       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-secondary-container text-on-secondary-container border border-secondary-fixed text-xs font-bold">
         <Sparkles className="h-3 w-3" strokeWidth={2} />
-        {isHebrew ? "מנהל לייב" : "Live admin"}
+        {isHebrew
+          ? `${grantedCount} הרשאות`
+          : `${grantedCount} permission${grantedCount > 1 ? "s" : ""}`}
       </span>
     );
   }
@@ -559,72 +576,96 @@ function RoleBadge({
   );
 }
 
-// Three-way role selector used inside the user drawer. The buttons are
-// stacked horizontally on every viewport and meet the 44px touch-target
-// rule. Clicking the currently-selected button is a no-op; clicking a
-// new one calls onChange (which the parent may intercept to ask for
-// confirmation before downgrading a full admin).
-function RoleSelector({
-  currentRole,
+// Inline editor for role + scoped permissions. Two concerns in one
+// block:
+//   1. A full-width primary action toggles the binary admin role.
+//      Demoting a full admin opens the existing confirm modal in the
+//      parent so it never happens by accident.
+//   2. A checkbox list lets the admin grant any combination of scoped
+//      permissions (live bets, tournament bets, tournament odds, etc).
+//      The checkboxes stay enabled even when the user is currently a
+//      full admin — the value is persisted but ignored while role is
+//      admin, so a future demotion to player reveals the prepared scope
+//      without a second round trip.
+function PermissionsEditor({
+  user,
   isHebrew,
   pending,
-  onChange,
+  onToggleAdmin,
+  onTogglePermission,
 }: {
-  currentRole: "player" | "live_bets_admin" | "admin";
+  user: AdminUserRow;
   isHebrew: boolean;
   pending: boolean;
-  onChange: (next: "player" | "live_bets_admin" | "admin") => void;
+  onToggleAdmin: (makeAdmin: boolean) => void;
+  onTogglePermission: (key: AdminPermissionKey, value: boolean) => void;
 }) {
-  const options: Array<{
-    key: "player" | "live_bets_admin" | "admin";
-    label: string;
-    icon: React.ReactNode;
-  }> = [
-    {
-      key: "player",
-      label: isHebrew ? "שחקן" : "Player",
-      icon: <ShieldOff className="h-4 w-4" strokeWidth={2} />,
-    },
-    {
-      key: "live_bets_admin",
-      label: isHebrew ? "מנהל לייב" : "Live admin",
-      icon: <Sparkles className="h-4 w-4" strokeWidth={2} />,
-    },
-    {
-      key: "admin",
-      label: isHebrew ? "אדמין" : "Admin",
-      icon: <Shield className="h-4 w-4" strokeWidth={2} />,
-    },
-  ];
+  const isAdminRole = user.role === "admin";
   return (
-    <div
-      role="radiogroup"
-      aria-label={isHebrew ? "תפקיד המשתמש" : "User role"}
-      className="grid grid-cols-3 gap-2"
-    >
-      {options.map((o) => {
-        const active = currentRole === o.key;
-        return (
-          <button
-            key={o.key}
-            type="button"
-            role="radio"
-            aria-checked={active}
-            disabled={pending}
-            onClick={() => onChange(o.key)}
-            className={clsx(
-              "press-down min-h-[48px] flex flex-col items-center justify-center gap-1 px-2 py-2 rounded-lg border text-xs font-bold transition-colors",
-              active
-                ? "bg-primary text-on-primary border-primary"
-                : "bg-surface-container-lowest text-on-surface border-outline-variant hover:bg-surface-container",
-              pending && "opacity-60 cursor-wait",
-            )}
-          >
-            {o.icon}
-            <span className="leading-none">{o.label}</span>
-          </button>
-        );
-      })}
+    <div className="flex flex-col gap-3">
+      <button
+        type="button"
+        disabled={pending}
+        onClick={() => onToggleAdmin(!isAdminRole)}
+        className={clsx(
+          "press-down min-h-[48px] w-full flex items-center gap-3 px-4 py-3 rounded-lg border text-base font-bold text-start transition-colors",
+          isAdminRole
+            ? "border-tertiary-fixed-dim bg-tertiary-fixed text-on-tertiary-fixed-variant"
+            : "border-outline-variant bg-surface-container-lowest hover:bg-surface-container",
+          pending && "opacity-60 cursor-wait",
+        )}
+      >
+        {isAdminRole ? (
+          <ShieldOff className="h-4 w-4" />
+        ) : (
+          <Shield className="h-4 w-4" />
+        )}
+        <span className="flex-1">
+          {isAdminRole
+            ? isHebrew ? "הסר הרשאת אדמין מלאה" : "Revoke full admin"
+            : isHebrew ? "הפוך לאדמין מלא" : "Make full admin"}
+        </span>
+      </button>
+
+      <div className="bg-surface-container-lowest border border-outline-variant rounded-lg p-3 flex flex-col gap-2">
+        <LabelCaps>
+          {isHebrew ? "הרשאות מותאמות" : "Scoped permissions"}
+        </LabelCaps>
+        <p className="text-xs text-on-surface-variant leading-5">
+          {isHebrew
+            ? "אדמין מלא מקבל הכל אוטומטית. ההרשאות כאן מעניקות גישה מצומצמת לעמודי הניהול הספציפיים — בלי שאר הניהול."
+            : "Full admin gets everything implicitly. The flags below grant scoped access to specific admin pages and nothing else."}
+        </p>
+        {ADMIN_PERMISSION_KEYS.map((k) => {
+          const checked = user.permissions[k] === true;
+          const label = PERMISSION_LABELS[k];
+          return (
+            <label
+              key={k}
+              className={clsx(
+                "flex items-start gap-3 p-2 rounded-md cursor-pointer transition-colors hover:bg-surface-container",
+                pending && "opacity-60 cursor-wait",
+              )}
+            >
+              <input
+                type="checkbox"
+                checked={checked}
+                disabled={pending}
+                onChange={(e) => onTogglePermission(k, e.target.checked)}
+                className="mt-1 w-5 h-5 accent-primary cursor-pointer shrink-0"
+              />
+              <div className="flex flex-col min-w-0">
+                <span className="font-bold text-sm">
+                  {isHebrew ? label.he : label.en}
+                </span>
+                <span className="text-xs text-on-surface-variant leading-5">
+                  {isHebrew ? label.help.he : label.help.en}
+                </span>
+              </div>
+            </label>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -697,11 +738,6 @@ function UserDrawer({
   const [phone, setPhone] = useState(user.phone);
   const [error, setError] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<"remove" | "reset" | "demote" | null>(null);
-  // When the admin clicks a non-admin chip while the user is currently
-  // 'admin', we open the demote confirm and remember the chosen target.
-  // ConfirmPanel reads this to label the button correctly and to apply
-  // the right role when the admin confirms.
-  const [demoteTarget, setDemoteTarget] = useState<"player" | "live_bets_admin">("player");
   const [regeneratedLink, setRegeneratedLink] = useState<string | null>(null);
   const [linkKind, setLinkKind] = useState<"invite" | "reset">("invite");
   const [linkCopied, setLinkCopied] = useState(false);
@@ -837,7 +873,7 @@ function UserDrawer({
           </div>
 
           <div className="flex items-center gap-2 flex-wrap">
-            <RoleBadge role={user.role} isHebrew={isHebrew} />
+            <RoleBadge role={user.role} permissions={user.permissions} isHebrew={isHebrew} />
             <PaymentBadge
               status={user.paymentStatus}
               method={user.paymentMethod}
@@ -919,29 +955,29 @@ function UserDrawer({
               () => wrap(() => manualMarkPaid(user.id, "paybox")),
             )}
 
-            <RoleSelector
-              currentRole={user.role}
+            <PermissionsEditor
+              user={user}
               isHebrew={isHebrew}
               pending={pending}
-              onChange={(next) => {
-                if (next === user.role) return;
-                // Demoting an admin (to either player or live_bets_admin)
-                // surrenders full-admin powers — show the confirm modal so
-                // it can never happen by accident. Every other transition
-                // is one-tap.
-                if (user.role === "admin" && next !== "admin") {
-                  setDemoteTarget(next);
+              onToggleAdmin={(makeAdmin) => {
+                if (user.role === "admin" && !makeAdmin) {
                   setConfirm("demote");
                   return;
                 }
-                wrap(() => setUserRole(user.id, next));
+                wrap(() =>
+                  setUserRole(user.id, makeAdmin ? "admin" : "player"),
+                );
+              }}
+              onTogglePermission={(key, value) => {
+                const next: Record<string, boolean> = {};
+                for (const k of ADMIN_PERMISSION_KEYS) {
+                  if (user.permissions[k]) next[k] = true;
+                }
+                if (value) next[key] = true;
+                else delete next[key];
+                wrap(() => setUserPermissions(user.id, next));
               }}
             />
-            <p className="text-xs text-on-surface-variant ps-1 leading-5">
-              {isHebrew
-                ? "מנהל לייב רואה רק את עמודי הימורי הלייב: יצירה, הצעות, מצב כולם, מועדי סגירה. אין לו גישה למשתתפים, תשלומים, הגדרות או הימורי טורניר."
-                : "Live admin sees only the live-bets pages: authoring, suggestions, everyone's bets, deadlines. No access to players, payments, settings, or tournament bets."}
-            </p>
 
             {user.email && action(
               isHebrew ? "אפס סיסמה" : "Reset password",
@@ -1002,7 +1038,6 @@ function UserDrawer({
               kind={confirm}
               isHebrew={isHebrew}
               userName={user.displayName}
-              demoteTarget={demoteTarget}
               onCancel={() => setConfirm(null)}
               onConfirm={() => {
                 if (confirm === "remove") {
@@ -1019,7 +1054,7 @@ function UserDrawer({
                   });
                 } else if (confirm === "demote") {
                   wrap(async () => {
-                    const r = await setUserRole(user.id, demoteTarget);
+                    const r = await setUserRole(user.id, "player");
                     setConfirm(null);
                     return r;
                   });
@@ -1140,7 +1175,6 @@ function ConfirmPanel({
   kind,
   isHebrew,
   userName,
-  demoteTarget,
   onCancel,
   onConfirm,
   pending,
@@ -1148,26 +1182,10 @@ function ConfirmPanel({
   kind: "remove" | "reset" | "demote";
   isHebrew: boolean;
   userName: string;
-  demoteTarget: "player" | "live_bets_admin";
   onCancel: () => void;
   onConfirm: () => void;
   pending: boolean;
 }) {
-  const demoteCopy: [string, string] =
-    demoteTarget === "live_bets_admin"
-      ? [
-          isHebrew ? "להחליף לאדמין הימורי לייב?" : "Switch to live-bets admin?",
-          isHebrew
-            ? `${userName} יאבד הרשאות אדמין מלאות וישאר עם גישה רק לעמודי הימורי הלייב.`
-            : `${userName} will lose full admin access and keep only the live-bets pages.`,
-        ]
-      : [
-          isHebrew ? "להוריד הרשאת אדמין?" : "Revoke admin?",
-          isHebrew
-            ? `${userName} יחזור לתפקיד משתתף רגיל.`
-            : `${userName} will become a regular player.`,
-        ];
-
   const titles: Record<typeof kind, [string, string]> = {
     remove: [
       isHebrew ? "להסיר את המשתתף?" : "Remove user?",
@@ -1181,7 +1199,12 @@ function ConfirmPanel({
         ? `הימורי המשחקים, דירוג הבתים והבראקט של ${userName} יימחקו. הפרופיל והתשלום יישמרו.`
         : `${userName}'s match bets, group ranking and bracket will be deleted. Profile and payment remain.`,
     ],
-    demote: demoteCopy,
+    demote: [
+      isHebrew ? "להוריד הרשאת אדמין?" : "Revoke admin?",
+      isHebrew
+        ? `${userName} יחזור לתפקיד משתתף רגיל. ההרשאות הספציפיות (לייב/טורניר/יחסים) יישמרו ויחזרו לפעולה.`
+        : `${userName} becomes a regular player. Their scoped permissions (live/tournament/odds) stay intact and resume scope-only access.`,
+    ],
   };
   const [title, body] = titles[kind];
 

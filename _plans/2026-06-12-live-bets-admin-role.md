@@ -1,142 +1,165 @@
-# Live-bets admin role
+# Admin permissions catalog
 
 **Date:** 2026-06-12
-**Status:** Approved by user 2026-06-12
+**Status:** Revision 2 — approved by user 2026-06-12 (same day)
+
+## Revision history
+
+- **R1 (morning):** Added a single `live_bets_admin` enum role.
+  Migration 0053 + first PR.
+- **R2 (afternoon):** Pivoted to a per-user permission catalog after
+  the user asked for additional scoped roles (tournament bets,
+  tournament odds, etc). A single enum value doesn't scale to that
+  request without combinatorial explosion. This doc describes R2; R1
+  artifacts are migrated forward (the old `live_bets_admin` enum value
+  stays in Postgres but is no longer assigned by the app).
 
 ## Goal
 
-Allow the main admin to designate certain users as "מנהל הימורי לייב" — a
-restricted admin who can only manage live bets (and the small set of pages that
-support that workflow). Everything else under `/admin/*` stays admin-only.
+Let the main admin grant fine-grained scoped powers to specific users
+without making them full admins. Today's needs:
+
+- Author / grade live bets and run their tooling.
+- Author / grade tournament bets (stage / group / tournament scope).
+- Edit tournament outright odds (king scorer, finalists, podium, etc).
+
+Future permissions just add a key — no migration shape change.
 
 ## Alignment captured with user
 
-Three explicit choices made by the user in chat:
+Three explicit choices made by the user:
 
-1. **Scope** — the live-bets admin sees four admin pages:
-   - `/admin/bets` (and every sub-path: `new`, `quick-add`, `duplicates`, `[id]`)
-   - `/admin/bets-overview`
-   - `/admin/live-bets/suggestions` (matchday AI suggestions)
-   - `/admin/deadlines` (per-match lock times)
-2. **Permissions** — full lifecycle on live bets: create, edit, publish, grade,
-   cancel, reverse. The user accepted that grading affects everyone's points;
-   they want trusted operators to handle the whole cycle.
-3. **Assignment** — a three-way role selector inside the existing user drawer
-   (`/admin/users` → drawer): `שחקן` / `מנהל לייב` / `אדמין`. Replaces the
-   binary "Make admin / Revoke admin" button.
+1. **Architecture** — switch from "one named role" to a JSONB permission
+   catalog on `profiles`. role stays binary (`player` / `admin`); the
+   scoped powers live next to it.
+2. **Initial catalog** — `liveBets`, `tournamentBets`, `tournamentOdds`.
+3. **Assignment UI** — checkbox list inside the existing user drawer
+   at `/admin/users` (not a dedicated permissions page).
 
 ## Data model
 
-Add `live_bets_admin` to the existing `role` pgEnum. New shape:
+`profiles.permissions JSONB NOT NULL DEFAULT '{}'::jsonb` with a CHECK
+constraint that the value is a JSON object. Canonical keys:
 
 ```
-CREATE TYPE role AS ENUM ('player', 'live_bets_admin', 'admin');
+liveBets          — /admin/bets, /admin/bets-overview,
+                    /admin/live-bets/*, /admin/deadlines
+tournamentBets    — /admin/tournament-suggestions
+tournamentOdds    — /admin/tournament-odds
 ```
 
-Three values, ordered from least to most privileged. The Postgres `is_admin()`
-function (used by RLS) is unchanged: it still matches only `role = 'admin'`.
-That is correct — the app uses the service-role pooler URL (`DATABASE_URL`),
-so RLS is not the security boundary for app code; the application gate is.
-RLS keeps `admin`-only semantics for any non-app direct-DB use.
+The Postgres `is_admin()` function (used by RLS) is unchanged: still
+matches only `role = 'admin'`. App code uses the service-role pooler
+URL and bypasses RLS — the application gate is authoritative.
 
-Migration `0053_live_bets_admin_role.sql` adds the enum value. Enum additions
-are idempotent in Postgres via `ALTER TYPE ... ADD VALUE IF NOT EXISTS`.
+Migration `0054_admin_permissions.sql`:
+
+1. Adds the column (default `{}`).
+2. Adds the JSONB-object CHECK constraint.
+3. Backfills any row with `role = 'live_bets_admin'` (from R1) to
+   `role = 'player'`, `permissions = {"liveBets": true}`. The enum
+   value still exists; the app stops assigning it. Removing it would
+   be a multi-step type-rename dance and is not worth it.
 
 ## Authorization model
 
-Two new helpers in `src/lib/admin.ts`:
+- `requireAdmin(locale)` — strict full admin only (unchanged).
+- `requireAdminAccess(locale)` — full admin OR any scoped permission.
+  Bounces unauthenticated / regular players. Used by the admin layout
+  and admin landing page.
+- `hasPermission(userId, key)` — gate for individual server actions.
+  Returns true for full admin (superset) or when the named permission
+  is set.
+- `getProfileAccess(userId)` — single read that returns
+  `{ role, permissions }` with permissions normalised through the
+  allowlist.
 
-- `isLiveBetsAdmin(userId)` — true for `admin` OR `live_bets_admin`.
-- `requireLiveBetsAdmin(locale)` — redirect-on-deny equivalent.
+Layout gate (`src/app/[lang]/admin/layout.tsx`):
 
-`isAdmin()` and `requireAdmin()` keep their existing semantics (strict admin).
+1. `requireAdminAccess` — bounces non-operators.
+2. For scoped operators (role !== 'admin'), reads `x-pathname` from
+   proxy and runs `isPermittedPath(permissions, pathAfterAdmin)`. Fails
+   closed for any path not declared in `PERMISSION_PATHS`.
 
-### Layout gate change
+This means a new admin route added later is automatically blocked from
+scoped operators until someone adds it to `PERMISSION_PATHS`.
 
-`/admin/layout.tsx` today calls `requireAdmin()`, which blocks live-bets
-admins from EVERY admin page. We can't keep that — they need access to the
-four whitelisted paths. We also can't simply loosen it, because most pages
-rely solely on the layout gate and would suddenly be visible.
+## Action gating
 
-Approach: the layout calls a new `requireAnyAdmin()` that allows either role,
-then enforces a path whitelist for live-bets admins by reading the
-`x-pathname` header (already set by `src/proxy.ts`). If the role is
-`live_bets_admin` and the path is not in `LIVE_BETS_ADMIN_PATHS`, we redirect
-to `/admin/bets` (their natural home).
+| Path | Permission |
+| --- | --- |
+| `/admin/bets/actions.ts` | `liveBets` |
+| `/admin/bets-overview/actions.ts` | `liveBets` |
+| `/admin/deadlines/actions.ts` | `liveBets` |
+| `/admin/live-bets/suggestions/actions.ts` | `liveBets` |
+| `/admin/tournament-suggestions/actions.ts` | `tournamentBets` |
+| `/admin/tournament-odds/actions.ts` | `tournamentOdds` |
 
-Defense in depth: every server action (and any page that already calls
-`requireAdmin()` directly) keeps that strict check. Only the four allowed
-action files / pages swap in `requireLiveBetsAdmin()`. New admin pages added
-later are automatically blocked from live-bets admins until they get
-whitelisted in the layout — fail-closed.
+`publishSurfaceToBet` in `tournament-odds/actions.ts` is called from
+the tournament-suggestions flow. The gate there accepts either
+`tournamentBets` or `tournamentOdds` so a `tournamentBets`-only operator
+can still publish a templated multi-choice bet without owning the odds
+editor.
 
-## Pages affected
+Full admin always passes; everywhere we check a permission we also
+implicitly allow `role = 'admin'`.
 
-**Allowed pages (relax to `requireLiveBetsAdmin`):**
-- `src/app/[lang]/admin/bets/page.tsx` (layout gate is enough)
-- `src/app/[lang]/admin/bets/actions.ts` (every server action)
-- `src/app/[lang]/admin/bets-overview/page.tsx` (re-checks → `requireLiveBetsAdmin`)
-- `src/app/[lang]/admin/bets-overview/actions.ts`
-- `src/app/[lang]/admin/live-bets/suggestions/actions.ts`
-- `src/app/[lang]/admin/deadlines/actions.ts`
+## UI
 
-**Admin landing page (`/admin/page.tsx`):**
-Conditionally render. For `live_bets_admin`, show only the four tiles that
-correspond to allowed pages and a single section header; hide the pot total
-card, sandbox tile, signup-requests badge, etc.
-
-**User drawer (`UsersExplorer.tsx`):**
-Three-way role selector: tri-state segmented control / chips. Renames the
-existing label, updates the role badge to support three values, and threads
-the new role through `setUserRole`.
-
-## Security
-
-- New role does NOT pass the Postgres `is_admin()` function, so direct-DB
-  access still treats them as players.
-- New role does NOT change `getUserAccess.isAdmin` in `src/lib/access.ts` —
-  live-bets admins are NOT general admins for purposes of the public app
-  (bet placement, duels, etc.). They get player-level privileges everywhere
-  outside their four whitelisted admin pages.
-- `setUserRole` keeps the existing `last_admin` and `cannot_demote_self`
-  guards. Demoting yourself from `admin` → `live_bets_admin` is also blocked
-  by the existing self-protection (same as demoting to player).
-- Action files for non-whitelisted paths stay on `isAdmin()`. A live-bets
-  admin who tries to POST directly to e.g. `/admin/users` server actions
-  gets `forbidden`.
-
-## Observability
-
-Per CLAUDE.md rule 14, namespaced logs added:
-
-- `[admin gate]` — layout decisions (which role, allowed/denied path).
-- `[role change]` — every `setUserRole` invocation with before/after.
-- `[live-bets gate]` — `requireLiveBetsAdmin` denials.
+- **User drawer** — `PermissionsEditor` block replaces the binary
+  "Make admin" button. Top: a full-width primary button toggles the
+  admin role (demoting opens the existing confirm modal). Below: a
+  checkbox list, one row per canonical permission, each with a label
+  and a one-line help string. Saving a checkbox is one tap (no confirm)
+  because the worst case is "operator briefly held a permission they
+  shouldn't" — the admin can flip it back without any data loss.
+- **User list filter** — adds a "With permissions" chip alongside
+  "Admins" so the admin can see every operator at a glance.
+- **Role badge** — full admin shows "Admin". Scoped operator shows
+  "N permissions" so the badge stays useful as the catalog grows.
+- **Admin landing** — full admin sees the full grid. Scoped operator
+  sees only the sections matching their granted permissions, plus a
+  one-line explainer about who to ask for more.
+- **Profile page** — own profile shows the comma-separated list of
+  granted permissions so an operator can verify their scope.
 
 ## Settings
 
-Per CLAUDE.md rule 15, no new settings — the role is a per-user attribute,
-not a tunable.
+No new settings. The catalog is hard-coded in TypeScript and DB; the
+admin grants per-user from the drawer.
 
-## Testing
+## Observability
 
-Per CLAUDE.md rule 18:
+- `[admin gate] no access` — `requireAdminAccess` denial.
+- `[admin gate] scoped operator bounced from path` — layout bounce.
+- `[role change]` — admin↔player flip.
+- `[permissions change]` — every `setUserPermissions` write, with
+  before/after JSONB.
 
-- Unit test (or extend `src/lib/bank.test.ts` style) that mocks profile rows
-  and asserts:
-  - `requireLiveBetsAdmin` permits `admin` and `live_bets_admin`, redirects
-    `player`.
-  - `isLiveBetsAdmin` returns true for both privileged roles, false for
-    player.
-  - `setUserRole` rejects self-demotion (any target role) and last-admin
-    demotion to either non-admin role.
+## Tests
+
+`src/lib/admin.test.ts` covers the pure deterministic surface:
+
+- `normalizePermissions` — allowlist enforcement, type coercion.
+- `hasAnyPermission` / `grantedPathsFor` / `isPermittedPath` — full
+  matrix of granted-vs-denied permutations across the catalog.
+- Fail-closed checks for prefix-collision paths (e.g. `betsx`).
+- Sanity check: every catalog key has a non-empty path list.
 
 ## Out of scope
 
-- No audit log for live-bets admin actions beyond what `bet_admin_audit`
-  already records for grading. Promotion/demotion does not yet have its own
-  audit table — same as today's binary admin toggle.
-- No quota / time-window limits on a live-bets admin (e.g. "this user can
-  only grade matches today"). Future enhancement.
-- No "view as" / impersonation support for the new role. Admin keeps
-  exclusive use of that path.
+- No audit log table for permission changes beyond stdout logs.
+- No "view as" / impersonation support for scoped operators.
+- No time-bounded or quota-bounded permissions.
+- No client-side enforcement — every gate is server-side.
+
+## Migration / rollout notes
+
+- The migration is idempotent: `ADD COLUMN IF NOT EXISTS`, single
+  `UPDATE` that's a no-op when no rows match.
+- Reverting is single-step: drop the column. CHECK constraint is named
+  so the rollback can target it explicitly.
+- Any user who held `role = 'live_bets_admin'` between R1 and R2
+  retains live-bets access (their permission flag is set during the
+  backfill). The role enum value remains in the DB but is no longer
+  assigned by app code.

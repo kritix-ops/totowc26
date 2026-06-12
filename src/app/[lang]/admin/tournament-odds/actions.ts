@@ -10,7 +10,7 @@ import {
   type OutrightSurface,
 } from "@/db/schema";
 import { getUser } from "@/lib/supabase/auth";
-import { isAdmin } from "@/lib/admin";
+import { hasPermission } from "@/lib/admin";
 import { buildOutrightCurve } from "@/lib/odds-normalize";
 import {
   OUTRIGHT_CURVE_FLOOR,
@@ -41,14 +41,26 @@ type ActionResult<T = void> =
   | (T extends void ? { ok: true } : { ok: true; data: T })
   | { ok: false; error: string };
 
-async function requireAdmin(): Promise<
+// Gates every tournament-odds write. The 'tournamentOdds' permission
+// (or full admin) is required. publishSurfaceToBet runs through the
+// tournament-bets path internally — when the suggestions page calls
+// into it, we accept either tournamentBets or tournamentOdds so the
+// admin can grant just one without breaking the publish-from-template
+// flow. See _plans/2026-06-12-live-bets-admin-role.md (revision 2).
+async function requireOddsAccess(opts?: {
+  via: "odds-editor" | "tournament-publish";
+}): Promise<
   | { ok: true; userId: string }
   | { ok: false; error: "unauth" | "forbidden" }
 > {
   const user = await getUser();
   if (!user) return { ok: false, error: "unauth" };
-  const admin = await isAdmin(user.id);
-  if (!admin) return { ok: false, error: "forbidden" };
+  const allowed =
+    opts?.via === "tournament-publish"
+      ? (await hasPermission(user.id, "tournamentBets")) ||
+        (await hasPermission(user.id, "tournamentOdds"))
+      : await hasPermission(user.id, "tournamentOdds");
+  if (!allowed) return { ok: false, error: "forbidden" };
   return { ok: true, userId: user.id };
 }
 
@@ -61,7 +73,7 @@ export async function updateRowDecimalOdds(input: {
   decimalOdds: number;
   adminOverride?: boolean;
 }): Promise<ActionResult> {
-  const auth = await requireAdmin();
+  const auth = await requireOddsAccess();
   if (!auth.ok) return auth;
 
   if (
@@ -100,7 +112,7 @@ export async function toggleRowAdminOverride(input: {
   rowId: string;
   adminOverride: boolean;
 }): Promise<ActionResult> {
-  const auth = await requireAdmin();
+  const auth = await requireOddsAccess();
   if (!auth.ok) return auth;
 
   try {
@@ -133,7 +145,12 @@ export async function publishSurfaceToBet(input: {
   surface: OutrightSurface;
   customBetId: string;
 }): Promise<ActionResult<{ updated: number; longshot: number }>> {
-  const auth = await requireAdmin();
+  // publishSurfaceToBet is called from /admin/tournament-suggestions
+  // when an admin/operator publishes a multi-choice template that
+  // sources its prices from a snapshot. Allow either tournamentBets or
+  // tournamentOdds permission so a tournament-bets-only operator can
+  // still publish without holding the odds-editor permission.
+  const auth = await requireOddsAccess({ via: "tournament-publish" });
   if (!auth.ok) return auth;
 
   try {

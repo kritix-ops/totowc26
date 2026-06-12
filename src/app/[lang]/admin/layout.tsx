@@ -1,10 +1,7 @@
 import { headers } from "next/headers";
 import { notFound, redirect } from "next/navigation";
 import { hasLocale, type Locale } from "../dictionaries";
-import {
-  isLiveBetsAdminPath,
-  requireLiveBetsAdmin,
-} from "@/lib/admin";
+import { isPermittedPath, requireAdminAccess } from "@/lib/admin";
 import { localePath } from "@/lib/paths";
 
 // Admin pages always read request-bound state (auth, settings, per-user
@@ -21,26 +18,25 @@ export default async function AdminLayout({
   if (!hasLocale(lang)) notFound();
   const locale = lang as Locale;
 
-  // Layout-level gate accepts both 'admin' and 'live_bets_admin'. The
-  // path whitelist below then bounces a live-bets admin out of any admin
-  // page that isn't in LIVE_BETS_ADMIN_PATHS. Server actions and the
-  // handful of pages that re-check `isAdmin()` directly are the
-  // defense-in-depth layer — they still enforce strict admin for
-  // anything outside the live-bets surface.
-  const { user, profile } = await requireLiveBetsAdmin(locale);
+  // Layout-level gate: full admins pass; scoped operators pass IF
+  // they hold at least one permission. Pathname is read from the
+  // x-pathname header set by src/proxy.ts so we can enforce the
+  // per-permission path whitelist below.
+  const { user, access } = await requireAdminAccess(locale);
 
-  if (profile.role === "live_bets_admin") {
+  if (access.role !== "admin") {
     const pathname = (await headers()).get("x-pathname") ?? "";
     const adminPrefix = `/${locale}/admin`;
     const rest = pathname.startsWith(adminPrefix)
       ? pathname.slice(adminPrefix.length).replace(/^\//, "")
       : "";
-    if (!isLiveBetsAdminPath(rest)) {
-      console.info("[admin gate] live-bets admin bounced from path", {
+    if (!isPermittedPath(access.permissions, rest)) {
+      console.info("[admin gate] scoped operator bounced from path", {
         userId: user.id,
         pathname,
+        permissions: access.permissions,
       });
-      redirect(localePath(locale, "admin/bets"));
+      redirect(localePath(locale, "admin"));
     }
   }
 

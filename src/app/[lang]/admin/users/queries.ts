@@ -9,6 +9,7 @@ export type AdminUserRow = {
   displayName: string;
   phone: string;
   role: "player" | "live_bets_admin" | "admin";
+  permissions: import("@/lib/admin").AdminPermissions;
   avatarUrl: string | null;
   createdAt: string;
   paymentId: string | null;
@@ -38,6 +39,7 @@ export async function fetchAdminUsers(): Promise<AdminUserRow[]> {
       p.display_name                 as "displayName",
       p.phone                        as "phone",
       p.role::text                   as "role",
+      p.permissions                  as "permissions",
       p.avatar_url                   as "avatarUrl",
       p.created_at                   as "createdAt",
       pay.id::text                   as "paymentId",
@@ -355,6 +357,7 @@ export type AdminUserBasic = {
   displayName: string;
   phone: string;
   role: "player" | "live_bets_admin" | "admin";
+  permissions: import("@/lib/admin").AdminPermissions;
 };
 
 export async function fetchUserBasic(
@@ -365,7 +368,8 @@ export async function fetchUserBasic(
       p.id::text       as "id",
       p.display_name   as "displayName",
       p.phone          as "phone",
-      p.role::text     as "role"
+      p.role::text     as "role",
+      p.permissions    as "permissions"
     from public.profiles p
     where p.id = ${userId}
     limit 1

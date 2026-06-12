@@ -379,6 +379,13 @@
       "when": 1782165000000,
       "tag": "0053_live_bets_admin_role",
       "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1782170000000,
+      "tag": "0054_admin_permissions",
+      "breakpoints": true
     }
   ]
 }

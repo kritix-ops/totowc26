@@ -35,6 +35,12 @@ import {
 } from "@/db/queries";
 import { db } from "@/db";
 import { profiles, settings } from "@/db/schema";
+import {
+  ADMIN_PERMISSION_KEYS,
+  PERMISSION_LABELS,
+  hasAnyPermission,
+  type AdminPermissions,
+} from "@/lib/admin-paths";
 import { eq } from "drizzle-orm";
 import { Card, LabelCaps, ScoreLine, SectionHeading, Chip } from "@/components/ui";
 import { Flag } from "@/components/Flag";
@@ -110,6 +116,7 @@ export default async function ProfilePage({
         .select({
           displayName: profiles.displayName,
           role: profiles.role,
+          permissions: profiles.permissions,
           pushOptIn: profiles.pushOptIn,
           smartHubEnabled: profiles.smartHubEnabled,
           pushLockReminders: profiles.pushLockReminders,
@@ -120,7 +127,8 @@ export default async function ProfilePage({
         .limit(1),
       [] as Array<{
         displayName: string;
-        role: "player" | "admin";
+        role: "player" | "live_bets_admin" | "admin";
+        permissions: AdminPermissions;
         pushOptIn: boolean;
         smartHubEnabled: boolean;
         pushLockReminders: boolean;
@@ -198,9 +206,12 @@ export default async function ProfilePage({
               {isHebrew ? "אדמין" : "Admin"}
             </p>
           )}
-          {profile?.role === "live_bets_admin" && (
+          {profile && profile.role !== "admin" && hasAnyPermission(profile.permissions) && (
             <p className="text-xs font-bold text-secondary">
-              {isHebrew ? "מנהל הימורי לייב" : "Live bets admin"}
+              {isHebrew ? "מנהל עם הרשאות:" : "Operator:"}{" "}
+              {ADMIN_PERMISSION_KEYS.filter((k) => profile.permissions[k])
+                .map((k) => (isHebrew ? PERMISSION_LABELS[k].he : PERMISSION_LABELS[k].en))
+                .join(isHebrew ? ", " : ", ")}
             </p>
           )}
         </div>

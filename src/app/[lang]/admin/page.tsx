@@ -25,7 +25,7 @@ import {
   getPaymentTotals,
 } from "@/db/admin-queries";
 import { isSandbox } from "@/lib/env";
-import { requireLiveBetsAdmin } from "@/lib/admin";
+import { requireAdminAccess } from "@/lib/admin";
 import { countPendingSignups } from "./signup-requests/queries";
 import { AdminSection, AdminTile } from "./AdminSections";
 
@@ -43,11 +43,13 @@ export default async function AdminPage({
   const locale = lang as Locale;
   const isHebrew = locale === "he";
 
-  // Re-resolve the role here so the landing page can render a stripped
-  // tile set for a live-bets admin. The layout already enforced the
-  // role floor; this is a render-time branch, not a security gate.
-  const { profile } = await requireLiveBetsAdmin(locale);
-  const isFullAdmin = profile.role === "admin";
+  // Resolve the viewer's role and permission set. The layout already
+  // enforced access (path-level too) — this is a render-time branch so
+  // we can hide tiles a scoped operator cannot reach.
+  const { access } = await requireAdminAccess(locale);
+  const isFullAdmin = access.role === "admin";
+  const can = (k: "liveBets" | "tournamentBets" | "tournamentOdds") =>
+    isFullAdmin || access.permissions[k] === true;
 
   const [totals, duplicateBetCount, pendingSignupCount] = await Promise.all([
     isFullAdmin ? getPaymentTotals() : Promise.resolve({ approvedSumIls: 0, pendingCount: 0 }),
@@ -65,51 +67,75 @@ export default async function AdminPage({
       <section className="px-4 md:px-10 py-6 md:py-12 flex flex-col gap-6 md:gap-8 max-w-5xl mx-auto w-full pb-24 md:pb-12">
         <header className="flex flex-col gap-2">
           <h1 className="font-[family-name:var(--font-display)] text-[28px] leading-9 md:text-[48px] md:leading-[52px] font-bold text-primary">
-            {isHebrew ? "ניהול הימורי לייב" : "Live bets admin"}
+            {isHebrew ? "ניהול" : "Admin"}
           </h1>
           <p className="text-sm md:text-base text-on-surface-variant">
             {isHebrew
-              ? "כל מה שקשור לחיים של הימור לייב: יצירה, הצעות אוטומטיות, מעקב והגדרת מועדי סגירה."
-              : "Everything tied to the live-bet flow: authoring, AI suggestions, monitoring and lock deadlines."}
+              ? "אלה הכלים שיש לך הרשאה אליהם. אם חסר משהו, בקש מהאדמין הראשי להוסיף את ההרשאה."
+              : "These are the tools you have permission to use. If something is missing, ask the main admin to grant the permission."}
           </p>
         </header>
 
-        <AdminSection title={isHebrew ? "הימורי לייב" : "Live bets"}>
-          <AdminTile
-            locale={locale}
-            path="admin/bets"
-            icon={<Sparkles className="h-5 w-5" strokeWidth={1.75} />}
-            label={isHebrew ? "הימורי לייב" : "Live bets"}
-          />
-          <AdminTile
-            locale={locale}
-            path="admin/live-bets/suggestions"
-            icon={<Grid3x3 className="h-5 w-5" strokeWidth={1.75} />}
-            label={isHebrew ? "הצעות יום משחקים" : "Matchday suggestions"}
-          />
-          <AdminTile
-            locale={locale}
-            path="admin/bets-overview"
-            icon={<Grid3x3 className="h-5 w-5" strokeWidth={1.75} />}
-            label={isHebrew ? "מצב הימורי כולם" : "Everyone's bets"}
-          />
-          <AdminTile
-            locale={locale}
-            path="admin/deadlines"
-            icon={<Clock className="h-5 w-5" strokeWidth={1.75} />}
-            label={isHebrew ? "מועדי סגירה" : "Deadlines"}
-          />
-          {duplicateBetCount > 0 && (
+        {can("liveBets") && (
+          <AdminSection title={isHebrew ? "הימורי לייב" : "Live bets"}>
             <AdminTile
               locale={locale}
-              path="admin/bets/duplicates"
-              icon={<Copy className="h-5 w-5" strokeWidth={1.75} />}
-              label={isHebrew ? "כפילויות הימורים" : "Duplicate bets"}
-              badge={duplicateBetCount}
-              tone="warning"
+              path="admin/bets"
+              icon={<Sparkles className="h-5 w-5" strokeWidth={1.75} />}
+              label={isHebrew ? "הימורי לייב" : "Live bets"}
             />
-          )}
-        </AdminSection>
+            <AdminTile
+              locale={locale}
+              path="admin/live-bets/suggestions"
+              icon={<Grid3x3 className="h-5 w-5" strokeWidth={1.75} />}
+              label={isHebrew ? "הצעות יום משחקים" : "Matchday suggestions"}
+            />
+            <AdminTile
+              locale={locale}
+              path="admin/bets-overview"
+              icon={<Grid3x3 className="h-5 w-5" strokeWidth={1.75} />}
+              label={isHebrew ? "מצב הימורי כולם" : "Everyone's bets"}
+            />
+            <AdminTile
+              locale={locale}
+              path="admin/deadlines"
+              icon={<Clock className="h-5 w-5" strokeWidth={1.75} />}
+              label={isHebrew ? "מועדי סגירה" : "Deadlines"}
+            />
+            {duplicateBetCount > 0 && (
+              <AdminTile
+                locale={locale}
+                path="admin/bets/duplicates"
+                icon={<Copy className="h-5 w-5" strokeWidth={1.75} />}
+                label={isHebrew ? "כפילויות הימורים" : "Duplicate bets"}
+                badge={duplicateBetCount}
+                tone="warning"
+              />
+            )}
+          </AdminSection>
+        )}
+
+        {can("tournamentBets") && (
+          <AdminSection title={isHebrew ? "הימורי טורניר" : "Tournament bets"}>
+            <AdminTile
+              locale={locale}
+              path="admin/tournament-suggestions"
+              icon={<Trophy className="h-5 w-5" strokeWidth={1.75} />}
+              label={isHebrew ? "הימורי טורניר" : "Tournament bets"}
+            />
+          </AdminSection>
+        )}
+
+        {can("tournamentOdds") && (
+          <AdminSection title={isHebrew ? "יחסים" : "Odds"}>
+            <AdminTile
+              locale={locale}
+              path="admin/tournament-odds"
+              icon={<ScrollText className="h-5 w-5" strokeWidth={1.75} />}
+              label={isHebrew ? "יחסי טורניר" : "Tournament odds"}
+            />
+          </AdminSection>
+        )}
       </section>
     );
   }

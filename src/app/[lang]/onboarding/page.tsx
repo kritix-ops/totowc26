@@ -8,6 +8,7 @@ import { localePath } from "@/lib/paths";
 import { getDictionary, hasLocale, type Locale } from "../dictionaries";
 import { BrandLogo } from "@/components/BrandLogo";
 import { OnboardingForm } from "./OnboardingForm";
+import { hasAnyPermission, normalizePermissions } from "@/lib/admin-paths";
 
 export default async function OnboardingPage({
   params,
@@ -35,16 +36,16 @@ export default async function OnboardingPage({
 
   const payboxUrl = await getPayboxUrl();
 
-  // Operators (admin and live_bets_admin) skip the payment step — they
-  // may never play, so we don't want them stuck on the onboarding screen
-  // forever. A live_bets_admin who DOES want to place bets will pay
-  // through /pay like any player; the bet-write gate requires isPaid
-  // regardless of operator role. For players, both profile and payment
-  // must be set before they reach the dashboard.
+  // Operators (full admin OR anyone with at least one scoped admin
+  // permission) skip the payment step. They may never play, so the
+  // onboarding screen would be a dead end. The bet-write gate still
+  // requires isPaid, so an operator who DOES want to bet still has to
+  // pay; the difference is they're no longer trapped on /onboarding.
   const profileComplete =
     !!profile && profile.displayName.length >= 2 && profile.phone.length >= 7;
   const isOperator =
-    profile?.role === "admin" || profile?.role === "live_bets_admin";
+    profile?.role === "admin" ||
+    (!!profile && hasAnyPermission(normalizePermissions(profile.permissions)));
   if (profileComplete && (isOperator || latestPayment?.status === "approved")) {
     redirect(localePath(locale));
   }

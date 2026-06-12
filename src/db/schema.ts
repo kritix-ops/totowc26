@@ -100,12 +100,34 @@ export const duelStatusEnum = pgEnum("duel_status", [
   "cancelled",
 ]);
 
+// Canonical operator-permission keys. Drives the JSONB column on
+// profiles + the path whitelist in src/lib/admin-paths.ts + the
+// checkbox list in the user drawer. New keys are added here, then
+// surfaced everywhere via type inference. Keep alphabetised.
+export const ADMIN_PERMISSION_KEYS = [
+  "liveBets",
+  "tournamentBets",
+  "tournamentOdds",
+] as const;
+export type AdminPermissionKey = (typeof ADMIN_PERMISSION_KEYS)[number];
+
 // profiles: extends Supabase auth.users (FK added via raw SQL migration)
 export const profiles = pgTable("profiles", {
   id: uuid("id").primaryKey(), // matches auth.users.id
   displayName: text("display_name").notNull(),
   phone: text("phone").notNull(),
   role: roleEnum("role").notNull().default("player"),
+  // Per-user operator permissions. Empty object = no scoped operator
+  // powers (the user is a plain player unless role = 'admin'). Schema
+  // is { liveBets?: boolean, tournamentBets?: boolean, tournamentOdds?:
+  // boolean }. New keys are added via migration; src/lib/admin.ts
+  // validates against the canonical allowlist. Admin gets everything
+  // implicitly, so this column is ignored when role = 'admin'.
+  // See _plans/2026-06-12-live-bets-admin-role.md (revision 2).
+  permissions: jsonb("permissions")
+    .$type<Partial<Record<AdminPermissionKey, boolean>>>()
+    .notNull()
+    .default({}),
   avatarUrl: text("avatar_url"),
   // Opt-in for push notifications (lock reminders). Default false:
   // even after the browser grants permission and a subscription is

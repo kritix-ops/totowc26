@@ -6,19 +6,31 @@ import { profiles } from "@/db/schema";
 import { getUser } from "./supabase/auth";
 import { localePath } from "./paths";
 import type { Locale } from "@/app/[lang]/dictionaries";
+import {
+  type AdminPermissionKey,
+  type AdminPermissions,
+  hasAnyPermission,
+  normalizePermissions,
+} from "./admin-paths";
 
-// Role hierarchy (least → most privileged):
-//   player           — regular participant
-//   live_bets_admin  — scoped admin: live bets + matchday suggestions +
-//                      bets-overview + per-match deadlines, nothing else
-//   admin            — full admin
+// Authorization model (since 2026-06-12):
 //
-// requireAdmin / isAdmin gate the FULL admin surface (strict). The
-// live-bets pair (requireLiveBetsAdmin / isLiveBetsAdmin) accepts either
-// 'admin' or 'live_bets_admin'. A regular admin is always also a
-// live-bets admin (superset). See _plans/2026-06-12-live-bets-admin-role.md.
+//   role = 'admin'   → full access to every admin surface
+//   role = 'player'  → no admin access UNLESS profiles.permissions
+//                      has at least one flag set; then the user gets
+//                      scoped access to the matching paths
+//
+//   The legacy 'live_bets_admin' enum value is no longer assigned by
+//   the app (migration 0054 migrated existing rows to player+permissions).
+//   The enum value still exists in Postgres; code treats it as 'player'
+//   for safety.
 
 export type AdminRole = "admin" | "live_bets_admin";
+
+export type ProfileAccess = {
+  role: "player" | "admin" | "live_bets_admin";
+  permissions: AdminPermissions;
+};
 
 export async function requireAdmin(locale: Locale) {
   const user = await getUser();
@@ -45,40 +57,66 @@ export async function isAdmin(userId: string): Promise<boolean> {
   return profile?.role === "admin";
 }
 
-// Gate for the live-bets admin surface. Lets `admin` and `live_bets_admin`
-// through; bounces `player` (and unauthenticated users) home. The caller
-// site (page or server action) should still consult LIVE_BETS_ADMIN_PATHS
-// or a domain-specific predicate to keep live-bets admins out of pages
-// they shouldn't reach — this helper only enforces the role floor.
-export async function requireLiveBetsAdmin(locale: Locale) {
-  const user = await getUser();
-  if (!user) redirect(localePath(locale, "login"));
-
-  const [profile] = await db
-    .select({ role: profiles.role })
-    .from(profiles)
-    .where(eq(profiles.id, user.id))
-    .limit(1);
-
-  if (
-    !profile ||
-    (profile.role !== "admin" && profile.role !== "live_bets_admin")
-  ) {
-    console.info("[live-bets gate] denied", { userId: user.id, role: profile?.role });
-    redirect(localePath(locale));
-  }
-  return { user, profile: profile as { role: AdminRole } };
-}
-
-export async function isLiveBetsAdmin(userId: string): Promise<boolean> {
-  const [profile] = await db
-    .select({ role: profiles.role })
+// Read the row that drives every admin gate downstream: the role + the
+// normalized permission set. Centralised so callers can branch off a
+// single object instead of issuing two queries.
+export async function getProfileAccess(
+  userId: string,
+): Promise<ProfileAccess | null> {
+  const [row] = await db
+    .select({ role: profiles.role, permissions: profiles.permissions })
     .from(profiles)
     .where(eq(profiles.id, userId))
     .limit(1);
-  return profile?.role === "admin" || profile?.role === "live_bets_admin";
+  if (!row) return null;
+  return {
+    role: row.role,
+    permissions: normalizePermissions(row.permissions),
+  };
 }
 
-// Whitelist constants live in admin-paths.ts (no server-only / no
-// Supabase) so they can be unit-tested without an env-loaded runtime.
-export { LIVE_BETS_ADMIN_PATHS, isLiveBetsAdminPath } from "./admin-paths";
+// True when the user holds the named permission (or is a full admin).
+// Use this in server actions, e.g.
+//   if (!(await hasPermission(user.id, "liveBets"))) return forbidden.
+export async function hasPermission(
+  userId: string,
+  permission: AdminPermissionKey,
+): Promise<boolean> {
+  const access = await getProfileAccess(userId);
+  if (!access) return false;
+  if (access.role === "admin") return true;
+  return access.permissions[permission] === true;
+}
+
+// Page-level gate. Bounces if the user has neither full admin nor any
+// scoped permission. Returns the role + permission set so the page can
+// branch its rendering. The path whitelist is enforced by the admin
+// layout, not here — this only ensures the caller is some kind of
+// operator. See _plans/2026-06-12-live-bets-admin-role.md (revision 2).
+export async function requireAdminAccess(locale: Locale) {
+  const user = await getUser();
+  if (!user) redirect(localePath(locale, "login"));
+
+  const access = await getProfileAccess(user.id);
+  const isFullAdmin = access?.role === "admin";
+  const hasScoped = access ? hasAnyPermission(access.permissions) : false;
+
+  if (!isFullAdmin && !hasScoped) {
+    console.info("[admin gate] no access", { userId: user.id, role: access?.role });
+    redirect(localePath(locale));
+  }
+  return { user, access: access! };
+}
+
+// Re-export the path catalog so callers don't need two imports.
+export {
+  PERMISSION_PATHS,
+  PERMISSION_LABELS,
+  ADMIN_PERMISSION_KEYS,
+  isPermittedPath,
+  grantedPathsFor,
+  hasAnyPermission,
+  normalizePermissions,
+  type AdminPermissions,
+  type AdminPermissionKey,
+} from "./admin-paths";

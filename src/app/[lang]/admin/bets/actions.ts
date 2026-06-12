@@ -13,7 +13,7 @@ import {
   userCustomBetPicks,
 } from "@/db/schema";
 import { getUser } from "@/lib/supabase/auth";
-import { isLiveBetsAdmin } from "@/lib/admin";
+import { hasPermission } from "@/lib/admin";
 import type {
   AnswerConfig,
   GradingConfig,
@@ -87,7 +87,7 @@ export async function createCustomBet(
 ): Promise<CreateCustomBetResult> {
   const user = await getUser();
   if (!user) return { ok: false, error: "unauth" };
-  if (!(await isLiveBetsAdmin(user.id))) {
+  if (!(await hasPermission(user.id, "liveBets"))) {
     console.warn("[bet create denied]", { userId: user.id });
     return { ok: false, error: "forbidden" };
   }
@@ -243,7 +243,7 @@ export async function updateCustomBet(
 ): Promise<UpdateCustomBetResult> {
   const user = await getUser();
   if (!user) return { ok: false, error: "unauth" };
-  if (!(await isLiveBetsAdmin(user.id))) {
+  if (!(await hasPermission(user.id, "liveBets"))) {
     console.warn("[bet update denied]", { userId: user.id, id });
     return { ok: false, error: "forbidden" };
   }
@@ -390,7 +390,7 @@ export async function setTemplateArchived(
 ): Promise<SetTemplateArchivedResult> {
   const user = await getUser();
   if (!user) return { ok: false, error: "unauth" };
-  if (!(await isLiveBetsAdmin(user.id))) {
+  if (!(await hasPermission(user.id, "liveBets"))) {
     console.warn("[template archive denied]", { userId: user.id, id });
     return { ok: false, error: "forbidden" };
   }
@@ -433,7 +433,7 @@ export async function publishCustomBet(
 ): Promise<PublishCustomBetResult> {
   const user = await getUser();
   if (!user) return { ok: false, error: "unauth" };
-  if (!(await isLiveBetsAdmin(user.id))) {
+  if (!(await hasPermission(user.id, "liveBets"))) {
     console.warn("[bet publish denied]", { userId: user.id, id });
     return { ok: false, error: "forbidden" };
   }
@@ -477,7 +477,7 @@ export async function cancelCustomBet(
 ): Promise<{ ok: true } | { ok: false; error: Err }> {
   const user = await getUser();
   if (!user) return { ok: false, error: "unauth" };
-  if (!(await isLiveBetsAdmin(user.id))) {
+  if (!(await hasPermission(user.id, "liveBets"))) {
     console.warn("[bet cancel denied]", { userId: user.id, id });
     return { ok: false, error: "forbidden" };
   }
@@ -783,7 +783,7 @@ export async function gradeCustomBet(
 ): Promise<GradeCustomBetResult> {
   const user = await getUser();
   if (!user) return { ok: false, error: "unauth" };
-  if (!(await isLiveBetsAdmin(user.id))) {
+  if (!(await hasPermission(user.id, "liveBets"))) {
     console.warn("[bet grade denied]", { userId: user.id, id });
     return { ok: false, error: "forbidden" };
   }
@@ -925,7 +925,7 @@ export async function reverseCustomBetGrading(
 ): Promise<ReverseGradingResult> {
   const user = await getUser();
   if (!user) return { ok: false, error: "unauth" };
-  if (!(await isLiveBetsAdmin(user.id))) {
+  if (!(await hasPermission(user.id, "liveBets"))) {
     console.warn("[bet reverse denied]", { userId: user.id, id });
     return { ok: false, error: "forbidden" };
   }

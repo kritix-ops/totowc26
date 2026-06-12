@@ -10,7 +10,7 @@ import {
   pointAdjustments,
   passwordResetAudit,
 } from "@/db/schema";
-import { isAdmin } from "@/lib/admin";
+import { isAdmin, normalizePermissions } from "@/lib/admin";
 import { buildAuthConfirmUrl, getUser } from "@/lib/supabase/auth";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 import { lockUserForBetting, getBankBalanceWith } from "@/lib/bank";
@@ -27,32 +27,27 @@ async function assertAdmin(): Promise<{ adminId: string } | Err> {
   return { adminId: user.id };
 }
 
+// Binary role flip (player ↔ admin). For scoped operator permissions
+// use setUserPermissions below. The previous three-way role selector
+// was retired in favour of the permission catalog model.
 export async function setUserRole(
   userId: string,
-  role: "player" | "live_bets_admin" | "admin",
+  role: "player" | "admin",
 ): Promise<Result> {
   const guard = await assertAdmin();
   if ("ok" in guard && guard.ok === false) return guard;
   const adminId = (guard as { adminId: string }).adminId;
 
-  // Read the current role once so we can log a clean before/after and
-  // make the "is this a demotion?" check consistent.
   const [current] = await db
     .select({ role: profiles.role })
     .from(profiles)
     .where(eq(profiles.id, userId))
     .limit(1);
   if (!current) return { ok: false, error: "not_found" };
-  if (current.role === role) {
-    return { ok: true };
-  }
+  if (current.role === role) return { ok: true };
 
-  const isDemotionFromAdmin = current.role === "admin" && role !== "admin";
-
-  // Prevent removing the last full admin. A move from admin →
-  // live_bets_admin still counts as losing an admin because
-  // live_bets_admin is NOT a full admin.
-  if (isDemotionFromAdmin) {
+  // Prevent removing the last full admin.
+  if (current.role === "admin" && role !== "admin") {
     const admins = await db
       .select({ id: profiles.id })
       .from(profiles)
@@ -60,13 +55,9 @@ export async function setUserRole(
     if (admins.length <= 1 && admins[0]?.id === userId) {
       return { ok: false, error: "last_admin" };
     }
-  }
-
-  // Prevent the acting admin from demoting themselves (to either player
-  // or live_bets_admin). Same intent as today's guard, just extended to
-  // the new role.
-  if (isDemotionFromAdmin && userId === adminId) {
-    return { ok: false, error: "cannot_demote_self" };
+    if (userId === adminId) {
+      return { ok: false, error: "cannot_demote_self" };
+    }
   }
 
   await db.update(profiles).set({ role }).where(eq(profiles.id, userId));
@@ -75,6 +66,43 @@ export async function setUserRole(
     by: adminId,
     from: current.role,
     to: role,
+  });
+  revalidatePath("/", "layout");
+  return { ok: true };
+}
+
+// Replace the user's permission set with `next`. Unknown keys are
+// dropped by normalizePermissions; only the canonical allowlist
+// persists. Setting permissions on a row that is role='admin' is a
+// no-op effectively (admin gets everything) but the column still
+// updates so a future demotion to 'player' preserves the operator's
+// intended scope.
+export async function setUserPermissions(
+  userId: string,
+  next: Record<string, boolean>,
+): Promise<Result> {
+  const guard = await assertAdmin();
+  if ("ok" in guard && guard.ok === false) return guard;
+  const adminId = (guard as { adminId: string }).adminId;
+
+  const clean = normalizePermissions(next);
+
+  const [current] = await db
+    .select({ permissions: profiles.permissions })
+    .from(profiles)
+    .where(eq(profiles.id, userId))
+    .limit(1);
+  if (!current) return { ok: false, error: "not_found" };
+
+  await db
+    .update(profiles)
+    .set({ permissions: clean })
+    .where(eq(profiles.id, userId));
+  console.info("[permissions change]", {
+    targetUserId: userId,
+    by: adminId,
+    from: current.permissions,
+    to: clean,
   });
   revalidatePath("/", "layout");
   return { ok: true };
