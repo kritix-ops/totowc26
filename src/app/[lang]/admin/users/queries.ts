@@ -8,7 +8,7 @@ export type AdminUserRow = {
   email: string | null;
   displayName: string;
   phone: string;
-  role: "player" | "admin";
+  role: "player" | "live_bets_admin" | "admin";
   avatarUrl: string | null;
   createdAt: string;
   paymentId: string | null;
@@ -354,7 +354,7 @@ export type AdminUserBasic = {
   id: string;
   displayName: string;
   phone: string;
-  role: "player" | "admin";
+  role: "player" | "live_bets_admin" | "admin";
 };
 
 export async function fetchUserBasic(

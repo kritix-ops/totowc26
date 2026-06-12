@@ -30,6 +30,7 @@ import {
   Link2,
   MessageCircle,
   KeyRound,
+  Sparkles,
 } from "lucide-react";
 import Link from "next/link";
 import type { Locale } from "../../dictionaries";
@@ -56,7 +57,7 @@ import {
 } from "./actions";
 import type { AdminUserRow } from "./queries";
 
-type FilterKey = "all" | "approved" | "pending" | "unpaid" | "admin";
+type FilterKey = "all" | "approved" | "pending" | "unpaid" | "admin" | "live_admin";
 type SortKey = "newest" | "oldest" | "points_desc" | "points_asc" | "name";
 
 const FILTERS_HE: Record<FilterKey, string> = {
@@ -65,6 +66,7 @@ const FILTERS_HE: Record<FilterKey, string> = {
   pending: "ממתינים",
   unpaid: "לא שילמו",
   admin: "אדמינים",
+  live_admin: "מנהלי לייב",
 };
 const FILTERS_EN: Record<FilterKey, string> = {
   all: "All",
@@ -72,6 +74,7 @@ const FILTERS_EN: Record<FilterKey, string> = {
   pending: "Pending",
   unpaid: "Unpaid",
   admin: "Admins",
+  live_admin: "Live admins",
 };
 
 const SORTS_HE: Record<SortKey, string> = {
@@ -120,6 +123,7 @@ export function UsersExplorer({
       if (filter === "pending") return u.paymentStatus === "pending";
       if (filter === "unpaid") return !u.paymentStatus;
       if (filter === "admin") return u.role === "admin";
+      if (filter === "live_admin") return u.role === "live_bets_admin";
       return true;
     });
     list = [...list].sort((a, b) => {
@@ -525,7 +529,13 @@ function Avatar({ name }: { name: string }) {
   );
 }
 
-function RoleBadge({ role, isHebrew }: { role: "player" | "admin"; isHebrew: boolean }) {
+function RoleBadge({
+  role,
+  isHebrew,
+}: {
+  role: "player" | "live_bets_admin" | "admin";
+  isHebrew: boolean;
+}) {
   if (role === "admin") {
     return (
       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-tertiary-fixed text-on-tertiary-fixed-variant border border-tertiary-fixed-dim text-xs font-bold">
@@ -534,10 +544,88 @@ function RoleBadge({ role, isHebrew }: { role: "player" | "admin"; isHebrew: boo
       </span>
     );
   }
+  if (role === "live_bets_admin") {
+    return (
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-secondary-container text-on-secondary-container border border-secondary-fixed text-xs font-bold">
+        <Sparkles className="h-3 w-3" strokeWidth={2} />
+        {isHebrew ? "מנהל לייב" : "Live admin"}
+      </span>
+    );
+  }
   return (
     <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-surface-variant text-on-surface-variant border border-outline-variant text-xs font-bold">
       {isHebrew ? "משתתף" : "Player"}
     </span>
+  );
+}
+
+// Three-way role selector used inside the user drawer. The buttons are
+// stacked horizontally on every viewport and meet the 44px touch-target
+// rule. Clicking the currently-selected button is a no-op; clicking a
+// new one calls onChange (which the parent may intercept to ask for
+// confirmation before downgrading a full admin).
+function RoleSelector({
+  currentRole,
+  isHebrew,
+  pending,
+  onChange,
+}: {
+  currentRole: "player" | "live_bets_admin" | "admin";
+  isHebrew: boolean;
+  pending: boolean;
+  onChange: (next: "player" | "live_bets_admin" | "admin") => void;
+}) {
+  const options: Array<{
+    key: "player" | "live_bets_admin" | "admin";
+    label: string;
+    icon: React.ReactNode;
+  }> = [
+    {
+      key: "player",
+      label: isHebrew ? "שחקן" : "Player",
+      icon: <ShieldOff className="h-4 w-4" strokeWidth={2} />,
+    },
+    {
+      key: "live_bets_admin",
+      label: isHebrew ? "מנהל לייב" : "Live admin",
+      icon: <Sparkles className="h-4 w-4" strokeWidth={2} />,
+    },
+    {
+      key: "admin",
+      label: isHebrew ? "אדמין" : "Admin",
+      icon: <Shield className="h-4 w-4" strokeWidth={2} />,
+    },
+  ];
+  return (
+    <div
+      role="radiogroup"
+      aria-label={isHebrew ? "תפקיד המשתמש" : "User role"}
+      className="grid grid-cols-3 gap-2"
+    >
+      {options.map((o) => {
+        const active = currentRole === o.key;
+        return (
+          <button
+            key={o.key}
+            type="button"
+            role="radio"
+            aria-checked={active}
+            disabled={pending}
+            onClick={() => onChange(o.key)}
+            className={clsx(
+              "press-down min-h-[48px] flex flex-col items-center justify-center gap-1 px-2 py-2 rounded-lg border text-xs font-bold transition-colors",
+              active
+                ? "bg-primary text-on-primary border-primary"
+                : "bg-surface-container-lowest text-on-surface border-outline-variant hover:bg-surface-container",
+              pending && "opacity-60 cursor-wait",
+            )}
+          >
+            {o.icon}
+            <span className="leading-none">{o.label}</span>
+          </button>
+        );
+      })}
+    </div>
   );
 }
 
@@ -609,6 +697,11 @@ function UserDrawer({
   const [phone, setPhone] = useState(user.phone);
   const [error, setError] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<"remove" | "reset" | "demote" | null>(null);
+  // When the admin clicks a non-admin chip while the user is currently
+  // 'admin', we open the demote confirm and remember the chosen target.
+  // ConfirmPanel reads this to label the button correctly and to apply
+  // the right role when the admin confirms.
+  const [demoteTarget, setDemoteTarget] = useState<"player" | "live_bets_admin">("player");
   const [regeneratedLink, setRegeneratedLink] = useState<string | null>(null);
   const [linkKind, setLinkKind] = useState<"invite" | "reset">("invite");
   const [linkCopied, setLinkCopied] = useState(false);
@@ -826,16 +919,29 @@ function UserDrawer({
               () => wrap(() => manualMarkPaid(user.id, "paybox")),
             )}
 
-            {action(
-              user.role === "admin"
-                ? isHebrew ? "הסר הרשאת אדמין" : "Revoke admin"
-                : isHebrew ? "הפוך לאדמין" : "Make admin",
-              user.role === "admin" ? <ShieldOff className="h-4 w-4" /> : <Shield className="h-4 w-4" />,
-              () =>
-                user.role === "admin"
-                  ? setConfirm("demote")
-                  : wrap(() => setUserRole(user.id, "admin")),
-            )}
+            <RoleSelector
+              currentRole={user.role}
+              isHebrew={isHebrew}
+              pending={pending}
+              onChange={(next) => {
+                if (next === user.role) return;
+                // Demoting an admin (to either player or live_bets_admin)
+                // surrenders full-admin powers — show the confirm modal so
+                // it can never happen by accident. Every other transition
+                // is one-tap.
+                if (user.role === "admin" && next !== "admin") {
+                  setDemoteTarget(next);
+                  setConfirm("demote");
+                  return;
+                }
+                wrap(() => setUserRole(user.id, next));
+              }}
+            />
+            <p className="text-xs text-on-surface-variant ps-1 leading-5">
+              {isHebrew
+                ? "מנהל לייב רואה רק את עמודי הימורי הלייב: יצירה, הצעות, מצב כולם, מועדי סגירה. אין לו גישה למשתתפים, תשלומים, הגדרות או הימורי טורניר."
+                : "Live admin sees only the live-bets pages: authoring, suggestions, everyone's bets, deadlines. No access to players, payments, settings, or tournament bets."}
+            </p>
 
             {user.email && action(
               isHebrew ? "אפס סיסמה" : "Reset password",
@@ -896,6 +1002,7 @@ function UserDrawer({
               kind={confirm}
               isHebrew={isHebrew}
               userName={user.displayName}
+              demoteTarget={demoteTarget}
               onCancel={() => setConfirm(null)}
               onConfirm={() => {
                 if (confirm === "remove") {
@@ -912,7 +1019,7 @@ function UserDrawer({
                   });
                 } else if (confirm === "demote") {
                   wrap(async () => {
-                    const r = await setUserRole(user.id, "player");
+                    const r = await setUserRole(user.id, demoteTarget);
                     setConfirm(null);
                     return r;
                   });
@@ -1033,6 +1140,7 @@ function ConfirmPanel({
   kind,
   isHebrew,
   userName,
+  demoteTarget,
   onCancel,
   onConfirm,
   pending,
@@ -1040,10 +1148,26 @@ function ConfirmPanel({
   kind: "remove" | "reset" | "demote";
   isHebrew: boolean;
   userName: string;
+  demoteTarget: "player" | "live_bets_admin";
   onCancel: () => void;
   onConfirm: () => void;
   pending: boolean;
 }) {
+  const demoteCopy: [string, string] =
+    demoteTarget === "live_bets_admin"
+      ? [
+          isHebrew ? "להחליף לאדמין הימורי לייב?" : "Switch to live-bets admin?",
+          isHebrew
+            ? `${userName} יאבד הרשאות אדמין מלאות וישאר עם גישה רק לעמודי הימורי הלייב.`
+            : `${userName} will lose full admin access and keep only the live-bets pages.`,
+        ]
+      : [
+          isHebrew ? "להוריד הרשאת אדמין?" : "Revoke admin?",
+          isHebrew
+            ? `${userName} יחזור לתפקיד משתתף רגיל.`
+            : `${userName} will become a regular player.`,
+        ];
+
   const titles: Record<typeof kind, [string, string]> = {
     remove: [
       isHebrew ? "להסיר את המשתתף?" : "Remove user?",
@@ -1057,12 +1181,7 @@ function ConfirmPanel({
         ? `הימורי המשחקים, דירוג הבתים והבראקט של ${userName} יימחקו. הפרופיל והתשלום יישמרו.`
         : `${userName}'s match bets, group ranking and bracket will be deleted. Profile and payment remain.`,
     ],
-    demote: [
-      isHebrew ? "להוריד הרשאת אדמין?" : "Revoke admin?",
-      isHebrew
-        ? `${userName} יחזור לתפקיד משתתף רגיל.`
-        : `${userName} will become a regular player.`,
-    ],
+    demote: demoteCopy,
   };
   const [title, body] = titles[kind];
 
@@ -1125,6 +1244,7 @@ const ERROR_MAP = {
   no_link:            ["לא הצלחנו לייצר קישור", "Failed to generate link"],
   no_email:           ["למשתמש אין כתובת מייל", "User has no email address"],
   already_paid:       ["המשתתף כבר מסומן כשולם", "User is already marked paid"],
+  not_found:          ["המשתמש לא נמצא", "User not found"],
 } as const satisfies Record<string, LocalizedTuple>;
 
 function translateError(code: string, isHebrew: boolean): string {

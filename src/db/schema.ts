@@ -18,7 +18,11 @@ import {
 import { sql } from "drizzle-orm";
 
 // Enums
-export const roleEnum = pgEnum("role", ["player", "admin"]);
+// Ordered least → most privileged. `live_bets_admin` is a scoped admin
+// who can manage live-bet definitions, matchday AI suggestions, the
+// bets-overview matrix, and per-match deadlines — and nothing else.
+// See _plans/2026-06-12-live-bets-admin-role.md.
+export const roleEnum = pgEnum("role", ["player", "live_bets_admin", "admin"]);
 export const stageEnum = pgEnum("stage", [
   "group",
   "r32",

@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ChevronLeft, ChevronRight, Grid3x3 } from "lucide-react";
 import { hasLocale, type Locale } from "../../dictionaries";
-import { requireAdmin } from "@/lib/admin";
+import { requireLiveBetsAdmin } from "@/lib/admin";
 import {
   fetchAllUsersBetMatrix,
   fetchPlayerNamesById,
@@ -33,7 +33,7 @@ export default async function AdminBetsOverviewPage({
   if (!hasLocale(lang)) notFound();
   const locale = lang as Locale;
   const isHebrew = locale === "he";
-  await requireAdmin(locale);
+  await requireLiveBetsAdmin(locale);
   const ChevronBack = isHebrew ? ChevronRight : ChevronLeft;
 
   const [cells, playerNames] = await Promise.all([

@@ -1,6 +1,6 @@
 "use server";
 
-import { isAdmin } from "@/lib/admin";
+import { isLiveBetsAdmin } from "@/lib/admin";
 import { getUser } from "@/lib/supabase/auth";
 import {
   fetchPlayerNamesById,
@@ -43,7 +43,7 @@ export async function loadUserBetDetail(
 ): Promise<LoadUserBetDetailResult> {
   const user = await getUser();
   if (!user) return { ok: false, error: "unauthorized" };
-  if (!(await isAdmin(user.id))) return { ok: false, error: "forbidden" };
+  if (!(await isLiveBetsAdmin(user.id))) return { ok: false, error: "forbidden" };
 
   const isHebrew = locale === "he";
   const [customRows, matchRows, playerNames] = await Promise.all([

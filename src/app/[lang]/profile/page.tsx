@@ -198,6 +198,11 @@ export default async function ProfilePage({
               {isHebrew ? "אדמין" : "Admin"}
             </p>
           )}
+          {profile?.role === "live_bets_admin" && (
+            <p className="text-xs font-bold text-secondary">
+              {isHebrew ? "מנהל הימורי לייב" : "Live bets admin"}
+            </p>
+          )}
         </div>
       </header>
 

@@ -11,7 +11,7 @@ import {
   settings,
 } from "@/db/schema";
 import { getUser } from "@/lib/supabase/auth";
-import { isAdmin } from "@/lib/admin";
+import { isLiveBetsAdmin } from "@/lib/admin";
 import { getDeadlineContext } from "@/lib/deadlines";
 import { liveStakeCap } from "@/lib/odds-normalize";
 import { generateSuggestions, type FixtureContext } from "@/lib/bets/suggest/generate";
@@ -70,7 +70,7 @@ export async function publishSuggestion(
 ): Promise<PublishSuggestionResult> {
   const user = await getUser();
   if (!user) return { ok: false, error: "unauth" };
-  if (!(await isAdmin(user.id))) {
+  if (!(await isLiveBetsAdmin(user.id))) {
     console.warn("[live-bet publish denied]", { userId: user.id });
     return { ok: false, error: "forbidden" };
   }
@@ -193,7 +193,7 @@ export async function publishMultiChoiceSuggestion(
 ): Promise<PublishSuggestionResult> {
   const user = await getUser();
   if (!user) return { ok: false, error: "unauth" };
-  if (!(await isAdmin(user.id))) {
+  if (!(await isLiveBetsAdmin(user.id))) {
     console.warn("[live-bet multi publish denied]", { userId: user.id });
     return { ok: false, error: "forbidden" };
   }
@@ -326,7 +326,7 @@ export async function refreshOddsForFixture(
 ): Promise<{ ok: true } | { ok: false; error: Err }> {
   const user = await getUser();
   if (!user) return { ok: false, error: "unauth" };
-  if (!(await isAdmin(user.id))) {
+  if (!(await isLiveBetsAdmin(user.id))) {
     return { ok: false, error: "forbidden" };
   }
   console.info("[odds refresh]", { adminId: user.id, matchId });
@@ -353,7 +353,7 @@ export async function generateAiSuggestions(
 ): Promise<GenerateAiResult> {
   const user = await getUser();
   if (!user) return { ok: false, error: "unauth" };
-  if (!(await isAdmin(user.id))) {
+  if (!(await isLiveBetsAdmin(user.id))) {
     console.warn("[live-gen denied]", { userId: user.id, matchId });
     return { ok: false, error: "forbidden" };
   }
@@ -440,7 +440,7 @@ export async function setSuggestModel(
 ): Promise<{ ok: true } | { ok: false; error: Err }> {
   const user = await getUser();
   if (!user) return { ok: false, error: "unauth" };
-  if (!(await isAdmin(user.id))) {
+  if (!(await isLiveBetsAdmin(user.id))) {
     console.warn("[suggest-model denied]", { userId: user.id });
     return { ok: false, error: "forbidden" };
   }
@@ -468,7 +468,7 @@ export async function setAutogenConfig(input: {
 }): Promise<{ ok: true } | { ok: false; error: Err }> {
   const user = await getUser();
   if (!user) return { ok: false, error: "unauth" };
-  if (!(await isAdmin(user.id))) {
+  if (!(await isLiveBetsAdmin(user.id))) {
     console.warn("[autogen-config denied]", { userId: user.id });
     return { ok: false, error: "forbidden" };
   }

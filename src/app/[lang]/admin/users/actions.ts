@@ -29,14 +29,30 @@ async function assertAdmin(): Promise<{ adminId: string } | Err> {
 
 export async function setUserRole(
   userId: string,
-  role: "player" | "admin",
+  role: "player" | "live_bets_admin" | "admin",
 ): Promise<Result> {
   const guard = await assertAdmin();
   if ("ok" in guard && guard.ok === false) return guard;
   const adminId = (guard as { adminId: string }).adminId;
 
-  // Prevent removing the last admin.
-  if (role === "player") {
+  // Read the current role once so we can log a clean before/after and
+  // make the "is this a demotion?" check consistent.
+  const [current] = await db
+    .select({ role: profiles.role })
+    .from(profiles)
+    .where(eq(profiles.id, userId))
+    .limit(1);
+  if (!current) return { ok: false, error: "not_found" };
+  if (current.role === role) {
+    return { ok: true };
+  }
+
+  const isDemotionFromAdmin = current.role === "admin" && role !== "admin";
+
+  // Prevent removing the last full admin. A move from admin →
+  // live_bets_admin still counts as losing an admin because
+  // live_bets_admin is NOT a full admin.
+  if (isDemotionFromAdmin) {
     const admins = await db
       .select({ id: profiles.id })
       .from(profiles)
@@ -45,12 +61,21 @@ export async function setUserRole(
       return { ok: false, error: "last_admin" };
     }
   }
-  // Prevent admin from demoting themselves.
-  if (role === "player" && userId === adminId) {
+
+  // Prevent the acting admin from demoting themselves (to either player
+  // or live_bets_admin). Same intent as today's guard, just extended to
+  // the new role.
+  if (isDemotionFromAdmin && userId === adminId) {
     return { ok: false, error: "cannot_demote_self" };
   }
 
   await db.update(profiles).set({ role }).where(eq(profiles.id, userId));
+  console.info("[role change]", {
+    targetUserId: userId,
+    by: adminId,
+    from: current.role,
+    to: role,
+  });
   revalidatePath("/", "layout");
   return { ok: true };
 }

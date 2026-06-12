@@ -35,12 +35,17 @@ export default async function OnboardingPage({
 
   const payboxUrl = await getPayboxUrl();
 
-  // Admins skip the payment step. For players, both profile and payment must
-  // be set before they reach the dashboard.
+  // Operators (admin and live_bets_admin) skip the payment step — they
+  // may never play, so we don't want them stuck on the onboarding screen
+  // forever. A live_bets_admin who DOES want to place bets will pay
+  // through /pay like any player; the bet-write gate requires isPaid
+  // regardless of operator role. For players, both profile and payment
+  // must be set before they reach the dashboard.
   const profileComplete =
     !!profile && profile.displayName.length >= 2 && profile.phone.length >= 7;
-  const isAdmin = profile?.role === "admin";
-  if (profileComplete && (isAdmin || latestPayment?.status === "approved")) {
+  const isOperator =
+    profile?.role === "admin" || profile?.role === "live_bets_admin";
+  if (profileComplete && (isOperator || latestPayment?.status === "approved")) {
     redirect(localePath(locale));
   }
 
