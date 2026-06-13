@@ -206,6 +206,8 @@
     "dayWideTitle": "Day-wide live bets",
     "dayWideHint": "These bets aggregate across all of today's matches.",
     "emptyDay": "The admin hasn't published live bets for this day yet. Check back closer to kickoff.",
+    "emptyDayPast": "This day is over. No live bets were published for its matches.",
+    "pastDayNote": "Read-only. This day has already ended.",
     "liveTitle": "Live scoreboard",
     "liveSubtitleWithCount": "{n} matches in play. This page refreshes itself every 30 seconds.",
     "liveSubtitleEmpty": "No matches are live right now. They'll show up here as kickoff hits.",

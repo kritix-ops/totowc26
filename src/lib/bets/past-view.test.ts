@@ -1,10 +1,38 @@
 import { describe, expect, it } from "vitest";
 import {
   customBetPointsDisplay,
+  isDayPast,
   matchPickPointsDisplay,
   matchPickOutcome,
   pointsTone,
 } from "./past-view";
+
+describe("isDayPast", () => {
+  // 2026-06-13T09:00:00Z is 12:00 in Jerusalem (UTC+3 in June), so the
+  // Jerusalem "today" is 2026-06-13 for every assertion below.
+  const noonIl = Date.parse("2026-06-13T09:00:00Z");
+
+  it("is true for a day before today (Jerusalem)", () => {
+    expect(isDayPast("2026-06-12", noonIl)).toBe(true);
+    expect(isDayPast("2025-12-31", noonIl)).toBe(true);
+  });
+
+  it("is false for today", () => {
+    expect(isDayPast("2026-06-13", noonIl)).toBe(false);
+  });
+
+  it("is false for a future day", () => {
+    expect(isDayPast("2026-06-14", noonIl)).toBe(false);
+  });
+
+  it("uses the Jerusalem calendar date, not UTC", () => {
+    // 2026-06-12T22:30:00Z is already 2026-06-13 01:30 in Jerusalem, so
+    // the 12th counts as past even though the UTC date is still the 12th.
+    const lateNightIl = Date.parse("2026-06-12T22:30:00Z");
+    expect(isDayPast("2026-06-12", lateNightIl)).toBe(true);
+    expect(isDayPast("2026-06-13", lateNightIl)).toBe(false);
+  });
+});
 
 describe("pointsTone", () => {
   it("is positive for a win", () => {

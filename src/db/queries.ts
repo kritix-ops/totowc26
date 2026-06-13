@@ -2062,6 +2062,11 @@ export type PlayFixture = {
   awayNameHe: string;
   awayNameEn: string;
   status: "scheduled" | "live" | "final";
+  // Actual match result, null until the fixture is scored. The day-detail
+  // page reads these only in read-only past mode to show what happened on
+  // a finished day; the live betting view ignores them.
+  finalHome: number | null;
+  finalAway: number | null;
   myHome: number | null;
   myAway: number | null;
 };
@@ -2120,6 +2125,8 @@ export async function getPlayDayDetail(
       at.name_he       as "awayNameHe",
       at.name_en       as "awayNameEn",
       m.status::text   as "status",
+      m.home_score     as "finalHome",
+      m.away_score     as "finalAway",
       mb.home_score    as "myHome",
       mb.away_score    as "myAway"
     from public.matches m

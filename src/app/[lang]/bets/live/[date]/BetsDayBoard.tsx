@@ -34,6 +34,11 @@ export type FixtureItem = {
   awayNameHe: string;
   awayNameEn: string;
   status: "scheduled" | "live" | "final";
+  // Actual match result. Populated once the fixture is scored; rendered
+  // as the headline on a finished fixture so the read-only past day shows
+  // what happened rather than a stale kickoff time.
+  finalHome: number | null;
+  finalAway: number | null;
   myHome: number | null;
   myAway: number | null;
   matchBets: BetItem[];
@@ -58,6 +63,7 @@ export function BetsDayBoard({
   liveStakeConfig,
   maxOverdraft,
   lockedFromBetting,
+  fixturesTitle,
   dayWideTitle,
   dayWideHint,
   emptyDay,
@@ -69,6 +75,7 @@ export function BetsDayBoard({
   liveStakeConfig: LiveStakeUiConfig;
   maxOverdraft: number;
   lockedFromBetting: boolean;
+  fixturesTitle: string;
   dayWideTitle: string;
   dayWideHint: string;
   emptyDay: string;
@@ -272,14 +279,20 @@ export function BetsDayBoard({
 
       {visibleFixtures.length > 0 && (
         <section className="flex flex-col gap-3">
-          <SectionTitle>
-            {isHebrew ? "המשחקים של היום" : "Today's fixtures"}
-          </SectionTitle>
+          <SectionTitle>{fixturesTitle}</SectionTitle>
           <ul className="flex flex-col gap-3">
             {visibleFixtures.map(({ fixture: m, visibleBets }) => {
               const homeName = isHebrew ? m.homeNameHe : m.homeNameEn;
               const awayName = isHebrew ? m.awayNameHe : m.awayNameEn;
               const hasPick = m.myHome !== null && m.myAway !== null;
+              // A scored, finished fixture shows its actual result as the
+              // headline — this is what makes a past day's review readable
+              // instead of a row of stale kickoff times. Falls back to the
+              // user's prediction, then the kickoff time.
+              const hasResult =
+                m.status === "final" &&
+                m.finalHome !== null &&
+                m.finalAway !== null;
               return (
                 <li key={m.id}>
                   <Link
@@ -301,7 +314,18 @@ export function BetsDayBoard({
                         <Flag code={m.awayCode} size={28} />
                       </div>
                       <div className="flex items-center gap-3 shrink-0">
-                        {hasPick ? (
+                        {hasResult ? (
+                          <div className="text-end">
+                            <LabelCaps as="div" className="mb-0.5">
+                              {isHebrew ? "תוצאה" : "Result"}
+                            </LabelCaps>
+                            <ScoreLine
+                              home={m.finalHome!}
+                              away={m.finalAway!}
+                              className="font-[family-name:var(--font-score)] text-base md:text-lg font-bold text-on-surface"
+                            />
+                          </div>
+                        ) : hasPick ? (
                           <div className="text-end">
                             <LabelCaps as="div" className="mb-0.5">
                               {isHebrew ? "תחזית" : "Prediction"}

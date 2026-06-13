@@ -3,6 +3,22 @@
 // what sub-label a match pick earns) is unit-testable without rendering
 // React. See _plans/2026-06-12-bet-history-per-surface.md.
 
+import { ilDateParts } from "@/lib/format";
+
+// True when the given matchday (a YYYY-MM-DD Asia/Jerusalem date) is
+// strictly before "today" in Jerusalem. Drives the read-only past
+// rendering on /bets/live/[date]: a past day shows its finished matches
+// with results instead of the future-oriented "check back closer to
+// kickoff" empty state. Today returns false on purpose so the current
+// day keeps the live betting view (finished-match hiding included), and
+// the comparison is plain lexicographic since zero-padded ISO dates sort
+// chronologically.
+export function isDayPast(date: string, nowMs: number): boolean {
+  const t = ilDateParts(nowMs);
+  const today = `${t.year}-${t.month}-${t.day}`;
+  return date < today;
+}
+
 export type PointsTone = "positive" | "negative" | "neutral";
 
 // What a past-bet points chip should show. `kind` drives whether a chip

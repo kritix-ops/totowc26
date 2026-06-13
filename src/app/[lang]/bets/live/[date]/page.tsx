@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, History } from "lucide-react";
 import { getDictionary, hasLocale, type Locale } from "../../../dictionaries";
 import { BetsTabs } from "@/components/BetsTabs";
 import { SurpriseMeButton } from "@/components/SurpriseMeButton";
@@ -15,6 +15,7 @@ import {
 } from "@/lib/bank";
 import { localePath } from "@/lib/paths";
 import { formatDateTime } from "@/lib/format";
+import { isDayPast } from "@/lib/bets/past-view";
 import { serverNow } from "@/lib/server-now";
 import { getPlayDayDetail } from "@/db/queries";
 import type {
@@ -101,13 +102,23 @@ export default async function BetsLiveDayPage({
   const isEditable = (b: { status: string; lockAt: string }) =>
     access.canEdit && b.status === "open" && new Date(b.lockAt).getTime() > nowMs;
 
-  // Hide finished matches from the day view — once a fixture is final
-  // it just adds visual noise to the upcoming-bets surface and pushes the
-  // still-actionable kickoffs further down the page. Match-scope bets
-  // attached to those fixtures fall out of the list too (they render
-  // nested inside their fixture row), but their final result is still
-  // reachable via /bets/live?view=past for anyone looking for it.
-  const liveFixtures = detail.fixtures.filter((f) => f.status !== "final");
+  // A matchday that has fully slipped into the past (before today in
+  // Asia/Jerusalem) is reached from /bets/live?view=past for review, not
+  // for betting. There we keep the finished matches on screen so the day
+  // shows what actually happened instead of collapsing to an empty
+  // "check back closer to kickoff" card. Today and future days keep the
+  // live betting view below.
+  const dayIsPast = isDayPast(date, nowMs);
+
+  // Hide finished matches from the live betting view — once a fixture is
+  // final it just adds visual noise to the upcoming-bets surface and
+  // pushes the still-actionable kickoffs further down the page. Match-scope
+  // bets attached to those fixtures fall out of the list too (they render
+  // nested inside their fixture row). On a past day we skip the filter so
+  // the read-only review shows every match with its result.
+  const liveFixtures = dayIsPast
+    ? detail.fixtures
+    : detail.fixtures.filter((f) => f.status !== "final");
   const liveFixtureIds = new Set(liveFixtures.map((f) => f.id));
 
   const dayBets = detail.bets.filter((b) => b.scope === "day");
@@ -138,6 +149,8 @@ export default async function BetsLiveDayPage({
     awayNameHe: m.awayNameHe,
     awayNameEn: m.awayNameEn,
     status: m.status,
+    finalHome: m.finalHome,
+    finalAway: m.finalAway,
     myHome: m.myHome,
     myAway: m.myAway,
     matchBets: (matchBetsByMatchId.get(m.id) ?? []).map<BetItem>((b) => ({
@@ -173,7 +186,14 @@ export default async function BetsLiveDayPage({
           {isHebrew ? "הימורים" : "Bets"}
         </h1>
         <BetsTabs locale={locale} active="live" />
-        <h2 className="font-[family-name:var(--font-display)] text-lg md:text-xl font-bold text-on-surface mt-2">
+        <h2 className="font-[family-name:var(--font-display)] text-lg md:text-xl font-bold text-on-surface mt-2 inline-flex items-center gap-2">
+          {dayIsPast && (
+            <History
+              className="h-5 w-5 text-on-surface-variant shrink-0"
+              strokeWidth={1.75}
+              aria-hidden
+            />
+          )}
           {headerLabel}
         </h2>
         <p className="text-sm text-on-surface-variant">
@@ -191,13 +211,25 @@ export default async function BetsLiveDayPage({
             </>
           )}
         </p>
+        {dayIsPast && (
+          <p className="text-sm text-on-surface-variant/80">
+            {dict.live.pastDayNote}
+          </p>
+        )}
       </header>
 
-      {!access.canEdit && <PayGateBanner locale={locale} dict={dict} />}
-
-      {access.canEdit && (matchBets.length > 0 || dayBets.length > 0) && (
-        <SurpriseMeButton locale={locale} target={{ surface: "live", date }} />
+      {/* Betting affordances only make sense on today/future days. A past
+          day is read-only review, so the pay gate and Surprise Me are
+          suppressed — there are no open bets left to place. */}
+      {!dayIsPast && !access.canEdit && (
+        <PayGateBanner locale={locale} dict={dict} />
       )}
+
+      {!dayIsPast &&
+        access.canEdit &&
+        (matchBets.length > 0 || dayBets.length > 0) && (
+          <SurpriseMeButton locale={locale} target={{ surface: "live", date }} />
+        )}
 
       <BetsDayBoard
         locale={locale}
@@ -207,9 +239,18 @@ export default async function BetsLiveDayPage({
         liveStakeConfig={liveStakeConfig}
         maxOverdraft={overdraft.maxOverdraft}
         lockedFromBetting={lockedFromBetting}
+        fixturesTitle={
+          dayIsPast
+            ? isHebrew
+              ? "המשחקים"
+              : "Matches"
+            : isHebrew
+              ? "המשחקים של היום"
+              : "Today's fixtures"
+        }
         dayWideTitle={dict.live.dayWideTitle}
         dayWideHint={dict.live.dayWideHint}
-        emptyDay={dict.live.emptyDay}
+        emptyDay={dayIsPast ? dict.live.emptyDayPast : dict.live.emptyDay}
       />
     </section>
   );
