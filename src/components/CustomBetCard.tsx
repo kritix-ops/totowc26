@@ -32,9 +32,13 @@ import { usePickerOptions } from "@/lib/picker-options/client";
 import { usePendingAction } from "@/lib/use-pending-action";
 import { withTimeout, SAVE_TIMEOUT_MS } from "@/lib/with-timeout";
 import { resolvePickPayoutAtSubmit } from "@/lib/bets/payout";
-import { resolveYesNoSideOdds } from "@/lib/bets/price-options";
+import {
+  liveOptionPayout,
+  resolvePricingMode,
+  resolveYesNoSideOdds,
+} from "@/lib/bets/price-options";
 import { isFreePickScope } from "@/lib/bets/free-pick-scopes";
-import { liveStakeCap, normalizeOdds } from "@/lib/odds-normalize";
+import { liveStakeCap } from "@/lib/odds-normalize";
 import type { LiveStakeUiConfig } from "@/lib/bank";
 import { PickScenarios } from "@/components/PickScenarios";
 import {
@@ -667,6 +671,10 @@ function PayoutExplainer({
   // the snapshot scaling instead of the exact formula.
   const oddsForExplainer = lookupLiveOptionOdds(bet, draft);
   const edgeFactor = (100 - config.houseEdgePct) / 100;
+  // Ratio mode pays stake × ratio exactly — no house edge, no cap — so the
+  // edge factor and cap rows below would misrepresent the math. Branch the
+  // formula and hide those rows when the bet is priced on a manual ratio.
+  const isRatioMode = resolvePricingMode(bet.answerConfig) === "ratio";
 
   const stakes = EXPLAINER_STAKES.filter(
     (s) => s >= config.minStake && s <= config.maxStake,
@@ -676,13 +684,21 @@ function PayoutExplainer({
     netWin: Math.max(0, computeDisplayPayout(bet, draft, stake, config) - stake),
   }));
 
-  const formulaLine = oddsForExplainer != null
-    ? isHebrew
-      ? `זכייה ברוטו = סיכון × ${oddsForExplainer.toFixed(2)} × ${edgeFactor.toFixed(2)}`
-      : `Gross payout = stake × ${oddsForExplainer.toFixed(2)} × ${edgeFactor.toFixed(2)}`
-    : isHebrew
-      ? `זכייה ברוטו = סיכון × יחס × ${edgeFactor.toFixed(2)}`
-      : `Gross payout = stake × odds × ${edgeFactor.toFixed(2)}`;
+  const formulaLine = isRatioMode
+    ? oddsForExplainer != null
+      ? isHebrew
+        ? `זכייה = סיכון × ${oddsForExplainer.toFixed(2)}`
+        : `Payout = stake × ${oddsForExplainer.toFixed(2)}`
+      : isHebrew
+        ? `זכייה = סיכון × יחס`
+        : `Payout = stake × ratio`
+    : oddsForExplainer != null
+      ? isHebrew
+        ? `זכייה ברוטו = סיכון × ${oddsForExplainer.toFixed(2)} × ${edgeFactor.toFixed(2)}`
+        : `Gross payout = stake × ${oddsForExplainer.toFixed(2)} × ${edgeFactor.toFixed(2)}`
+      : isHebrew
+        ? `זכייה ברוטו = סיכון × יחס × ${edgeFactor.toFixed(2)}`
+        : `Gross payout = stake × odds × ${edgeFactor.toFixed(2)}`;
 
   return (
     <div className="flex flex-col gap-2">
@@ -710,30 +726,40 @@ function PayoutExplainer({
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-on-surface-variant">
             {oddsForExplainer != null && (
               <span>
-                {isHebrew ? "יחס בוקמייקר" : "Odds"}:{" "}
+                {isHebrew ? "יחס" : "Odds"}:{" "}
                 <bdi className="tabular-nums font-bold text-on-surface">
                   {oddsForExplainer.toFixed(2)}
                 </bdi>
               </span>
             )}
-            <span>
-              {isHebrew ? "ניכוי בית" : "House edge"}:{" "}
-              <bdi className="tabular-nums font-bold text-on-surface">
-                {config.houseEdgePct}%
-              </bdi>
-            </span>
-            <span>
-              {isHebrew ? "תקרת זכייה" : "Payout cap"}:{" "}
-              <bdi className="tabular-nums font-bold text-on-surface">
-                {config.maxPayoutCeiling > 0
-                  ? isHebrew
-                    ? `מינ׳(סיכון × ${config.maxPayoutRatio}, ${config.maxPayoutCeiling})`
-                    : `min(stake × ${config.maxPayoutRatio}, ${config.maxPayoutCeiling})`
-                  : isHebrew
-                    ? `סיכון × ${config.maxPayoutRatio}`
-                    : `stake × ${config.maxPayoutRatio}`}
-              </bdi>
-            </span>
+            {isRatioMode ? (
+              <span>
+                {isHebrew
+                  ? "יחס קבוע · ללא ניכוי בית · ללא תקרה"
+                  : "Fixed ratio · no house edge · no cap"}
+              </span>
+            ) : (
+              <>
+                <span>
+                  {isHebrew ? "ניכוי בית" : "House edge"}:{" "}
+                  <bdi className="tabular-nums font-bold text-on-surface">
+                    {config.houseEdgePct}%
+                  </bdi>
+                </span>
+                <span>
+                  {isHebrew ? "תקרת זכייה" : "Payout cap"}:{" "}
+                  <bdi className="tabular-nums font-bold text-on-surface">
+                    {config.maxPayoutCeiling > 0
+                      ? isHebrew
+                        ? `מינ׳(סיכון × ${config.maxPayoutRatio}, ${config.maxPayoutCeiling})`
+                        : `min(stake × ${config.maxPayoutRatio}, ${config.maxPayoutCeiling})`
+                      : isHebrew
+                        ? `סיכון × ${config.maxPayoutRatio}`
+                        : `stake × ${config.maxPayoutRatio}`}
+                  </bdi>
+                </span>
+              </>
+            )}
           </div>
 
           <div className="text-on-surface" dir="ltr">
@@ -804,12 +830,15 @@ function computeDisplayPayout(
   const odds = lookupLiveOptionOdds(bet, draft);
   const cap = liveStakeCap(stake, config);
   if (odds != null) {
-    const { payout } = normalizeOdds(odds, {
+    // Mirror the server: ratio-mode bets pay stake × ratio exactly (no
+    // edge/cap), probability-mode bets run normalizeOdds. resolvePricingMode
+    // defaults to probability for every legacy/free-pick config.
+    const mode = resolvePricingMode(bet.answerConfig);
+    return liveOptionPayout(odds, stake, mode, {
       baseStake: stake,
       maxPayout: cap,
       houseEdgePct: config.houseEdgePct,
     });
-    return payout;
   }
   // Legacy fallback: scale the bet's snapshotted payout linearly.
   const basePayout = resolvePickPayoutAtSubmit({

@@ -10,6 +10,18 @@
 // stays free of the server-only runtime and is safe in client bundles.
 import type { EventGradeSpec } from "./events-grade";
 
+// How a live (match/day) market's per-choice odds were authored.
+//   - "probability" (the default; also when the field is absent): the
+//     admin/LLM gave a probability %, the system renormalised to 100%,
+//     inverted to fair odds and ran them through normalizeOdds — house
+//     edge + payout cap apply.
+//   - "ratio": the admin typed a decimal odds/multiplier directly per
+//     option. The player wins exactly stake × ratio — NO house edge, NO
+//     cap. The stored decimalOdds* values ARE the typed ratios.
+// Only multi_choice and yes_no carry this; free-pick scopes ignore it.
+// See _plans/2026-06-13-live-bet-manual-ratio.md.
+export type PricingMode = "probability" | "ratio";
+
 export type YesNoConfig = {
   kind: "yes_no";
   // Per-option payout overrides for yes_no bets that price the two
@@ -36,6 +48,11 @@ export type YesNoConfig = {
   // trusted raw. See _plans/2026-06-12-live-bets-llm-overhaul.md.
   decimalOddsYes?: number;
   decimalOddsNo?: number;
+  // Pricing mode for the per-side odds above. Absent = "probability"
+  // (house edge + cap). "ratio" = decimalOddsYes/No are exact multipliers
+  // the player wins against their stake with no edge and no cap. See
+  // PricingMode.
+  pricingMode?: PricingMode;
 };
 
 export type NumberUnit =
@@ -112,6 +129,11 @@ export type MultiChoiceConfig = {
   // undefined and the bet-level payoutSnapshot is used as a flat
   // payout per the historic behaviour.
   payoutOverridesByValue?: Record<string, number>;
+  // Pricing mode for the per-option odds below. Absent = "probability"
+  // (house edge + cap, renormalised to 100%). "ratio" = decimalOddsByValue
+  // holds exact per-option multipliers the player wins against their stake
+  // with no edge and no cap. See PricingMode.
+  pricingMode?: PricingMode;
   // Per-option bookmaker decimal odds keyed by option `value`. Captured
   // at publish time for live (match/day) multi-choice bets so the
   // variable-stake submit path can recompute payout against the

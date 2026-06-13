@@ -16,12 +16,16 @@ import {
   getOverdraftConfig,
   lockUserForBetting,
 } from "@/lib/bank";
-import type { PickAnswer } from "@/lib/bets/types";
+import type { AnswerConfig, PickAnswer } from "@/lib/bets/types";
 import { resolvePickPayoutAtSubmit } from "@/lib/bets/payout";
-import { resolveYesNoSideOdds } from "@/lib/bets/price-options";
+import {
+  liveOptionPayout,
+  resolvePricingMode,
+  resolveYesNoSideOdds,
+} from "@/lib/bets/price-options";
 import { isFreePickScope } from "@/lib/bets/free-pick-scopes";
 import { validateAnswer } from "@/lib/bets/validate-answer";
-import { liveStakeCap, normalizeOdds } from "@/lib/odds-normalize";
+import { liveStakeCap } from "@/lib/odds-normalize";
 import {
   getDeadlineContext,
   resolveCustomBetLock,
@@ -420,12 +424,15 @@ async function writeCustomPickTx(
       answer: input.answer,
     });
     if (optionOdds != null) {
-      const { payout } = normalizeOdds(optionOdds, {
+      // Ratio-mode bets pay stake × ratio exactly (no edge, no cap);
+      // probability-mode bets run the historic normalizeOdds. The mode is
+      // read off the same answer config the odds came from.
+      const mode = resolvePricingMode(bet.answerConfig as AnswerConfig);
+      pickPayout = liveOptionPayout(optionOdds, effectiveStake, mode, {
         baseStake: effectiveStake,
         maxPayout: liveStakeCap(effectiveStake, liveCfg),
         houseEdgePct: liveCfg.houseEdgePct,
       });
-      pickPayout = payout;
     } else {
       // Legacy or partially-priced live bet (no decimalOdds captured at
       // publish). Linearly scale the bet's snapshotted payout to the

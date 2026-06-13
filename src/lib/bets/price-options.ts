@@ -19,7 +19,15 @@
 // client; tests call it with hard-coded inputs.
 
 import { normalizeOdds, type OddsNormConfig } from "@/lib/odds-normalize";
-import type { AnswerConfig } from "@/lib/bets/types";
+import type { AnswerConfig, PricingMode } from "@/lib/bets/types";
+
+// Hard sanity ceiling on a HAND-TYPED ratio (ratio pricing mode only).
+// This is NOT a payout cap — the admin explicitly chose exact ratios with
+// no cap (see _plans/2026-06-13-live-bet-manual-ratio.md). It is purely an
+// anti-typo guard so a fat-fingered ×600 can't write a bank-destroying
+// payout: a value above it is REJECTED (never silently clamped). Generous
+// on purpose — a realistic exotic longshot tops out far below it.
+export const MAX_MANUAL_RATIO = 100;
 
 // Default clamp band for probabilities. Guards the inversion 1/p against
 // degenerate estimates: a model returning p=0 would blow up to infinite
@@ -142,13 +150,58 @@ export function resolveYesNoSideOdds(
   return typeof v === "number" && Number.isFinite(v) && v > 1 ? v : null;
 }
 
+// Read the pricing mode off an answer config. Defaults to "probability"
+// for every shape that doesn't carry the flag (legacy bets, free-pick
+// scopes, number/free-text), so the historic house-edge + cap behaviour is
+// unchanged unless a bet explicitly opts into "ratio".
+export function resolvePricingMode(
+  config: AnswerConfig | null | undefined,
+): PricingMode {
+  if (
+    config &&
+    (config.kind === "multi_choice" || config.kind === "yes_no") &&
+    config.pricingMode === "ratio"
+  ) {
+    return "ratio";
+  }
+  return "probability";
+}
+
+// Gross payout for ONE live (match/day) option, given its decimal
+// odds/ratio and the player's chosen stake. The single shared definition
+// behind the admin form preview, the player card, the pick-time write, and
+// the server reprice — so all four agree byte-for-byte.
+//   - "probability" mode (default): normalizeOdds — house edge + payout
+//     cap, the historic behaviour.
+//   - "ratio" mode: exact round(stake × ratio), with NO house edge and NO
+//     cap. Floored at stake + 1 so a correct pick always nets at least +1
+//     even after rounding a near-1 ratio.
+export function liveOptionPayout(
+  odds: number,
+  stake: number,
+  mode: PricingMode,
+  config: OddsNormConfig,
+): number {
+  if (mode === "ratio") {
+    const safeStake = Number.isFinite(stake) && stake > 0 ? Math.floor(stake) : 1;
+    const safeOdds = Number.isFinite(odds) && odds > 1 ? odds : 1.01;
+    const raw = Math.round(safeStake * safeOdds);
+    return Math.max(raw, safeStake + 1);
+  }
+  return normalizeOdds(odds, config).payout;
+}
+
 // Validate every captured live odds value in an answer config is a real
 // bookmaker decimal (finite, > 1). Run server-side before persisting so a
 // malformed client payload can't poison the pick-time payout math. Returns
-// true for shapes that carry no live odds (nothing to check).
+// true for shapes that carry no live odds (nothing to check). In ratio
+// mode each value must also stay at or below MAX_MANUAL_RATIO so a typo
+// can't store a bank-destroying multiplier (probability-mode odds never
+// exceed ~50, well under the bound, so the extra check is a no-op there).
 export function validateLiveOddsConfig(config: AnswerConfig): boolean {
+  const max = resolvePricingMode(config) === "ratio" ? MAX_MANUAL_RATIO : Infinity;
   const ok = (v: unknown): boolean =>
-    typeof v === "number" && Number.isFinite(v) && v > 1;
+    typeof v === "number" && Number.isFinite(v) && v > 1 && v <= max;
   if (config.kind === "multi_choice") {
     const m = config.decimalOddsByValue;
     if (!m) return true;
@@ -173,12 +226,16 @@ export function repriceAnswerConfigFromOdds(
   config: AnswerConfig,
   pricingConfig: OddsNormConfig,
 ): { config: AnswerConfig; maxPayout: number | null } {
+  // Mode is read off the same config; "ratio" pays baseStake × ratio with
+  // no edge/cap, "probability" runs the historic normalizeOdds. The mode
+  // flag rides through unchanged on the spread below.
+  const mode = resolvePricingMode(config);
   if (config.kind === "multi_choice" && config.decimalOddsByValue) {
     const odds = config.decimalOddsByValue;
     const payoutOverridesByValue: Record<string, number> = {};
     let maxPayout = 0;
     for (const [value, o] of Object.entries(odds)) {
-      const { payout } = normalizeOdds(o, pricingConfig);
+      const payout = liveOptionPayout(o, pricingConfig.baseStake, mode, pricingConfig);
       payoutOverridesByValue[value] = payout;
       if (payout > maxPayout) maxPayout = payout;
     }
@@ -200,12 +257,12 @@ export function repriceAnswerConfigFromOdds(
     const next = { ...config };
     let maxPayout = 0;
     if (config.decimalOddsYes !== undefined) {
-      const { payout } = normalizeOdds(config.decimalOddsYes, pricingConfig);
+      const payout = liveOptionPayout(config.decimalOddsYes, pricingConfig.baseStake, mode, pricingConfig);
       next.payoutOverrideYes = payout;
       if (payout > maxPayout) maxPayout = payout;
     }
     if (config.decimalOddsNo !== undefined) {
-      const { payout } = normalizeOdds(config.decimalOddsNo, pricingConfig);
+      const payout = liveOptionPayout(config.decimalOddsNo, pricingConfig.baseStake, mode, pricingConfig);
       next.payoutOverrideNo = payout;
       if (payout > maxPayout) maxPayout = payout;
     }

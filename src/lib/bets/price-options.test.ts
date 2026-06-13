@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  liveOptionPayout,
+  MAX_MANUAL_RATIO,
   priceOptionsFromProbabilities,
   priceYesNo,
   repriceAnswerConfigFromOdds,
+  resolvePricingMode,
   resolveYesNoSideOdds,
   validateLiveOddsConfig,
   type PriceOptionsConfig,
@@ -259,5 +262,127 @@ describe("repriceAnswerConfigFromOdds", () => {
     const { config, maxPayout } = repriceAnswerConfigFromOdds(cfg, pricingConfig);
     expect(config).toBe(cfg);
     expect(maxPayout).toBeNull();
+  });
+
+  it("RATIO mode: pays stake × ratio exactly, ignoring house edge + cap", () => {
+    const cfg: AnswerConfig = {
+      kind: "multi_choice",
+      pricingMode: "ratio",
+      options: [
+        { value: "a", labelHe: "א", labelEn: "A" },
+        { value: "b", labelHe: "ב", labelEn: "B" },
+      ],
+      // 5.0 would normally be 14 after edge/cap; ratio mode pays 3×5 = 15.
+      // 40.0 would be capped at 25 in probability mode; ratio pays 3×40 = 120.
+      decimalOddsByValue: { a: 5.0, b: 40.0 },
+    };
+    const { config, maxPayout } = repriceAnswerConfigFromOdds(cfg, pricingConfig);
+    if (config.kind !== "multi_choice") throw new Error("kind changed");
+    expect(config.payoutOverridesByValue).toEqual({ a: 15, b: 120 });
+    expect(maxPayout).toBe(120); // no cap applied
+    // The mode flag survives the reprice.
+    expect(config.pricingMode).toBe("ratio");
+  });
+
+  it("RATIO mode: re-derives yes_no per-side payouts as stake × ratio", () => {
+    const cfg: AnswerConfig = {
+      kind: "yes_no",
+      pricingMode: "ratio",
+      decimalOddsYes: 6.0,
+      decimalOddsNo: 1.5,
+    };
+    const { config, maxPayout } = repriceAnswerConfigFromOdds(cfg, pricingConfig);
+    if (config.kind !== "yes_no") throw new Error("kind changed");
+    expect(config.payoutOverrideYes).toBe(18); // 3 × 6
+    expect(config.payoutOverrideNo).toBe(5); // round(3 × 1.5) = 5
+    expect(maxPayout).toBe(18);
+  });
+});
+
+describe("resolvePricingMode", () => {
+  it("defaults to probability when the flag is absent", () => {
+    expect(
+      resolvePricingMode({
+        kind: "multi_choice",
+        options: [{ value: "a", labelHe: "א", labelEn: "A" }],
+      }),
+    ).toBe("probability");
+    expect(resolvePricingMode({ kind: "yes_no" })).toBe("probability");
+  });
+
+  it("reads the ratio flag", () => {
+    expect(
+      resolvePricingMode({ kind: "yes_no", pricingMode: "ratio" }),
+    ).toBe("ratio");
+  });
+
+  it("defaults to probability for shapes that never carry the flag", () => {
+    expect(resolvePricingMode({ kind: "number" })).toBe("probability");
+    expect(resolvePricingMode(null)).toBe("probability");
+    expect(resolvePricingMode(undefined)).toBe("probability");
+  });
+});
+
+describe("liveOptionPayout", () => {
+  const cfg = { baseStake: 3, maxPayout: 25, houseEdgePct: 5 };
+
+  it("probability mode matches normalizeOdds (house edge + cap)", () => {
+    // 5.0 → 3 × 5 × 0.95 = 14.25 → 14.
+    expect(liveOptionPayout(5.0, 3, "probability", cfg)).toBe(14);
+    // Deep longshot capped.
+    expect(liveOptionPayout(50, 3, "probability", cfg)).toBe(25);
+  });
+
+  it("ratio mode pays exactly round(stake × ratio), no edge", () => {
+    expect(liveOptionPayout(6, 3, "ratio", cfg)).toBe(18);
+    expect(liveOptionPayout(2.5, 10, "ratio", cfg)).toBe(25);
+    expect(liveOptionPayout(1.5, 3, "ratio", cfg)).toBe(5); // round(4.5)
+  });
+
+  it("ratio mode applies NO cap even for a large multiplier", () => {
+    // maxPayout in cfg is 25, but ratio mode ignores it entirely.
+    expect(liveOptionPayout(40, 30, "ratio", cfg)).toBe(1200);
+  });
+
+  it("ratio mode scales linearly with the player's stake", () => {
+    expect(liveOptionPayout(6, 1, "ratio", cfg)).toBe(6);
+    expect(liveOptionPayout(6, 5, "ratio", cfg)).toBe(30);
+    expect(liveOptionPayout(6, 30, "ratio", cfg)).toBe(180);
+  });
+
+  it("ratio mode floors a correct pick at stake + 1", () => {
+    // A near-1 ratio that rounds down to the stake still nets at least +1.
+    expect(liveOptionPayout(1.01, 3, "ratio", cfg)).toBe(4);
+  });
+});
+
+describe("validateLiveOddsConfig — ratio bound", () => {
+  it("rejects a ratio above MAX_MANUAL_RATIO in ratio mode", () => {
+    const cfg: AnswerConfig = {
+      kind: "multi_choice",
+      pricingMode: "ratio",
+      options: [{ value: "a", labelHe: "א", labelEn: "A" }],
+      decimalOddsByValue: { a: MAX_MANUAL_RATIO + 1 },
+    };
+    expect(validateLiveOddsConfig(cfg)).toBe(false);
+  });
+
+  it("accepts a ratio at exactly MAX_MANUAL_RATIO", () => {
+    const cfg: AnswerConfig = {
+      kind: "multi_choice",
+      pricingMode: "ratio",
+      options: [{ value: "a", labelHe: "א", labelEn: "A" }],
+      decimalOddsByValue: { a: MAX_MANUAL_RATIO },
+    };
+    expect(validateLiveOddsConfig(cfg)).toBe(true);
+  });
+
+  it("does not bound probability-mode odds (always ≤ 50, under the cap)", () => {
+    const cfg: AnswerConfig = {
+      kind: "multi_choice",
+      options: [{ value: "a", labelHe: "א", labelEn: "A" }],
+      decimalOddsByValue: { a: 50 },
+    };
+    expect(validateLiveOddsConfig(cfg)).toBe(true);
   });
 });
