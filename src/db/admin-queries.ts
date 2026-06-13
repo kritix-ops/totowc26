@@ -449,6 +449,56 @@ export async function listDuelsForAdmin(opts: {
   `);
 }
 
+// ---------- live-bet push composer ----------
+
+// Open, live-family (match | day) custom bets, the candidates an operator
+// can announce via push. Carries team names (match-scoped) and the
+// matchday date (day-scoped) so the composer can render a player-friendly
+// anchor label without a second round trip. Ordered by anchor so bets on
+// the same match / day sit together in the list.
+export type LiveBetForPushRow = {
+  id: string;
+  scope: "match" | "day";
+  questionHe: string;
+  questionEn: string;
+  matchId: string | null;
+  homeNameHe: string | null;
+  homeNameEn: string | null;
+  awayNameHe: string | null;
+  awayNameEn: string | null;
+  matchdayDate: string | null;
+};
+
+export async function listOpenLiveBetsForPush(
+  limit = 200,
+): Promise<LiveBetForPushRow[]> {
+  return execRows<LiveBetForPushRow>(sql`
+    select
+      cb.id::text                                 as "id",
+      cb.scope::text                              as "scope",
+      cb.question_he                              as "questionHe",
+      cb.question_en                              as "questionEn",
+      cb.match_id::text                           as "matchId",
+      ht.name_he                                  as "homeNameHe",
+      ht.name_en                                  as "homeNameEn",
+      at.name_he                                  as "awayNameHe",
+      at.name_en                                  as "awayNameEn",
+      md.date::text                               as "matchdayDate"
+    from public.custom_bets cb
+    left join public.matches   m  on m.id  = cb.match_id
+    left join public.teams     ht on ht.code = m.home_team
+    left join public.teams     at on at.code = m.away_team
+    left join public.matchdays md on md.id = cb.matchday_id
+    where cb.status = 'open'
+      and cb.scope::text in ('match', 'day')
+    order by
+      m.kickoff_at asc nulls last,
+      md.date asc nulls last,
+      cb.created_at asc
+    limit ${limit}
+  `);
+}
+
 // Surface bets that share an identical (scope, anchor, question_he)
 // triplet with at least one other active bet. Powers /admin/bets/duplicates,
 // where the admin reviews and cancels the extra copies that publishing a

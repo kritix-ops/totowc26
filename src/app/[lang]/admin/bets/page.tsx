@@ -25,14 +25,17 @@ import {
   listCustomBetMatches,
   listCustomBets,
   listDuelsForAdmin,
+  listOpenLiveBetsForPush,
   type AdminBetMatchOption,
   type AdminCustomBetRow,
   type AdminDuelRow,
 } from "@/db/admin-queries";
+import { liveBetAnchor } from "@/lib/bets/live-bet-push";
 import { BetsTableActions } from "./BetsTableActions";
 import { BetsSearchBox } from "./BetsSearchBox";
 import { BetsMatchFilter } from "./BetsMatchFilter";
 import { DuelAdminActions } from "./DuelAdminActions";
+import { LiveBetPushComposer, type LiveBetPushItem } from "./LiveBetPushComposer";
 
 export default async function AdminBetsPage({
   params,
@@ -62,6 +65,8 @@ export default async function AdminBetsPage({
   let duelStatus: DuelStatus | null = null;
   let duelScope: DuelScope | null = null;
   let matchFilter: string | null = null;
+  // Open live bets a manager can announce via push (live view only).
+  let pushItems: LiveBetPushItem[] = [];
 
   if (betType === "duel") {
     duelStatus = parseDuelStatus(sp.status);
@@ -98,6 +103,32 @@ export default async function AdminBetsPage({
     ]);
     bets = betRows;
     betMatches = betMatchRows;
+
+    // The push composer announces match/day bets, so it only belongs on
+    // the live view. Resolve each open live bet to its display anchor via
+    // the same helper the server action uses, so the preview matches the
+    // sent push exactly.
+    if (betType === "live") {
+      const openLive = await listOpenLiveBetsForPush(200);
+      pushItems = openLive.map((b) => {
+        const anchor = liveBetAnchor(
+          {
+            scope: b.scope,
+            matchId: b.matchId,
+            homeName: isHebrew ? b.homeNameHe : b.homeNameEn,
+            awayName: isHebrew ? b.awayNameHe : b.awayNameEn,
+            matchdayDate: b.matchdayDate,
+          },
+          locale,
+        );
+        return {
+          id: b.id,
+          question: isHebrew ? b.questionHe : b.questionEn,
+          anchorKey: anchor.key,
+          anchorLabel: anchor.label,
+        };
+      });
+    }
   }
 
   const duplicateCount = await countDuplicateCustomBets();
@@ -220,6 +251,10 @@ export default async function AdminBetsPage({
             </span>
           </Card>
         </Link>
+      )}
+
+      {betType === "live" && (
+        <LiveBetPushComposer locale={locale} items={pushItems} />
       )}
 
       <FilterBar

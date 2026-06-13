@@ -1144,6 +1144,10 @@ export const NOTIFICATION_KINDS = [
   "lock_reminder",
   // Sent inline from openDuel to the joiner-eligible recipient.
   "duel_received",
+  // Sent from the admin live-bets management surface when an operator
+  // manually announces one or more freshly-published live bets. Body is
+  // "match name + count" per anchor. See the live-bet push composer.
+  "live_bet",
 ] as const;
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];
 
