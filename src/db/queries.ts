@@ -5,6 +5,8 @@ import { unstable_cache } from "next/cache";
 import { execFirstRow, execRows } from "./helpers";
 import { approvedPotIlsSql, paidParticipantsSql } from "./pot";
 import type { MultiChoiceOption } from "@/lib/bets/types";
+import { renderPickAnswer } from "@/lib/bets/format";
+import { fetchPlayerNamesById } from "@/lib/bets/players";
 import { bankBalanceSql, duelCaseSql, duelDeltaSql } from "@/lib/bank";
 import { STAR_PLAYER_RANK, TEAM_RANK } from "@/lib/players/curation";
 import type { CurrentStage } from "@/lib/tournament/current-stage";
@@ -472,8 +474,18 @@ async function loadLeaderboardFromDb(
       from public.profiles p
     ),
     bet_counts as (
+      -- Total bets the user has placed across every surface, not just match
+      -- predictions. During the live phase most new activity is custom
+      -- (live/tournament) picks and duels, so a match-only count looked
+      -- frozen on the leaderboard. Counts are raw placements (a later
+      -- cancellation still reflects that a bet was made).
       select p.id as user_id,
-        (select count(*)::int from public.match_bets mb where mb.user_id = p.id) as bet_count
+        (
+          (select count(*)::int from public.match_bets mb where mb.user_id = p.id)
+          + (select count(*)::int from public.user_custom_bet_picks pk where pk.user_id = p.id)
+          + (select count(*)::int from public.duels d
+               where d.opener_id = p.id or d.joiner_id = p.id)
+        ) as bet_count
       from public.profiles p
     ),
     base as (
@@ -591,8 +603,20 @@ async function loadLeaderboardBreakdownsFromDb(
 
   // The events CTE unions every surface that changes a user's points,
   // each row stamped with its user_id + a comparable timestamp. We then
-  // window-rank per user and keep the top LIMIT slice. The cast through
-  // text[] keeps the parameter shape safe even when drizzle inlines.
+  // window-rank per user and keep the top LIMIT slice.
+  //
+  // Build the id set as an explicit `array[$1::uuid, ...]` constructor via
+  // sql.join (the same list idiom auto-fill uses). Interpolating the raw
+  // JS array as `${userIds}::uuid[]` does NOT work: drizzle expands an
+  // array into a parenthesised parameter LIST, so it renders as
+  // `($1, ..., $n)::uuid[]` — a record cast to uuid[], which Postgres
+  // rejects. The whole query then throws and the leaderboard accordion
+  // silently shows "no graded events" for every row (page.tsx swallows
+  // the error). See _qa-reports for the 2026-06-14 regression.
+  const idList = sql.join(
+    userIds.map((id) => sql`${id}::uuid`),
+    sql`, `,
+  );
   const rows = await execRows<{
     userId: string;
     kind: LeaderboardEventKind;
@@ -604,7 +628,7 @@ async function loadLeaderboardBreakdownsFromDb(
     detailEn: string | null;
   }>(sql`
     with target as (
-      select unnest(${userIds}::uuid[]) as user_id
+      select unnest(array[${idList}]) as user_id
     ),
     events as (
       -- match bets: graded once the match is final. Use finalized_at
@@ -2552,18 +2576,40 @@ export async function getTransparencyByQuestion(
         : filters.tab === "group"
           ? sql`cb.scope::text = 'group'`
           : sql`cb.scope::text in ('match', 'day')`; // live
-    pickerRows = await execRows<TransparencyPickerRow>(sql`
+
+    // We deliberately do NOT format the pick label in SQL here. A custom
+    // bet's answer can be a country code (JOR), a number-range key
+    // (lt_8, 295_265), a player's api_football_id (184), or a yes/no
+    // boolean — and the human-readable text for each lives in
+    // cb.answer_config (the option list) or, for the dynamic player
+    // roster, in the players table. Emitting the raw answer->>'value'
+    // leaked those codes onto the transparency page. Instead we pull the
+    // raw answer + config and resolve every row through the same
+    // renderPickAnswer used by the admin bet surfaces, so the label can
+    // never drift from what bettors saw when they picked.
+    type CustomPickRawRow = {
+      questionId: string;
+      question: string;
+      eventTime: string;
+      userId: string;
+      displayName: string;
+      answerType: "yes_no" | "number" | "multi_choice" | "free_text";
+      answerConfig: unknown;
+      answer: unknown;
+      stake: number;
+      pointsEarned: number | null;
+      status: string;
+    };
+    const rawRows = await execRows<CustomPickRawRow>(sql`
       select
         cb.id::text                                     as "questionId",
         ${questionCol}                                  as "question",
         cb.lock_at::text                                as "eventTime",
         pk.user_id::text                                as "userId",
         p.display_name                                  as "displayName",
-        case pk.answer->>'value'
-          when 'true'  then ${yesLabel}
-          when 'false' then ${noLabel}
-          else coalesce(pk.answer->>'value', '?')
-        end                                             as "pickLabel",
+        cb.answer_type::text                            as "answerType",
+        cb.answer_config                                as "answerConfig",
+        pk.answer                                       as "answer",
         pk.stake_paid::int                              as "stake",
         pk.points_earned                                as "pointsEarned",
         cb.status::text                                 as "status"
@@ -2575,6 +2621,39 @@ export async function getTransparencyByQuestion(
         ${filters.date ? sql`and (cb.lock_at at time zone 'Asia/Jerusalem')::date = ${filters.date}::date` : sql``}
       order by cb.lock_at desc, p.display_name asc
     `);
+
+    // The player-roster markets (golden ball / top scorer) store a raw
+    // api_football_id and keep answer_config.options empty, so their
+    // labels need the players table. Only pay for that roster query when
+    // such a bet is actually in the result — country/range/yes-no bets
+    // resolve entirely from answer_config and skip it.
+    const needsPlayerNames = rawRows.some(
+      (r) =>
+        (r.answerConfig as { dynamicSource?: string } | null)
+          ?.dynamicSource === "players",
+    );
+    const playerNames = needsPlayerNames
+      ? await fetchPlayerNamesById()
+      : undefined;
+    const isHebrew = filters.locale === "he";
+
+    pickerRows = rawRows.map((r) => ({
+      questionId: r.questionId,
+      question: r.question,
+      eventTime: r.eventTime,
+      userId: r.userId,
+      displayName: r.displayName,
+      pickLabel: renderPickAnswer(
+        r.answerType,
+        r.answerConfig,
+        r.answer,
+        isHebrew,
+        playerNames,
+      ),
+      stake: r.stake,
+      pointsEarned: r.pointsEarned,
+      status: r.status,
+    }));
   }
 
   let result = groupPickerRows(pickerRows);
