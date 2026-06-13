@@ -34,7 +34,10 @@ type Props = {
   // the join CTA and renders a recovery banner in its place.
   lockedFromBetting: boolean;
   iAmOpener: boolean;
-  isAdmin: boolean;
+  // True for a full admin OR a scoped bet-manager (liveBets permission).
+  // Drives the cancel / settle controls; the server actions enforce the
+  // same gate, so this only governs whether the UI is shown.
+  canManage: boolean;
   canEdit: boolean;
   joinDeadlinePassed: boolean;
   // Custom-option duel fields (migration 0058). NULL for legacy yes/no
@@ -53,7 +56,7 @@ export function DuelActions({
   bankBalance,
   lockedFromBetting,
   iAmOpener,
-  isAdmin,
+  canManage,
   canEdit,
   joinDeadlinePassed,
   options,
@@ -325,10 +328,10 @@ export function DuelActions({
     );
   }
 
-  // Cancel CTA - opener on open duel, OR admin on any active duel.
+  // Cancel CTA - opener on open duel, OR a manager on any active duel.
   const canCancel =
     (status === "open" && iAmOpener) ||
-    (isAdmin && (status === "open" || status === "matched"));
+    (canManage && (status === "open" || status === "matched"));
   if (canCancel) {
     sections.push(
       <Card key="cancel" className="p-5 md:p-6 flex flex-col gap-3">
@@ -384,8 +387,8 @@ export function DuelActions({
     );
   }
 
-  // Settle CTA - admin only, status='matched'.
-  if (isAdmin && status === "matched") {
+  // Settle CTA - manager only, status='matched'.
+  if (canManage && status === "matched") {
     sections.push(
       <Card key="settle" className="p-5 md:p-6 flex flex-col gap-3">
         <SectionHeading underline="thin" as="h2">

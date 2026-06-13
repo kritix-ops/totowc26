@@ -7,7 +7,7 @@ import { Card, Chip, LabelCaps, MatchupLabel, SectionHeading } from "@/component
 import { PayGateBanner } from "@/components/PayGateBanner";
 import { getRequestUser } from "@/lib/request-user";
 import { getUserAccess } from "@/lib/access";
-import { isAdmin } from "@/lib/admin";
+import { hasPermission } from "@/lib/admin";
 import { execFirstRow } from "@/db/helpers";
 import { getBankBalance, getOverdraftConfig } from "@/lib/bank";
 import { localePath } from "@/lib/paths";
@@ -60,9 +60,9 @@ export default async function DuelDetailPage({ params }: PageParams) {
 
   const user = await getRequestUser();
   if (!user) redirect(localePath(locale, "login"));
-  const [access, admin, duel, bankBalance, overdraft] = await Promise.all([
+  const [access, canManage, duel, bankBalance, overdraft] = await Promise.all([
     getUserAccess(user.id),
-    isAdmin(user.id),
+    hasPermission(user.id, "liveBets"),
     loadDuel(id),
     getBankBalance(user.id),
     getOverdraftConfig(),
@@ -198,7 +198,7 @@ export default async function DuelDetailPage({ params }: PageParams) {
         bankBalance={bankBalance}
         lockedFromBetting={lockedFromBetting}
         iAmOpener={iAmOpener}
-        isAdmin={admin}
+        canManage={canManage}
         canEdit={access.canEdit}
         joinDeadlinePassed={new Date(duel.joinDeadlineAt).getTime() <= serverNow()}
         options={duel.options}

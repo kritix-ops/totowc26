@@ -6,7 +6,7 @@ import { db } from "@/db";
 import { execFirstRow, execRows } from "@/db/helpers";
 import { duels, matches as matchesTable, matchdays, settings } from "@/db/schema";
 import { getUser } from "@/lib/supabase/auth";
-import { isAdmin } from "@/lib/admin";
+import { hasPermission } from "@/lib/admin";
 import { getUserAccess } from "@/lib/access";
 import {
   assertBettingAllowed,
@@ -613,18 +613,24 @@ export type SettleDuelResult =
   | { ok: true }
   | { ok: false; error: DuelErr };
 
-// Admin manual settle. Accepts either a boolean (legacy yes/no duels)
-// or a string option key (custom-option duels). The action picks the
-// branch off the row's `options` column - admin UI is responsible for
+// Manual settle by an admin OR a scoped bet-manager (the `liveBets`
+// permission). Accepts either a boolean (legacy yes/no duels) or a
+// string option key (custom-option duels). The action picks the branch
+// off the row's `options` column - the admin UI is responsible for
 // sending the right shape, but the action revalidates so a wrong shape
 // returns invalid_input rather than corrupting the row.
+//
+// `hasPermission(liveBets)` returns true for full admins too, so this
+// single gate covers both audiences. Settling moves points between the
+// two sides, so `settled_by` records the acting user for the audit log.
 export async function settleDuel(
   id: string,
   resolved: boolean | string,
 ): Promise<SettleDuelResult> {
   const user = await getUser();
   if (!user) return { ok: false, error: "unauth" };
-  if (!(await isAdmin(user.id))) return { ok: false, error: "forbidden" };
+  if (!(await hasPermission(user.id, "liveBets")))
+    return { ok: false, error: "forbidden" };
 
   try {
     const result = await db.transaction(async (tx) => {
@@ -742,9 +748,10 @@ export type CancelDuelResult =
   | { ok: true }
   | { ok: false; error: DuelErr };
 
-// Open duel can be cancelled by its opener (no joiner yet) OR by admin.
-// Matched / settled duels can only be cancelled by admin - that path
-// should be rare and is captured via console.info so we know it ran.
+// Open duel can be cancelled by its opener (no joiner yet) OR by a
+// bet-manager (admin or the `liveBets` permission). Matched / settled
+// duels can only be cancelled by a manager - that path should be rare
+// and is captured via console.info so we know it ran.
 export async function cancelDuel(
   id: string,
   reason: string,
@@ -770,10 +777,10 @@ export async function cancelDuel(
       if (d.status === "cancelled")
         return { ok: false as const, error: "already_settled" as const };
 
-      const callerIsAdmin = await isAdmin(user.id);
+      const callerIsManager = await hasPermission(user.id, "liveBets");
       const callerIsOpenerOnOpen =
         d.status === "open" && d.openerId === user.id;
-      if (!callerIsAdmin && !callerIsOpenerOnOpen)
+      if (!callerIsManager && !callerIsOpenerOnOpen)
         return { ok: false as const, error: "forbidden" as const };
 
       await tx

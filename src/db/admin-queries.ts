@@ -2,6 +2,7 @@ import "server-only";
 import { sql } from "drizzle-orm";
 import { execFirstRow, execRows } from "./helpers";
 import { approvedPotIlsSql } from "./pot";
+import type { DuelOption } from "@/lib/duels/options";
 
 // ---------- sync_runs ----------
 
@@ -234,15 +235,28 @@ export type AdminCustomBetRow = {
 export async function listCustomBets(opts: {
   status?: AdminCustomBetRow["status"] | null;
   scope?: AdminCustomBetRow["scope"] | null;
+  // Constrain to a set of scopes (e.g. the "live" family = match + day).
+  // Combines with `scope` — the single-scope sub-filter narrows further
+  // within the set. Empty / omitted means "no family constraint".
+  scopeIn?: AdminCustomBetRow["scope"][] | null;
   q?: string | null;
   matchId?: string | null;
   limit?: number;
 } = {}): Promise<AdminCustomBetRow[]> {
   const status = opts.status ?? null;
   const scope = opts.scope ?? null;
+  const scopeIn = opts.scopeIn && opts.scopeIn.length > 0 ? opts.scopeIn : null;
   const q = opts.q?.trim() ? opts.q.trim() : null;
   const matchId = opts.matchId?.trim() ? opts.matchId.trim() : null;
   const limit = opts.limit ?? 100;
+  // Inline IN list (enum column) — same pattern as queries.ts. `true`
+  // when no family constraint so the WHERE clause stays uniform.
+  const scopeInClause = scopeIn
+    ? sql`cb.scope::text in (${sql.join(
+        scopeIn.map((s) => sql`${s}`),
+        sql`, `,
+      )})`
+    : sql`true`;
   // ILIKE pattern wraps the user query with %...% so partial matches work.
   // The SQL stays safe because the value is bound as a parameter, never
   // interpolated. Postgres ESCAPE defaults to a backslash, which means a
@@ -278,6 +292,7 @@ export async function listCustomBets(opts: {
     where
       (${status}::text is null or cb.status::text = ${status}) and
       (${scope}::text  is null or cb.scope::text  = ${scope}) and
+      ${scopeInClause} and
       (${matchId}::uuid is null or cb.match_id = ${matchId}::uuid) and
       (
         ${qPattern}::text is null
@@ -338,6 +353,99 @@ export async function listCustomBetMatches(): Promise<AdminBetMatchOption[]> {
     group by m.id, m.home_team, m.away_team, ht.name_he, ht.name_en,
              at.name_he, at.name_en, m.kickoff_at
     order by m.kickoff_at desc
+  `);
+}
+
+// ---------- duels (admin management) ----------
+
+export type AdminDuelRow = {
+  id: string;
+  status: "open" | "matched" | "settled" | "cancelled";
+  scope: "match" | "day" | "tournament";
+  stake: number;
+  questionHe: string;
+  questionEn: string;
+  openerName: string;
+  joinerName: string | null;
+  openerAnswer: boolean | null;
+  matchLabel: string | null; // "BRA vs GER", null when not match-scoped
+  matchdayDate: string | null;
+  joinDeadlineAt: string;
+  resolveAt: string;
+  resolvedValue: boolean | null;
+  // Custom-option fields (migration 0058). NULL on legacy yes/no duels.
+  options: DuelOption[] | null;
+  openerOption: string | null;
+  joinerOption: string | null;
+  resolvedOption: string | null;
+  gradingSource: "auto_api_football" | "auto_football_data" | "manual";
+  createdAt: string;
+};
+
+// List duels for the admin management surface. Mirrors listCustomBets:
+// filterable by status/scope/free-text, null on a filter means "no
+// filter on this dimension". Ordering puts ACTIVE duels (open/matched)
+// first by soonest deadline (they need attention), then PAST duels
+// (settled/cancelled) newest-first — the same logic the public /duels
+// "mine" tab uses so the admin sees the same shape they already know.
+// `q` matches question text (he + en) and the team-code matchup label.
+export async function listDuelsForAdmin(opts: {
+  status?: AdminDuelRow["status"] | null;
+  scope?: AdminDuelRow["scope"] | null;
+  q?: string | null;
+  limit?: number;
+} = {}): Promise<AdminDuelRow[]> {
+  const status = opts.status ?? null;
+  const scope = opts.scope ?? null;
+  const q = opts.q?.trim() ? opts.q.trim() : null;
+  const limit = opts.limit ?? 200;
+  const qPattern = q ? `%${q}%` : null;
+  return execRows<AdminDuelRow>(sql`
+    select
+      d.id::text                                  as "id",
+      d.status::text                              as "status",
+      d.scope::text                               as "scope",
+      d.stake                                     as "stake",
+      d.question_he                               as "questionHe",
+      d.question_en                               as "questionEn",
+      po.display_name                             as "openerName",
+      pj.display_name                             as "joinerName",
+      d.opener_answer                             as "openerAnswer",
+      case when m.id is not null
+        then m.home_team || ' vs ' || m.away_team
+        else null end                             as "matchLabel",
+      md.date::text                               as "matchdayDate",
+      d.join_deadline_at::text                    as "joinDeadlineAt",
+      d.resolve_at::text                          as "resolveAt",
+      d.resolved_value                            as "resolvedValue",
+      d.options                                   as "options",
+      d.opener_option                             as "openerOption",
+      d.joiner_option                             as "joinerOption",
+      d.resolved_option                           as "resolvedOption",
+      d.grading_source::text                      as "gradingSource",
+      d.created_at                                as "createdAt"
+    from public.duels d
+    join public.profiles po on po.id = d.opener_id
+    left join public.profiles pj on pj.id = d.joiner_id
+    left join public.matches m on m.id = d.match_id
+    left join public.matchdays md on md.id = d.matchday_id
+    where
+      (${status}::text is null or d.status::text = ${status}) and
+      (${scope}::text  is null or d.scope::text  = ${scope}) and
+      (
+        ${qPattern}::text is null
+        or d.question_he ilike ${qPattern}
+        or d.question_en ilike ${qPattern}
+        or (m.home_team || ' vs ' || m.away_team) ilike ${qPattern}
+      )
+    order by
+      case when d.status in ('open', 'matched') then 0 else 1 end asc,
+      case when d.status in ('open', 'matched')
+           then d.join_deadline_at end asc,
+      case when d.status in ('settled', 'cancelled')
+           then d.resolve_at end desc nulls last,
+      d.created_at desc
+    limit ${limit}
   `);
 }
 
