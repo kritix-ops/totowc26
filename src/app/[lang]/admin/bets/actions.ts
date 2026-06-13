@@ -19,7 +19,7 @@ import type {
   GradingConfig,
   ResolvedValue,
 } from "@/lib/bets/types";
-import { resolvePickPayoutAtGrade } from "@/lib/bets/payout";
+import { gradedPickPoints } from "@/lib/bets/payout";
 import {
   repriceAnswerConfigFromOdds,
   validateLiveOddsConfig,
@@ -839,8 +839,8 @@ export async function gradeCustomBet(
       //
       // payoutSnapshot pulled per-pick: outright bets price each option
       // individually (Mbappé pays 7, longshot pays 25). Pre-migration
-      // rows have NULL payoutSnapshot — resolvePickPayoutAtGrade falls
-      // back to the bet-level payout for those.
+      // rows have NULL payoutSnapshot — gradedPickPoints falls back to
+      // the bet-level payout for those.
       const picks = await tx
         .select({
           id: userCustomBetPicks.id,
@@ -858,14 +858,15 @@ export async function gradeCustomBet(
           resolvedValue,
         );
         if (correct) winners += 1;
-        const winPayout = resolvePickPayoutAtGrade({
+        const points = gradedPickPoints({
+          correct,
           pickPayoutSnapshot: pk.payoutSnapshot,
           betLevelPayout: bet.payoutSnapshot,
         });
         await tx
           .update(userCustomBetPicks)
           .set({
-            pointsEarned: correct ? winPayout : 0,
+            pointsEarned: points,
             wasCorrect: correct,
             locked: true,
             updatedAt: new Date(),

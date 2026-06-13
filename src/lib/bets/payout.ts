@@ -63,6 +63,26 @@ export function resolvePickPayoutAtGrade(args: {
   return args.pickPayoutSnapshot ?? args.betLevelPayout;
 }
 
+// Points credited to a single pick when a bet is graded: the resolved
+// per-pick payout for a correct pick, 0 otherwise. Shared by BOTH grade
+// paths — the manual admin grade (gradeCustomBet) and the auto grader in
+// sync.ts — so a winner's points can never depend on which path graded
+// the bet. The auto path historically inlined `bet.payoutSnapshot`,
+// which paid every winner the flat bet-level headline and ignored each
+// player's stake and the winning side's odds; routing both paths through
+// this one function is what keeps them from drifting again.
+export function gradedPickPoints(args: {
+  correct: boolean;
+  pickPayoutSnapshot: number | null;
+  betLevelPayout: number;
+}): number {
+  if (!args.correct) return 0;
+  return resolvePickPayoutAtGrade({
+    pickPayoutSnapshot: args.pickPayoutSnapshot,
+    betLevelPayout: args.betLevelPayout,
+  });
+}
+
 function readMultiChoiceOverride(
   answerType: "yes_no" | "number" | "multi_choice" | "free_text",
   answerConfig: unknown,

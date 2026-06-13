@@ -5,6 +5,7 @@ import type {
   PickAnswer,
 } from "./types";
 import {
+  gradedPickPoints,
   resolvePickPayoutAtGrade,
   resolvePickPayoutAtSubmit,
 } from "./payout";
@@ -256,5 +257,66 @@ describe("resolvePickPayoutAtGrade", () => {
       betLevelPayout: 14,
     });
     expect(r).toBe(25);
+  });
+});
+
+describe("gradedPickPoints", () => {
+  it("pays the per-pick snapshot for a correct pick", () => {
+    expect(
+      gradedPickPoints({
+        correct: true,
+        pickPayoutSnapshot: 6,
+        betLevelPayout: 15,
+      }),
+    ).toBe(6);
+  });
+
+  it("pays 0 for an incorrect pick regardless of snapshot", () => {
+    expect(
+      gradedPickPoints({
+        correct: false,
+        pickPayoutSnapshot: 6,
+        betLevelPayout: 15,
+      }),
+    ).toBe(0);
+  });
+
+  it("falls back to bet-level only for a NULL snapshot", () => {
+    expect(
+      gradedPickPoints({
+        correct: true,
+        pickPayoutSnapshot: null,
+        betLevelPayout: 14,
+      }),
+    ).toBe(14);
+  });
+
+  // Regression: the US–Paraguay "red card" incident. The bet resolved to
+  // "No" (decimalOddsNo 2, priced 6 for a stake-3 player), but the
+  // bet-level payoutSnapshot held the "Yes" headline (15). The auto
+  // grader inlined the bet-level value and paid every "No" winner 15
+  // regardless of stake. The winner must be paid their own snapshot (6),
+  // NOT the bet-level headline.
+  it("does not pay the bet-level headline when the winning side is priced lower", () => {
+    expect(
+      gradedPickPoints({
+        correct: true,
+        pickPayoutSnapshot: 6,
+        betLevelPayout: 15,
+      }),
+    ).not.toBe(15);
+  });
+
+  // A high-stake winner must keep their scaled-up snapshot, not collapse
+  // to the flat bet-level number — the exact loss the stake-10 players
+  // took in the incident (snapshot 20, paid 15).
+  it("preserves a stake-scaled snapshot above the bet-level value", () => {
+    expect(
+      gradedPickPoints({
+        correct: true,
+        pickPayoutSnapshot: 20,
+        betLevelPayout: 15,
+      }),
+    ).toBe(20);
   });
 });
