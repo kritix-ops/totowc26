@@ -1,16 +1,11 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { ChevronLeft, ChevronRight, Stamp } from "lucide-react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import { getDictionary, hasLocale, type Locale } from "../../../dictionaries";
-import { Card, LabelCaps, ScoreLine } from "@/components/ui";
 import { BetsTabs } from "@/components/BetsTabs";
 import { SurpriseMeButton } from "@/components/SurpriseMeButton";
-import { Flag } from "@/components/Flag";
 import { PayGateBanner } from "@/components/PayGateBanner";
-import {
-  CustomBetCard,
-  type CustomBetCardData,
-} from "@/components/CustomBetCard";
+import type { CustomBetCardData } from "@/components/CustomBetCard";
 import { getRequestUser } from "@/lib/request-user";
 import { getUserAccess } from "@/lib/access";
 import {
@@ -26,6 +21,7 @@ import type {
   AnswerConfig,
   PickAnswer,
 } from "@/lib/bets/types";
+import { BetsDayBoard, type FixtureItem, type BetItem } from "./BetsDayBoard";
 
 // /bets/live/[date] — matchday live-bet detail. Same data shape as
 // the legacy /play/[date]; the page moved to live under the
@@ -62,6 +58,7 @@ export default async function BetsLiveDayPage({
     isAdmin: false,
     isPaid: false,
     canEdit: false,
+    canSeeAdminMenu: false,
     viewingAs: null,
   };
   try {
@@ -104,8 +101,19 @@ export default async function BetsLiveDayPage({
   const isEditable = (b: { status: string; lockAt: string }) =>
     access.canEdit && b.status === "open" && new Date(b.lockAt).getTime() > nowMs;
 
+  // Hide finished matches from the day view — once a fixture is final
+  // it just adds visual noise to the upcoming-bets surface and pushes the
+  // still-actionable kickoffs further down the page. Match-scope bets
+  // attached to those fixtures fall out of the list too (they render
+  // nested inside their fixture row), but their final result is still
+  // reachable via /bets/live?view=past for anyone looking for it.
+  const liveFixtures = detail.fixtures.filter((f) => f.status !== "final");
+  const liveFixtureIds = new Set(liveFixtures.map((f) => f.id));
+
   const dayBets = detail.bets.filter((b) => b.scope === "day");
-  const matchBets = detail.bets.filter((b) => b.scope === "match");
+  const matchBets = detail.bets
+    .filter((b) => b.scope === "match")
+    .filter((b) => !b.matchId || liveFixtureIds.has(b.matchId));
   // Group match-scope bets by the matchId they target so we can render
   // them beneath their fixture card.
   const matchBetsByMatchId = new Map<string, typeof matchBets>();
@@ -116,12 +124,40 @@ export default async function BetsLiveDayPage({
     matchBetsByMatchId.set(b.matchId, arr);
   }
 
+  // Project server rows onto the client-board shape. The board is the
+  // search + filter island that owns presentation; the server still does
+  // all the per-bet editability math (lockAt vs serverNow + access check)
+  // so the client never needs Date.now() at render.
+  const fixtureItems: FixtureItem[] = liveFixtures.map((m) => ({
+    id: m.id,
+    kickoffAt: m.kickoffAt,
+    homeCode: m.homeCode,
+    homeNameHe: m.homeNameHe,
+    homeNameEn: m.homeNameEn,
+    awayCode: m.awayCode,
+    awayNameHe: m.awayNameHe,
+    awayNameEn: m.awayNameEn,
+    status: m.status,
+    myHome: m.myHome,
+    myAway: m.myAway,
+    matchBets: (matchBetsByMatchId.get(m.id) ?? []).map<BetItem>((b) => ({
+      cardData: toCardData(b, "match", isHebrew, m.homeCode, m.awayCode),
+      editable: isEditable(b),
+    })),
+  }));
+  const dayBetItems: BetItem[] = dayBets.map((b) => ({
+    cardData: toCardData(b, "day", isHebrew),
+    editable: isEditable(b),
+  }));
+
   const headerLabel = formatDateTime(detail.fixtures[0]?.kickoffAt ?? `${date}T12:00:00Z`, locale, {
     weekday: "long",
     day: "numeric",
     month: "long",
     year: "numeric",
   });
+
+  const hiddenFinalCount = detail.fixtures.length - liveFixtures.length;
 
   return (
     <section className="px-4 md:px-16 py-6 md:py-12 flex flex-col gap-6 md:gap-8 max-w-3xl mx-auto w-full pb-24">
@@ -142,136 +178,39 @@ export default async function BetsLiveDayPage({
         </h2>
         <p className="text-sm text-on-surface-variant">
           {isHebrew
-            ? `${detail.fixtures.length} משחקים · ${detail.bets.length} הימורים`
-            : `${detail.fixtures.length} matches · ${detail.bets.length} bets`}
+            ? `${liveFixtures.length} משחקים · ${matchBets.length + dayBets.length} הימורים`
+            : `${liveFixtures.length} matches · ${matchBets.length + dayBets.length} bets`}
+          {hiddenFinalCount > 0 && (
+            <>
+              {" · "}
+              <span className="text-on-surface-variant/80">
+                {isHebrew
+                  ? `${hiddenFinalCount} נגמרו (מוסתרים)`
+                  : `${hiddenFinalCount} finished (hidden)`}
+              </span>
+            </>
+          )}
         </p>
       </header>
 
       {!access.canEdit && <PayGateBanner locale={locale} dict={dict} />}
 
-      {access.canEdit && detail.bets.length > 0 && (
+      {access.canEdit && (matchBets.length > 0 || dayBets.length > 0) && (
         <SurpriseMeButton locale={locale} target={{ surface: "live", date }} />
       )}
 
-      {/* Section 1: Fixtures with link to 1/X/2 form */}
-      {detail.fixtures.length > 0 && (
-        <section className="flex flex-col gap-3">
-          <SectionTitle>
-            {isHebrew ? "המשחקים של היום" : "Today's fixtures"}
-          </SectionTitle>
-          <ul className="flex flex-col gap-3">
-            {detail.fixtures.map((m) => {
-              const homeName = isHebrew ? m.homeNameHe : m.homeNameEn;
-              const awayName = isHebrew ? m.awayNameHe : m.awayNameEn;
-              const hasPick = m.myHome !== null && m.myAway !== null;
-              return (
-                <li key={m.id}>
-                  <Link
-                    href={localePath(locale, `bets/${m.id}`)}
-                    className="press-down block"
-                  >
-                    <Card className="p-4 md:p-5 flex items-center justify-between gap-3 hover:bg-surface-container transition-colors">
-                      <div className="flex items-center gap-2 md:gap-3 flex-1 min-w-0">
-                        <Flag code={m.homeCode} size={28} />
-                        <span className="text-sm md:text-base font-bold truncate">
-                          {homeName}
-                        </span>
-                        <span className="text-on-surface-variant text-xs md:text-sm px-1">
-                          vs
-                        </span>
-                        <span className="text-sm md:text-base font-bold truncate">
-                          {awayName}
-                        </span>
-                        <Flag code={m.awayCode} size={28} />
-                      </div>
-                      <div className="flex items-center gap-3 shrink-0">
-                        {hasPick ? (
-                          <div className="text-end">
-                            <LabelCaps as="div" className="mb-0.5">
-                              {isHebrew ? "תחזית" : "Prediction"}
-                            </LabelCaps>
-                            <ScoreLine
-                              home={m.myHome!}
-                              away={m.myAway!}
-                              className="font-[family-name:var(--font-score)] text-base md:text-lg font-bold text-primary"
-                            />
-                          </div>
-                        ) : (
-                          <div className="text-end">
-                            <LabelCaps as="div" className="mb-0.5">
-                              {isHebrew ? "פתיחה" : "Kickoff"}
-                            </LabelCaps>
-                            <span className="font-[family-name:var(--font-label)] text-xs font-bold tabular-nums">
-                              {formatDateTime(m.kickoffAt, locale, {
-                                hour: "2-digit",
-                                minute: "2-digit",
-                              })}
-                            </span>
-                          </div>
-                        )}
-                        <Chev className="h-5 w-5 text-outline shrink-0" />
-                      </div>
-                    </Card>
-                  </Link>
-
-                  {/* Match-scope bets attached to this fixture */}
-                  {(matchBetsByMatchId.get(m.id) ?? []).length > 0 && (
-                    <div className="mt-3 ms-4 ps-3 border-s-2 border-outline-variant flex flex-col gap-3">
-                      {matchBetsByMatchId.get(m.id)!.map((b) => (
-                        <CustomBetCard
-                          key={b.id}
-                          locale={locale}
-                          bankBalance={bankBalance}
-                          editable={isEditable(b)}
-                          liveStakeConfig={liveStakeConfig}
-                          maxOverdraft={overdraft.maxOverdraft}
-                          lockedFromBetting={lockedFromBetting}
-                          bet={toCardData(b, "match", isHebrew, m.homeCode, m.awayCode)}
-                        />
-                      ))}
-                    </div>
-                  )}
-                </li>
-              );
-            })}
-          </ul>
-        </section>
-      )}
-
-      {/* Section 2: Day-scope bets (aggregate across all today's matches) */}
-      {dayBets.length > 0 && (
-        <section className="flex flex-col gap-3">
-          <SectionTitle>
-            <span className="inline-flex items-center gap-2">
-              <Stamp className="h-5 w-5 text-tertiary-fixed-dim" strokeWidth={1.75} />
-              {dict.live.dayWideTitle}
-            </span>
-          </SectionTitle>
-          <p className="text-sm text-on-surface-variant -mt-1">
-            {dict.live.dayWideHint}
-          </p>
-          <div className="flex flex-col gap-3">
-            {dayBets.map((b) => (
-              <CustomBetCard
-                key={b.id}
-                locale={locale}
-                bankBalance={bankBalance}
-                editable={isEditable(b)}
-                liveStakeConfig={liveStakeConfig}
-                maxOverdraft={overdraft.maxOverdraft}
-                lockedFromBetting={lockedFromBetting}
-                bet={toCardData(b, "day", isHebrew)}
-              />
-            ))}
-          </div>
-        </section>
-      )}
-
-      {dayBets.length === 0 && matchBets.length === 0 && (
-        <Card className="p-6 text-center text-on-surface-variant">
-          {dict.live.emptyDay}
-        </Card>
-      )}
+      <BetsDayBoard
+        locale={locale}
+        fixtures={fixtureItems}
+        dayBets={dayBetItems}
+        bankBalance={bankBalance}
+        liveStakeConfig={liveStakeConfig}
+        maxOverdraft={overdraft.maxOverdraft}
+        lockedFromBetting={lockedFromBetting}
+        dayWideTitle={dict.live.dayWideTitle}
+        dayWideHint={dict.live.dayWideHint}
+        emptyDay={dict.live.emptyDay}
+      />
     </section>
   );
 }
@@ -288,18 +227,6 @@ function isValidIsoDate(value: string): boolean {
     parsed.getUTCFullYear() === y &&
     parsed.getUTCMonth() === mo - 1 &&
     parsed.getUTCDate() === d
-  );
-}
-
-function SectionTitle({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
-  return (
-    <h2 className="font-[family-name:var(--font-display)] text-xl md:text-2xl font-bold text-on-surface">
-      {children}
-    </h2>
   );
 }
 

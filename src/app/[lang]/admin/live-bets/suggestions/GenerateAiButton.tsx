@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { Sparkles, AlertCircle, SlidersHorizontal } from "lucide-react";
 import { clsx } from "clsx";
 import type { Locale } from "../../../dictionaries";
@@ -26,7 +25,6 @@ export function GenerateAiButton({
   matchId: string;
   locale: Locale;
 }) {
-  const router = useRouter();
   const isHebrew = locale === "he";
   const { pending, run } = usePendingAction();
   const [result, setResult] = useState<GenerateAiResult | null>(null);
@@ -42,7 +40,6 @@ export function GenerateAiButton({
         instructions: instructions.trim() || undefined,
       });
       setResult(res);
-      if (res.ok && res.created > 0) router.refresh();
     });
   };
 
@@ -141,23 +138,16 @@ function ResultLine({
 }) {
   const isHebrew = locale === "he";
   if (result.ok) {
-    if (result.created === 0) {
-      return (
-        <p className="text-xs text-on-surface-variant">
-          {isHebrew ? "לא נוצרו טיוטות. נסה שוב." : "No drafts created. Try again."}
-        </p>
-      );
-    }
     return (
       <p className="text-xs text-on-surface-variant">
         {isHebrew
-          ? `נוצרו ${result.created} טיוטות${result.failed ? ` (${result.failed} נכשלו)` : ""}. `
-          : `Created ${result.created} drafts${result.failed ? ` (${result.failed} failed)` : ""}. `}
+          ? "התחלנו לייצר ברקע. תקבל התראה כשהטיוטות מוכנות. "
+          : "Generating in the background. You'll be notified when the drafts are ready. "}
         <Link
           href={localePath(locale, "admin/bets")}
           className="font-bold text-primary hover:underline"
         >
-          {isHebrew ? "לעיון ופרסום" : "Review & publish"}
+          {isHebrew ? "להימורים" : "Go to bets"}
         </Link>
       </p>
     );

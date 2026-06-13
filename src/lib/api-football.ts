@@ -184,6 +184,12 @@ export type ApiFootballEvent = {
   // "Yellow Card" | "Red Card" | "Normal Goal" | "Penalty" |
   // "Goal cancelled" | "Penalty confirmed" | ...
   detail: string;
+  // The primary actor: the scorer on a Goal, the booked player on a Card.
+  // Keyed by API-Football's player id so player-prop bets can grade by id
+  // (players.api_football_id joins to this). null when the feed omits it.
+  playerId: number | null;
+  // The assisting player on a Goal (null on cards / unassisted goals).
+  assistId: number | null;
 };
 
 export async function fetchFixtureEvents(
@@ -205,6 +211,8 @@ type ApiFootballEventsResponse = {
   response?: Array<{
     time?: { elapsed?: number | null; extra?: number | null };
     team?: { id?: number | null };
+    player?: { id?: number | null; name?: string | null };
+    assist?: { id?: number | null; name?: string | null };
     type?: string | null;
     detail?: string | null;
   }>;
@@ -226,6 +234,8 @@ function parseEventsResponse(
       teamId,
       type: typeof r.type === "string" ? r.type : "",
       detail: typeof r.detail === "string" ? r.detail : "",
+      playerId: typeof r.player?.id === "number" ? r.player.id : null,
+      assistId: typeof r.assist?.id === "number" ? r.assist.id : null,
     });
   }
   return out;

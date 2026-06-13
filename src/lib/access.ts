@@ -5,11 +5,18 @@ import { and, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { payments, profiles } from "@/db/schema";
 import { getViewAs, type ViewAsRole } from "./view-as";
+import { hasAnyPermission, normalizePermissions } from "./admin-paths";
 
 export type UserAccess = {
   isAdmin: boolean;
   isPaid: boolean;
   canEdit: boolean;
+  // True when the nav should show the Admin entry: full admin OR a
+  // scoped operator (any permission flag set). False when the user is
+  // an admin currently impersonating a player view (so the preview
+  // hides the admin doorway). Drives the mobile bottom nav, the desktop
+  // nav extras, and the profile-menu admin link.
+  canSeeAdminMenu: boolean;
   // When non-null, this user is actually an admin currently impersonating
   // a player role for preview. UI uses it to render the "viewing as"
   // banner; server actions don't need it - `canEdit` already reflects the
@@ -21,6 +28,7 @@ const NO_ACCESS: UserAccess = {
   isAdmin: false,
   isPaid: false,
   canEdit: false,
+  canSeeAdminMenu: false,
   viewingAs: null,
 };
 
@@ -41,11 +49,16 @@ function getBaseAccess(userId: string) {
   const cached = unstable_cache(
     async () => {
       const [profile] = await db
-        .select({ role: profiles.role })
+        .select({
+          role: profiles.role,
+          permissions: profiles.permissions,
+        })
         .from(profiles)
         .where(eq(profiles.id, userId))
         .limit(1);
       const isAdmin = profile?.role === "admin";
+      const hasScopedAccess =
+        !!profile && hasAnyPermission(normalizePermissions(profile.permissions));
 
       const [paid] = await db
         .select({ id: payments.id })
@@ -53,7 +66,7 @@ function getBaseAccess(userId: string) {
         .where(and(eq(payments.userId, userId), eq(payments.status, "approved")))
         .limit(1);
       const isPaid = !!paid;
-      return { isAdmin, isPaid };
+      return { isAdmin, isPaid, hasScopedAccess };
     },
     ["base-access", userId],
     { tags: [accessCacheTag(userId)], revalidate: 300 },
@@ -76,17 +89,38 @@ function getBaseAccess(userId: string) {
 export const getUserAccess = cache(async (userId: string | null | undefined): Promise<UserAccess> => {
   if (!userId) return NO_ACCESS;
 
-  const { isAdmin, isPaid } = await getBaseAccess(userId);
+  const { isAdmin, isPaid, hasScopedAccess } = await getBaseAccess(userId);
 
   if (isAdmin) {
     const view = await getViewAs();
+    // Impersonation hides the admin doorway so the preview matches a
+    // real player. Scoped operators don't have an impersonation path,
+    // so their menu visibility is unaffected.
     if (view === "paid") {
-      return { isAdmin: false, isPaid: true, canEdit: true, viewingAs: "paid" };
+      return {
+        isAdmin: false,
+        isPaid: true,
+        canEdit: true,
+        canSeeAdminMenu: false,
+        viewingAs: "paid",
+      };
     }
     if (view === "unpaid") {
-      return { isAdmin: false, isPaid: false, canEdit: false, viewingAs: "unpaid" };
+      return {
+        isAdmin: false,
+        isPaid: false,
+        canEdit: false,
+        canSeeAdminMenu: false,
+        viewingAs: "unpaid",
+      };
     }
   }
 
-  return { isAdmin, isPaid, canEdit: isAdmin || isPaid, viewingAs: null };
+  return {
+    isAdmin,
+    isPaid,
+    canEdit: isAdmin || isPaid,
+    canSeeAdminMenu: isAdmin || hasScopedAccess,
+    viewingAs: null,
+  };
 });

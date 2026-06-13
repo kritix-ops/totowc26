@@ -22,16 +22,22 @@ import type {
   AnswerConfig,
   AutoApiFootballStat,
   GradingConfig,
+  PricingMode,
 } from "@/lib/bets/types";
 import type { EventMetric, EventOp } from "@/lib/bets/events-grade";
 import { isFreePickScope } from "@/lib/bets/free-pick-scopes";
-import { liveStakeCap, normalizeOdds } from "@/lib/odds-normalize";
+import { liveStakeCap, normalizeOdds, type OddsNormConfig } from "@/lib/odds-normalize";
 import {
+  liveOptionPayout,
+  MAX_MANUAL_RATIO,
   priceOptionsFromProbabilities,
   priceYesNo,
+  resolvePricingMode,
 } from "@/lib/bets/price-options";
 import type { AdminAnchorMatch, AdminAnchorDay, BetTemplate } from "@/db/admin-queries";
 import type { BetTypeKey } from "@/db/schema";
+import { useAutoTranslate } from "@/lib/use-auto-translate";
+import { AutoTranslateHint } from "@/components/AutoTranslateHint";
 import { createCustomBet, updateCustomBet } from "./actions";
 
 // Shared bet-author form. Two modes:
@@ -162,6 +168,20 @@ export function BetForm({
   const [gradingRuleHe, setGradingRuleHe] = useState(initialBet?.gradingRuleHe ?? "");
   const [gradingRuleEn, setGradingRuleEn] = useState(initialBet?.gradingRuleEn ?? "");
 
+  // Auto-translate: when the admin types Hebrew and leaves the field,
+  // fill the English counterpart if it's still empty. Manual edits are
+  // never clobbered (the hook re-checks isEnglishEmpty before applying).
+  const questionTranslate = useAutoTranslate({
+    context: "question",
+    isEnglishEmpty: () => questionEn.trim().length === 0,
+    onTranslate: setQuestionEn,
+  });
+  const ruleTranslate = useAutoTranslate({
+    context: "rule",
+    isEnglishEmpty: () => gradingRuleEn.trim().length === 0,
+    onTranslate: setGradingRuleEn,
+  });
+
   // ---- Answer ----
   const [answerType, setAnswerType] = useState<AnswerType>(
     initialBet?.answerType ?? "yes_no",
@@ -180,17 +200,16 @@ export function BetForm({
   // Seed each option's probability (live-scope pricing) from the stored
   // decimal odds when editing — p = 1 / odds, shown as a whole percent.
   // Falls back to "" so a fresh draft prompts the admin to fill it.
-  const [mcOptions, setMcOptions] = useState<
-    Array<{ value: string; labelHe: string; labelEn: string; probability: string }>
-  >(
+  const [mcOptions, setMcOptions] = useState<McOption[]>(
     initialMc?.options?.map((o) => ({
       value: o.value,
       labelHe: o.labelHe,
       labelEn: o.labelEn,
       probability: oddsToPercentString(initialMc.decimalOddsByValue?.[o.value]),
+      ratio: oddsToRatioString(initialMc.decimalOddsByValue?.[o.value]),
     })) ?? [
-      { value: "", labelHe: "", labelEn: "", probability: "" },
-      { value: "", labelHe: "", labelEn: "", probability: "" },
+      { value: "", labelHe: "", labelEn: "", probability: "", ratio: "" },
+      { value: "", labelHe: "", labelEn: "", probability: "", ratio: "" },
     ],
   );
   const initialFt =
@@ -210,6 +229,24 @@ export function BetForm({
     initialBet?.answerConfig.kind === "yes_no" ? initialBet.answerConfig : null;
   const [yesProbability, setYesProbability] = useState<string>(
     oddsToPercentString(initialYesNo?.decimalOddsYes),
+  );
+
+  // Live pricing mode (match/day multi-choice + yes/no). "probability" is
+  // the default: a % per option that the system renormalises + prices via
+  // normalizeOdds (house edge + cap). "ratio" lets the admin type the
+  // multiplier directly — the player wins stake × ratio with no edge/cap.
+  // Seeded from whichever live config the bet carries. See
+  // _plans/2026-06-13-live-bet-manual-ratio.md.
+  const [pricingMode, setPricingMode] = useState<PricingMode>(
+    resolvePricingMode(initialMc ?? initialYesNo ?? null),
+  );
+  // Per-side ratios for a live yes/no in ratio mode. Seeded from the stored
+  // per-side odds (which ARE the ratios in ratio mode).
+  const [yesRatio, setYesRatio] = useState<string>(
+    oddsToRatioString(initialYesNo?.decimalOddsYes),
+  );
+  const [noRatio, setNoRatio] = useState<string>(
+    oddsToRatioString(initialYesNo?.decimalOddsNo),
   );
 
   // ---- Pricing (scope-aware) ----
@@ -299,14 +336,33 @@ export function BetForm({
     };
   }, [defaults]);
 
-  // Per-option live pricing for a multi-choice exotic market. Parses each
-  // option's probability %, renormalises + prices via the shared module,
-  // and returns a map keyed by option value so the render can show the
-  // payout next to each option and the submit can embed it. null until at
-  // least one valid probability is entered, so the UI degrades cleanly.
+  // Per-option live pricing for a multi-choice exotic market. Two modes:
+  //   - probability: parse each option's %, renormalise + price via the
+  //     shared module (house edge + cap).
+  //   - ratio: parse each option's typed multiplier and price it exactly
+  //     (stake × ratio, no edge/cap) and independently — no renormalisation.
+  // Returns an array aligned to mcOptions; an entry is null when that option
+  // has no usable value yet (so the chip just doesn't render for it), and
+  // the whole memo is null until at least one option is priced. So the UI
+  // degrades cleanly in both modes.
   const isLiveMultiChoice = isLiveScope && answerType === "multi_choice";
-  const liveMcPricing = useMemo(() => {
+  const liveMcPricing = useMemo<
+    Array<{ payout: number; decimalOdds: number; probability: number } | null> | null
+  >(() => {
     if (!isLiveMultiChoice || !livePricingConfig) return null;
+    if (pricingMode === "ratio") {
+      const ratios = mcOptions.map((o) => parseRatio(o.ratio));
+      if (!ratios.some((r) => r != null)) return null;
+      return ratios.map((r) =>
+        r == null
+          ? null
+          : {
+              payout: liveOptionPayout(r, livePricingConfig.baseStake, "ratio", livePricingConfig),
+              decimalOdds: r,
+              probability: 1 / r,
+            },
+      );
+    }
     const parsed = mcOptions.map((o) => ({
       value: o.value.trim(),
       probability: parsePercent(o.probability),
@@ -319,13 +375,12 @@ export function BetForm({
       })),
       livePricingConfig,
     );
-    const byIndex = priced.map((pr) => ({
+    return priced.map((pr) => ({
       payout: pr.payout,
       decimalOdds: pr.decimalOdds,
       probability: pr.probability,
     }));
-    return byIndex;
-  }, [isLiveMultiChoice, livePricingConfig, mcOptions]);
+  }, [isLiveMultiChoice, livePricingConfig, mcOptions, pricingMode]);
 
   // Per-side live pricing for a yes/no exotic market.
   const isLiveYesNo = isLiveScope && answerType === "yes_no";
@@ -333,12 +388,48 @@ export function BetForm({
     () => parsePercent(yesProbability),
     [yesProbability],
   );
-  const liveYesNoPricing = useMemo(() => {
-    if (!isLiveYesNo || !livePricingConfig || parsedYesProbability == null) {
-      return null;
+  const parsedYesRatio = useMemo(() => parseRatio(yesRatio), [yesRatio]);
+  const parsedNoRatio = useMemo(() => parseRatio(noRatio), [noRatio]);
+  // Shape kept identical across modes so the render reads one object:
+  // per-side decimal odds + payout, each null when that side isn't priced
+  // yet (only possible in ratio mode — probability derives both sides from
+  // one number). null until at least one side is priced.
+  const liveYesNoPricing = useMemo<
+    {
+      decimalOddsYes: number | null;
+      decimalOddsNo: number | null;
+      payoutYes: number | null;
+      payoutNo: number | null;
+    } | null
+  >(() => {
+    if (!isLiveYesNo || !livePricingConfig) return null;
+    if (pricingMode === "ratio") {
+      if (parsedYesRatio == null && parsedNoRatio == null) return null;
+      const priceSide = (r: number | null) =>
+        r == null ? null : liveOptionPayout(r, livePricingConfig.baseStake, "ratio", livePricingConfig);
+      return {
+        decimalOddsYes: parsedYesRatio,
+        decimalOddsNo: parsedNoRatio,
+        payoutYes: priceSide(parsedYesRatio),
+        payoutNo: priceSide(parsedNoRatio),
+      };
     }
-    return priceYesNo(parsedYesProbability, livePricingConfig);
-  }, [isLiveYesNo, livePricingConfig, parsedYesProbability]);
+    if (parsedYesProbability == null) return null;
+    const yn = priceYesNo(parsedYesProbability, livePricingConfig);
+    return {
+      decimalOddsYes: yn.decimalOddsYes,
+      decimalOddsNo: yn.decimalOddsNo,
+      payoutYes: yn.payoutYes,
+      payoutNo: yn.payoutNo,
+    };
+  }, [
+    isLiveYesNo,
+    livePricingConfig,
+    pricingMode,
+    parsedYesProbability,
+    parsedYesRatio,
+    parsedNoRatio,
+  ]);
 
   // Snap stake/payout to the computed preview when decimal_odds is the
   // source of truth — keeps the saved snapshot consistent with what the
@@ -350,15 +441,21 @@ export function BetForm({
 
   const liveFallbackStake = defaults?.liveOddsBaseStake ?? 3;
 
-  // Live multi-choice / yes-no priced from probabilities: the bet-level
-  // snapshot stake is the base stake and the snapshot payout is the
-  // HIGHEST priced outcome. Per-option/per-side payouts live in
+  // Live multi-choice / yes-no priced from probabilities OR ratios: the
+  // bet-level snapshot stake is the base stake and the snapshot payout is
+  // the HIGHEST priced outcome. Per-option/per-side payouts live in
   // answer_config; this bet-level pair is only the grade/fallback anchor.
-  const liveProbMaxPayout = liveMcPricing
-    ? Math.max(...liveMcPricing.map((p) => p.payout))
+  // Filters out unpriced (null) entries so a partially-filled ratio market
+  // still produces a sensible max from whatever is priced.
+  const livePricedPayouts: number[] = liveMcPricing
+    ? liveMcPricing.flatMap((p) => (p ? [p.payout] : []))
     : liveYesNoPricing
-      ? Math.max(liveYesNoPricing.payoutYes, liveYesNoPricing.payoutNo)
-      : null;
+      ? [liveYesNoPricing.payoutYes, liveYesNoPricing.payoutNo].filter(
+          (p): p is number => p != null,
+        )
+      : [];
+  const liveProbMaxPayout =
+    livePricedPayouts.length > 0 ? Math.max(...livePricedPayouts) : null;
 
   if (liveProbMaxPayout != null) {
     if (stake !== liveFallbackStake) setStake(liveFallbackStake);
@@ -459,6 +556,9 @@ export function BetForm({
       setNumberMin(cfg.min !== undefined ? String(cfg.min) : "");
       setNumberMax(cfg.max !== undefined ? String(cfg.max) : "");
     }
+    // Carry the template's pricing mode so a ratio-priced template clones
+    // into ratio mode (and its odds seed the ratio inputs below).
+    setPricingMode(resolvePricingMode(cfg ?? null));
     if (cfg?.kind === "multi_choice") {
       setMcOptions(
         cfg.options.length > 0
@@ -467,15 +567,18 @@ export function BetForm({
               labelHe: o.labelHe,
               labelEn: o.labelEn,
               probability: oddsToPercentString(cfg.decimalOddsByValue?.[o.value]),
+              ratio: oddsToRatioString(cfg.decimalOddsByValue?.[o.value]),
             }))
           : [
-              { value: "", labelHe: "", labelEn: "", probability: "" },
-              { value: "", labelHe: "", labelEn: "", probability: "" },
+              { value: "", labelHe: "", labelEn: "", probability: "", ratio: "" },
+              { value: "", labelHe: "", labelEn: "", probability: "", ratio: "" },
             ],
       );
     }
     if (cfg?.kind === "yes_no") {
       setYesProbability(oddsToPercentString(cfg.decimalOddsYes));
+      setYesRatio(oddsToRatioString(cfg.decimalOddsYes));
+      setNoRatio(oddsToRatioString(cfg.decimalOddsNo));
     }
     if (cfg?.kind === "free_text") {
       setFreeTextPlaceholderHe(cfg.placeholderHe ?? "");
@@ -541,12 +644,24 @@ export function BetForm({
     let answerConfig: AnswerConfig = built;
     let betLevelDecimalOdds: number | null = isLiveScope ? parsedDecimalOdds : null;
     if (isLiveScope && livePricingConfig) {
-      const priced = embedLivePricing(built, mcOptions, yesProbability, livePricingConfig);
+      const priced = embedLivePricing(
+        built,
+        mcOptions,
+        yesProbability,
+        yesRatio,
+        noRatio,
+        pricingMode,
+        livePricingConfig,
+      );
       if (priced === "incomplete") {
         setError(
-          isHebrew
-            ? "מלא הסתברות לכל האפשרויות (או השאר את כולן ריקות)."
-            : "Fill a probability for every option (or leave them all empty).",
+          pricingMode === "ratio"
+            ? isHebrew
+              ? "מלא יחס לכל האפשרויות (או השאר את כולן ריקות)."
+              : "Fill a ratio for every option (or leave them all empty)."
+            : isHebrew
+              ? "מלא הסתברות לכל האפשרויות (או השאר את כולן ריקות)."
+              : "Fill a probability for every option (or leave them all empty).",
         );
         return;
       }
@@ -788,6 +903,7 @@ export function BetForm({
             label="HE"
             value={questionHe}
             onChange={setQuestionHe}
+            onBlur={() => questionTranslate.trigger(questionHe)}
             required
             placeholder={isHebrew ? "למשל: האם תהיה הפתעה היום?" : "e.g. האם תהיה הפתעה היום?"}
             dir="rtl"
@@ -799,6 +915,7 @@ export function BetForm({
             required
             placeholder="e.g. Will today have a surprise?"
             dir="ltr"
+            hint={<AutoTranslateHint state={questionTranslate.state} isHebrew={isHebrew} />}
           />
         </div>
       </Section>
@@ -815,6 +932,7 @@ export function BetForm({
             label="HE"
             value={gradingRuleHe}
             onChange={setGradingRuleHe}
+            onBlur={() => ruleTranslate.trigger(gradingRuleHe)}
             required
             placeholder={isHebrew ? "למשל: כרטיס אדום אחד או יותר ב-90 הדקות (לא כולל הארכה) באחד המשחקים של היום." : "e.g."}
             dir="rtl"
@@ -826,6 +944,7 @@ export function BetForm({
             required
             placeholder="e.g. One or more red cards in regulation across today's matches."
             dir="ltr"
+            hint={<AutoTranslateHint state={ruleTranslate.state} isHebrew={isHebrew} />}
           />
         </div>
       </Section>
@@ -877,13 +996,24 @@ export function BetForm({
           title={isHebrew ? "אפשרויות בחירה" : "Choice options"}
           hint={
             isLiveMultiChoice
-              ? isHebrew
-                ? "להימור לייב מקובץ (למשל ואר: מחצית 1 / מחצית 2 / אין): תן הסתברות באחוזים לכל אפשרות. המערכת מנרמלת אותן ל-100% ומחשבת יחס ותשלום נפרדים לכל בחירה — אפשרות סבירה משלמת מעט, אאוטסיידר משלם הרבה."
-                : "For a grouped live market (e.g. VAR: 1st half / 2nd half / none): give each option a probability %. The system renormalises to 100% and prices each choice on its own odds — likely outcomes pay little, longshots pay big."
+              ? pricingMode === "ratio"
+                ? isHebrew
+                  ? `תן יחס (כפולה) לכל אפשרות — למשל ×6 (טווח 1.01–${MAX_MANUAL_RATIO}). השחקן מקבל בדיוק סיכון × יחס, בלי עמלת בית ובלי תקרה. כל אפשרות עומדת בפני עצמה (אין נרמול ל-100%).`
+                  : `Give each option a ratio (multiplier) — e.g. ×6 (range 1.01–${MAX_MANUAL_RATIO}). The player wins exactly stake × ratio, with no house edge and no cap. Each option stands on its own (no renormalising to 100%).`
+                : isHebrew
+                  ? "להימור לייב מקובץ (למשל ואר: מחצית 1 / מחצית 2 / אין): תן הסתברות באחוזים לכל אפשרות. המערכת מנרמלת אותן ל-100% ומחשבת יחס ותשלום נפרדים לכל בחירה — אפשרות סבירה משלמת מעט, אאוטסיידר משלם הרבה."
+                  : "For a grouped live market (e.g. VAR: 1st half / 2nd half / none): give each option a probability %. The system renormalises to 100% and prices each choice on its own odds — likely outcomes pay little, longshots pay big."
               : undefined
           }
         >
           <div className="flex flex-col gap-3">
+            {isLiveMultiChoice && (
+              <PricingModeToggle
+                mode={pricingMode}
+                onChange={setPricingMode}
+                isHebrew={isHebrew}
+              />
+            )}
             {mcOptions.map((opt, i) => {
               const priced = liveMcPricing?.[i];
               return (
@@ -924,15 +1054,25 @@ export function BetForm({
                   {isLiveMultiChoice && (
                     <div className="flex items-end gap-3 ps-0 md:ps-[88px]">
                       <label className="flex flex-col gap-1.5">
-                        <LabelCaps>{isHebrew ? "הסתברות %" : "Probability %"}</LabelCaps>
+                        <LabelCaps>
+                          {pricingMode === "ratio"
+                            ? isHebrew ? "יחס ×" : "Ratio ×"
+                            : isHebrew ? "הסתברות %" : "Probability %"}
+                        </LabelCaps>
                         <input
                           type="text"
                           inputMode="decimal"
-                          value={opt.probability}
+                          value={pricingMode === "ratio" ? opt.ratio : opt.probability}
                           onChange={(e) =>
-                            updateMc(i, "probability", e.target.value, mcOptions, setMcOptions)
+                            updateMc(
+                              i,
+                              pricingMode === "ratio" ? "ratio" : "probability",
+                              e.target.value,
+                              mcOptions,
+                              setMcOptions,
+                            )
                           }
-                          placeholder="33"
+                          placeholder={pricingMode === "ratio" ? "6" : "33"}
                           dir="ltr"
                           className="min-h-[48px] w-24 px-3 rounded border border-outline bg-surface-container-lowest text-base font-bold tabular-nums focus:outline-none focus:border-primary"
                         />
@@ -958,7 +1098,7 @@ export function BetForm({
               onClick={() =>
                 setMcOptions([
                   ...mcOptions,
-                  { value: "", labelHe: "", labelEn: "", probability: "" },
+                  { value: "", labelHe: "", labelEn: "", probability: "", ratio: "" },
                 ])
               }
               className="self-start inline-flex items-center gap-2 min-h-[44px] px-4 rounded-full border border-outline bg-surface-container-lowest text-on-surface text-sm font-bold hover:bg-surface-container"
@@ -997,13 +1137,21 @@ export function BetForm({
         title={isHebrew ? "תמחור" : "Pricing"}
         hint={
           isLiveMultiChoice
-            ? isHebrew
-              ? "התמחור לכל אפשרות נקבע מההסתברויות שמילאת למעלה. כאן רק תצוגה מסכמת."
-              : "Per-option pricing comes from the probabilities you set above. This is just a summary."
-            : isLiveYesNo
+            ? pricingMode === "ratio"
               ? isHebrew
-                ? "תן הסתברות באחוזים שהתשובה היא 'כן'. המערכת מתמחרת 'כן' ו'לא' בנפרד — כך 'לא יהיה ואר' (סביר) לא משלם כמו אאוטסיידר."
-                : "Give the probability the answer is 'yes'. The system prices yes and no separately, so a likely 'no' can't pay like a longshot."
+                ? "התמחור לכל אפשרות נקבע מהיחס שמילאת למעלה. כאן רק תצוגה מסכמת."
+                : "Per-option pricing comes from the ratios you set above. This is just a summary."
+              : isHebrew
+                ? "התמחור לכל אפשרות נקבע מההסתברויות שמילאת למעלה. כאן רק תצוגה מסכמת."
+                : "Per-option pricing comes from the probabilities you set above. This is just a summary."
+            : isLiveYesNo
+              ? pricingMode === "ratio"
+                ? isHebrew
+                  ? `תן יחס (כפולה) לכל צד — 'כן' ו'לא' (טווח 1.01–${MAX_MANUAL_RATIO}). השחקן מקבל בדיוק סיכון × יחס, בלי עמלת בית ובלי תקרה.`
+                  : `Give a ratio (multiplier) for each side — yes and no (range 1.01–${MAX_MANUAL_RATIO}). The player wins exactly stake × ratio, with no house edge and no cap.`
+                : isHebrew
+                  ? "תן הסתברות באחוזים שהתשובה היא 'כן'. המערכת מתמחרת 'כן' ו'לא' בנפרד — כך 'לא יהיה ואר' (סביר) לא משלם כמו אאוטסיידר."
+                  : "Give the probability the answer is 'yes'. The system prices yes and no separately, so a likely 'no' can't pay like a longshot."
               : isLiveScope
                 ? isHebrew
                   ? "בהימור לייב השחקן בוחר בעצמו כמה לסכן (1-30). כל מה שצריך כאן זה ה-decimal odds — המערכת תחשב את ה-payout לכל סכום."
@@ -1017,16 +1165,15 @@ export function BetForm({
                 : `Default for this answer type: stake ${defaultStakePayout.stake} / payout ${defaultStakePayout.payout}.`
         }
       >
-        {/* Live multi-choice: pricing is per-option from the probabilities
-            above. Show a summary + a nudge if some options are unpriced. */}
+        {/* Live multi-choice: pricing is per-option from the input above.
+            Show a payout-range summary + a nudge if nothing is priced. */}
         {isLiveMultiChoice && (
           <div className="flex flex-col gap-2">
-            {liveMcPricing ? (
+            {livePricedPayouts.length > 0 ? (
               <p className="text-sm text-on-surface-variant">
                 {isHebrew ? "טווח תשלום" : "Payout range"}:{" "}
                 <bdi className="tabular-nums font-bold text-on-surface">
-                  {Math.min(...liveMcPricing.map((p) => p.payout))}–
-                  {Math.max(...liveMcPricing.map((p) => p.payout))}
+                  {Math.min(...livePricedPayouts)}–{Math.max(...livePricedPayouts)}
                 </bdi>{" "}
                 {isHebrew
                   ? `(סיכון ברירת מחדל ${liveFallbackStake})`
@@ -1034,49 +1181,96 @@ export function BetForm({
               </p>
             ) : (
               <p className="text-xs text-tertiary-fixed-dim">
-                {isHebrew
-                  ? "מלא הסתברות לכל אפשרות למעלה כדי לתמחר. בלי הסתברויות, כל האפשרויות יקבלו את אותו תשלום (הבאג הישן)."
-                  : "Fill a probability for each option above to price them. Without probabilities every option gets the same payout (the old bug)."}
+                {pricingMode === "ratio"
+                  ? isHebrew
+                    ? "מלא יחס לכל אפשרות למעלה כדי לתמחר."
+                    : "Fill a ratio for each option above to price them."
+                  : isHebrew
+                    ? "מלא הסתברות לכל אפשרות למעלה כדי לתמחר. בלי הסתברויות, כל האפשרויות יקבלו את אותו תשלום (הבאג הישן)."
+                    : "Fill a probability for each option above to price them. Without probabilities every option gets the same payout (the old bug)."}
               </p>
             )}
           </div>
         )}
 
-        {/* Live yes/no: single yes-probability drives per-side pricing. */}
+        {/* Live yes/no. Probability mode: one yes-% drives both sides.
+            Ratio mode: a ratio per side, priced exactly (stake × ratio). */}
         {isLiveYesNo && (
-          <div className="flex flex-wrap items-end gap-3">
-            <label className="flex flex-col gap-1.5">
-              <LabelCaps>
-                {isHebrew ? "הסתברות ל'כן' %" : "Probability of yes %"}
-              </LabelCaps>
-              <input
-                type="text"
-                inputMode="decimal"
-                placeholder="35"
-                value={yesProbability}
-                onChange={(e) => setYesProbability(e.target.value)}
-                className="min-h-[48px] w-24 px-3 rounded border border-outline bg-surface-container-lowest text-base font-bold tabular-nums focus:outline-none focus:border-primary"
-                dir="ltr"
-              />
-            </label>
-            {liveYesNoPricing ? (
-              <div className="flex items-center gap-3 pb-2 text-sm text-on-surface-variant">
-                <span className="inline-flex items-center gap-1.5">
-                  {isHebrew ? "כן" : "Yes"}
-                  <Chip className="tabular-nums">×{liveYesNoPricing.decimalOddsYes}</Chip>
-                  <bdi className="tabular-nums font-bold text-on-surface">{liveYesNoPricing.payoutYes}</bdi>
-                </span>
-                <span className="inline-flex items-center gap-1.5">
-                  {isHebrew ? "לא" : "No"}
-                  <Chip className="tabular-nums">×{liveYesNoPricing.decimalOddsNo}</Chip>
-                  <bdi className="tabular-nums font-bold text-on-surface">{liveYesNoPricing.payoutNo}</bdi>
-                </span>
+          <div className="flex flex-col gap-3">
+            <PricingModeToggle
+              mode={pricingMode}
+              onChange={setPricingMode}
+              isHebrew={isHebrew}
+            />
+            {pricingMode === "ratio" ? (
+              <div className="flex flex-wrap items-end gap-3">
+                <label className="flex flex-col gap-1.5">
+                  <LabelCaps>{isHebrew ? "יחס ל'כן' ×" : "Yes ratio ×"}</LabelCaps>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    placeholder="2"
+                    value={yesRatio}
+                    onChange={(e) => setYesRatio(e.target.value)}
+                    className="min-h-[48px] w-24 px-3 rounded border border-outline bg-surface-container-lowest text-base font-bold tabular-nums focus:outline-none focus:border-primary"
+                    dir="ltr"
+                  />
+                </label>
+                <label className="flex flex-col gap-1.5">
+                  <LabelCaps>{isHebrew ? "יחס ל'לא' ×" : "No ratio ×"}</LabelCaps>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    placeholder="3"
+                    value={noRatio}
+                    onChange={(e) => setNoRatio(e.target.value)}
+                    className="min-h-[48px] w-24 px-3 rounded border border-outline bg-surface-container-lowest text-base font-bold tabular-nums focus:outline-none focus:border-primary"
+                    dir="ltr"
+                  />
+                </label>
               </div>
             ) : (
-              <p className="text-xs text-tertiary-fixed-dim pb-2">
-                {isHebrew
-                  ? "בלי הסתברות, שני הצדדים מקבלים אותו תשלום (הבאג הישן)."
-                  : "Without a probability both sides get the same payout (the old bug)."}
+              <label className="flex flex-col gap-1.5">
+                <LabelCaps>
+                  {isHebrew ? "הסתברות ל'כן' %" : "Probability of yes %"}
+                </LabelCaps>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  placeholder="35"
+                  value={yesProbability}
+                  onChange={(e) => setYesProbability(e.target.value)}
+                  className="min-h-[48px] w-24 px-3 rounded border border-outline bg-surface-container-lowest text-base font-bold tabular-nums focus:outline-none focus:border-primary"
+                  dir="ltr"
+                />
+              </label>
+            )}
+            {liveYesNoPricing ? (
+              <div className="flex items-center gap-3 text-sm text-on-surface-variant">
+                {liveYesNoPricing.payoutYes != null && (
+                  <span className="inline-flex items-center gap-1.5">
+                    {isHebrew ? "כן" : "Yes"}
+                    <Chip className="tabular-nums">×{liveYesNoPricing.decimalOddsYes}</Chip>
+                    <bdi className="tabular-nums font-bold text-on-surface">{liveYesNoPricing.payoutYes}</bdi>
+                  </span>
+                )}
+                {liveYesNoPricing.payoutNo != null && (
+                  <span className="inline-flex items-center gap-1.5">
+                    {isHebrew ? "לא" : "No"}
+                    <Chip className="tabular-nums">×{liveYesNoPricing.decimalOddsNo}</Chip>
+                    <bdi className="tabular-nums font-bold text-on-surface">{liveYesNoPricing.payoutNo}</bdi>
+                  </span>
+                )}
+              </div>
+            ) : (
+              <p className="text-xs text-tertiary-fixed-dim">
+                {pricingMode === "ratio"
+                  ? isHebrew
+                    ? "מלא יחס לשני הצדדים כדי לתמחר."
+                    : "Fill a ratio for both sides to price them."
+                  : isHebrew
+                    ? "בלי הסתברות, שני הצדדים מקבלים אותו תשלום (הבאג הישן)."
+                    : "Without a probability both sides get the same payout (the old bug)."}
               </p>
             )}
           </div>
@@ -1493,6 +1687,34 @@ function Section({
   );
 }
 
+// Live-bet pricing-mode switch (probability % ↔ manual ratio). Thin
+// wrapper over SegmentedRow so the multi-choice and yes/no sections share
+// one labelled control. Defaults to probability; ratio lets the admin type
+// the multiplier directly (no house edge, no cap).
+function PricingModeToggle({
+  mode,
+  onChange,
+  isHebrew,
+}: {
+  mode: PricingMode;
+  onChange: (m: PricingMode) => void;
+  isHebrew: boolean;
+}) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <LabelCaps>{isHebrew ? "שיטת תמחור" : "Pricing mode"}</LabelCaps>
+      <SegmentedRow<PricingMode>
+        value={mode}
+        onChange={onChange}
+        options={[
+          { value: "probability", label: isHebrew ? "הסתברות %" : "Probability %" },
+          { value: "ratio", label: isHebrew ? "יחס ×" : "Ratio ×" },
+        ]}
+      />
+    </div>
+  );
+}
+
 function SegmentedRow<T extends string>({
   options,
   value,
@@ -1527,18 +1749,22 @@ function LabeledInput({
   label,
   value,
   onChange,
+  onBlur,
   placeholder,
   required,
   dir,
   inputMode,
+  hint,
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
+  onBlur?: () => void;
   placeholder?: string;
   required?: boolean;
   dir?: "rtl" | "ltr";
   inputMode?: "text" | "numeric" | "decimal";
+  hint?: React.ReactNode;
 }) {
   return (
     <label className="flex flex-col gap-1.5">
@@ -1547,12 +1773,14 @@ function LabeledInput({
         type="text"
         value={value}
         onChange={(e) => onChange(e.target.value)}
+        onBlur={onBlur}
         placeholder={placeholder}
         required={required}
         dir={dir}
         inputMode={inputMode}
         className="min-h-[48px] px-3 rounded border border-outline bg-surface-container-lowest text-base"
       />
+      {hint}
     </label>
   );
 }
@@ -1561,16 +1789,20 @@ function LabeledTextarea({
   label,
   value,
   onChange,
+  onBlur,
   placeholder,
   required,
   dir,
+  hint,
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
+  onBlur?: () => void;
   placeholder?: string;
   required?: boolean;
   dir?: "rtl" | "ltr";
+  hint?: React.ReactNode;
 }) {
   return (
     <label className="flex flex-col gap-1.5">
@@ -1578,12 +1810,14 @@ function LabeledTextarea({
       <textarea
         value={value}
         onChange={(e) => onChange(e.target.value)}
+        onBlur={onBlur}
         placeholder={placeholder}
         required={required}
         dir={dir}
         rows={3}
         className="min-h-[80px] px-3 py-2 rounded border border-outline bg-surface-container-lowest text-base resize-y"
       />
+      {hint}
     </label>
   );
 }
@@ -1641,12 +1875,17 @@ type McOption = {
   value: string;
   labelHe: string;
   labelEn: string;
+  // Probability % (probability pricing mode) and the typed multiplier
+  // (ratio pricing mode). Both are kept so toggling the mode never
+  // reinterprets one as the other (33% is not ×33). Only the field for the
+  // active mode is read at submit.
   probability: string;
+  ratio: string;
 };
 
 function updateMc(
   i: number,
-  field: "value" | "labelHe" | "labelEn" | "probability",
+  field: "value" | "labelHe" | "labelEn" | "probability" | "ratio",
   value: string,
   list: McOption[],
   setter: (l: McOption[]) => void,
@@ -1681,6 +1920,27 @@ function parsePercent(raw: string): number | null {
 function oddsToPercentString(odds: number | undefined): string {
   if (typeof odds !== "number" || !Number.isFinite(odds) || odds <= 1) return "";
   return String(Math.round((1 / odds) * 100));
+}
+
+// Parse a hand-typed ratio/multiplier ("6", "2.5") for ratio pricing mode.
+// Returns null for empty/non-numeric input, a value ≤ 1 (a "win" that pays
+// no profit makes no sense), or one above MAX_MANUAL_RATIO (anti-typo
+// guard) — so callers treat "not filled" and "out of range" distinctly
+// from a valid ratio.
+function parseRatio(raw: string): number | null {
+  const trimmed = raw.trim().replace(/^[×x*]/i, "").trim();
+  if (trimmed === "") return null;
+  const n = Number(trimmed);
+  if (!Number.isFinite(n) || n <= 1 || n > MAX_MANUAL_RATIO) return null;
+  return n;
+}
+
+// Inverse for the edit-mode seed in ratio mode: the stored decimal odds
+// ARE the typed ratio, so surface them directly (trimmed of trailing
+// zeros). Empty string when no odds present.
+function oddsToRatioString(odds: number | undefined): string {
+  if (typeof odds !== "number" || !Number.isFinite(odds) || odds <= 1) return "";
+  return String(Number(odds.toFixed(2)));
 }
 
 function buildAnswerConfig(
@@ -1733,21 +1993,57 @@ function buildAnswerConfig(
   }
 }
 
-// Derive per-choice live pricing from the admin's probabilities and embed
-// it into the answer config. Three outcomes:
+// Derive per-choice live pricing from the admin's input and embed it into
+// the answer config. Three outcomes:
 //   - an AnswerConfig with pricing maps filled (all options/sides priced)
-//   - null  → no probabilities entered; keep the legacy flat-payout shape
+//   - null  → nothing entered; keep the legacy flat-payout shape
 //   - "incomplete" → some but not all options priced; caller blocks submit
 // Only multi_choice and yes_no carry per-choice pricing; other types
-// return null. The decimal odds are re-derived from the probabilities so
-// the stored map matches exactly what the player-facing card recomputes.
+// return null. Two pricing modes:
+//   - probability: derive fair odds from the % and run normalizeOdds.
+//   - ratio: the typed multiplier IS the odds; payout = stake × ratio with
+//     no edge/cap, priced per-option (no renormalisation). The mode flag is
+//     stamped on the config so the server, the card, and the pick-time
+//     write all reprice the same way. The server re-derives payouts from
+//     these odds, so a stale client number can never be the stored value.
 function embedLivePricing(
   config: AnswerConfig,
   mcOptions: McOption[],
   yesProbability: string,
-  pricingConfig: { baseStake: number; maxPayout: number; houseEdgePct: number },
+  yesRatio: string,
+  noRatio: string,
+  pricingMode: PricingMode,
+  pricingConfig: OddsNormConfig,
 ): AnswerConfig | null | "incomplete" {
   if (config.kind === "multi_choice") {
+    if (pricingMode === "ratio") {
+      const ratioByValue = new Map<string, number | null>();
+      for (const o of mcOptions) {
+        ratioByValue.set(o.value.trim(), parseRatio(o.ratio));
+      }
+      const ratios = config.options.map((o) => ratioByValue.get(o.value) ?? null);
+      const filled = ratios.filter((r) => r != null).length;
+      if (filled === 0) return null;
+      if (filled < config.options.length) return "incomplete";
+
+      const decimalOddsByValue: Record<string, number> = {};
+      const payoutOverridesByValue: Record<string, number> = {};
+      const options = config.options.map((o, i) => {
+        const r = ratios[i] as number;
+        decimalOddsByValue[o.value] = r;
+        const payout = liveOptionPayout(r, pricingConfig.baseStake, "ratio", pricingConfig);
+        payoutOverridesByValue[o.value] = payout;
+        return { ...o, payoutOverride: payout };
+      });
+      return {
+        ...config,
+        pricingMode: "ratio",
+        options,
+        decimalOddsByValue,
+        payoutOverridesByValue,
+      };
+    }
+
     const probByValue = new Map<string, number | null>();
     for (const o of mcOptions) {
       probByValue.set(o.value.trim(), parsePercent(o.probability));
@@ -1768,15 +2064,37 @@ function embedLivePricing(
       payoutOverridesByValue[o.value] = priced[i].payout;
       return { ...o, payoutOverride: priced[i].payout };
     });
-    return { ...config, options, decimalOddsByValue, payoutOverridesByValue };
+    return {
+      ...config,
+      pricingMode: "probability",
+      options,
+      decimalOddsByValue,
+      payoutOverridesByValue,
+    };
   }
 
   if (config.kind === "yes_no") {
+    if (pricingMode === "ratio") {
+      const y = parseRatio(yesRatio);
+      const n = parseRatio(noRatio);
+      if (y == null && n == null) return null;
+      if (y == null || n == null) return "incomplete";
+      return {
+        ...config,
+        pricingMode: "ratio",
+        decimalOddsYes: y,
+        decimalOddsNo: n,
+        payoutOverrideYes: liveOptionPayout(y, pricingConfig.baseStake, "ratio", pricingConfig),
+        payoutOverrideNo: liveOptionPayout(n, pricingConfig.baseStake, "ratio", pricingConfig),
+      };
+    }
+
     const p = parsePercent(yesProbability);
     if (p == null) return null; // legacy flat payout
     const yn = priceYesNo(p, pricingConfig);
     return {
       ...config,
+      pricingMode: "probability",
       decimalOddsYes: yn.decimalOddsYes,
       decimalOddsNo: yn.decimalOddsNo,
       payoutOverrideYes: yn.payoutYes,

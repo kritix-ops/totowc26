@@ -393,6 +393,27 @@
       "when": 1782175000000,
       "tag": "0055_remove_live_payout_ceiling",
       "breakpoints": true
+    },
+    {
+      "idx": 56,
+      "version": "7",
+      "when": 1782180000000,
+      "tag": "0056_live_show_upcoming",
+      "breakpoints": true
+    },
+    {
+      "idx": 57,
+      "version": "7",
+      "when": 1782185000000,
+      "tag": "0057_live_max_stake_10",
+      "breakpoints": true
+    },
+    {
+      "idx": 58,
+      "version": "7",
+      "when": 1782250000000,
+      "tag": "0058_duel_options",
+      "breakpoints": true
     }
   ]
 }

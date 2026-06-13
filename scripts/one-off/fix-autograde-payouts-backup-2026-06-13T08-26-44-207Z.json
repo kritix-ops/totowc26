@@ -1,0 +1,402 @@
+[
+  {
+    "pick_id": "a2605a61-a913-45f8-a13b-a534d3976b71",
+    "custom_bet_id": "136fcfef-e7fe-4103-9f82-dc29e4a39a22",
+    "display_name": "Yakir bst",
+    "stake_paid": 1,
+    "payout_snapshot": 2,
+    "old_points": 6,
+    "src": "auto_football_data",
+    "question_he": "האם ייפלו יותר מ-2.5 שערים במשחק?"
+  },
+  {
+    "pick_id": "8845bd12-5370-4c12-8c92-b4a06e8a9a27",
+    "custom_bet_id": "32e01862-2eae-4efa-8740-996610640d0b",
+    "display_name": "Yakir bst",
+    "stake_paid": 1,
+    "payout_snapshot": 2,
+    "old_points": 6,
+    "src": "auto_football_data",
+    "question_he": "האם יירשמו מעל 2.5 שערים במשחק?"
+  },
+  {
+    "pick_id": "2e9d72ff-9b8c-46da-b9a5-d8eda024fae1",
+    "custom_bet_id": "32e01862-2eae-4efa-8740-996610640d0b",
+    "display_name": "יואב מזרחי",
+    "stake_paid": 5,
+    "payout_snapshot": 10,
+    "old_points": 6,
+    "src": "auto_football_data",
+    "question_he": "האם יירשמו מעל 2.5 שערים במשחק?"
+  },
+  {
+    "pick_id": "3b8ab48b-7d1f-437f-8653-fc03a87ae3a0",
+    "custom_bet_id": "32e01862-2eae-4efa-8740-996610640d0b",
+    "display_name": "שרון",
+    "stake_paid": 1,
+    "payout_snapshot": 2,
+    "old_points": 6,
+    "src": "auto_football_data",
+    "question_he": "האם יירשמו מעל 2.5 שערים במשחק?"
+  },
+  {
+    "pick_id": "644113f1-2e9c-497d-b6a1-731622802bf8",
+    "custom_bet_id": "3c3e7c91-f251-4d0c-927d-ce2591cd8fb1",
+    "display_name": "eranmenashe",
+    "stake_paid": 10,
+    "payout_snapshot": 20,
+    "old_points": 15,
+    "src": "auto_api_football",
+    "question_he": "האם יהיה כרטיס אדום במשחק?"
+  },
+  {
+    "pick_id": "7ab95f4e-27ba-4904-94d9-fbff02d02206",
+    "custom_bet_id": "3c3e7c91-f251-4d0c-927d-ce2591cd8fb1",
+    "display_name": "Oz D",
+    "stake_paid": 1,
+    "payout_snapshot": 2,
+    "old_points": 15,
+    "src": "auto_api_football",
+    "question_he": "האם יהיה כרטיס אדום במשחק?"
+  },
+  {
+    "pick_id": "01f63f2d-a671-4fde-a333-fe56d0a3a543",
+    "custom_bet_id": "3c3e7c91-f251-4d0c-927d-ce2591cd8fb1",
+    "display_name": "tombello1234",
+    "stake_paid": 3,
+    "payout_snapshot": 6,
+    "old_points": 15,
+    "src": "auto_api_football",
+    "question_he": "האם יהיה כרטיס אדום במשחק?"
+  },
+  {
+    "pick_id": "3c3bfd55-6d01-4476-b401-fc34004dffdb",
+    "custom_bet_id": "3c3e7c91-f251-4d0c-927d-ce2591cd8fb1",
+    "display_name": "Yakir bst",
+    "stake_paid": 10,
+    "payout_snapshot": 20,
+    "old_points": 15,
+    "src": "auto_api_football",
+    "question_he": "האם יהיה כרטיס אדום במשחק?"
+  },
+  {
+    "pick_id": "2abcc8aa-a620-4efb-8bb6-7fb2da674828",
+    "custom_bet_id": "3c3e7c91-f251-4d0c-927d-ce2591cd8fb1",
+    "display_name": "אור אקשטיין",
+    "stake_paid": 3,
+    "payout_snapshot": 6,
+    "old_points": 15,
+    "src": "auto_api_football",
+    "question_he": "האם יהיה כרטיס אדום במשחק?"
+  },
+  {
+    "pick_id": "fe12f3e2-f9dc-46d6-a5dc-98b45701485a",
+    "custom_bet_id": "3c3e7c91-f251-4d0c-927d-ce2591cd8fb1",
+    "display_name": "אור קורן",
+    "stake_paid": 5,
+    "payout_snapshot": 10,
+    "old_points": 15,
+    "src": "auto_api_football",
+    "question_he": "האם יהיה כרטיס אדום במשחק?"
+  },
+  {
+    "pick_id": "efb25526-620b-43ec-845f-ae9c242c1a4e",
+    "custom_bet_id": "3c3e7c91-f251-4d0c-927d-ce2591cd8fb1",
+    "display_name": "ג'ניה!",
+    "stake_paid": 3,
+    "payout_snapshot": 6,
+    "old_points": 15,
+    "src": "auto_api_football",
+    "question_he": "האם יהיה כרטיס אדום במשחק?"
+  },
+  {
+    "pick_id": "be43d44f-7096-44f2-8bb8-199c6ffe5278",
+    "custom_bet_id": "3c3e7c91-f251-4d0c-927d-ce2591cd8fb1",
+    "display_name": "דן לבני",
+    "stake_paid": 3,
+    "payout_snapshot": 6,
+    "old_points": 15,
+    "src": "auto_api_football",
+    "question_he": "האם יהיה כרטיס אדום במשחק?"
+  },
+  {
+    "pick_id": "38191f73-e0c5-43c7-ac18-8de36d7078c2",
+    "custom_bet_id": "3c3e7c91-f251-4d0c-927d-ce2591cd8fb1",
+    "display_name": "הקוף",
+    "stake_paid": 3,
+    "payout_snapshot": 6,
+    "old_points": 15,
+    "src": "auto_api_football",
+    "question_he": "האם יהיה כרטיס אדום במשחק?"
+  },
+  {
+    "pick_id": "a3df79ed-9b4a-4310-ba3c-ee124c1dc25a",
+    "custom_bet_id": "3c3e7c91-f251-4d0c-927d-ce2591cd8fb1",
+    "display_name": "יואב מזרחי",
+    "stake_paid": 5,
+    "payout_snapshot": 10,
+    "old_points": 15,
+    "src": "auto_api_football",
+    "question_he": "האם יהיה כרטיס אדום במשחק?"
+  },
+  {
+    "pick_id": "a595165a-0122-4d66-9713-8757949076d2",
+    "custom_bet_id": "3c3e7c91-f251-4d0c-927d-ce2591cd8fb1",
+    "display_name": "לנדאו",
+    "stake_paid": 3,
+    "payout_snapshot": 6,
+    "old_points": 15,
+    "src": "auto_api_football",
+    "question_he": "האם יהיה כרטיס אדום במשחק?"
+  },
+  {
+    "pick_id": "fd9d1e6f-7063-418a-88a2-33ac96a2e792",
+    "custom_bet_id": "3c3e7c91-f251-4d0c-927d-ce2591cd8fb1",
+    "display_name": "מתן נבון",
+    "stake_paid": 5,
+    "payout_snapshot": 10,
+    "old_points": 15,
+    "src": "auto_api_football",
+    "question_he": "האם יהיה כרטיס אדום במשחק?"
+  },
+  {
+    "pick_id": "e70a394d-ff61-4f20-acf0-c386ac01f909",
+    "custom_bet_id": "3c3e7c91-f251-4d0c-927d-ce2591cd8fb1",
+    "display_name": "ערן פלגי",
+    "stake_paid": 3,
+    "payout_snapshot": 6,
+    "old_points": 15,
+    "src": "auto_api_football",
+    "question_he": "האם יהיה כרטיס אדום במשחק?"
+  },
+  {
+    "pick_id": "89acab22-4c36-431e-b9a8-d7fd92608acb",
+    "custom_bet_id": "567ab1c7-8310-4646-8bcc-1854d2864343",
+    "display_name": "אור קורן",
+    "stake_paid": 5,
+    "payout_snapshot": 10,
+    "old_points": 6,
+    "src": "auto_football_data",
+    "question_he": "האם שתי הקבוצות יבקיעו?"
+  },
+  {
+    "pick_id": "9a7df500-9ea1-4de4-a92f-d70e57139252",
+    "custom_bet_id": "567ab1c7-8310-4646-8bcc-1854d2864343",
+    "display_name": "דניאל ספיר",
+    "stake_paid": 5,
+    "payout_snapshot": 10,
+    "old_points": 6,
+    "src": "auto_football_data",
+    "question_he": "האם שתי הקבוצות יבקיעו?"
+  },
+  {
+    "pick_id": "8ed552f0-27d6-4d76-8ab5-5680c05baf91",
+    "custom_bet_id": "567ab1c7-8310-4646-8bcc-1854d2864343",
+    "display_name": "יואב מזרחי",
+    "stake_paid": 10,
+    "payout_snapshot": 20,
+    "old_points": 6,
+    "src": "auto_football_data",
+    "question_he": "האם שתי הקבוצות יבקיעו?"
+  },
+  {
+    "pick_id": "3fbc2b98-0554-40a2-88ef-7f4e7a2ac2fe",
+    "custom_bet_id": "567ab1c7-8310-4646-8bcc-1854d2864343",
+    "display_name": "לנדאו",
+    "stake_paid": 10,
+    "payout_snapshot": 20,
+    "old_points": 6,
+    "src": "auto_football_data",
+    "question_he": "האם שתי הקבוצות יבקיעו?"
+  },
+  {
+    "pick_id": "1815e8e2-6068-408d-892c-176d5d367367",
+    "custom_bet_id": "567ab1c7-8310-4646-8bcc-1854d2864343",
+    "display_name": "מתן נבון",
+    "stake_paid": 5,
+    "payout_snapshot": 10,
+    "old_points": 6,
+    "src": "auto_football_data",
+    "question_he": "האם שתי הקבוצות יבקיעו?"
+  },
+  {
+    "pick_id": "30a06c1b-ead1-4565-9072-8fac579e813d",
+    "custom_bet_id": "67e867ac-9708-42a1-aec7-6ea8fb8c240d",
+    "display_name": "Yakir bst",
+    "stake_paid": 3,
+    "payout_snapshot": 6,
+    "old_points": 14,
+    "src": "auto_api_football",
+    "question_he": "האם יישלף כרטיס אדום במשחק?"
+  },
+  {
+    "pick_id": "bac38b52-82c4-4ed7-92bc-2154151c2085",
+    "custom_bet_id": "6e91d953-b5ce-4f70-9f1e-acb7ed5c2491",
+    "display_name": "יואב מזרחי",
+    "stake_paid": 5,
+    "payout_snapshot": 10,
+    "old_points": 6,
+    "src": "auto_football_data",
+    "question_he": "האם שתי הקבוצות יבקיעו במשחק?"
+  },
+  {
+    "pick_id": "f566414c-24d2-4bee-9bf4-79628304fdee",
+    "custom_bet_id": "dcd1f1de-1a7d-462a-9c5e-b0f15e4e7b89",
+    "display_name": "eranmenashe",
+    "stake_paid": 10,
+    "payout_snapshot": 20,
+    "old_points": 9,
+    "src": "auto_api_football",
+    "question_he": "האם יהיה כרטיס אדום במשחק?"
+  },
+  {
+    "pick_id": "06f7d03c-111a-46db-a9fa-e04fbc0104a8",
+    "custom_bet_id": "dcd1f1de-1a7d-462a-9c5e-b0f15e4e7b89",
+    "display_name": "Oz D",
+    "stake_paid": 3,
+    "payout_snapshot": 6,
+    "old_points": 9,
+    "src": "auto_api_football",
+    "question_he": "האם יהיה כרטיס אדום במשחק?"
+  },
+  {
+    "pick_id": "135c04a7-1992-4ae8-8a31-42f068582d63",
+    "custom_bet_id": "dcd1f1de-1a7d-462a-9c5e-b0f15e4e7b89",
+    "display_name": "tombello1234",
+    "stake_paid": 3,
+    "payout_snapshot": 6,
+    "old_points": 9,
+    "src": "auto_api_football",
+    "question_he": "האם יהיה כרטיס אדום במשחק?"
+  },
+  {
+    "pick_id": "58f38e15-d6bc-4005-83fb-f7f76adf7eb6",
+    "custom_bet_id": "dcd1f1de-1a7d-462a-9c5e-b0f15e4e7b89",
+    "display_name": "Yakir bst",
+    "stake_paid": 5,
+    "payout_snapshot": 10,
+    "old_points": 9,
+    "src": "auto_api_football",
+    "question_he": "האם יהיה כרטיס אדום במשחק?"
+  },
+  {
+    "pick_id": "3e8ab7af-1da0-4ea1-8501-f90fac44dc78",
+    "custom_bet_id": "dcd1f1de-1a7d-462a-9c5e-b0f15e4e7b89",
+    "display_name": "אור אקשטיין",
+    "stake_paid": 3,
+    "payout_snapshot": 6,
+    "old_points": 9,
+    "src": "auto_api_football",
+    "question_he": "האם יהיה כרטיס אדום במשחק?"
+  },
+  {
+    "pick_id": "33a1a512-a9d6-4076-b1bf-b99be8e371ad",
+    "custom_bet_id": "dcd1f1de-1a7d-462a-9c5e-b0f15e4e7b89",
+    "display_name": "אור קורן",
+    "stake_paid": 5,
+    "payout_snapshot": 10,
+    "old_points": 9,
+    "src": "auto_api_football",
+    "question_he": "האם יהיה כרטיס אדום במשחק?"
+  },
+  {
+    "pick_id": "adb6296e-4de7-45c0-afaa-eaec7b1434d4",
+    "custom_bet_id": "dcd1f1de-1a7d-462a-9c5e-b0f15e4e7b89",
+    "display_name": "אורן גבריאלוביץ",
+    "stake_paid": 5,
+    "payout_snapshot": 10,
+    "old_points": 9,
+    "src": "auto_api_football",
+    "question_he": "האם יהיה כרטיס אדום במשחק?"
+  },
+  {
+    "pick_id": "1d9ceeb8-58b8-4dbb-a27a-9374b807fb02",
+    "custom_bet_id": "dcd1f1de-1a7d-462a-9c5e-b0f15e4e7b89",
+    "display_name": "ג'ניה!",
+    "stake_paid": 3,
+    "payout_snapshot": 6,
+    "old_points": 9,
+    "src": "auto_api_football",
+    "question_he": "האם יהיה כרטיס אדום במשחק?"
+  },
+  {
+    "pick_id": "a21667d3-a23d-4674-94e8-52addfa03797",
+    "custom_bet_id": "dcd1f1de-1a7d-462a-9c5e-b0f15e4e7b89",
+    "display_name": "יואב מזרחי",
+    "stake_paid": 10,
+    "payout_snapshot": 20,
+    "old_points": 9,
+    "src": "auto_api_football",
+    "question_he": "האם יהיה כרטיס אדום במשחק?"
+  },
+  {
+    "pick_id": "0c7bc730-5dc1-4956-8ca8-6227725a1d8b",
+    "custom_bet_id": "dcd1f1de-1a7d-462a-9c5e-b0f15e4e7b89",
+    "display_name": "לנדאו",
+    "stake_paid": 3,
+    "payout_snapshot": 6,
+    "old_points": 9,
+    "src": "auto_api_football",
+    "question_he": "האם יהיה כרטיס אדום במשחק?"
+  },
+  {
+    "pick_id": "0fe24a5a-02cc-4f12-904b-aa2c0f380407",
+    "custom_bet_id": "dcd1f1de-1a7d-462a-9c5e-b0f15e4e7b89",
+    "display_name": "מרדכאי שפיגלר",
+    "stake_paid": 3,
+    "payout_snapshot": 6,
+    "old_points": 9,
+    "src": "auto_api_football",
+    "question_he": "האם יהיה כרטיס אדום במשחק?"
+  },
+  {
+    "pick_id": "f1a8fbdc-5806-4fae-9e0e-a13bb09e2c7e",
+    "custom_bet_id": "dcd1f1de-1a7d-462a-9c5e-b0f15e4e7b89",
+    "display_name": "ערן פלגי",
+    "stake_paid": 3,
+    "payout_snapshot": 6,
+    "old_points": 9,
+    "src": "auto_api_football",
+    "question_he": "האם יהיה כרטיס אדום במשחק?"
+  },
+  {
+    "pick_id": "055258bd-8ac6-44c1-be77-9d6fcf44a8d3",
+    "custom_bet_id": "dcd1f1de-1a7d-462a-9c5e-b0f15e4e7b89",
+    "display_name": "שרון",
+    "stake_paid": 1,
+    "payout_snapshot": 2,
+    "old_points": 9,
+    "src": "auto_api_football",
+    "question_he": "האם יהיה כרטיס אדום במשחק?"
+  },
+  {
+    "pick_id": "302cf026-cae7-44be-bc80-613fbfa8edbf",
+    "custom_bet_id": "f14fe35d-83ce-4f8c-9992-733d5a4efc5b",
+    "display_name": "אור קורן",
+    "stake_paid": 5,
+    "payout_snapshot": 10,
+    "old_points": 6,
+    "src": "auto_football_data",
+    "question_he": "האם יירשמו מעל 2.5 שערים במשחק?"
+  },
+  {
+    "pick_id": "6a63131b-66e3-475a-9052-69fcdf3b6a4a",
+    "custom_bet_id": "f14fe35d-83ce-4f8c-9992-733d5a4efc5b",
+    "display_name": "יואב מזרחי",
+    "stake_paid": 5,
+    "payout_snapshot": 10,
+    "old_points": 6,
+    "src": "auto_football_data",
+    "question_he": "האם יירשמו מעל 2.5 שערים במשחק?"
+  },
+  {
+    "pick_id": "1d499437-19aa-4f24-bc66-c2d153f090b3",
+    "custom_bet_id": "f14fe35d-83ce-4f8c-9992-733d5a4efc5b",
+    "display_name": "מרדכאי שפיגלר",
+    "stake_paid": 10,
+    "payout_snapshot": 20,
+    "old_points": 6,
+    "src": "auto_football_data",
+    "question_he": "האם יירשמו מעל 2.5 שערים במשחק?"
+  }
+]

@@ -191,8 +191,8 @@ export function AiModelCard({
 
       <p className="text-[11px] text-tertiary-fixed-dim">
         {isHebrew
-          ? "מבוסס על ~2.5k טוקני קלט ו-4k פלט לייצור. מחירים מ-models.dev (יוני 2026)."
-          : "Based on ~2.5k input + 4k output tokens per generation. Prices from models.dev (Jun 2026)."}
+          ? "מבוסס על ~6k טוקני קלט (כולל הדוסייה), ~4k פלט, ו-~2 חיפושי אינטרנט לייצור ($10 ל-1,000 חיפושים). מחירים מ-models.dev (יוני 2026)."
+          : "Based on ~6k input (incl. the dossier), ~4k output, and ~2 web searches per generation ($10 / 1,000 searches). Prices from models.dev (Jun 2026)."}
       </p>
     </Card>
   );

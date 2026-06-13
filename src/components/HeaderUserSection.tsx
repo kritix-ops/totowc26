@@ -46,7 +46,10 @@ export async function HeaderUserSection({
   ]);
 
   const displayName = profileRow?.displayName ?? userEmail ?? "";
-  const admin = !!access?.isAdmin;
+  // canSeeAdminMenu = full admin OR any scoped operator permission.
+  // Drives the profile-menu Admin shortcut so a live-bets / tournament
+  // operator actually has a doorway into /admin.
+  const canSeeAdmin = !!access?.canSeeAdminMenu;
 
   return (
     <>
@@ -66,7 +69,7 @@ export async function HeaderUserSection({
       <ProfileMenu
         locale={locale}
         displayName={displayName}
-        isAdmin={admin}
+        isAdmin={canSeeAdmin}
         whatsappGroupUrl={settingsRow?.whatsappGroupUrl ?? null}
         labels={{
           profile: dict.nav.profile,

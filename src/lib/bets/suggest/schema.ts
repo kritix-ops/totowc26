@@ -145,6 +145,13 @@ export const SUGGESTION_INPUT_SCHEMA = {
                         type: "string",
                         enum: ["red_card", "yellow_card", "card", "goal", "penalty"],
                       },
+                      // Player-prop filter. When set, the market resolves on
+                      // events by THIS api-football player id only (the id
+                      // must come from the dossier's key-player list). For a
+                      // "to assist" market set byAssist:true with metric goal.
+                      // A yes_no answer is required (e.g. "X to score?").
+                      playerApiId: { type: "integer", minimum: 1 },
+                      byAssist: { type: "boolean" },
                       window: {
                         oneOf: [
                           { type: "string", enum: ["1H", "2H", "FT"] },

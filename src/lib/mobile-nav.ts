@@ -45,8 +45,9 @@ export const MOBILE_NAV_BAR_MAX = 5;
 
 // Per-key metadata. `path` is fed to `localePath`. `dictKey` indexes
 // into `dict.nav`. `roleGate` is enforced at render time:
-//   - "player" → only visible to non-admins
-//   - "admin"  → only visible to admins
+//   - "player" → only visible to non-admins (and non-scoped operators)
+//   - "admin"  → only visible to admins OR scoped operators with any
+//                permission (so a live-bets operator sees the doorway)
 export type MobileNavItemMeta = {
   key: MobileNavItemKey;
   path: string;
@@ -135,14 +136,19 @@ export function normalizeMobileNavConfig(
 // items + a "More" cell, and the remainder goes into the sheet.
 export function splitMobileNavItems(
   config: MobileNavConfig,
-  role: { isAdmin: boolean },
+  role: { isAdmin: boolean; canSeeAdminMenu: boolean },
   hiddenPages: ReadonlySet<string> = new Set(),
 ): { bottom: MobileNavItemKey[]; sheet: MobileNavItemKey[] } {
+  // Scoped operators sit between the two states: they DO see Admin
+  // (canSeeAdminMenu = true) but they ALSO still see Pay because the
+  // system treats them as a regular player everywhere outside their
+  // permitted admin paths. Only full admin (role 'admin') is exempt
+  // from Pay — the same rule that's been in place since launch.
   const visible = config.items.filter((k) => {
     if (hiddenPages.has(k)) return false;
     const meta = MOBILE_NAV_CATALOG[k];
     if (!meta.roleGate) return true;
-    if (meta.roleGate === "admin") return role.isAdmin;
+    if (meta.roleGate === "admin") return role.canSeeAdminMenu;
     if (meta.roleGate === "player") return !role.isAdmin;
     return true;
   });

@@ -5,8 +5,11 @@ import { unstable_cache } from "next/cache";
 import { execFirstRow, execRows } from "./helpers";
 import { approvedPotIlsSql, paidParticipantsSql } from "./pot";
 import type { MultiChoiceOption } from "@/lib/bets/types";
+import { renderPickAnswer } from "@/lib/bets/format";
+import { fetchPlayerNamesById } from "@/lib/bets/players";
 import { bankBalanceSql, duelCaseSql, duelDeltaSql } from "@/lib/bank";
 import { STAR_PLAYER_RANK, TEAM_RANK } from "@/lib/players/curation";
+import type { CurrentStage } from "@/lib/tournament/current-stage";
 import {
   attachNonBettors,
   filterToUser,
@@ -16,6 +19,8 @@ import {
   type TransparencyPickerRow,
   type TransparencyQuestionRow,
 } from "@/lib/transparency-group";
+
+export type { CurrentStage };
 
 // Cache tags used to invalidate cross-request cached queries from the
 // server actions that mutate the underlying tables. Mutations call
@@ -469,8 +474,18 @@ async function loadLeaderboardFromDb(
       from public.profiles p
     ),
     bet_counts as (
+      -- Total bets the user has placed across every surface, not just match
+      -- predictions. During the live phase most new activity is custom
+      -- (live/tournament) picks and duels, so a match-only count looked
+      -- frozen on the leaderboard. Counts are raw placements (a later
+      -- cancellation still reflects that a bet was made).
       select p.id as user_id,
-        (select count(*)::int from public.match_bets mb where mb.user_id = p.id) as bet_count
+        (
+          (select count(*)::int from public.match_bets mb where mb.user_id = p.id)
+          + (select count(*)::int from public.user_custom_bet_picks pk where pk.user_id = p.id)
+          + (select count(*)::int from public.duels d
+               where d.opener_id = p.id or d.joiner_id = p.id)
+        ) as bet_count
       from public.profiles p
     ),
     base as (
@@ -544,6 +559,220 @@ export async function getLeaderboard(
     { tags: [CACHE_TAG_LEADERBOARD], revalidate: 60 },
   );
   return cached();
+}
+
+// Per-user breakdown of the most recent point-changing events. Powers the
+// leaderboard accordion: each row expands to show what someone earned (or
+// lost) since the last ranking shift, sorted newest first. A single batched
+// query keeps this O(rows × LEADERBOARD_BREAKDOWN_LIMIT) instead of N+1.
+//
+// `events` are returned newest-first. `previousPoints` is the leaderboard
+// total minus the sum of these events' deltas — that's the "before the
+// last ranking" anchor the row shows. Adjustments are intentionally
+// included so a manual debit/credit is visible to everyone (transparency
+// matters more than hiding the admin's audit trail here).
+export const LEADERBOARD_BREAKDOWN_LIMIT = 8;
+
+export type LeaderboardEventKind =
+  | "match"
+  | "live"
+  | "tournament"
+  | "duel"
+  | "adjustment";
+
+export type LeaderboardEvent = {
+  kind: LeaderboardEventKind;
+  eventAt: string;
+  delta: number;
+  titleHe: string;
+  titleEn: string;
+  detailHe: string | null;
+  detailEn: string | null;
+};
+
+export type LeaderboardBreakdown = {
+  userId: string;
+  events: LeaderboardEvent[];
+};
+
+async function loadLeaderboardBreakdownsFromDb(
+  userIds: string[],
+): Promise<Map<string, LeaderboardEvent[]>> {
+  const out = new Map<string, LeaderboardEvent[]>();
+  if (userIds.length === 0) return out;
+
+  // The events CTE unions every surface that changes a user's points,
+  // each row stamped with its user_id + a comparable timestamp. We then
+  // window-rank per user and keep the top LIMIT slice.
+  //
+  // Build the id set as an explicit `array[$1::uuid, ...]` constructor via
+  // sql.join (the same list idiom auto-fill uses). Interpolating the raw
+  // JS array as `${userIds}::uuid[]` does NOT work: drizzle expands an
+  // array into a parenthesised parameter LIST, so it renders as
+  // `($1, ..., $n)::uuid[]` — a record cast to uuid[], which Postgres
+  // rejects. The whole query then throws and the leaderboard accordion
+  // silently shows "no graded events" for every row (page.tsx swallows
+  // the error). See _qa-reports for the 2026-06-14 regression.
+  const idList = sql.join(
+    userIds.map((id) => sql`${id}::uuid`),
+    sql`, `,
+  );
+  const rows = await execRows<{
+    userId: string;
+    kind: LeaderboardEventKind;
+    eventAt: string;
+    delta: number;
+    titleHe: string;
+    titleEn: string;
+    detailHe: string | null;
+    detailEn: string | null;
+  }>(sql`
+    with target as (
+      select unnest(array[${idList}]) as user_id
+    ),
+    events as (
+      -- match bets: graded once the match is final. Use finalized_at
+      -- when available so a future re-grade doesn't reorder history.
+      select
+        mb.user_id                                  as user_id,
+        'match'::text                               as kind,
+        coalesce(m.finalized_at, m.kickoff_at)      as event_at,
+        coalesce(mb.points_earned, 0)::int          as delta,
+        (m.home_team || ' ' || m.away_team)         as title_he,
+        (m.home_team || ' ' || m.away_team)         as title_en,
+        (
+          'תחזית ' || coalesce(mb.home_score::text, '?') || ':' || coalesce(mb.away_score::text, '?')
+          || ' · תוצאה ' || coalesce(m.home_score::text, '?') || ':' || coalesce(m.away_score::text, '?')
+        )                                           as detail_he,
+        (
+          'Pick ' || coalesce(mb.home_score::text, '?') || ':' || coalesce(mb.away_score::text, '?')
+          || ' · result ' || coalesce(m.home_score::text, '?') || ':' || coalesce(m.away_score::text, '?')
+        )                                           as detail_en
+      from public.match_bets mb
+      join public.matches m on m.id = mb.match_id
+      join target t on t.user_id = mb.user_id
+      where m.status = 'final' and mb.points_earned is not null
+
+      union all
+
+      -- custom bet picks: live (match/day) and tournament/stage/group.
+      -- live nets stake against payout; free-pick scopes have stake=0 so
+      -- the same formula collapses to just the payout.
+      select
+        pk.user_id                                  as user_id,
+        case when cb.scope in ('match', 'day') then 'live'::text
+             else 'tournament'::text
+        end                                         as kind,
+        coalesce(cb.graded_at, cb.lock_at)          as event_at,
+        (coalesce(pk.points_earned, 0) - pk.stake_paid)::int as delta,
+        cb.question_he                              as title_he,
+        cb.question_en                              as title_en,
+        null::text                                  as detail_he,
+        null::text                                  as detail_en
+      from public.user_custom_bet_picks pk
+      join public.custom_bets cb on cb.id = pk.custom_bet_id
+      join target t on t.user_id = pk.user_id
+      where cb.status in ('graded', 'reversed') and pk.points_earned is not null
+
+      union all
+
+      -- duels settled. Use the existing duelCaseSql so the netting rules
+      -- never drift from the leaderboard total.
+      select
+        opener.user_id                              as user_id,
+        'duel'::text                                as kind,
+        coalesce(d.settled_at, d.created_at)        as event_at,
+        ${duelCaseSql(sql`opener.user_id`)}::int    as delta,
+        coalesce(d.question_he, 'דו-קרב')           as title_he,
+        coalesce(d.question_en, 'Duel')             as title_en,
+        null::text                                  as detail_he,
+        null::text                                  as detail_en
+      from public.duels d
+      join (
+        select t.user_id, d2.id as duel_id
+        from target t
+        join public.duels d2 on d2.opener_id = t.user_id
+        union all
+        select t.user_id, d2.id as duel_id
+        from target t
+        join public.duels d2 on d2.joiner_id = t.user_id
+      ) opener on opener.duel_id = d.id
+      where d.status = 'settled'
+
+      union all
+
+      -- manual point adjustments. The note is intentionally surfaced so a
+      -- debit isn't mistaken for a silent bug.
+      select
+        pa.user_id                                  as user_id,
+        'adjustment'::text                          as kind,
+        pa.created_at                               as event_at,
+        pa.delta::int                               as delta,
+        coalesce(pa.reason, 'התאמה ידנית')           as title_he,
+        coalesce(pa.reason, 'Manual adjustment')    as title_en,
+        null::text                                  as detail_he,
+        null::text                                  as detail_en
+      from public.point_adjustments pa
+      join target t on t.user_id = pa.user_id
+    ),
+    ranked as (
+      select e.*,
+        row_number() over (
+          partition by e.user_id
+          order by e.event_at desc
+        ) as rn
+      from events e
+    )
+    select
+      r.user_id::text                               as "userId",
+      r.kind                                        as "kind",
+      r.event_at                                    as "eventAt",
+      r.delta                                       as "delta",
+      r.title_he                                    as "titleHe",
+      r.title_en                                    as "titleEn",
+      r.detail_he                                   as "detailHe",
+      r.detail_en                                   as "detailEn"
+    from ranked r
+    where r.rn <= ${LEADERBOARD_BREAKDOWN_LIMIT}
+    order by r.user_id, r.event_at desc
+  `);
+
+  for (const r of rows) {
+    const arr = out.get(r.userId) ?? [];
+    arr.push({
+      kind: r.kind,
+      eventAt: r.eventAt,
+      delta: Number(r.delta ?? 0),
+      titleHe: r.titleHe,
+      titleEn: r.titleEn,
+      detailHe: r.detailHe,
+      detailEn: r.detailEn,
+    });
+    out.set(r.userId, arr);
+  }
+  return out;
+}
+
+export async function getLeaderboardBreakdowns(
+  userIds: string[],
+): Promise<Map<string, LeaderboardEvent[]>> {
+  // Same cache tag as the leaderboard itself — any grading/adjustment
+  // event that buster CACHE_TAG_LEADERBOARD also invalidates these
+  // breakdowns. Key includes the sorted id list so the cache survives
+  // re-orderings between calls.
+  const key = [...userIds].sort().join(",");
+  const cached = unstable_cache(
+    async () => {
+      const map = await loadLeaderboardBreakdownsFromDb(userIds);
+      // Maps aren't JSON-serialisable through the cache boundary; flatten
+      // to an array on the way in, rebuild on the way out.
+      return Array.from(map.entries());
+    },
+    ["leaderboard-breakdowns", key],
+    { tags: [CACHE_TAG_LEADERBOARD], revalidate: 60 },
+  );
+  const entries = await cached();
+  return new Map(entries);
 }
 
 // The monkey bot's score for one tab, computed with the SAME math the
@@ -2133,6 +2362,50 @@ export const getTournamentStart = unstable_cache(
   { tags: [CACHE_TAG_FIXTURES], revalidate: 3600 },
 );
 
+// Stage of the tournament right now, surfaced in the landing hero stat
+// once the countdown reaches zero. "Current" = the stage of the next
+// match that is not yet final; if every match is final the tournament
+// is over and we fall back to the last-played stage so the hero card
+// reads "Final" rather than going blank. Returns null when no fixtures
+// exist, in which case the caller should keep showing the countdown.
+//
+// Why next-non-final and not "latest stage that has any started match":
+// in WC2026 the third-place match plays before the final, so we want
+// the label to advance to "Third-place match" once the semis wrap, then
+// to "Final" once the third-place match is done.
+//
+// Cached cross-request and invalidated by the same fixtures tag as
+// match-status writes (admin sync, manual edits via the bets-overview
+// matrix). A 5-minute revalidate floor keeps the label fresh during
+// matchdays without hammering the DB.
+export const getCurrentStage = unstable_cache(
+  async (): Promise<CurrentStage | null> => {
+    const row = await execFirstRow<{ stage: CurrentStage | null }>(sql`
+      with next_upcoming as (
+        select stage
+        from public.matches
+        where status in ('scheduled', 'live')
+        order by kickoff_at asc
+        limit 1
+      ),
+      last_played as (
+        select stage
+        from public.matches
+        where status = 'final'
+        order by kickoff_at desc
+        limit 1
+      )
+      select coalesce(
+        (select stage from next_upcoming),
+        (select stage from last_played)
+      ) as stage
+    `);
+    return row?.stage ?? null;
+  },
+  ["getCurrentStage"],
+  { tags: [CACHE_TAG_FIXTURES], revalidate: 300 },
+);
+
 // Transparency feed surfaces every locked bet across the pool so
 // players can audit who picked what once a bet stops being editable.
 // Drives /[lang]/transparency.
@@ -2303,18 +2576,40 @@ export async function getTransparencyByQuestion(
         : filters.tab === "group"
           ? sql`cb.scope::text = 'group'`
           : sql`cb.scope::text in ('match', 'day')`; // live
-    pickerRows = await execRows<TransparencyPickerRow>(sql`
+
+    // We deliberately do NOT format the pick label in SQL here. A custom
+    // bet's answer can be a country code (JOR), a number-range key
+    // (lt_8, 295_265), a player's api_football_id (184), or a yes/no
+    // boolean — and the human-readable text for each lives in
+    // cb.answer_config (the option list) or, for the dynamic player
+    // roster, in the players table. Emitting the raw answer->>'value'
+    // leaked those codes onto the transparency page. Instead we pull the
+    // raw answer + config and resolve every row through the same
+    // renderPickAnswer used by the admin bet surfaces, so the label can
+    // never drift from what bettors saw when they picked.
+    type CustomPickRawRow = {
+      questionId: string;
+      question: string;
+      eventTime: string;
+      userId: string;
+      displayName: string;
+      answerType: "yes_no" | "number" | "multi_choice" | "free_text";
+      answerConfig: unknown;
+      answer: unknown;
+      stake: number;
+      pointsEarned: number | null;
+      status: string;
+    };
+    const rawRows = await execRows<CustomPickRawRow>(sql`
       select
         cb.id::text                                     as "questionId",
         ${questionCol}                                  as "question",
         cb.lock_at::text                                as "eventTime",
         pk.user_id::text                                as "userId",
         p.display_name                                  as "displayName",
-        case pk.answer->>'value'
-          when 'true'  then ${yesLabel}
-          when 'false' then ${noLabel}
-          else coalesce(pk.answer->>'value', '?')
-        end                                             as "pickLabel",
+        cb.answer_type::text                            as "answerType",
+        cb.answer_config                                as "answerConfig",
+        pk.answer                                       as "answer",
         pk.stake_paid::int                              as "stake",
         pk.points_earned                                as "pointsEarned",
         cb.status::text                                 as "status"
@@ -2326,6 +2621,39 @@ export async function getTransparencyByQuestion(
         ${filters.date ? sql`and (cb.lock_at at time zone 'Asia/Jerusalem')::date = ${filters.date}::date` : sql``}
       order by cb.lock_at desc, p.display_name asc
     `);
+
+    // The player-roster markets (golden ball / top scorer) store a raw
+    // api_football_id and keep answer_config.options empty, so their
+    // labels need the players table. Only pay for that roster query when
+    // such a bet is actually in the result — country/range/yes-no bets
+    // resolve entirely from answer_config and skip it.
+    const needsPlayerNames = rawRows.some(
+      (r) =>
+        (r.answerConfig as { dynamicSource?: string } | null)
+          ?.dynamicSource === "players",
+    );
+    const playerNames = needsPlayerNames
+      ? await fetchPlayerNamesById()
+      : undefined;
+    const isHebrew = filters.locale === "he";
+
+    pickerRows = rawRows.map((r) => ({
+      questionId: r.questionId,
+      question: r.question,
+      eventTime: r.eventTime,
+      userId: r.userId,
+      displayName: r.displayName,
+      pickLabel: renderPickAnswer(
+        r.answerType,
+        r.answerConfig,
+        r.answer,
+        isHebrew,
+        playerNames,
+      ),
+      stake: r.stake,
+      pointsEarned: r.pointsEarned,
+      status: r.status,
+    }));
   }
 
   let result = groupPickerRows(pickerRows);
@@ -2635,10 +2963,16 @@ export async function getBankStats(userId: string): Promise<BankStats> {
   };
 }
 
-// Live matches feed for /[lang]/live. Returns every fixture currently
-// in 'live' status plus matches finalised within the last 90 minutes
-// (so the page still has something to show during half-time / right
-// after the whistle) and the signed-in viewer's pick if any.
+// Live matches feed for /[lang]/live. Returns:
+//   - every fixture currently in 'live' status
+//   - matches finalised within the last 90 minutes (so the page still has
+//     something to show during half-time / right after the whistle)
+//   - every 'scheduled' fixture on the active matchday — defined as today
+//     (Asia/Jerusalem) if any non-final match falls there, otherwise the
+//     earliest future date that has a scheduled match. Gives the page a
+//     "what's coming up" feed alongside the live scoreboard, with the
+//     client-side <KickoffCountdown> ticking on each scheduled row.
+// Plus the signed-in viewer's pick if any.
 
 export type LiveMatchRow = {
   id: string;
@@ -2649,7 +2983,7 @@ export type LiveMatchRow = {
   awayNameHe: string;
   awayNameEn: string;
   kickoffAt: string;
-  status: "live" | "final";
+  status: "scheduled" | "live" | "final";
   homeScore: number | null;
   awayScore: number | null;
   myHomeScore: number | null;
@@ -2657,8 +2991,27 @@ export type LiveMatchRow = {
   myPointsEarned: number | null;
 };
 
-export async function getLiveMatches(userId: string): Promise<LiveMatchRow[]> {
+export async function getLiveMatches(
+  userId: string,
+  options: { includeUpcoming: boolean } = { includeUpcoming: true },
+): Promise<LiveMatchRow[]> {
+  const includeUpcoming = options.includeUpcoming;
   return execRows<LiveMatchRow>(sql`
+    with target as (
+      select case when ${includeUpcoming} then coalesce(
+        case when exists (
+          select 1 from public.matches m
+          where (m.kickoff_at at time zone 'Asia/Jerusalem')::date
+                  = (now() at time zone 'Asia/Jerusalem')::date
+            and m.status <> 'final'
+        ) then (now() at time zone 'Asia/Jerusalem')::date end,
+        (select min((m.kickoff_at at time zone 'Asia/Jerusalem')::date)
+         from public.matches m
+         where m.status <> 'final'
+           and (m.kickoff_at at time zone 'Asia/Jerusalem')::date
+                 > (now() at time zone 'Asia/Jerusalem')::date)
+      ) end as d
+    )
     select
       m.id::text                                          as "id",
       m.home_team                                         as "homeCode",
@@ -2667,7 +3020,8 @@ export async function getLiveMatches(userId: string): Promise<LiveMatchRow[]> {
       m.away_team                                         as "awayCode",
       at.name_he                                          as "awayNameHe",
       at.name_en                                          as "awayNameEn",
-      m.kickoff_at::text                                  as "kickoffAt",
+      to_char(m.kickoff_at at time zone 'UTC',
+              'YYYY-MM-DD"T"HH24:MI:SS"Z"')               as "kickoffAt",
       m.status::text                                      as "status",
       m.home_score                                        as "homeScore",
       m.away_score                                        as "awayScore",
@@ -2678,11 +3032,19 @@ export async function getLiveMatches(userId: string): Promise<LiveMatchRow[]> {
     join public.teams ht on ht.code = m.home_team
     join public.teams at on at.code = m.away_team
     left join public.match_bets mb on mb.match_id = m.id and mb.user_id = ${userId}
+    cross join target t
     where m.status = 'live'
        or (m.status = 'final'
            and coalesce(m.finalized_at, m.kickoff_at) > now() - interval '90 minutes')
+       or (m.status = 'scheduled'
+           and t.d is not null
+           and (m.kickoff_at at time zone 'Asia/Jerusalem')::date = t.d)
     order by
-      case when m.status = 'live' then 0 else 1 end,
+      case m.status
+        when 'live'      then 0
+        when 'scheduled' then 1
+        else                  2
+      end,
       m.kickoff_at asc
     limit 50
   `);

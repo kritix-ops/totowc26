@@ -21,14 +21,19 @@ export async function DesktopNavExtras({
     getUserAccess(userId),
     isPageHidden("pay"),
   ]);
-  const admin = !!access?.isAdmin;
-  const showPay = !admin && !payHidden;
+  // Pay hides only for FULL admins (they skip payment). Scoped operators
+  // are still players for everything outside the admin pages, so they
+  // see Pay alongside Admin. canSeeAdminMenu covers full admin + any
+  // scoped permission, plus respects the impersonation "view as".
+  const isAdmin = !!access?.isAdmin;
+  const canSeeAdmin = !!access?.canSeeAdminMenu;
+  const showPay = !isAdmin && !payHidden;
   return (
     <>
       {showPay && (
         <NavLink locale={locale} path="pay" label={dict.nav.pay} />
       )}
-      {admin && (
+      {canSeeAdmin && (
         <>
           <span aria-hidden className="h-4 w-px bg-outline-variant" />
           <NavLink locale={locale} path="admin" label={dict.nav.admin} />

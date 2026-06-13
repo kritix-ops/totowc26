@@ -1,19 +1,22 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { Flame, Trophy } from "lucide-react";
+import { Trophy } from "lucide-react";
 import { clsx } from "clsx";
 import { getDictionary, hasLocale, type Locale } from "../dictionaries";
 import { getRequestUser } from "@/lib/request-user";
 import {
   getCategoryPrizeBreakdown,
   getLeaderboard,
+  getLeaderboardBreakdowns,
   getMonkeyBenchmark,
+  type LeaderboardEvent,
   type LeaderboardTab,
 } from "@/db/queries";
 import { Card, LabelCaps } from "@/components/ui";
 import { CategoryPrizeStrip } from "@/components/CategoryPrizeStrip";
 import { localePath } from "@/lib/paths";
 import { gatePage } from "@/lib/page-visibility";
+import { LeaderboardRow } from "./LeaderboardRow";
 
 type SearchSP = { tab?: string | string[] };
 
@@ -50,6 +53,20 @@ export default async function LeaderboardPage({
     getCategoryPrizeBreakdown(),
     getMonkeyBenchmark(tab),
   ]);
+  // Pre-fetch the per-row event breakdowns so the accordion can open
+  // without a second round-trip. One batched query keeps this well under
+  // the cost of an N+1 fan-out (~70 users × top-8 events ≈ 560 rows).
+  // Safe if it throws: the rows still render, just without the
+  // accordion content.
+  let breakdowns = new Map<string, LeaderboardEvent[]>();
+  try {
+    breakdowns = await getLeaderboardBreakdowns(rows.map((r) => r.userId));
+  } catch (err) {
+    console.error("[leaderboard] breakdowns load threw", {
+      userId: user.id,
+      err,
+    });
+  }
 
   // The monkey is a benchmark, not a ranked competitor: show how many humans
   // are currently ahead of its odds-weighted-random score.
@@ -159,67 +176,22 @@ export default async function LeaderboardPage({
         </Card>
       ) : (
         <ul className="flex flex-col gap-2">
-          {rows.map((row) => {
-            const top3 = row.rank <= 3;
-            const prizeIls = prizeByRank.get(row.rank) ?? 0;
-            return (
-              <li
-                key={row.userId}
-                className={clsx(
-                  "flex items-center gap-3 md:gap-4 p-3 md:p-4 rounded-lg border transition-colors",
-                  row.isYou
-                    ? "border-primary bg-primary-fixed sticky top-14 md:top-16 z-10 shadow-md"
-                    : "border-outline-variant bg-surface-container-lowest",
-                )}
-              >
-                <span className="font-[family-name:var(--font-display)] text-xl md:text-2xl leading-none font-bold text-on-surface w-7 md:w-8 text-center bidi-ltr">
-                  {row.rank}
-                </span>
-                <div
-                  className={clsx(
-                    "w-10 h-10 md:w-12 md:h-12 rounded-full bg-surface-variant flex items-center justify-center text-base md:text-lg font-bold text-on-surface shrink-0",
-                    top3 && "ring-2 ring-tertiary-fixed-dim",
-                  )}
-                  aria-hidden
-                >
-                  {row.displayName.charAt(0)}
-                </div>
-                <div className="flex-1 min-w-0 flex flex-col gap-0.5">
-                  <span className="text-sm md:text-base font-bold text-on-surface truncate">
-                    {row.isYou ? dict.leaderboard.you : row.displayName}
-                  </span>
-                  {row.betCount > 0 && (
-                    <span className="inline-flex items-center gap-1 text-xs text-on-surface-variant">
-                      <Flame className="h-3 w-3" strokeWidth={2} />
-                      <span className="bidi-ltr">{row.betCount}</span>{" "}
-                      <span>{isHebrew ? "הימורים" : "bets"}</span>
-                    </span>
-                  )}
-                </div>
-                <div className="text-end shrink-0 flex flex-col items-end gap-0.5">
-                  <span className="font-[family-name:var(--font-display)] text-xl md:text-2xl leading-none font-bold text-surface-tint">
-                    <span className="bidi-ltr">{row.points}</span>
-                  </span>
-                  <LabelCaps as="div">{dict.common.points}</LabelCaps>
-                  {prizeIls > 0 && row.rank <= 3 && (
-                    <span
-                      className="mt-1 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-tertiary-fixed text-on-tertiary-fixed-variant text-[11px] font-bold tabular-nums"
-                      aria-label={
-                        isHebrew
-                          ? `פרס למקום ${row.rank}: ${prizeIls} ש"ח`
-                          : `Prize for rank ${row.rank}: ${prizeIls} ILS`
-                      }
-                    >
-                      <Trophy className="h-3 w-3" strokeWidth={2} />
-                      <bdi>
-                        {prizeIls.toLocaleString()} {isHebrew ? "ש\"ח" : "ILS"}
-                      </bdi>
-                    </span>
-                  )}
-                </div>
-              </li>
-            );
-          })}
+          {rows.map((row) => (
+            <LeaderboardRow
+              key={row.userId}
+              locale={locale}
+              rank={row.rank}
+              displayName={row.displayName}
+              youLabel={dict.leaderboard.you}
+              isYou={row.isYou}
+              points={row.points}
+              betCount={row.betCount}
+              prizeIls={prizeByRank.get(row.rank) ?? 0}
+              events={breakdowns.get(row.userId) ?? []}
+              top3={row.rank <= 3}
+              pointsLabel={dict.common.points}
+            />
+          ))}
         </ul>
       )}
     </section>

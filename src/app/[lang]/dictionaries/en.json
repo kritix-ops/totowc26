@@ -209,11 +209,16 @@
     "liveTitle": "Live scoreboard",
     "liveSubtitleWithCount": "{n} matches in play. This page refreshes itself every 30 seconds.",
     "liveSubtitleEmpty": "No matches are live right now. They'll show up here as kickoff hits.",
-    "liveEmpty": "No live or just-finished matches in the last hour.",
+    "upcomingSubtitle": "No live matches right now. {n} upcoming below with countdowns to kickoff.",
+    "liveEmpty": "Nothing live, upcoming, or just-finished to show.",
     "liveLabel": "Live",
+    "upcomingLabel": "Upcoming",
     "finalLabel": "Final",
     "yourPickLabel": "Your pick",
     "projectionLabel": "Right now",
+    "upcomingPickLabel": "Waiting for kickoff",
+    "upcomingPickHint": "Points settle once the match kicks off",
+    "upcomingNoPickLabel": "You haven't picked this match yet",
     "finalEarnedLabel": "Earned",
     "provisionalHint": "Projected - keeps changing while the match is live",
     "noPickLabel": "You didn't pick this match",
@@ -323,7 +328,7 @@
     "save": "Save bracket"
   },
   "transparency": {
-    "title": "Full transparency",
+    "title": "Transparency",
     "subtitle": "Who picked what. Each pick becomes public the moment it locks - not before.",
     "filterUser": "Player",
     "filterDate": "Date",
@@ -572,6 +577,8 @@
       "already_settled": "Duel already settled or cancelled",
       "stake_too_high": "Stake exceeds max",
       "stake_too_low": "Stake must be ≥ 1",
+      "invalid_options": "Options configuration is invalid",
+      "option_taken": "That option is already taken. Pick another",
       "db": "Save failed"
     },
     "duelNew": {
@@ -588,6 +595,8 @@
       "match_locked": "Match is locked.",
       "matchday_empty": "No scheduled matches on this date.",
       "deadline_past": "Resolution date already passed.",
+      "invalid_options": "Options config is invalid. Need 2-5 options with multipliers 1.5x-5.0x and one picked as yours.",
+      "option_taken": "That option is already taken. Pick another.",
       "db": "Save failed"
     },
     "quickPick": {

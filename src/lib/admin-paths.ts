@@ -35,8 +35,8 @@ export const PERMISSION_LABELS: Record<
     he: "הימורי לייב",
     en: "Live bets",
     help: {
-      he: "יצירה, עריכה, ניקוד וביטול של הימורי לייב; הצעות יום משחקים; מצב הימורי כולם; הגדרת מועדי סגירה.",
-      en: "Author, edit, grade, cancel live bets; matchday suggestions; everyone's bets; lock deadlines.",
+      he: "יצירה, עריכה, ניקוד וביטול של הימורי לייב; הצעות יום משחקים; מצב הימורי כולם; הגדרת מועדי סגירה; ניהול דו-קרבים (ביטול והכרעה).",
+      en: "Author, edit, grade, cancel live bets; matchday suggestions; everyone's bets; lock deadlines; manage duels (cancel & settle).",
     },
   },
   tournamentBets: {

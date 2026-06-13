@@ -14,12 +14,19 @@ import {
 } from "@/db/schema";
 import { getUser } from "@/lib/supabase/auth";
 import { hasPermission } from "@/lib/admin";
+import { notifyUsers } from "@/lib/notifications";
+import { listOpenLiveBetsForPush } from "@/db/admin-queries";
+import {
+  buildLiveBetPushText,
+  liveBetAnchor,
+  type LiveBetPushAnchor,
+} from "@/lib/bets/live-bet-push";
 import type {
   AnswerConfig,
   GradingConfig,
   ResolvedValue,
 } from "@/lib/bets/types";
-import { resolvePickPayoutAtGrade } from "@/lib/bets/payout";
+import { gradedPickPoints } from "@/lib/bets/payout";
 import {
   repriceAnswerConfigFromOdds,
   validateLiveOddsConfig,
@@ -514,6 +521,89 @@ export async function cancelCustomBet(
   }
 }
 
+// Announce one or more freshly-published live bets to the players via
+// push. Manual / batch only — there is no auto-on-publish path. The
+// admin selects open live bets in the composer; this builds a single
+// "match name + count" push grouped per anchor and fans it out to every
+// push-opted-in player. Gated to the liveBets permission (admins
+// included), same as publish / cancel above.
+export type SendLiveBetPushResult =
+  | { ok: true; recipients: number; pushSent: number }
+  | {
+      ok: false;
+      error: "unauth" | "forbidden" | "invalid_input" | "no_valid_bets" | "db";
+    };
+
+export async function sendLiveBetPush(
+  betIds: string[],
+  locale: "he" | "en" = "he",
+): Promise<SendLiveBetPushResult> {
+  const user = await getUser();
+  if (!user) return { ok: false, error: "unauth" };
+  if (!(await hasPermission(user.id, "liveBets"))) {
+    console.warn("[live bet push denied]", { userId: user.id });
+    return { ok: false, error: "forbidden" };
+  }
+
+  // Cap the selection so a tampered request can't fan a 10k-line body out
+  // to every device. 50 covers any realistic matchday.
+  if (!Array.isArray(betIds) || betIds.length === 0 || betIds.length > 50) {
+    return { ok: false, error: "invalid_input" };
+  }
+  const wanted = new Set(
+    betIds.filter((id) => typeof id === "string" && id.length > 0),
+  );
+  if (wanted.size === 0) return { ok: false, error: "invalid_input" };
+
+  try {
+    // Re-read the canonical open-live list and keep only the selected
+    // ids. This is the authorization boundary for WHAT can be pushed:
+    // a draft / locked / tournament / duel id simply won't be in the set,
+    // so it can never ride into the announcement.
+    const open = await listOpenLiveBetsForPush(200);
+    const selected = open.filter((b) => wanted.has(b.id));
+    if (selected.length === 0) return { ok: false, error: "no_valid_bets" };
+
+    const anchors: LiveBetPushAnchor[] = selected.map((b) =>
+      liveBetAnchor(
+        {
+          scope: b.scope,
+          matchId: b.matchId,
+          homeName: locale === "he" ? b.homeNameHe : b.homeNameEn,
+          awayName: locale === "he" ? b.awayNameHe : b.awayNameEn,
+          matchdayDate: b.matchdayDate,
+        },
+        locale,
+      ),
+    );
+
+    const text = buildLiveBetPushText(anchors, locale);
+    if (!text) return { ok: false, error: "no_valid_bets" };
+
+    const res = await notifyUsers(
+      { kind: "all-opted-in" },
+      {
+        kind: "live_bet",
+        title: text.title,
+        body: text.body,
+        url: `/${locale}/bets/live`,
+        push: true,
+        createdBy: user.id,
+      },
+    );
+    console.info("[live bet push]", {
+      by: user.id,
+      bets: selected.length,
+      recipients: res.recipients,
+      pushSent: res.pushSent,
+    });
+    return { ok: true, recipients: res.recipients, pushSent: res.pushSent };
+  } catch (err) {
+    console.error("[live bet push] failed:", err);
+    return { ok: false, error: "db" };
+  }
+}
+
 // ---------- helpers ----------
 
 function validateScopeAnchors(input: CreateCustomBetInput): "ok" | Err {
@@ -839,8 +929,8 @@ export async function gradeCustomBet(
       //
       // payoutSnapshot pulled per-pick: outright bets price each option
       // individually (Mbappé pays 7, longshot pays 25). Pre-migration
-      // rows have NULL payoutSnapshot — resolvePickPayoutAtGrade falls
-      // back to the bet-level payout for those.
+      // rows have NULL payoutSnapshot — gradedPickPoints falls back to
+      // the bet-level payout for those.
       const picks = await tx
         .select({
           id: userCustomBetPicks.id,
@@ -858,14 +948,15 @@ export async function gradeCustomBet(
           resolvedValue,
         );
         if (correct) winners += 1;
-        const winPayout = resolvePickPayoutAtGrade({
+        const points = gradedPickPoints({
+          correct,
           pickPayoutSnapshot: pk.payoutSnapshot,
           betLevelPayout: bet.payoutSnapshot,
         });
         await tx
           .update(userCustomBetPicks)
           .set({
-            pointsEarned: correct ? winPayout : 0,
+            pointsEarned: points,
             wasCorrect: correct,
             locked: true,
             updatedAt: new Date(),

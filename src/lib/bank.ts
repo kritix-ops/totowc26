@@ -83,14 +83,35 @@ export function bankBalanceSql(userId: string): SQL {
 // Exported because the leaderboard, profile-stats, my-duels and
 // bank-stats queries all embed the same arithmetic — keeping a single
 // source of truth means the netting rules cannot drift between surfaces.
+//
+// Two shapes coexist (see migration 0058):
+//   * Legacy yes/no duels (options IS NULL): symmetric 1:1 payout -
+//     winner +stake, loser -stake.
+//   * Custom-option duels (options IS NOT NULL): each side's win pays
+//     stake × (multiplier - 1) net profit; loser -stake. Multipliers
+//     are stored as integer hundredths so this stays in integer math.
 export function duelCaseSql(userRef: string | SQL): SQL {
   return sql`case
     when d.status = 'open' and d.opener_id = ${userRef} then -d.stake
     when d.status = 'matched' and (d.opener_id = ${userRef} or d.joiner_id = ${userRef}) then -d.stake
-    when d.status = 'settled' and d.opener_id = ${userRef}
-      then case when d.resolved_value = d.opener_answer then d.stake else -d.stake end
-    when d.status = 'settled' and d.joiner_id = ${userRef}
-      then case when d.resolved_value = d.opener_answer then -d.stake else d.stake end
+    when d.status = 'settled' and d.opener_id = ${userRef} then
+      case
+        when d.options is null then
+          case when d.resolved_value = d.opener_answer then d.stake else -d.stake end
+        else
+          case when d.resolved_option = d.opener_option
+            then ((d.stake * (d.opener_option_multiplier_pct - 100)) / 100)::int
+            else -d.stake end
+      end
+    when d.status = 'settled' and d.joiner_id = ${userRef} then
+      case
+        when d.options is null then
+          case when d.resolved_value = d.opener_answer then -d.stake else d.stake end
+        else
+          case when d.resolved_option = d.joiner_option
+            then ((d.stake * (d.joiner_option_multiplier_pct - 100)) / 100)::int
+            else -d.stake end
+      end
     else 0
   end`;
 }

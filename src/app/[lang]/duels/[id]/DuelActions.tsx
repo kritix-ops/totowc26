@@ -1,12 +1,18 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { AlertCircle, Check } from "lucide-react";
 import { clsx } from "clsx";
 import { Card, PillButton, SectionHeading } from "@/components/ui";
 import { PickScenarios } from "@/components/PickScenarios";
 import type { Dictionary, Locale } from "../../dictionaries";
 import { usePendingAction } from "@/lib/use-pending-action";
+import {
+  findOption,
+  formatMultiplier,
+  grossPayoutOnWin,
+  type DuelOption,
+} from "@/lib/duels/options";
 import { cancelDuel, joinDuel, settleDuel } from "../actions";
 
 // All viewer-context-dependent CTAs for the duel detail page live here.
@@ -28,9 +34,17 @@ type Props = {
   // the join CTA and renders a recovery banner in its place.
   lockedFromBetting: boolean;
   iAmOpener: boolean;
-  isAdmin: boolean;
+  // True for a full admin OR a scoped bet-manager (liveBets permission).
+  // Drives the cancel / settle controls; the server actions enforce the
+  // same gate, so this only governs whether the UI is shown.
+  canManage: boolean;
   canEdit: boolean;
   joinDeadlinePassed: boolean;
+  // Custom-option duel fields (migration 0058). NULL for legacy yes/no
+  // duels, in which case the join + settle UIs render their original
+  // boolean shape.
+  options: DuelOption[] | null;
+  openerOption: string | null;
 };
 
 export function DuelActions({
@@ -42,17 +56,27 @@ export function DuelActions({
   bankBalance,
   lockedFromBetting,
   iAmOpener,
-  isAdmin,
+  canManage,
   canEdit,
   joinDeadlinePassed,
+  options,
+  openerOption,
 }: Props) {
   const isHebrew = locale === "he";
   const { pending, run } = usePendingAction();
   const [error, setError] = useState<string | null>(null);
   const [reason, setReason] = useState("");
   const [resolvedValue, setResolvedValue] = useState<boolean | null>(null);
+  const [resolvedOptionKey, setResolvedOptionKey] = useState<string | null>(null);
+  const [joinerOptionKey, setJoinerOptionKey] = useState<string | null>(null);
   const [showCancel, setShowCancel] = useState(false);
   const [showSettle, setShowSettle] = useState(false);
+
+  // Options minus the opener's pick — the set a joiner can take.
+  const joinerChoices = useMemo(
+    () => (options ?? []).filter((o) => o.key !== openerOption),
+    [options, openerOption],
+  );
 
   const labels = {
     joinCta: isHebrew
@@ -88,8 +112,14 @@ export function DuelActions({
 
   const join = () => {
     setError(null);
+    // For custom-option duels the joiner must have selected an option
+    // before we fire the action. Legacy yes/no duels send nothing.
+    if (options && joinerOptionKey == null) {
+      setError("invalid_input");
+      return;
+    }
     void run(async () => {
-      const res = await joinDuel(duelId);
+      const res = await joinDuel(duelId, options ? joinerOptionKey : null);
       if (!res.ok) {
         setError(res.error);
         return;
@@ -114,6 +144,20 @@ export function DuelActions({
 
   const settle = () => {
     setError(null);
+    if (options) {
+      if (resolvedOptionKey == null) {
+        setError("invalid_input");
+        return;
+      }
+      void run(async () => {
+        const res = await settleDuel(duelId, resolvedOptionKey);
+        if (!res.ok) {
+          setError(res.error);
+          return;
+        }
+      });
+      return;
+    }
     if (resolvedValue === null) {
       setError("invalid_input");
       return;
@@ -152,11 +196,82 @@ export function DuelActions({
                 : "Joining duels reopens once you climb back to 0. Match picks, tournament and group bets stay open as your recovery path."}
             </p>
           </div>
+        ) : options ? (
+          <>
+            {/* Custom-option duel join flow: pick one of the remaining
+                options (the opener's choice is hidden because the joiner
+                must take a different side). Per-option payout preview
+                updates live with the selection. */}
+            <p className="text-sm font-bold text-on-surface">
+              {isHebrew ? "בחר את הצד שלך" : "Pick your side"}
+            </p>
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+              {joinerChoices.map((o) => (
+                <button
+                  key={o.key}
+                  type="button"
+                  onClick={() => setJoinerOptionKey(o.key)}
+                  className={clsx(
+                    "press-down min-h-[56px] rounded-lg border text-sm font-bold flex flex-col items-center justify-center gap-0.5",
+                    joinerOptionKey === o.key
+                      ? "bg-primary text-on-primary border-primary"
+                      : "bg-surface-container-lowest text-on-surface border-outline",
+                  )}
+                >
+                  <span>{isHebrew ? o.labelHe : o.labelEn}</span>
+                  <span className="text-[10px] tabular-nums opacity-80">
+                    {formatMultiplier(o.multiplierPct, isHebrew ? "he" : "en")} ·
+                    {" "}
+                    {isHebrew
+                      ? `אם זוכה +${grossPayoutOnWin(stake, o.multiplierPct) - stake}`
+                      : `if wins +${grossPayoutOnWin(stake, o.multiplierPct) - stake}`}
+                  </span>
+                </button>
+              ))}
+            </div>
+            <PickScenarios
+              locale={locale}
+              currentBalance={bankBalance}
+              stake={stake}
+              scenarios={[
+                {
+                  label: isHebrew ? "אם תזכה" : "If you win",
+                  delta: joinerOptionKey
+                    ? grossPayoutOnWin(
+                        stake,
+                        findOption(options, joinerOptionKey)?.multiplierPct ?? 200,
+                      )
+                    : 2 * stake,
+                  tone: "positive",
+                },
+                {
+                  label: isHebrew ? "אם תפסיד" : "If you lose",
+                  delta: 0,
+                  tone: "negative",
+                },
+                {
+                  label: isHebrew ? "אם הדו-קרב יבוטל" : "If the duel is cancelled",
+                  delta: stake,
+                  tone: "neutral",
+                },
+              ]}
+            />
+            <PillButton
+              type="button"
+              onClick={join}
+              disabled={pending || joinerOptionKey == null}
+              className={clsx(
+                "min-h-[48px]",
+                (pending || joinerOptionKey == null) && "opacity-60 cursor-not-allowed",
+              )}
+            >
+              {pending ? labels.pending : labels.joinCta}
+            </PillButton>
+          </>
         ) : (
           <>
-            {/* What happens to YOUR bank if you join.
-                Symmetric duel: winner takes the other side's stake,
-                cancellation refunds. */}
+            {/* Legacy yes/no duel join: viewer takes the opposite side
+                automatically. Symmetric 1:1 payout. */}
             <PickScenarios
               locale={locale}
               currentBalance={bankBalance}
@@ -213,10 +328,10 @@ export function DuelActions({
     );
   }
 
-  // Cancel CTA - opener on open duel, OR admin on any active duel.
+  // Cancel CTA - opener on open duel, OR a manager on any active duel.
   const canCancel =
     (status === "open" && iAmOpener) ||
-    (isAdmin && (status === "open" || status === "matched"));
+    (canManage && (status === "open" || status === "matched"));
   if (canCancel) {
     sections.push(
       <Card key="cancel" className="p-5 md:p-6 flex flex-col gap-3">
@@ -272,8 +387,8 @@ export function DuelActions({
     );
   }
 
-  // Settle CTA - admin only, status='matched'.
-  if (isAdmin && status === "matched") {
+  // Settle CTA - manager only, status='matched'.
+  if (canManage && status === "matched") {
     sections.push(
       <Card key="settle" className="p-5 md:p-6 flex flex-col gap-3">
         <SectionHeading underline="thin" as="h2">
@@ -284,29 +399,53 @@ export function DuelActions({
             <p className="text-sm text-on-surface-variant">
               {labels.settleQuestion}
             </p>
-            <div className="grid grid-cols-2 gap-2">
-              {[true, false].map((v) => (
-                <button
-                  key={String(v)}
-                  type="button"
-                  onClick={() => setResolvedValue(v)}
-                  className={clsx(
-                    "press-down min-h-[48px] rounded-lg border text-base font-bold",
-                    resolvedValue === v
-                      ? "bg-primary text-on-primary border-primary"
-                      : "bg-surface-container-lowest text-on-surface border-outline",
-                  )}
-                >
-                  {v ? labels.yes : labels.no}
-                </button>
-              ))}
-            </div>
+            {options ? (
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                {options.map((o) => (
+                  <button
+                    key={o.key}
+                    type="button"
+                    onClick={() => setResolvedOptionKey(o.key)}
+                    className={clsx(
+                      "press-down min-h-[48px] rounded-lg border text-sm font-bold flex flex-col items-center justify-center gap-0.5",
+                      resolvedOptionKey === o.key
+                        ? "bg-primary text-on-primary border-primary"
+                        : "bg-surface-container-lowest text-on-surface border-outline",
+                    )}
+                  >
+                    <span>{isHebrew ? o.labelHe : o.labelEn}</span>
+                    <span className="text-[10px] tabular-nums opacity-80">
+                      {formatMultiplier(o.multiplierPct, isHebrew ? "he" : "en")}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-2">
+                {[true, false].map((v) => (
+                  <button
+                    key={String(v)}
+                    type="button"
+                    onClick={() => setResolvedValue(v)}
+                    className={clsx(
+                      "press-down min-h-[48px] rounded-lg border text-base font-bold",
+                      resolvedValue === v
+                        ? "bg-primary text-on-primary border-primary"
+                        : "bg-surface-container-lowest text-on-surface border-outline",
+                    )}
+                  >
+                    {v ? labels.yes : labels.no}
+                  </button>
+                ))}
+              </div>
+            )}
             <div className="flex justify-end gap-2">
               <button
                 type="button"
                 onClick={() => {
                   setShowSettle(false);
                   setResolvedValue(null);
+                  setResolvedOptionKey(null);
                   setError(null);
                 }}
                 className="press-down min-h-[44px] px-4 rounded-full bg-surface-container-low border border-outline text-on-surface text-sm font-bold"
@@ -316,10 +455,14 @@ export function DuelActions({
               <PillButton
                 type="button"
                 onClick={settle}
-                disabled={pending || resolvedValue === null}
+                disabled={
+                  pending ||
+                  (options ? resolvedOptionKey == null : resolvedValue === null)
+                }
                 className={clsx(
                   "min-h-[44px]",
-                  (pending || resolvedValue === null) &&
+                  (pending ||
+                    (options ? resolvedOptionKey == null : resolvedValue === null)) &&
                     "opacity-60 cursor-not-allowed",
                 )}
               >

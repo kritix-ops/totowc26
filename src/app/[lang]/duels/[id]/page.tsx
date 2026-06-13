@@ -7,12 +7,17 @@ import { Card, Chip, LabelCaps, MatchupLabel, SectionHeading } from "@/component
 import { PayGateBanner } from "@/components/PayGateBanner";
 import { getRequestUser } from "@/lib/request-user";
 import { getUserAccess } from "@/lib/access";
-import { isAdmin } from "@/lib/admin";
+import { hasPermission } from "@/lib/admin";
 import { execFirstRow } from "@/db/helpers";
 import { getBankBalance, getOverdraftConfig } from "@/lib/bank";
 import { localePath } from "@/lib/paths";
 import { formatDateTime } from "@/lib/format";
 import { serverNow } from "@/lib/server-now";
+import {
+  findOption,
+  formatMultiplier,
+  type DuelOption,
+} from "@/lib/duels/options";
 import { DuelActions } from "./DuelActions";
 
 type PageParams = {
@@ -26,7 +31,7 @@ type DuelDetail = {
   stake: number;
   openerId: string;
   joinerId: string | null;
-  openerAnswer: boolean;
+  openerAnswer: boolean | null;
   openerName: string;
   joinerName: string | null;
   questionHe: string;
@@ -38,6 +43,11 @@ type DuelDetail = {
   resolvedValue: boolean | null;
   matchLabel: string | null;
   matchdayDate: string | null;
+  // Custom-option fields (migration 0058). NULL on legacy yes/no duels.
+  options: DuelOption[] | null;
+  openerOption: string | null;
+  joinerOption: string | null;
+  resolvedOption: string | null;
 };
 
 export default async function DuelDetailPage({ params }: PageParams) {
@@ -50,9 +60,9 @@ export default async function DuelDetailPage({ params }: PageParams) {
 
   const user = await getRequestUser();
   if (!user) redirect(localePath(locale, "login"));
-  const [access, admin, duel, bankBalance, overdraft] = await Promise.all([
+  const [access, canManage, duel, bankBalance, overdraft] = await Promise.all([
     getUserAccess(user.id),
-    isAdmin(user.id),
+    hasPermission(user.id, "liveBets"),
     loadDuel(id),
     getBankBalance(user.id),
     getOverdraftConfig(),
@@ -64,12 +74,21 @@ export default async function DuelDetailPage({ params }: PageParams) {
     overdraft.lockBetsWhenNegative && bankBalance < 0;
 
   const iAmOpener = duel.openerId === user.id;
-  const winnerName =
-    duel.status === "settled" && duel.resolvedValue !== null
-      ? duel.resolvedValue === duel.openerAnswer
-        ? duel.openerName
-        : duel.joinerName
-      : null;
+  // Winner resolution: legacy duels compare resolvedValue == openerAnswer;
+  // custom-option duels compare resolvedOption against opener/joiner picks.
+  const winnerName = (() => {
+    if (duel.status !== "settled") return null;
+    if (duel.options) {
+      if (duel.resolvedOption == null) return null;
+      if (duel.resolvedOption === duel.openerOption) return duel.openerName;
+      if (duel.resolvedOption === duel.joinerOption) return duel.joinerName;
+      return null;
+    }
+    if (duel.resolvedValue === null) return null;
+    return duel.resolvedValue === duel.openerAnswer
+      ? duel.openerName
+      : duel.joinerName;
+  })();
 
   return (
     <section className="px-4 md:px-16 py-6 md:py-12 flex flex-col gap-6 md:gap-8 max-w-3xl mx-auto w-full pb-24">
@@ -120,21 +139,17 @@ export default async function DuelDetailPage({ params }: PageParams) {
           <Side
             label={dict.duels.openerLabel}
             name={duel.openerName}
-            answer={duel.openerAnswer}
+            answerText={renderSideAnswer(duel, "opener", isHebrew, dict)}
             stake={duel.stake}
-            isWinner={duel.status === "settled" && duel.resolvedValue === duel.openerAnswer}
+            isWinner={isOpenerWinner(duel)}
             dict={dict}
           />
           <Side
             label={dict.duels.joinerLabel}
             name={duel.joinerName ?? "-"}
-            answer={duel.joinerName ? !duel.openerAnswer : null}
+            answerText={renderSideAnswer(duel, "joiner", isHebrew, dict)}
             stake={duel.stake}
-            isWinner={
-              duel.status === "settled" &&
-              duel.joinerName !== null &&
-              duel.resolvedValue !== duel.openerAnswer
-            }
+            isWinner={isJoinerWinner(duel)}
             dict={dict}
           />
         </div>
@@ -183,9 +198,11 @@ export default async function DuelDetailPage({ params }: PageParams) {
         bankBalance={bankBalance}
         lockedFromBetting={lockedFromBetting}
         iAmOpener={iAmOpener}
-        isAdmin={admin}
+        canManage={canManage}
         canEdit={access.canEdit}
         joinDeadlinePassed={new Date(duel.joinDeadlineAt).getTime() <= serverNow()}
+        options={duel.options}
+        openerOption={duel.openerOption}
       />
     </section>
   );
@@ -194,14 +211,14 @@ export default async function DuelDetailPage({ params }: PageParams) {
 function Side({
   label,
   name,
-  answer,
+  answerText,
   stake,
   isWinner,
   dict,
 }: {
   label: string;
   name: string;
-  answer: boolean | null;
+  answerText: string;
   stake: number;
   isWinner: boolean;
   dict: Awaited<ReturnType<typeof getDictionary>>;
@@ -223,9 +240,7 @@ function Side({
         <span className="text-xs text-on-surface-variant">
           {dict.duels.yourAnswer}
         </span>
-        <span className="text-sm font-bold">
-          {answer === null ? "-" : answer ? dict.duels.yes : dict.duels.no}
-        </span>
+        <span className="text-sm font-bold">{answerText}</span>
       </div>
       <div className="flex items-center justify-between gap-2">
         <span className="text-xs text-on-surface-variant">
@@ -237,6 +252,53 @@ function Side({
       </div>
     </div>
   );
+}
+
+// Render the per-side answer cell for both legacy and custom-option
+// duels. For options duels the cell shows the picked label + its
+// multiplier so the viewer sees the asymmetry at a glance. For legacy
+// duels it stays the original yes/no/-.
+function renderSideAnswer(
+  duel: DuelDetail,
+  side: "opener" | "joiner",
+  isHebrew: boolean,
+  dict: Awaited<ReturnType<typeof getDictionary>>,
+): string {
+  if (duel.options) {
+    const key = side === "opener" ? duel.openerOption : duel.joinerOption;
+    const opt = findOption(duel.options, key);
+    if (!opt) return "-";
+    return `${isHebrew ? opt.labelHe : opt.labelEn} (${formatMultiplier(
+      opt.multiplierPct,
+      isHebrew ? "he" : "en",
+    )})`;
+  }
+  if (side === "opener") {
+    return duel.openerAnswer === null
+      ? "-"
+      : duel.openerAnswer
+        ? dict.duels.yes
+        : dict.duels.no;
+  }
+  if (duel.joinerName === null) return "-";
+  return duel.openerAnswer === null
+    ? "-"
+    : !duel.openerAnswer
+      ? dict.duels.yes
+      : dict.duels.no;
+}
+
+function isOpenerWinner(duel: DuelDetail): boolean {
+  if (duel.status !== "settled") return false;
+  if (duel.options) return duel.resolvedOption === duel.openerOption;
+  return duel.resolvedValue === duel.openerAnswer;
+}
+
+function isJoinerWinner(duel: DuelDetail): boolean {
+  if (duel.status !== "settled") return false;
+  if (duel.joinerName === null) return false;
+  if (duel.options) return duel.resolvedOption === duel.joinerOption;
+  return duel.resolvedValue !== duel.openerAnswer;
 }
 
 function scopeLabel(
@@ -319,6 +381,10 @@ async function loadDuel(id: string): Promise<DuelDetail | null> {
       d.join_deadline_at::text                                  as "joinDeadlineAt",
       d.resolve_at::text                                        as "resolveAt",
       d.resolved_value                                          as "resolvedValue",
+      d.options                                                 as "options",
+      d.opener_option                                           as "openerOption",
+      d.joiner_option                                           as "joinerOption",
+      d.resolved_option                                         as "resolvedOption",
       case when m.id is not null
            then m.home_team || ' vs ' || m.away_team
            else null end                                        as "matchLabel",

@@ -6,7 +6,7 @@ import { db } from "@/db";
 import { execFirstRow, execRows } from "@/db/helpers";
 import { duels, matches as matchesTable, matchdays, settings } from "@/db/schema";
 import { getUser } from "@/lib/supabase/auth";
-import { isAdmin } from "@/lib/admin";
+import { hasPermission } from "@/lib/admin";
 import { getUserAccess } from "@/lib/access";
 import {
   assertBettingAllowed,
@@ -21,6 +21,11 @@ import { getEmailCopy, interpolate } from "@/lib/email/copy";
 import { DuelJoinedEmail } from "@/lib/email/templates/DuelJoinedEmail";
 import { notifyUsers } from "@/lib/notifications";
 import { MS_PER_HOUR, MS_PER_MINUTE, daysFromNow } from "@/lib/time";
+import {
+  findOption,
+  validateOptions,
+  type DuelOption,
+} from "@/lib/duels/options";
 
 // 1v1 duel server actions. See _plans/2026-05-27-betting-overhaul.md §7
 // for the design rationale.
@@ -52,6 +57,8 @@ type DuelErr =
   | "duel_closed"
   | "duel_self_join"
   | "already_settled"
+  | "option_taken"
+  | "invalid_options"
   | "db";
 
 // Optional auto-settle config. The sync pass evaluates
@@ -67,7 +74,13 @@ export type OpenDuelInput = {
   scope: "match" | "day" | "tournament";
   matchId?: string | null;
   matchdayDate?: string | null;       // YYYY-MM-DD, Asia/Jerusalem
-  openerAnswer: boolean;
+  // Either the LEGACY yes/no pair (openerAnswer required, options NULL)
+  // or the NEW custom-option pair (options non-empty + openerOption set).
+  // Both branches go through openDuel() because the lifecycle / cancel /
+  // join machinery is identical; only the persisted columns differ.
+  openerAnswer?: boolean | null;
+  options?: DuelOption[] | null;
+  openerOption?: string | null;
   stake: number;
   questionHe: string;
   questionEn: string;
@@ -104,6 +117,34 @@ export async function openDuel(input: OpenDuelInput): Promise<OpenDuelResult> {
   }
   if (!Number.isInteger(input.stake) || input.stake < 1) {
     return { ok: false, error: "stake_too_low" };
+  }
+
+  // 1b) Shape: legacy (openerAnswer) vs new-style (options + openerOption).
+  // Either branch must be unambiguous; we never let a request land both
+  // shapes because the DB CHECK rejects mixed rows. Empty options array
+  // is treated as "legacy intended" (the form sends [] when the opener
+  // sticks with the default yes/no UI).
+  const hasOptions = Array.isArray(input.options) && input.options.length > 0;
+  const hasLegacyAnswer = typeof input.openerAnswer === "boolean";
+  if (hasOptions === hasLegacyAnswer) {
+    // Both true (mixed) or both false (neither) — both are invalid.
+    return { ok: false, error: "invalid_input" };
+  }
+
+  let normalisedOptions: DuelOption[] | null = null;
+  let openerOptionKey: string | null = null;
+  let openerOptionMultiplierPct: number | null = null;
+  if (hasOptions) {
+    const validation = validateOptions(input.options);
+    if (!validation.ok) return { ok: false, error: "invalid_options" };
+    normalisedOptions = validation.options;
+    if (typeof input.openerOption !== "string" || input.openerOption.length === 0) {
+      return { ok: false, error: "invalid_options" };
+    }
+    const picked = findOption(normalisedOptions, input.openerOption);
+    if (!picked) return { ok: false, error: "invalid_options" };
+    openerOptionKey = picked.key;
+    openerOptionMultiplierPct = picked.multiplierPct;
   }
 
   // 2) Read live duel limits + earliest fixture in scope to derive the
@@ -268,7 +309,7 @@ export async function openDuel(input: OpenDuelInput): Promise<OpenDuelResult> {
         .insert(duels)
         .values({
           openerId: user.id,
-          openerAnswer: input.openerAnswer,
+          openerAnswer: hasLegacyAnswer ? input.openerAnswer! : null,
           stake: input.stake,
           questionHe: input.questionHe.trim(),
           questionEn: input.questionEn.trim(),
@@ -282,6 +323,9 @@ export async function openDuel(input: OpenDuelInput): Promise<OpenDuelResult> {
           resolveAt: resolveAt!,
           gradingSource: autoGrade ? "auto_api_football" : "manual",
           gradingConfig: autoGrade,
+          options: normalisedOptions,
+          openerOption: openerOptionKey,
+          openerOptionMultiplierPct: openerOptionMultiplierPct,
         })
         .returning({ id: duels.id });
       return { kind: "ok", id: row.id };
@@ -298,6 +342,9 @@ export async function openDuel(input: OpenDuelInput): Promise<OpenDuelResult> {
       stake: input.stake,
       scope: input.scope,
       deadlineAt: joinDeadlineAt.toISOString(),
+      shape: hasOptions ? "options" : "legacy",
+      openerOption: openerOptionKey,
+      openerOptionMultiplierPct,
     });
 
     // Fire the "new duel opened" notification to every paid player
@@ -330,7 +377,14 @@ export type JoinDuelResult =
   | { ok: true }
   | { ok: false; error: DuelErr };
 
-export async function joinDuel(id: string): Promise<JoinDuelResult> {
+// `joinerOption` is the option key the joiner picked for custom-option
+// duels. Legacy yes/no duels ignore it (joiner always takes the opposite
+// side automatically). Server re-derives multiplier from the stored
+// options array - never trust the client to ship a multiplier.
+export async function joinDuel(
+  id: string,
+  joinerOption?: string | null,
+): Promise<JoinDuelResult> {
   const user = await getUser();
   if (!user) return { ok: false, error: "unauth" };
   const access = await getUserAccess(user.id);
@@ -354,6 +408,8 @@ export async function joinDuel(id: string): Promise<JoinDuelResult> {
           status: duels.status,
           stake: duels.stake,
           joinDeadlineAt: duels.joinDeadlineAt,
+          options: duels.options,
+          openerOption: duels.openerOption,
         })
         .from(duels)
         .where(eq(duels.id, id))
@@ -365,6 +421,28 @@ export async function joinDuel(id: string): Promise<JoinDuelResult> {
         return { ok: false as const, error: "duel_already_joined" as const };
       if (d.joinDeadlineAt.getTime() <= Date.now())
         return { ok: false as const, error: "duel_closed" as const };
+
+      // Resolve the joiner's pick + multiplier for custom-option duels.
+      // Validate it's a real option, it's not the opener's pick, and
+      // freeze the multiplier so the bank.ts SQL never has to unpack the
+      // jsonb array per row.
+      let joinerOptionKey: string | null = null;
+      let joinerMultiplierPct: number | null = null;
+      if (d.options) {
+        const opts = d.options as unknown as DuelOption[];
+        if (typeof joinerOption !== "string" || joinerOption.length === 0) {
+          return { ok: false as const, error: "invalid_options" as const };
+        }
+        const picked = findOption(opts, joinerOption);
+        if (!picked) {
+          return { ok: false as const, error: "invalid_options" as const };
+        }
+        if (picked.key === d.openerOption) {
+          return { ok: false as const, error: "option_taken" as const };
+        }
+        joinerOptionKey = picked.key;
+        joinerMultiplierPct = picked.multiplierPct;
+      }
 
       // Re-check balance inside the txn so the bank read picks up any
       // other in-flight stake debits from the same user. Negative-balance
@@ -420,9 +498,16 @@ export async function joinDuel(id: string): Promise<JoinDuelResult> {
           joinerId: user.id,
           joinedAt: new Date(),
           status: "matched",
+          joinerOption: joinerOptionKey,
+          joinerOptionMultiplierPct: joinerMultiplierPct,
         })
         .where(and(eq(duels.id, id), eq(duels.status, "open")));
-      return { ok: true as const, stake: d.stake, openerId: d.openerId };
+      return {
+        ok: true as const,
+        stake: d.stake,
+        openerId: d.openerId,
+        joinerOption: joinerOptionKey,
+      };
     });
 
     if (!result.ok) return result;
@@ -430,6 +515,7 @@ export async function joinDuel(id: string): Promise<JoinDuelResult> {
       duelId: id,
       joinerId: user.id,
       stake: result.stake,
+      joinerOption: result.joinerOption,
     });
 
     // Best-effort notification to the opener. Outside the txn so a
@@ -527,13 +613,24 @@ export type SettleDuelResult =
   | { ok: true }
   | { ok: false; error: DuelErr };
 
+// Manual settle by an admin OR a scoped bet-manager (the `liveBets`
+// permission). Accepts either a boolean (legacy yes/no duels) or a
+// string option key (custom-option duels). The action picks the branch
+// off the row's `options` column - the admin UI is responsible for
+// sending the right shape, but the action revalidates so a wrong shape
+// returns invalid_input rather than corrupting the row.
+//
+// `hasPermission(liveBets)` returns true for full admins too, so this
+// single gate covers both audiences. Settling moves points between the
+// two sides, so `settled_by` records the acting user for the audit log.
 export async function settleDuel(
   id: string,
-  resolvedValue: boolean,
+  resolved: boolean | string,
 ): Promise<SettleDuelResult> {
   const user = await getUser();
   if (!user) return { ok: false, error: "unauth" };
-  if (!(await isAdmin(user.id))) return { ok: false, error: "forbidden" };
+  if (!(await hasPermission(user.id, "liveBets")))
+    return { ok: false, error: "forbidden" };
 
   try {
     const result = await db.transaction(async (tx) => {
@@ -545,6 +642,9 @@ export async function settleDuel(
           joinerId: duels.joinerId,
           openerAnswer: duels.openerAnswer,
           stake: duels.stake,
+          options: duels.options,
+          openerOption: duels.openerOption,
+          joinerOption: duels.joinerOption,
         })
         .from(duels)
         .where(eq(duels.id, id))
@@ -555,11 +655,56 @@ export async function settleDuel(
       if (!d.joinerId)
         return { ok: false as const, error: "duel_not_found" as const };
 
+      // New-style: admin picks an option key. Validate it belongs to the
+      // duel's options array; ignore any boolean payload.
+      if (d.options) {
+        if (typeof resolved !== "string") {
+          return { ok: false as const, error: "invalid_input" as const };
+        }
+        const opts = d.options as unknown as DuelOption[];
+        const picked = findOption(opts, resolved);
+        if (!picked) {
+          return { ok: false as const, error: "invalid_input" as const };
+        }
+        await tx
+          .update(duels)
+          .set({
+            status: "settled",
+            resolvedOption: picked.key,
+            settledAt: new Date(),
+            settledBy: user.id,
+          })
+          .where(and(eq(duels.id, id), eq(duels.status, "matched")));
+        const winnerId =
+          picked.key === d.openerOption
+            ? d.openerId
+            : picked.key === d.joinerOption
+              ? d.joinerId
+              : null;
+        const loserId =
+          winnerId === d.openerId
+            ? d.joinerId
+            : winnerId === d.joinerId
+              ? d.openerId
+              : null;
+        return {
+          ok: true as const,
+          winnerId,
+          loserId,
+          stake: d.stake,
+          resolved: picked.key,
+        };
+      }
+
+      // Legacy yes/no path.
+      if (typeof resolved !== "boolean") {
+        return { ok: false as const, error: "invalid_input" as const };
+      }
       await tx
         .update(duels)
         .set({
           status: "settled",
-          resolvedValue,
+          resolvedValue: resolved,
           settledAt: new Date(),
           settledBy: user.id,
         })
@@ -567,17 +712,18 @@ export async function settleDuel(
       return {
         ok: true as const,
         winnerId:
-          resolvedValue === d.openerAnswer ? d.openerId : d.joinerId,
+          resolved === d.openerAnswer ? d.openerId : d.joinerId,
         loserId:
-          resolvedValue === d.openerAnswer ? d.joinerId : d.openerId,
+          resolved === d.openerAnswer ? d.joinerId : d.openerId,
         stake: d.stake,
+        resolved,
       };
     });
 
     if (!result.ok) return result;
     console.info("[duel settle]", {
       duelId: id,
-      resolvedValue,
+      resolved: result.resolved,
       winnerId: result.winnerId,
       loserId: result.loserId,
       stake: result.stake,
@@ -602,9 +748,10 @@ export type CancelDuelResult =
   | { ok: true }
   | { ok: false; error: DuelErr };
 
-// Open duel can be cancelled by its opener (no joiner yet) OR by admin.
-// Matched / settled duels can only be cancelled by admin - that path
-// should be rare and is captured via console.info so we know it ran.
+// Open duel can be cancelled by its opener (no joiner yet) OR by a
+// bet-manager (admin or the `liveBets` permission). Matched / settled
+// duels can only be cancelled by a manager - that path should be rare
+// and is captured via console.info so we know it ran.
 export async function cancelDuel(
   id: string,
   reason: string,
@@ -630,10 +777,10 @@ export async function cancelDuel(
       if (d.status === "cancelled")
         return { ok: false as const, error: "already_settled" as const };
 
-      const callerIsAdmin = await isAdmin(user.id);
+      const callerIsManager = await hasPermission(user.id, "liveBets");
       const callerIsOpenerOnOpen =
         d.status === "open" && d.openerId === user.id;
-      if (!callerIsAdmin && !callerIsOpenerOnOpen)
+      if (!callerIsManager && !callerIsOpenerOnOpen)
         return { ok: false as const, error: "forbidden" as const };
 
       await tx

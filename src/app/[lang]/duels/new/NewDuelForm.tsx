@@ -7,6 +7,22 @@ import { AlertCircle } from "lucide-react";
 import { clsx } from "clsx";
 import { Card, PillButton, SectionHeading } from "@/components/ui";
 import { PickScenarios } from "@/components/PickScenarios";
+import { AutoTranslateHint } from "@/components/AutoTranslateHint";
+import { useAutoTranslate } from "@/lib/use-auto-translate";
+import {
+  formatMultiplier,
+  grossPayoutOnWin,
+  MULTIPLIER_MAX_PCT,
+  MULTIPLIER_MIN_PCT,
+  OPTION_MAX_COUNT,
+  OPTION_MIN_COUNT,
+  type DuelOption,
+} from "@/lib/duels/options";
+import {
+  applyTemplate,
+  DUEL_QUICK_TEMPLATES,
+  defaultTemplateOptions,
+} from "@/lib/duels/quick-templates";
 import { localePath } from "@/lib/paths";
 import type { Dictionary, Locale } from "../../dictionaries";
 import { openDuel } from "../actions";
@@ -91,7 +107,14 @@ export function NewDuelForm({
   const [scope, setScope] = useState<Scope>("match");
   const [matchId, setMatchId] = useState<string | "">("");
   const [matchdayDate, setMatchdayDate] = useState<string | "">("");
+  // Answer mode: 'simple' keeps the legacy yes/no UI (sends openerAnswer
+  // boolean to openDuel). 'advanced' reveals the options editor and
+  // sends `options + openerOption`. Quick-template chips force advanced
+  // mode because they always emit a custom-option payload.
+  const [answerMode, setAnswerMode] = useState<"simple" | "advanced">("simple");
   const [openerAnswer, setOpenerAnswer] = useState<boolean>(true);
+  const [options, setOptions] = useState<DuelOption[]>(() => defaultTemplateOptions());
+  const [openerOptionKey, setOpenerOptionKey] = useState<string>(options[0]?.key ?? "yes");
   const [stake, setStake] = useState<number>(Math.min(3, maxStake));
   const [questionHe, setQuestionHe] = useState("");
   const [questionEn, setQuestionEn] = useState("");
@@ -99,6 +122,20 @@ export function NewDuelForm({
   const [ruleEn, setRuleEn] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+
+  // Auto-translate: type Hebrew, English fills in on blur. Skips the
+  // call if the English field already has text. See
+  // _plans/2026-06-12-house-edge-duel-options-translation.md part 3.
+  const questionTranslate = useAutoTranslate({
+    context: "question",
+    isEnglishEmpty: () => questionEn.trim().length === 0,
+    onTranslate: setQuestionEn,
+  });
+  const ruleTranslate = useAutoTranslate({
+    context: "rule",
+    isEnglishEmpty: () => ruleEn.trim().length === 0,
+    onTranslate: setRuleEn,
+  });
 
   // Optional auto-settle config (only when scope='match'). When the
   // toggle is on, the duel grades automatically from API-Football
@@ -159,6 +196,21 @@ export function NewDuelForm({
       : `Your stake is locked in the bank until the duel resolves or cancels. Current balance: ${balance}.`,
   };
 
+  const optionsValid =
+    answerMode === "simple"
+      ? true
+      : options.length >= OPTION_MIN_COUNT &&
+        options.length <= OPTION_MAX_COUNT &&
+        options.every(
+          (o) =>
+            o.labelHe.trim().length > 0 &&
+            o.labelEn.trim().length > 0 &&
+            o.multiplierPct >= MULTIPLIER_MIN_PCT &&
+            o.multiplierPct <= MULTIPLIER_MAX_PCT,
+        ) &&
+        new Set(options.map((o) => o.key)).size === options.length &&
+        options.some((o) => o.key === openerOptionKey);
+
   const valid =
     questionHe.trim().length >= 1 &&
     questionEn.trim().length >= 1 &&
@@ -167,7 +219,8 @@ export function NewDuelForm({
     stake >= 1 &&
     stake <= maxStake &&
     (scope !== "match" || matchId !== "") &&
-    (scope !== "day" || matchdayDate !== "");
+    (scope !== "day" || matchdayDate !== "") &&
+    optionsValid;
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -177,11 +230,17 @@ export function NewDuelForm({
       return;
     }
     startTransition(async () => {
+      const isAdvanced = answerMode === "advanced";
       const res = await openDuel({
         scope,
         matchId: scope === "match" ? matchId : null,
         matchdayDate: scope === "day" ? matchdayDate : null,
-        openerAnswer,
+        // Legacy yes/no payload (mode='simple') OR new-style options
+        // payload (mode='advanced'). Exactly one branch must be set;
+        // openDuel rejects mixed shapes with invalid_input.
+        openerAnswer: isAdvanced ? null : openerAnswer,
+        options: isAdvanced ? options : null,
+        openerOption: isAdvanced ? openerOptionKey : null,
         stake,
         questionHe,
         questionEn,
@@ -299,6 +358,27 @@ export function NewDuelForm({
         )}
       </Card>
 
+      {scope === "match" && (
+        <QuickTemplatesCard
+          isHebrew={isHebrew}
+          onApply={({ questionHe: qHe, questionEn: qEn, ruleHe: rHe, ruleEn: rEn, options: opts, autoGrade }) => {
+            setQuestionHe(qHe);
+            setQuestionEn(qEn);
+            setRuleHe(rHe);
+            setRuleEn(rEn);
+            setAnswerMode("advanced");
+            setOptions(opts);
+            // Default the opener to "yes" (the option that satisfies
+            // the comparator). The opener can still change it.
+            setOpenerOptionKey(opts[0]?.key ?? "yes");
+            setAutoGradeOn(true);
+            setAutoGradeStat(autoGrade.stat as AutoStat);
+            setAutoGradeComparator(autoGrade.comparator);
+            setAutoGradeThreshold(autoGrade.threshold);
+          }}
+        />
+      )}
+
       <Card className="p-5 md:p-6 flex flex-col gap-4">
         <SectionHeading underline="thin" as="h2">
           {labels.title}
@@ -311,6 +391,7 @@ export function NewDuelForm({
               type="text"
               value={questionHe}
               onChange={(e) => setQuestionHe(e.target.value)}
+              onBlur={() => questionTranslate.trigger(questionHe)}
               maxLength={200}
               className="h-12 px-3 rounded-lg border border-outline bg-surface-container-lowest text-base"
               dir="rtl"
@@ -326,6 +407,7 @@ export function NewDuelForm({
               className="h-12 px-3 rounded-lg border border-outline bg-surface-container-lowest text-base"
               dir="ltr"
             />
+            <AutoTranslateHint state={questionTranslate.state} isHebrew={isHebrew} />
           </label>
         </div>
         <p className="text-xs text-on-surface-variant -mt-2">
@@ -338,6 +420,7 @@ export function NewDuelForm({
             <textarea
               value={ruleHe}
               onChange={(e) => setRuleHe(e.target.value)}
+              onBlur={() => ruleTranslate.trigger(ruleHe)}
               maxLength={400}
               rows={3}
               className="px-3 py-2 rounded-lg border border-outline bg-surface-container-lowest text-base"
@@ -354,6 +437,7 @@ export function NewDuelForm({
               className="px-3 py-2 rounded-lg border border-outline bg-surface-container-lowest text-base"
               dir="ltr"
             />
+            <AutoTranslateHint state={ruleTranslate.state} isHebrew={isHebrew} />
           </label>
         </div>
         <p className="text-xs text-on-surface-variant -mt-2">
@@ -362,27 +446,81 @@ export function NewDuelForm({
       </Card>
 
       <Card className="p-5 md:p-6 flex flex-col gap-4">
+        {/* Mode switch: simple = legacy yes/no; advanced = options + ratios.
+            Default stays 'simple' so the existing UX is unchanged for the
+            opener who just wants a quick yes/no duel. */}
         <div className="flex flex-col gap-2">
           <SectionHeading underline="thin" as="h2">
             {labels.answerQ}
           </SectionHeading>
-          <div className="grid grid-cols-2 gap-2">
-            {[true, false].map((v) => (
-              <button
-                key={String(v)}
-                type="button"
-                onClick={() => setOpenerAnswer(v)}
-                className={clsx(
-                  "press-down min-h-[48px] rounded-lg border text-base font-bold",
-                  openerAnswer === v
-                    ? "bg-primary text-on-primary border-primary"
-                    : "bg-surface-container-lowest text-on-surface border-outline",
-                )}
-              >
-                {v ? labels.yes : labels.no}
-              </button>
-            ))}
+          <div
+            role="tablist"
+            aria-label={isHebrew ? "מצב תשובה" : "Answer mode"}
+            className="inline-flex self-start rounded-full border border-outline bg-surface-container-lowest p-1"
+          >
+            <button
+              type="button"
+              role="tab"
+              aria-selected={answerMode === "simple"}
+              onClick={() => setAnswerMode("simple")}
+              className={clsx(
+                "press-down min-h-[44px] px-4 rounded-full text-sm font-bold",
+                answerMode === "simple"
+                  ? "bg-primary text-on-primary"
+                  : "text-on-surface-variant",
+              )}
+            >
+              {isHebrew ? "כן / לא" : "Yes / No"}
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={answerMode === "advanced"}
+              onClick={() => setAnswerMode("advanced")}
+              className={clsx(
+                "press-down min-h-[44px] px-4 rounded-full text-sm font-bold",
+                answerMode === "advanced"
+                  ? "bg-primary text-on-primary"
+                  : "text-on-surface-variant",
+              )}
+            >
+              {isHebrew ? "אופציות מותאמות" : "Custom options"}
+            </button>
           </div>
+
+          {answerMode === "simple" ? (
+            <div className="grid grid-cols-2 gap-2 mt-2">
+              {[true, false].map((v) => (
+                <button
+                  key={String(v)}
+                  type="button"
+                  onClick={() => setOpenerAnswer(v)}
+                  className={clsx(
+                    "press-down min-h-[48px] rounded-lg border text-base font-bold",
+                    openerAnswer === v
+                      ? "bg-primary text-on-primary border-primary"
+                      : "bg-surface-container-lowest text-on-surface border-outline",
+                  )}
+                >
+                  {v ? labels.yes : labels.no}
+                </button>
+              ))}
+              <p className="col-span-2 text-xs text-on-surface-variant">
+                {isHebrew
+                  ? `תשלום סימטרי: הזוכה מקבל ${stake * 2} נק'. השני מאבד את ה-${stake}.`
+                  : `Symmetric payout: winner takes ${stake * 2} pts. Loser loses ${stake}.`}
+              </p>
+            </div>
+          ) : (
+            <OptionsEditor
+              options={options}
+              setOptions={setOptions}
+              openerOptionKey={openerOptionKey}
+              setOpenerOptionKey={setOpenerOptionKey}
+              stake={stake}
+              isHebrew={isHebrew}
+            />
+          )}
         </div>
 
         <div className="flex flex-col gap-2">
@@ -567,4 +705,276 @@ export function NewDuelForm({
 function translateError(code: string, dict: Dictionary): string {
   const map = dict.errors.duelNew as Record<string, string>;
   return map[code] ?? map.db;
+}
+
+// Inline options editor for custom-option duels. Keeps the opener's
+// pick coherent with the edit state - removing an option also resets
+// `openerOptionKey` to the first remaining row when needed.
+function OptionsEditor({
+  options,
+  setOptions,
+  openerOptionKey,
+  setOpenerOptionKey,
+  stake,
+  isHebrew,
+}: {
+  options: DuelOption[];
+  setOptions: (next: DuelOption[]) => void;
+  openerOptionKey: string;
+  setOpenerOptionKey: (key: string) => void;
+  stake: number;
+  isHebrew: boolean;
+}) {
+  const update = (index: number, patch: Partial<DuelOption>) => {
+    setOptions(options.map((o, i) => (i === index ? { ...o, ...patch } : o)));
+  };
+  const addOption = () => {
+    if (options.length >= OPTION_MAX_COUNT) return;
+    const nextKey = `opt${options.length + 1}`;
+    setOptions([
+      ...options,
+      { key: nextKey, labelHe: "", labelEn: "", multiplierPct: 200 },
+    ]);
+  };
+  const removeOption = (index: number) => {
+    if (options.length <= OPTION_MIN_COUNT) return;
+    const removed = options[index];
+    const next = options.filter((_, i) => i !== index);
+    setOptions(next);
+    if (removed.key === openerOptionKey && next.length > 0) {
+      setOpenerOptionKey(next[0].key);
+    }
+  };
+
+  return (
+    <div className="flex flex-col gap-3 mt-2">
+      <p className="text-xs text-on-surface-variant">
+        {isHebrew
+          ? `הגדר 2 עד ${OPTION_MAX_COUNT} אופציות. ליחס בין 1.5× ל-5.0×. הזוכה מקבל stake × יחס של האופציה שלו.`
+          : `Set 2 to ${OPTION_MAX_COUNT} options. Multipliers between 1.5x and 5.0x. Winner takes stake x their option's multiplier.`}
+      </p>
+      <div className="flex flex-col gap-3">
+        {options.map((o, i) => {
+          const grossWin = grossPayoutOnWin(stake, o.multiplierPct);
+          const net = grossWin - stake;
+          return (
+            <div
+              key={i}
+              className="grid grid-cols-1 md:grid-cols-[1fr_1fr_140px_60px] gap-2 items-start p-3 rounded-lg border border-outline-variant bg-surface-container-lowest"
+            >
+              <label className="flex flex-col gap-1 text-xs font-bold text-on-surface">
+                {isHebrew ? "תווית (עברית)" : "Label (Hebrew)"}
+                <input
+                  type="text"
+                  value={o.labelHe}
+                  onChange={(e) => update(i, { labelHe: e.target.value })}
+                  maxLength={40}
+                  className="h-11 px-3 rounded border border-outline bg-surface-container-lowest text-sm"
+                  dir="rtl"
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-xs font-bold text-on-surface">
+                {isHebrew ? "תווית (אנגלית)" : "Label (English)"}
+                <input
+                  type="text"
+                  value={o.labelEn}
+                  onChange={(e) => update(i, { labelEn: e.target.value })}
+                  maxLength={40}
+                  className="h-11 px-3 rounded border border-outline bg-surface-container-lowest text-sm"
+                  dir="ltr"
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-xs font-bold text-on-surface">
+                {isHebrew ? "יחס" : "Multiplier"}
+                <select
+                  value={o.multiplierPct}
+                  onChange={(e) => update(i, { multiplierPct: Number(e.target.value) })}
+                  className="h-11 px-2 rounded border border-outline bg-surface-container-lowest text-sm font-bold tabular-nums"
+                  dir="ltr"
+                >
+                  {MULTIPLIER_CHOICES.map((m) => (
+                    <option key={m} value={m}>
+                      {formatMultiplier(m, isHebrew ? "he" : "en")}
+                    </option>
+                  ))}
+                </select>
+                <span className="text-[10px] font-normal text-on-surface-variant">
+                  {isHebrew
+                    ? `אם זוכה: +${net} (סה״כ ${grossWin})`
+                    : `If wins: +${net} (gross ${grossWin})`}
+                </span>
+              </label>
+              <button
+                type="button"
+                onClick={() => removeOption(i)}
+                disabled={options.length <= OPTION_MIN_COUNT}
+                aria-label={isHebrew ? "הסר אופציה" : "Remove option"}
+                className={clsx(
+                  "press-down self-end h-11 rounded border text-sm font-bold",
+                  options.length <= OPTION_MIN_COUNT
+                    ? "border-outline-variant text-on-surface-variant opacity-50 cursor-not-allowed"
+                    : "border-error text-error hover:bg-error-container",
+                )}
+              >
+                ✕
+              </button>
+            </div>
+          );
+        })}
+      </div>
+      <div className="flex flex-wrap items-center gap-3">
+        <button
+          type="button"
+          onClick={addOption}
+          disabled={options.length >= OPTION_MAX_COUNT}
+          className={clsx(
+            "press-down min-h-[44px] px-4 rounded-full border border-outline text-sm font-bold",
+            options.length >= OPTION_MAX_COUNT && "opacity-50 cursor-not-allowed",
+          )}
+        >
+          + {isHebrew ? "הוסף אופציה" : "Add option"}
+        </button>
+        <span className="text-xs text-on-surface-variant">
+          {options.length}/{OPTION_MAX_COUNT}
+        </span>
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <span className="text-sm font-bold text-on-surface">
+          {isHebrew ? "האופציה שלך" : "Your pick"}
+        </span>
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+          {options.map((o) => (
+            <button
+              key={o.key}
+              type="button"
+              onClick={() => setOpenerOptionKey(o.key)}
+              className={clsx(
+                "press-down min-h-[48px] rounded-lg border text-sm font-bold flex flex-col items-center justify-center gap-0.5",
+                openerOptionKey === o.key
+                  ? "bg-primary text-on-primary border-primary"
+                  : "bg-surface-container-lowest text-on-surface border-outline",
+              )}
+            >
+              <span>{isHebrew ? o.labelHe || "—" : o.labelEn || "—"}</span>
+              <span className="text-[10px] tabular-nums opacity-80">
+                {formatMultiplier(o.multiplierPct, isHebrew ? "he" : "en")}
+              </span>
+            </button>
+          ))}
+        </div>
+        <p className="text-xs text-on-surface-variant">
+          {isHebrew
+            ? "המצטרף יבחר אחת מהאופציות האחרות. אם האופציה שלך תנצח - תקבל את הסכום למעלה."
+            : "The joiner picks one of the other options. If your option wins, you get the amount above."}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+const MULTIPLIER_CHOICES = [
+  150, 175, 200, 225, 250, 275, 300, 325, 350, 400, 450, 500,
+];
+
+// Quick-template chip row for match-scope duels. Tapping a chip
+// expands it into a tiny threshold stepper; "Apply" pours the
+// template's full payload (HE/EN copy, options pair, auto-grade
+// config) into the form state via the parent's `onApply` callback.
+function QuickTemplatesCard({
+  isHebrew,
+  onApply,
+}: {
+  isHebrew: boolean;
+  onApply: (payload: ReturnType<typeof applyTemplate>) => void;
+}) {
+  const [armedId, setArmedId] = useState<string | null>(null);
+  const [thresholdById, setThresholdById] = useState<Record<string, number>>(() =>
+    Object.fromEntries(
+      DUEL_QUICK_TEMPLATES.map((t) => [t.id, t.defaultThreshold]),
+    ),
+  );
+
+  return (
+    <Card className="p-5 md:p-6 flex flex-col gap-3">
+      <div className="flex flex-col gap-1">
+        <SectionHeading underline="thin" as="h2">
+          {isHebrew ? "תבניות מהירות (API-Football)" : "Quick templates (API-Football)"}
+        </SectionHeading>
+        <p className="text-xs text-on-surface-variant">
+          {isHebrew
+            ? "תבחר תבנית, תקבע את הסף, ואני אמלא את השאלה, הכלל וההכרעה האוטומטית. השאר ידני - שדות הטקסט והאופציות פתוחים לעריכה אחרי."
+            : "Pick a template, set the threshold, and I'll fill the question, rule, and auto-grade config. Everything stays editable after."}
+        </p>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        {DUEL_QUICK_TEMPLATES.map((t) => {
+          const isArmed = armedId === t.id;
+          const n = thresholdById[t.id] ?? t.defaultThreshold;
+          return (
+            <div
+              key={t.id}
+              className={clsx(
+                "rounded-2xl border transition-colors",
+                isArmed
+                  ? "border-primary bg-primary-container/30"
+                  : "border-outline-variant bg-surface-container-lowest",
+              )}
+            >
+              <button
+                type="button"
+                onClick={() => setArmedId(isArmed ? null : t.id)}
+                className="press-down min-h-[44px] px-4 inline-flex items-center gap-2 text-sm font-bold text-on-surface"
+              >
+                {isHebrew ? t.chipHe : t.chipEn}
+              </button>
+              {isArmed && (
+                <div className="px-3 pb-3 flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    aria-label={isHebrew ? "פחות" : "Less"}
+                    onClick={() =>
+                      setThresholdById((prev) => ({
+                        ...prev,
+                        [t.id]: Math.max(t.thresholdMin, n - t.thresholdStep),
+                      }))
+                    }
+                    className="press-down h-10 w-10 rounded-full border border-outline text-base font-bold"
+                  >
+                    −
+                  </button>
+                  <span className="min-w-[2.5rem] text-center text-base font-bold tabular-nums">
+                    {n}
+                  </span>
+                  <button
+                    type="button"
+                    aria-label={isHebrew ? "יותר" : "More"}
+                    onClick={() =>
+                      setThresholdById((prev) => ({
+                        ...prev,
+                        [t.id]: Math.min(t.thresholdMax, n + t.thresholdStep),
+                      }))
+                    }
+                    className="press-down h-10 w-10 rounded-full border border-outline text-base font-bold"
+                  >
+                    +
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onApply(applyTemplate(t, n));
+                      setArmedId(null);
+                    }}
+                    className="press-down min-h-[40px] px-4 rounded-full bg-primary text-on-primary text-sm font-bold"
+                  >
+                    {isHebrew ? "השתמש" : "Apply"}
+                  </button>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </Card>
+  );
 }

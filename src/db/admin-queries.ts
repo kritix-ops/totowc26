@@ -2,6 +2,7 @@ import "server-only";
 import { sql } from "drizzle-orm";
 import { execFirstRow, execRows } from "./helpers";
 import { approvedPotIlsSql } from "./pot";
+import type { DuelOption } from "@/lib/duels/options";
 
 // ---------- sync_runs ----------
 
@@ -225,16 +226,43 @@ export type AdminCustomBetRow = {
   createdAt: string;
 };
 
-// List all custom bets for the admin surface. Filterable by status/scope -
-// passing null on a filter means "no filter on this dimension".
+// List all custom bets for the admin surface. Filterable by status/scope/free-
+// text — passing null on a filter means "no filter on this dimension".
+// `q` matches case-insensitively against question text (he + en), the team-code
+// matchup label ("BRA vs GER"), the stage label, and group id, so the admin
+// can paste a fixture code, a player-facing question fragment, or "group A"
+// and land on the right row.
 export async function listCustomBets(opts: {
   status?: AdminCustomBetRow["status"] | null;
   scope?: AdminCustomBetRow["scope"] | null;
+  // Constrain to a set of scopes (e.g. the "live" family = match + day).
+  // Combines with `scope` — the single-scope sub-filter narrows further
+  // within the set. Empty / omitted means "no family constraint".
+  scopeIn?: AdminCustomBetRow["scope"][] | null;
+  q?: string | null;
+  matchId?: string | null;
   limit?: number;
 } = {}): Promise<AdminCustomBetRow[]> {
   const status = opts.status ?? null;
   const scope = opts.scope ?? null;
+  const scopeIn = opts.scopeIn && opts.scopeIn.length > 0 ? opts.scopeIn : null;
+  const q = opts.q?.trim() ? opts.q.trim() : null;
+  const matchId = opts.matchId?.trim() ? opts.matchId.trim() : null;
   const limit = opts.limit ?? 100;
+  // Inline IN list (enum column) — same pattern as queries.ts. `true`
+  // when no family constraint so the WHERE clause stays uniform.
+  const scopeInClause = scopeIn
+    ? sql`cb.scope::text in (${sql.join(
+        scopeIn.map((s) => sql`${s}`),
+        sql`, `,
+      )})`
+    : sql`true`;
+  // ILIKE pattern wraps the user query with %...% so partial matches work.
+  // The SQL stays safe because the value is bound as a parameter, never
+  // interpolated. Postgres ESCAPE defaults to a backslash, which means a
+  // literal underscore or percent in the search box becomes a wildcard;
+  // for the admin's free-text use case that's tolerable noise.
+  const qPattern = q ? `%${q}%` : null;
   return execRows<AdminCustomBetRow>(sql`
     select
       cb.id::text                                 as "id",
@@ -263,7 +291,18 @@ export async function listCustomBets(opts: {
     left join public.matches   m  on m.id  = cb.match_id
     where
       (${status}::text is null or cb.status::text = ${status}) and
-      (${scope}::text  is null or cb.scope::text  = ${scope})
+      (${scope}::text  is null or cb.scope::text  = ${scope}) and
+      ${scopeInClause} and
+      (${matchId}::uuid is null or cb.match_id = ${matchId}::uuid) and
+      (
+        ${qPattern}::text is null
+        or cb.question_he ilike ${qPattern}
+        or cb.question_en ilike ${qPattern}
+        or (m.home_team || ' vs ' || m.away_team) ilike ${qPattern}
+        or cb.stage::text ilike ${qPattern}
+        or cb.group_id ilike ${qPattern}
+        or md.date::text ilike ${qPattern}
+      )
     order by
       case cb.status
         when 'draft'     then 0
@@ -275,6 +314,187 @@ export async function listCustomBets(opts: {
       end asc,
       cb.lock_at asc nulls last,
       cb.created_at desc
+    limit ${limit}
+  `);
+}
+
+// Distinct fixtures that have at least one match-scoped custom bet, so
+// the admin list can offer a "filter to one match" picker. Ordered by
+// kickoff so the most recent fixtures sit at the top of the picker.
+// Codes + both-locale names let the picker search either way.
+export type AdminBetMatchOption = {
+  matchId: string;
+  homeCode: string;
+  awayCode: string;
+  homeNameHe: string;
+  homeNameEn: string;
+  awayNameHe: string;
+  awayNameEn: string;
+  kickoffAt: string;
+  betCount: number;
+};
+
+export async function listCustomBetMatches(): Promise<AdminBetMatchOption[]> {
+  return execRows<AdminBetMatchOption>(sql`
+    select
+      m.id::text       as "matchId",
+      m.home_team      as "homeCode",
+      m.away_team      as "awayCode",
+      ht.name_he       as "homeNameHe",
+      ht.name_en       as "homeNameEn",
+      at.name_he       as "awayNameHe",
+      at.name_en       as "awayNameEn",
+      m.kickoff_at     as "kickoffAt",
+      count(cb.id)::int as "betCount"
+    from public.matches m
+    join public.custom_bets cb on cb.match_id = m.id
+    join public.teams ht on ht.code = m.home_team
+    join public.teams at on at.code = m.away_team
+    group by m.id, m.home_team, m.away_team, ht.name_he, ht.name_en,
+             at.name_he, at.name_en, m.kickoff_at
+    order by m.kickoff_at desc
+  `);
+}
+
+// ---------- duels (admin management) ----------
+
+export type AdminDuelRow = {
+  id: string;
+  status: "open" | "matched" | "settled" | "cancelled";
+  scope: "match" | "day" | "tournament";
+  stake: number;
+  questionHe: string;
+  questionEn: string;
+  openerName: string;
+  joinerName: string | null;
+  openerAnswer: boolean | null;
+  matchLabel: string | null; // "BRA vs GER", null when not match-scoped
+  matchdayDate: string | null;
+  joinDeadlineAt: string;
+  resolveAt: string;
+  resolvedValue: boolean | null;
+  // Custom-option fields (migration 0058). NULL on legacy yes/no duels.
+  options: DuelOption[] | null;
+  openerOption: string | null;
+  joinerOption: string | null;
+  resolvedOption: string | null;
+  gradingSource: "auto_api_football" | "auto_football_data" | "manual";
+  createdAt: string;
+};
+
+// List duels for the admin management surface. Mirrors listCustomBets:
+// filterable by status/scope/free-text, null on a filter means "no
+// filter on this dimension". Ordering puts ACTIVE duels (open/matched)
+// first by soonest deadline (they need attention), then PAST duels
+// (settled/cancelled) newest-first — the same logic the public /duels
+// "mine" tab uses so the admin sees the same shape they already know.
+// `q` matches question text (he + en) and the team-code matchup label.
+export async function listDuelsForAdmin(opts: {
+  status?: AdminDuelRow["status"] | null;
+  scope?: AdminDuelRow["scope"] | null;
+  q?: string | null;
+  limit?: number;
+} = {}): Promise<AdminDuelRow[]> {
+  const status = opts.status ?? null;
+  const scope = opts.scope ?? null;
+  const q = opts.q?.trim() ? opts.q.trim() : null;
+  const limit = opts.limit ?? 200;
+  const qPattern = q ? `%${q}%` : null;
+  return execRows<AdminDuelRow>(sql`
+    select
+      d.id::text                                  as "id",
+      d.status::text                              as "status",
+      d.scope::text                               as "scope",
+      d.stake                                     as "stake",
+      d.question_he                               as "questionHe",
+      d.question_en                               as "questionEn",
+      po.display_name                             as "openerName",
+      pj.display_name                             as "joinerName",
+      d.opener_answer                             as "openerAnswer",
+      case when m.id is not null
+        then m.home_team || ' vs ' || m.away_team
+        else null end                             as "matchLabel",
+      md.date::text                               as "matchdayDate",
+      d.join_deadline_at::text                    as "joinDeadlineAt",
+      d.resolve_at::text                          as "resolveAt",
+      d.resolved_value                            as "resolvedValue",
+      d.options                                   as "options",
+      d.opener_option                             as "openerOption",
+      d.joiner_option                             as "joinerOption",
+      d.resolved_option                           as "resolvedOption",
+      d.grading_source::text                      as "gradingSource",
+      d.created_at                                as "createdAt"
+    from public.duels d
+    join public.profiles po on po.id = d.opener_id
+    left join public.profiles pj on pj.id = d.joiner_id
+    left join public.matches m on m.id = d.match_id
+    left join public.matchdays md on md.id = d.matchday_id
+    where
+      (${status}::text is null or d.status::text = ${status}) and
+      (${scope}::text  is null or d.scope::text  = ${scope}) and
+      (
+        ${qPattern}::text is null
+        or d.question_he ilike ${qPattern}
+        or d.question_en ilike ${qPattern}
+        or (m.home_team || ' vs ' || m.away_team) ilike ${qPattern}
+      )
+    order by
+      case when d.status in ('open', 'matched') then 0 else 1 end asc,
+      case when d.status in ('open', 'matched')
+           then d.join_deadline_at end asc,
+      case when d.status in ('settled', 'cancelled')
+           then d.resolve_at end desc nulls last,
+      d.created_at desc
+    limit ${limit}
+  `);
+}
+
+// ---------- live-bet push composer ----------
+
+// Open, live-family (match | day) custom bets, the candidates an operator
+// can announce via push. Carries team names (match-scoped) and the
+// matchday date (day-scoped) so the composer can render a player-friendly
+// anchor label without a second round trip. Ordered by anchor so bets on
+// the same match / day sit together in the list.
+export type LiveBetForPushRow = {
+  id: string;
+  scope: "match" | "day";
+  questionHe: string;
+  questionEn: string;
+  matchId: string | null;
+  homeNameHe: string | null;
+  homeNameEn: string | null;
+  awayNameHe: string | null;
+  awayNameEn: string | null;
+  matchdayDate: string | null;
+};
+
+export async function listOpenLiveBetsForPush(
+  limit = 200,
+): Promise<LiveBetForPushRow[]> {
+  return execRows<LiveBetForPushRow>(sql`
+    select
+      cb.id::text                                 as "id",
+      cb.scope::text                              as "scope",
+      cb.question_he                              as "questionHe",
+      cb.question_en                              as "questionEn",
+      cb.match_id::text                           as "matchId",
+      ht.name_he                                  as "homeNameHe",
+      ht.name_en                                  as "homeNameEn",
+      at.name_he                                  as "awayNameHe",
+      at.name_en                                  as "awayNameEn",
+      md.date::text                               as "matchdayDate"
+    from public.custom_bets cb
+    left join public.matches   m  on m.id  = cb.match_id
+    left join public.teams     ht on ht.code = m.home_team
+    left join public.teams     at on at.code = m.away_team
+    left join public.matchdays md on md.id = cb.matchday_id
+    where cb.status = 'open'
+      and cb.scope::text in ('match', 'day')
+    order by
+      m.kickoff_at asc nulls last,
+      md.date asc nulls last,
+      cb.created_at asc
     limit ${limit}
   `);
 }

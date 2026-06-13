@@ -454,7 +454,7 @@ export const settings = pgTable("settings", {
   // paths reject until the player recovers via free bets / admin adjust.
   // Kill-switch reverts to the legacy "balance >= stake" rule.
   // See _plans/2026-06-11-negative-balance-lock.md.
-  maxOverdraft: integer("max_overdraft").notNull().default(30),
+  maxOverdraft: integer("max_overdraft").notNull().default(10),
   lockBetsWhenNegative: boolean("lock_bets_when_negative").notNull().default(true),
   // Live-bet odds → stake/payout normalization. Used by PR 2's
   // src/lib/odds-normalize.ts when converting bookmaker decimal odds into
@@ -467,7 +467,7 @@ export const settings = pgTable("settings", {
   // client-side and write-core re-clamps server-side. See
   // _plans/2026-06-11-variable-live-bet-stake.md.
   liveOddsMinStake: smallint("live_odds_min_stake").notNull().default(1),
-  liveOddsMaxStake: smallint("live_odds_max_stake").notNull().default(30),
+  liveOddsMaxStake: smallint("live_odds_max_stake").notNull().default(10),
   // Gross-payout cap formula = min(stake * ratio, ceiling). Replaces the
   // old single liveOddsMaxPayout cap for the user-facing path (the legacy
   // column is kept one cycle for rollback).
@@ -564,6 +564,13 @@ export const settings = pgTable("settings", {
   // admin can mute it from the dashboard settings panel without taking
   // the /transparency page down.
   dashboardDigestEnabled: boolean("dashboard_digest_enabled")
+    .notNull()
+    .default(true),
+  // Live scoreboard "upcoming matches of the active matchday" feed. When
+  // off, /[lang]/live still shows live games + last 90 min of finals,
+  // but the scheduled rows with the kickoff countdown are hidden. Admin
+  // toggle lives on /[lang]/admin/system. See migration 0056.
+  liveShowUpcoming: boolean("live_show_upcoming")
     .notNull()
     .default(true),
   updatedAt: timestamp("updated_at", { withTimezone: true })
@@ -918,7 +925,10 @@ export const duels = pgTable(
     openerId: uuid("opener_id")
       .notNull()
       .references(() => profiles.id, { onDelete: "restrict" }),
-    openerAnswer: boolean("opener_answer").notNull(),
+    // Legacy yes/no duels: NOT NULL semantically (DB CHECK enforces it).
+    // New-style custom-option duels carry the opener's pick in
+    // `openerOption` instead and leave this NULL. See migration 0058.
+    openerAnswer: boolean("opener_answer"),
     stake: smallint("stake").notNull(),
 
     // Question text
@@ -953,6 +963,21 @@ export const duels = pgTable(
     settledBy: uuid("settled_by").references(() => profiles.id, {
       onDelete: "set null",
     }),
+
+    // ------ Custom-option duels (migration 0058) ------
+    // NULL on legacy yes/no duels; both shapes coexist forever.
+    // `options` shape: [{ key: string, labelHe: string, labelEn: string,
+    //                     multiplierPct: number /* 150..500 */ }]
+    // Multiplier is stored as integer hundredths (1.5x = 150) so the
+    // bank-balance SQL doesn't need float math.
+    options: jsonb("options"),
+    openerOption: text("opener_option"),
+    joinerOption: text("joiner_option"),
+    resolvedOption: text("resolved_option"),
+    // Frozen at open/join time so the running-balance subquery can read
+    // an integer without unpacking the jsonb array on every row.
+    openerOptionMultiplierPct: smallint("opener_option_multiplier_pct"),
+    joinerOptionMultiplierPct: smallint("joiner_option_multiplier_pct"),
 
     // Optional auto-settle (added in 0015). When grading_source is
     // 'auto_api_football' and scope='match', the sync pass evaluates
@@ -1119,6 +1144,10 @@ export const NOTIFICATION_KINDS = [
   "lock_reminder",
   // Sent inline from openDuel to the joiner-eligible recipient.
   "duel_received",
+  // Sent from the admin live-bets management surface when an operator
+  // manually announces one or more freshly-published live bets. Body is
+  // "match name + count" per anchor. See the live-bet push composer.
+  "live_bet",
 ] as const;
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];
 

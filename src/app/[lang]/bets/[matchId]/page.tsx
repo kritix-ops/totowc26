@@ -64,6 +64,7 @@ export default async function MatchBetPage({
     isAdmin: false,
     isPaid: false,
     canEdit: false,
+    canSeeAdminMenu: false,
     viewingAs: null,
   };
   let context: Awaited<ReturnType<typeof getDeadlineContext>>;
