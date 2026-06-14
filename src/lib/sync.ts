@@ -27,8 +27,9 @@ import {
   mapApiFootballStatus,
   type ApiFootballStats,
 } from "./api-football";
-import type { AutoApiFootballStat } from "./bets/types";
+import type { AutoApiFootballStat, MultiChoiceOption } from "./bets/types";
 import { gradeEventBet, type EventGradeSpec } from "./bets/events-grade";
+import { matchRangeOption } from "./bets/range-grade";
 import { gradedPickPoints } from "./bets/payout";
 import { pickGroupWinner, type GroupStandingRow } from "./grade-group";
 import { sendEmail } from "./email/client";
@@ -765,6 +766,10 @@ type CandidateBet = {
   questionHe: string;
   questionEn: string;
   answerType: "yes_no" | "number" | "multi_choice" | "free_text";
+  // answer_config jsonb. Needed so a multi_choice whose options are numeric
+  // ranges (0-1 / 2-3 / 4+) can be auto-graded by mapping the measured number
+  // onto the matching option. NULL/absent for non-multi_choice bets.
+  answerConfig: { options?: MultiChoiceOption[] } | null;
   payoutSnapshot: number;
   gradingSource: "auto_football_data" | "auto_api_football" | "manual";
   gradingConfig: {
@@ -792,6 +797,7 @@ async function scoreAutoCustomBets(): Promise<number> {
       cb.question_he                    as "questionHe",
       cb.question_en                    as "questionEn",
       cb.answer_type::text              as "answerType",
+      cb.answer_config                  as "answerConfig",
       cb.payout_snapshot                as "payoutSnapshot",
       cb.grading_source::text           as "gradingSource",
       cb.grading_config                 as "gradingConfig"
@@ -958,6 +964,38 @@ type ResolvedMulti  = { type: "multi_choice"; value: string };
 type ResolvedYesNo  = { type: "yes_no"; value: boolean };
 type Resolved = ResolvedNumber | ResolvedMulti | ResolvedYesNo;
 
+// Pull the option list off a candidate bet's answer_config (empty when the
+// bet isn't multi_choice or has a dynamic roster instead of inline options).
+function candidateOptions(bet: CandidateBet): MultiChoiceOption[] {
+  const opts = bet.answerConfig?.options;
+  return Array.isArray(opts) ? opts : [];
+}
+
+// Turn a measured number into the resolved value the bet expects:
+//   - number bet       -> the number itself
+//   - multi_choice bet -> the option whose numeric range contains it (or
+//                         "skip" when no single option matches, so the bet
+//                         drops to manual instead of grading a wrong outcome)
+//   - anything else     -> "skip"
+// This is what lets range bets ("0-1 / 2-3 / 4+") auto-grade off the same
+// numeric sources (final score, API-Football stats) that number bets use.
+function finalizeNumericValue(
+  answerType: "yes_no" | "number" | "multi_choice" | "free_text",
+  options: MultiChoiceOption[],
+  value: number,
+): Resolved | "skip" {
+  if (answerType === "number") return { type: "number", value };
+  if (answerType === "multi_choice") {
+    const optionValue = matchRangeOption(options, value);
+    return optionValue ? { type: "multi_choice", value: optionValue } : "skip";
+  }
+  return "skip";
+}
+
+function finalizeNumeric(bet: CandidateBet, value: number): Resolved | "skip" {
+  return finalizeNumericValue(bet.answerType, candidateOptions(bet), value);
+}
+
 async function tryResolve(
   bet: CandidateBet,
 ): Promise<Resolved | "not_ready" | "skip"> {
@@ -1012,13 +1050,18 @@ async function resolveMatchScope(
   }
 
   // Coerce field → resolved value, then check the answer_type matches.
-  return coerceMatchField(bet.answerType, field, {
-    homeScore: m.homeScore,
-    awayScore: m.awayScore,
-    htHomeScore: m.htHomeScore,
-    htAwayScore: m.htAwayScore,
-    wentToPenalties: m.wentToPenalties,
-  });
+  return coerceMatchField(
+    bet.answerType,
+    field,
+    {
+      homeScore: m.homeScore,
+      awayScore: m.awayScore,
+      htHomeScore: m.htHomeScore,
+      htAwayScore: m.htAwayScore,
+      wentToPenalties: m.wentToPenalties,
+    },
+    candidateOptions(bet),
+  );
 }
 
 async function resolveDayScope(
@@ -1033,7 +1076,10 @@ async function resolveDayScope(
   // skip it back to manual.
   const aggregable: AutoFootballField[] = ["total_goals", "ht_total"];
   if (!aggregable.includes(field)) return "skip";
-  if (bet.answerType !== "number") return "skip";
+  // number bet → the sum; multi_choice → a range option off the sum.
+  if (bet.answerType !== "number" && bet.answerType !== "multi_choice") {
+    return "skip";
+  }
 
   // Readiness: every match that day must be final.
   const r = await execFirstRow<{
@@ -1059,7 +1105,7 @@ async function resolveDayScope(
 
   const value =
     field === "total_goals" ? Number(r.sum_total_goals) : Number(r.sum_ht_total);
-  return { type: "number", value };
+  return finalizeNumeric(bet, value);
 }
 
 // Group-winner bets. Reads the same standings the live tables on
@@ -1155,7 +1201,10 @@ async function resolveMatchScopeApiFootball(
   stat: AutoApiFootballStat,
 ): Promise<Resolved | "not_ready" | "skip"> {
   if (!bet.matchId) return "skip";
-  if (bet.answerType !== "number") return "skip";
+  // number bet → the stat total; multi_choice → a range option off it.
+  if (bet.answerType !== "number" && bet.answerType !== "multi_choice") {
+    return "skip";
+  }
 
   // 1) Confirm the match is final and has been mapped to an API-Football
   // fixture id. If either is false, the bet stays queued.
@@ -1175,7 +1224,7 @@ async function resolveMatchScopeApiFootball(
   const stats = await fetchFixtureStats(m.apiFootballFixtureId);
   if (!stats) return "not_ready";
 
-  return coerceApiFootballStat(stat, stats.combined);
+  return coerceApiFootballStat(bet, stat, stats.combined);
 }
 
 // Event-timeline grading for a match-scope bet (red card in the first
@@ -1226,7 +1275,10 @@ async function resolveDayScopeApiFootball(
   aggregate: "sum_day" | "per_match" | "first_match",
 ): Promise<Resolved | "not_ready" | "skip"> {
   if (!bet.matchdayDate) return "skip";
-  if (bet.answerType !== "number") return "skip";
+  // number bet → the aggregated stat; multi_choice → a range option off it.
+  if (bet.answerType !== "number" && bet.answerType !== "multi_choice") {
+    return "skip";
+  }
   if (aggregate === "per_match") return "skip"; // ambiguous at day scope
 
   // Pull every match on the matchday with its fixture id + final status.
@@ -1252,7 +1304,7 @@ async function resolveDayScopeApiFootball(
     if (first.api_football_fixture_id === null) return "not_ready";
     const stats = await fetchFixtureStats(first.api_football_fixture_id);
     if (!stats) return "not_ready";
-    return coerceApiFootballStat(stat, stats.combined);
+    return coerceApiFootballStat(bet, stat, stats.combined);
   }
 
   // sum_day: pull stats for every fixture, then add the combined values.
@@ -1270,16 +1322,17 @@ async function resolveDayScopeApiFootball(
     }
     total += v;
   }
-  return { type: "number", value: total };
+  return finalizeNumeric(bet, total);
 }
 
 function coerceApiFootballStat(
+  bet: CandidateBet,
   stat: AutoApiFootballStat,
   combined: ApiFootballStats,
 ): Resolved | "skip" {
   const value = combined[stat];
   if (value === undefined) return "skip"; // possession / pass_accuracy
-  return { type: "number", value };
+  return finalizeNumeric(bet, value);
 }
 
 export function coerceMatchField(
@@ -1292,24 +1345,25 @@ export function coerceMatchField(
     htAwayScore: number | null;
     wentToPenalties: boolean | null;
   },
+  // Multi_choice range options. Supplied for range bets so a numeric field
+  // (total_goals -> 5) maps onto the matching option (4+). Defaults to [] so
+  // number / yes_no callers and existing tests are unaffected.
+  options: MultiChoiceOption[] = [],
 ): Resolved | "skip" {
   switch (field) {
     case "home_score":
-      return answerType === "number"
-        ? { type: "number", value: m.homeScore }
-        : "skip";
+      return finalizeNumericValue(answerType, options, m.homeScore);
     case "away_score":
-      return answerType === "number"
-        ? { type: "number", value: m.awayScore }
-        : "skip";
+      return finalizeNumericValue(answerType, options, m.awayScore);
     case "total_goals":
-      return answerType === "number"
-        ? { type: "number", value: m.homeScore + m.awayScore }
-        : "skip";
+      return finalizeNumericValue(answerType, options, m.homeScore + m.awayScore);
     case "ht_total":
-      if (answerType !== "number") return "skip";
       if (m.htHomeScore === null || m.htAwayScore === null) return "skip";
-      return { type: "number", value: m.htHomeScore + m.htAwayScore };
+      return finalizeNumericValue(
+        answerType,
+        options,
+        m.htHomeScore + m.htAwayScore,
+      );
     case "winner":
       return answerType === "multi_choice"
         ? { type: "multi_choice", value: outcome(m.homeScore, m.awayScore) }
@@ -1398,17 +1452,18 @@ export function coerceMatchField(
     // score difference (always >= 0). second_half_total subtracts the
     // halftime score; both halves' raw scores are required.
     case "winning_margin":
-      return answerType === "number"
-        ? { type: "number", value: Math.abs(m.homeScore - m.awayScore) }
-        : "skip";
+      return finalizeNumericValue(
+        answerType,
+        options,
+        Math.abs(m.homeScore - m.awayScore),
+      );
     case "second_half_total":
-      if (answerType !== "number") return "skip";
       if (m.htHomeScore === null || m.htAwayScore === null) return "skip";
-      return {
-        type: "number",
-        value:
-          (m.homeScore + m.awayScore) - (m.htHomeScore + m.htAwayScore),
-      };
+      return finalizeNumericValue(
+        answerType,
+        options,
+        (m.homeScore + m.awayScore) - (m.htHomeScore + m.htAwayScore),
+      );
   }
 }
 
