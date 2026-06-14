@@ -191,6 +191,55 @@ export function liveOptionPayout(
   return normalizeOdds(odds, config).payout;
 }
 
+// ---------- display helpers ----------
+
+// Per-option ratios to surface on the bet card and the admin list WITHOUT
+// the player having to select an option first. These are the stored decimal
+// odds, which in "ratio" mode ARE the exact multiplier the player wins
+// (stake × ratio) and in "probability" mode are the fair odds the market
+// was priced at — the same number the admin form's ×N chip already shows,
+// so the value is identical on every surface. Returns null for configs that
+// carry no live odds (free-pick / legacy / number / free-text bets) so the
+// caller renders nothing instead of a misleading ×.
+export type LiveDisplayRatios =
+  | { kind: "yes_no"; yes: number | null; no: number | null }
+  | { kind: "multi_choice"; byValue: Record<string, number> };
+
+export function liveDisplayRatios(
+  config: AnswerConfig | null | undefined,
+): LiveDisplayRatios | null {
+  if (!config) return null;
+  if (config.kind === "yes_no") {
+    const yes = resolveYesNoSideOdds(config, true);
+    const no = resolveYesNoSideOdds(config, false);
+    if (yes == null && no == null) return null;
+    return { kind: "yes_no", yes, no };
+  }
+  if (config.kind === "multi_choice") {
+    const src = config.decimalOddsByValue;
+    if (!src) return null;
+    const byValue: Record<string, number> = {};
+    for (const [value, odds] of Object.entries(src)) {
+      if (typeof odds === "number" && Number.isFinite(odds) && odds > 1) {
+        byValue[value] = odds;
+      }
+    }
+    return Object.keys(byValue).length > 0
+      ? { kind: "multi_choice", byValue }
+      : null;
+  }
+  return null;
+}
+
+// Format a decimal-odds value as the pool's headline multiplier badge,
+// e.g. 4 → "×4", 2.5 → "×2.5". Rounds to 2 decimals so a stray float
+// (4.000001) never leaks into the UI. Always render dir="ltr" so the ×N
+// reads left-to-right inside Hebrew RTL labels.
+export function formatLiveRatio(odds: number): string {
+  if (!Number.isFinite(odds)) return "";
+  return `×${Math.round(odds * 100) / 100}`;
+}
+
 // Validate every captured live odds value in an answer config is a real
 // bookmaker decimal (finite, > 1). Run server-side before persisting so a
 // malformed client payload can't poison the pick-time payout math. Returns

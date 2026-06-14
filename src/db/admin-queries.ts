@@ -215,6 +215,10 @@ export type AdminCustomBetRow = {
   questionEn: string;
   answerType: "yes_no" | "number" | "multi_choice" | "free_text";
   gradingSource: "auto_api_football" | "auto_football_data" | "manual";
+  // Raw answer_config jsonb — surfaced so the list can show per-option live
+  // ratios (decimalOddsByValue / decimalOddsYes/No) at a glance. Typed as
+  // unknown like the other admin rows; callers narrow via AnswerConfig.
+  answerConfig: unknown;
   stakeSnapshot: number;
   payoutSnapshot: number;
   lockAt: string;
@@ -272,6 +276,7 @@ export async function listCustomBets(opts: {
       cb.question_en                              as "questionEn",
       cb.answer_type::text                        as "answerType",
       cb.grading_source::text                     as "gradingSource",
+      cb.answer_config                            as "answerConfig",
       cb.stake_snapshot                           as "stakeSnapshot",
       cb.payout_snapshot                          as "payoutSnapshot",
       cb.lock_at                                  as "lockAt",

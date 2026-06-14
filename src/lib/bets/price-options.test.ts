@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  formatLiveRatio,
+  liveDisplayRatios,
   liveOptionPayout,
   MAX_MANUAL_RATIO,
   priceOptionsFromProbabilities,
@@ -384,5 +386,87 @@ describe("validateLiveOddsConfig — ratio bound", () => {
       decimalOddsByValue: { a: 50 },
     };
     expect(validateLiveOddsConfig(cfg)).toBe(true);
+  });
+});
+
+describe("liveDisplayRatios", () => {
+  it("returns per-side ratios for a yes_no live bet", () => {
+    const cfg: AnswerConfig = {
+      kind: "yes_no",
+      pricingMode: "ratio",
+      decimalOddsYes: 4,
+      decimalOddsNo: 2,
+    };
+    expect(liveDisplayRatios(cfg)).toEqual({ kind: "yes_no", yes: 4, no: 2 });
+  });
+
+  it("keeps a side null when only one outcome carries odds", () => {
+    const cfg: AnswerConfig = { kind: "yes_no", decimalOddsYes: 3 };
+    expect(liveDisplayRatios(cfg)).toEqual({ kind: "yes_no", yes: 3, no: null });
+  });
+
+  it("returns the per-option map for a multi_choice live bet", () => {
+    const cfg: AnswerConfig = {
+      kind: "multi_choice",
+      pricingMode: "ratio",
+      options: [
+        { value: "a", labelHe: "א", labelEn: "A" },
+        { value: "b", labelHe: "ב", labelEn: "B" },
+      ],
+      decimalOddsByValue: { a: 4, b: 2.5 },
+    };
+    expect(liveDisplayRatios(cfg)).toEqual({
+      kind: "multi_choice",
+      byValue: { a: 4, b: 2.5 },
+    });
+  });
+
+  it("drops invalid odds entries (≤ 1, non-finite)", () => {
+    const cfg: AnswerConfig = {
+      kind: "multi_choice",
+      options: [
+        { value: "a", labelHe: "א", labelEn: "A" },
+        { value: "b", labelHe: "ב", labelEn: "B" },
+        { value: "c", labelHe: "ג", labelEn: "C" },
+      ],
+      decimalOddsByValue: { a: 4, b: 1, c: Number.NaN },
+    };
+    expect(liveDisplayRatios(cfg)).toEqual({
+      kind: "multi_choice",
+      byValue: { a: 4 },
+    });
+  });
+
+  it("returns null for free-pick / legacy bets with no live odds", () => {
+    expect(
+      liveDisplayRatios({
+        kind: "multi_choice",
+        options: [{ value: "a", labelHe: "א", labelEn: "A" }],
+      }),
+    ).toBeNull();
+    expect(liveDisplayRatios({ kind: "yes_no" })).toBeNull();
+    expect(liveDisplayRatios({ kind: "number" })).toBeNull();
+    expect(liveDisplayRatios(null)).toBeNull();
+    expect(liveDisplayRatios(undefined)).toBeNull();
+  });
+});
+
+describe("formatLiveRatio", () => {
+  it("renders a clean integer ratio without decimals", () => {
+    expect(formatLiveRatio(4)).toBe("×4");
+  });
+
+  it("keeps a real fractional ratio", () => {
+    expect(formatLiveRatio(2.5)).toBe("×2.5");
+  });
+
+  it("rounds a stray float to 2 decimals", () => {
+    expect(formatLiveRatio(4.000001)).toBe("×4");
+    expect(formatLiveRatio(3.333333)).toBe("×3.33");
+  });
+
+  it("returns an empty string for non-finite input", () => {
+    expect(formatLiveRatio(Number.NaN)).toBe("");
+    expect(formatLiveRatio(Number.POSITIVE_INFINITY)).toBe("");
   });
 });
