@@ -45,7 +45,9 @@ describe("summarizeLeaderboardEvents", () => {
     expect(s.headlineEvents).toHaveLength(1);
     expect(s.previousPoints).toBe(43);
     expect(s.todayEvents).toHaveLength(0);
-    expect(s.earlierEvents).toHaveLength(2);
+    // Neither event is from yesterday (2026-06-12), so the yesterday
+    // accordion stays empty even though there is older history.
+    expect(s.yesterdayEvents).toHaveLength(0);
   });
 
   it("sums today's events into the headline delta", () => {
@@ -59,7 +61,39 @@ describe("summarizeLeaderboardEvents", () => {
     expect(s.headlineDelta).toBe(15);
     expect(s.headlineEvents).toHaveLength(2);
     expect(s.previousPoints).toBe(85);
-    expect(s.earlierEvents).toHaveLength(1);
+    // The 06-10 event predates yesterday (06-12), so it isn't surfaced.
+    expect(s.yesterdayEvents).toHaveLength(0);
+  });
+
+  it("buckets yesterday's events with a net delta while today stays the headline", () => {
+    const events = [
+      event({ eventAt: "2026-06-13T15:00:00+03:00", delta: 5 }), // today
+      event({ eventAt: "2026-06-12T20:00:00+03:00", delta: 8 }), // yesterday
+      event({ eventAt: "2026-06-12T18:00:00+03:00", delta: -3 }), // yesterday
+      event({ eventAt: "2026-06-10T19:00:00+03:00", delta: 99 }), // older, dropped
+    ];
+    const s = summarizeLeaderboardEvents(events, 100, now);
+    expect(s.headlineIsToday).toBe(true);
+    expect(s.headlineDelta).toBe(5);
+    expect(s.yesterdayEvents).toHaveLength(2);
+    expect(s.yesterdayDelta).toBe(5);
+  });
+
+  it("does not double-list the headline fallback event under yesterday", () => {
+    // Nothing today: the headline borrows the single most recent event,
+    // which happens to be from yesterday. It must not also appear in the
+    // yesterday accordion.
+    const events = [
+      event({ eventAt: "2026-06-12T20:00:00+03:00", delta: 5 }),
+      event({ eventAt: "2026-06-12T18:00:00+03:00", delta: 3 }),
+    ];
+    const s = summarizeLeaderboardEvents(events, 40, now);
+    expect(s.headlineIsToday).toBe(false);
+    expect(s.headlineEvents).toHaveLength(1);
+    expect(s.headlineDelta).toBe(5);
+    expect(s.yesterdayEvents).toHaveLength(1);
+    expect(s.yesterdayEvents[0]?.delta).toBe(3);
+    expect(s.yesterdayDelta).toBe(3);
   });
 
   it("treats a negative-delta day as today's change, not a fallback to past", () => {
@@ -76,7 +110,8 @@ describe("summarizeLeaderboardEvents", () => {
   it("returns zeros and empty arrays for a player with no events", () => {
     const s = summarizeLeaderboardEvents([], 30, now);
     expect(s.todayEvents).toHaveLength(0);
-    expect(s.earlierEvents).toHaveLength(0);
+    expect(s.yesterdayEvents).toHaveLength(0);
+    expect(s.yesterdayDelta).toBe(0);
     expect(s.headlineDelta).toBe(0);
     expect(s.headlineIsToday).toBe(false);
     expect(s.previousPoints).toBe(30);

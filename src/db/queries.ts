@@ -563,8 +563,14 @@ export async function getLeaderboard(
 
 // Per-user breakdown of the most recent point-changing events. Powers the
 // leaderboard accordion: each row expands to show what someone earned (or
-// lost) since the last ranking shift, sorted newest first. A single batched
-// query keeps this O(rows × LEADERBOARD_BREAKDOWN_LIMIT) instead of N+1.
+// lost) — today's swing up top, yesterday's behind a collapsed toggle.
+//
+// We keep two slices per user: every event from the last two Jerusalem
+// calendar days (today + yesterday, however many there are — a busy match
+// day can blow past a fixed cap and would otherwise truncate yesterday
+// entirely), PLUS at least the LIMIT most recent events as a rest-day
+// fallback so the "since last activity" anchor still has something to show
+// when nothing graded in the last two days.
 //
 // `events` are returned newest-first. `previousPoints` is the leaderboard
 // total minus the sum of these events' deltas — that's the "before the
@@ -733,7 +739,15 @@ async function loadLeaderboardBreakdownsFromDb(
       r.detail_he                                   as "detailHe",
       r.detail_en                                   as "detailEn"
     from ranked r
+    -- Keep the LIMIT most recent events OR anything from today/yesterday
+    -- (Jerusalem). The date floor is yesterday 00:00 Jerusalem, expressed
+    -- as a UTC instant so it compares cleanly against the timestamptz
+    -- event_at column regardless of the server's timezone.
     where r.rn <= ${LEADERBOARD_BREAKDOWN_LIMIT}
+       or r.event_at >= (
+            date_trunc('day', (now() at time zone 'Asia/Jerusalem'))
+            - interval '1 day'
+          ) at time zone 'Asia/Jerusalem'
     order by r.user_id, r.event_at desc
   `);
 

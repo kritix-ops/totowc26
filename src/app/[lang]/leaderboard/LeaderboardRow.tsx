@@ -46,12 +46,14 @@ export function LeaderboardRow({
   const isHebrew = locale === "he";
   const [open, setOpen] = useState(false);
 
-  // Split events into "today" and "earlier" buckets (Asia/Jerusalem).
-  // "today" drives the top headline; "earlier" populates the rest of
-  // the list. If nothing happened today, the headline falls back to
-  // "since last activity" and shows the most recent slice instead.
+  // Split events into "today" and "yesterday" buckets (Asia/Jerusalem).
+  // "today" drives the top headline; "yesterday" lives behind a collapsed
+  // toggle so the row doesn't open with two days stacked at once. If
+  // nothing happened today, the headline falls back to "since last
+  // activity" and shows the most recent slice instead.
   const {
-    earlierEvents,
+    yesterdayEvents,
+    yesterdayDelta,
     headlineDelta,
     headlineIsToday,
     headlineEvents,
@@ -162,9 +164,10 @@ export function LeaderboardRow({
                     ? "פעם אחרונה"
                     : "Most recent"
               }
-              earlierLabel={isHebrew ? "קודם" : "Earlier"}
+              yesterdayLabel={isHebrew ? "אתמול" : "Yesterday"}
               headlineEvents={headlineEvents}
-              earlierEvents={earlierEvents}
+              yesterdayEvents={yesterdayEvents}
+              yesterdayDelta={yesterdayDelta}
               headlineIsToday={headlineIsToday}
             />
           )}
@@ -257,17 +260,19 @@ function EventsList({
   locale,
   isHebrew,
   headlineLabel,
-  earlierLabel,
+  yesterdayLabel,
   headlineEvents,
-  earlierEvents,
+  yesterdayEvents,
+  yesterdayDelta,
   headlineIsToday,
 }: {
   locale: Locale;
   isHebrew: boolean;
   headlineLabel: string;
-  earlierLabel: string;
+  yesterdayLabel: string;
   headlineEvents: LeaderboardEvent[];
-  earlierEvents: LeaderboardEvent[];
+  yesterdayEvents: LeaderboardEvent[];
+  yesterdayDelta: number;
   headlineIsToday: boolean;
 }) {
   return (
@@ -279,14 +284,93 @@ function EventsList({
         events={headlineEvents}
         showRelativeDate={!headlineIsToday}
       />
-      {earlierEvents.length > 0 && (
-        <EventGroup
+      {yesterdayEvents.length > 0 && (
+        <YesterdayAccordion
           locale={locale}
           isHebrew={isHebrew}
-          label={earlierLabel}
-          events={earlierEvents}
-          showRelativeDate={true}
+          label={yesterdayLabel}
+          events={yesterdayEvents}
+          netDelta={yesterdayDelta}
         />
+      )}
+    </div>
+  );
+}
+
+// Yesterday's events, collapsed by default. Closed, the toggle still shows
+// the day's net swing so you can read up/down at a glance; tapping reveals
+// the itemised list. Kept separate from today's headline so the row never
+// opens with two days stacked at once.
+function YesterdayAccordion({
+  locale,
+  isHebrew,
+  label,
+  events,
+  netDelta,
+}: {
+  locale: Locale;
+  isHebrew: boolean;
+  label: string;
+  events: LeaderboardEvent[];
+  netDelta: number;
+}) {
+  const [open, setOpen] = useState(false);
+  const TrendIcon =
+    netDelta > 0 ? TrendingUp : netDelta < 0 ? TrendingDown : Minus;
+  const tone =
+    netDelta > 0
+      ? "bg-secondary-container text-on-secondary-container border-secondary-fixed"
+      : netDelta < 0
+        ? "bg-error-container text-on-error-container border-error"
+        : "bg-surface-container text-on-surface border-outline-variant";
+  const deltaLabel =
+    netDelta > 0 ? `+${netDelta}` : netDelta < 0 ? `${netDelta}` : "0";
+  return (
+    <div className="rounded-lg border border-outline-variant bg-surface-container-lowest">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="w-full min-h-[44px] flex items-center gap-2 px-3 py-2 text-start press-down"
+      >
+        <LabelCaps as="span">{label}</LabelCaps>
+        <span
+          className={clsx(
+            "ms-auto shrink-0 inline-flex items-center gap-1 min-w-[44px] justify-center px-2 py-1 rounded-full text-sm font-bold tabular-nums border",
+            tone,
+          )}
+          aria-label={
+            isHebrew
+              ? `שינוי של ${deltaLabel} נקודות אתמול`
+              : `${deltaLabel} points yesterday`
+          }
+        >
+          <TrendIcon className="h-3.5 w-3.5" strokeWidth={2} aria-hidden />
+          <span className="bidi-ltr">{deltaLabel}</span>
+        </span>
+        <ChevronDown
+          className={clsx(
+            "h-4 w-4 text-outline shrink-0 transition-transform",
+            open && "rotate-180",
+          )}
+          strokeWidth={2}
+          aria-hidden
+        />
+      </button>
+      {open && (
+        <div className="border-t border-outline-variant px-3 py-2">
+          <ul className="flex flex-col gap-1.5">
+            {events.map((e, i) => (
+              <EventRow
+                key={`${e.kind}-${e.eventAt}-${i}`}
+                locale={locale}
+                isHebrew={isHebrew}
+                event={e}
+                showRelativeDate={true}
+              />
+            ))}
+          </ul>
+        </div>
       )}
     </div>
   );
