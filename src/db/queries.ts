@@ -563,8 +563,14 @@ export async function getLeaderboard(
 
 // Per-user breakdown of the most recent point-changing events. Powers the
 // leaderboard accordion: each row expands to show what someone earned (or
-// lost) since the last ranking shift, sorted newest first. A single batched
-// query keeps this O(rows × LEADERBOARD_BREAKDOWN_LIMIT) instead of N+1.
+// lost) — today's swing up top, yesterday's behind a collapsed toggle.
+//
+// We keep two slices per user: every event from the last two Jerusalem
+// calendar days (today + yesterday, however many there are — a busy match
+// day can blow past a fixed cap and would otherwise truncate yesterday
+// entirely), PLUS at least the LIMIT most recent events as a rest-day
+// fallback so the "since last activity" anchor still has something to show
+// when nothing graded in the last two days.
 //
 // `events` are returned newest-first. `previousPoints` is the leaderboard
 // total minus the sum of these events' deltas — that's the "before the
@@ -588,6 +594,12 @@ export type LeaderboardEvent = {
   titleEn: string;
   detailHe: string | null;
   detailEn: string | null;
+  // The match this event ties to, when it has one. matchLabel is the
+  // "HOM AWY" team-code pair (null for day/tournament/duel/adjustment that
+  // aren't anchored to a single match); matchAt is that match's kickoff,
+  // formatted client-side in Asia/Jerusalem.
+  matchLabel: string | null;
+  matchAt: string | null;
 };
 
 export type LeaderboardBreakdown = {
@@ -626,6 +638,11 @@ async function loadLeaderboardBreakdownsFromDb(
     titleEn: string;
     detailHe: string | null;
     detailEn: string | null;
+    matchLabel: string | null;
+    matchAt: string | null;
+    answerType: "yes_no" | "number" | "multi_choice" | "free_text" | null;
+    answerConfig: unknown;
+    pickAnswer: unknown;
   }>(sql`
     with target as (
       select unnest(array[${idList}]) as user_id
@@ -647,7 +664,15 @@ async function loadLeaderboardBreakdownsFromDb(
         (
           'Pick ' || coalesce(mb.home_score::text, '?') || ':' || coalesce(mb.away_score::text, '?')
           || ' · result ' || coalesce(m.home_score::text, '?') || ':' || coalesce(m.away_score::text, '?')
-        )                                           as detail_en
+        )                                           as detail_en,
+        -- Teams sit in the title for match bets, so only the date is new
+        -- here. kickoff_at is the scheduled match time the row anchors to.
+        null::text                                  as match_label,
+        m.kickoff_at                                as match_at,
+        -- Pick-answer carriers: only the custom-bet branch fills these.
+        null::text                                  as answer_type,
+        null::jsonb                                 as answer_config,
+        null::jsonb                                 as pick_answer
       from public.match_bets mb
       join public.matches m on m.id = mb.match_id
       join target t on t.user_id = mb.user_id
@@ -668,9 +693,23 @@ async function loadLeaderboardBreakdownsFromDb(
         cb.question_he                              as title_he,
         cb.question_en                              as title_en,
         null::text                                  as detail_he,
-        null::text                                  as detail_en
+        null::text                                  as detail_en,
+        -- match-scoped bets carry their match; day/tournament scopes have
+        -- no single match (cb.match_id null) so the label/date stay null.
+        case when cb.match_id is not null
+             then (m2.home_team || ' ' || m2.away_team)
+             else null
+        end                                         as match_label,
+        m2.kickoff_at                               as match_at,
+        -- Carry the raw pick so the JS layer can render the chosen answer
+        -- ("בחירה: 0-8") via the shared renderPickAnswer formatter. detail_*
+        -- stays null above and is filled per-row after the query.
+        cb.answer_type::text                        as answer_type,
+        cb.answer_config                            as answer_config,
+        pk.answer                                   as pick_answer
       from public.user_custom_bet_picks pk
       join public.custom_bets cb on cb.id = pk.custom_bet_id
+      left join public.matches m2 on m2.id = cb.match_id
       join target t on t.user_id = pk.user_id
       where cb.status in ('graded', 'reversed') and pk.points_earned is not null
 
@@ -686,7 +725,12 @@ async function loadLeaderboardBreakdownsFromDb(
         coalesce(d.question_he, 'דו-קרב')           as title_he,
         coalesce(d.question_en, 'Duel')             as title_en,
         null::text                                  as detail_he,
-        null::text                                  as detail_en
+        null::text                                  as detail_en,
+        null::text                                  as match_label,
+        null::timestamptz                           as match_at,
+        null::text                                  as answer_type,
+        null::jsonb                                 as answer_config,
+        null::jsonb                                 as pick_answer
       from public.duels d
       join (
         select t.user_id, d2.id as duel_id
@@ -711,7 +755,12 @@ async function loadLeaderboardBreakdownsFromDb(
         coalesce(pa.reason, 'התאמה ידנית')           as title_he,
         coalesce(pa.reason, 'Manual adjustment')    as title_en,
         null::text                                  as detail_he,
-        null::text                                  as detail_en
+        null::text                                  as detail_en,
+        null::text                                  as match_label,
+        null::timestamptz                           as match_at,
+        null::text                                  as answer_type,
+        null::jsonb                                 as answer_config,
+        null::jsonb                                 as pick_answer
       from public.point_adjustments pa
       join target t on t.user_id = pa.user_id
     ),
@@ -731,13 +780,65 @@ async function loadLeaderboardBreakdownsFromDb(
       r.title_he                                    as "titleHe",
       r.title_en                                    as "titleEn",
       r.detail_he                                   as "detailHe",
-      r.detail_en                                   as "detailEn"
+      r.detail_en                                   as "detailEn",
+      r.match_label                                 as "matchLabel",
+      r.match_at                                    as "matchAt",
+      r.answer_type                                 as "answerType",
+      r.answer_config                               as "answerConfig",
+      r.pick_answer                                 as "pickAnswer"
     from ranked r
+    -- Keep the LIMIT most recent events OR anything from today/yesterday
+    -- (Jerusalem). The date floor is yesterday 00:00 Jerusalem, expressed
+    -- as a UTC instant so it compares cleanly against the timestamptz
+    -- event_at column regardless of the server's timezone.
     where r.rn <= ${LEADERBOARD_BREAKDOWN_LIMIT}
+       or r.event_at >= (
+            date_trunc('day', (now() at time zone 'Asia/Jerusalem'))
+            - interval '1 day'
+          ) at time zone 'Asia/Jerusalem'
     order by r.user_id, r.event_at desc
   `);
 
+  // Custom-bet rows (live + tournament) carry the raw pick so we can show
+  // the player's chosen answer under the question ("בחירה: 0-8"). The
+  // player-roster markets (top scorer / golden ball) store a raw
+  // api_football_id with an empty options list, so only pay for the roster
+  // query when such a bet is actually present — every other answer type
+  // resolves from answer_config alone.
+  const needsPlayerNames = rows.some(
+    (r) =>
+      (r.answerConfig as { dynamicSource?: string } | null)?.dynamicSource ===
+      "players",
+  );
+  const playerNames = needsPlayerNames
+    ? await fetchPlayerNamesById()
+    : undefined;
+
   for (const r of rows) {
+    // Match bets already ship a "pick · result" detail from SQL; custom-bet
+    // picks ship none, so derive "בחירה / Pick: <answer>" here from the raw
+    // pick via the shared formatter (single source of truth, no SQL drift).
+    let detailHe = r.detailHe;
+    let detailEn = r.detailEn;
+    if (detailHe === null && detailEn === null && r.answerType) {
+      const pickHe = renderPickAnswer(
+        r.answerType,
+        r.answerConfig,
+        r.pickAnswer,
+        true,
+        playerNames,
+      );
+      const pickEn = renderPickAnswer(
+        r.answerType,
+        r.answerConfig,
+        r.pickAnswer,
+        false,
+        playerNames,
+      );
+      detailHe = `בחירה: ${pickHe}`;
+      detailEn = `Pick: ${pickEn}`;
+    }
+
     const arr = out.get(r.userId) ?? [];
     arr.push({
       kind: r.kind,
@@ -745,8 +846,10 @@ async function loadLeaderboardBreakdownsFromDb(
       delta: Number(r.delta ?? 0),
       titleHe: r.titleHe,
       titleEn: r.titleEn,
-      detailHe: r.detailHe,
-      detailEn: r.detailEn,
+      detailHe,
+      detailEn,
+      matchLabel: r.matchLabel,
+      matchAt: r.matchAt,
     });
     out.set(r.userId, arr);
   }

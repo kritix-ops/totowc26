@@ -60,12 +60,6 @@ export function BetsTableActions({
     });
   };
 
-  // Terminal states get no actions - only the visual chip telling the
-  // admin where the bet is in its lifecycle.
-  if (status === "graded" || status === "cancelled") {
-    return null;
-  }
-
   return (
     <div className="flex items-center gap-2 flex-wrap">
       {error && (
@@ -83,12 +77,18 @@ export function BetsTableActions({
         </span>
       )}
 
+      {/* Details is available in EVERY state — including graded and
+          cancelled — so an admin can always open the grade / reverse form
+          to fix the result of a live bet that already passed. The detail
+          page's GradeForm offers reverse + re-grade once a bet is graded. */}
       <Link
         href={localePath(locale, `admin/bets/${id}`)}
         className="inline-flex items-center justify-center gap-1.5 min-h-[40px] px-4 rounded-full border border-outline bg-surface-container-lowest text-on-surface text-sm font-bold hover:bg-surface-container"
       >
         <Edit3 className="h-4 w-4" strokeWidth={2} />
-        {isHebrew ? "פרטים" : "Details"}
+        {status === "graded"
+          ? isHebrew ? "תקן תוצאה" : "Fix result"
+          : isHebrew ? "פרטים" : "Details"}
       </Link>
 
       {status === "draft" && (
@@ -113,24 +113,28 @@ export function BetsTableActions({
         </>
       )}
 
-      <PillButton
-        type="button"
-        variant="ghost"
-        disabled={pending}
-        onClick={() =>
-          handle(
-            () => cancelCustomBet(id),
-            "cancelled",
-            isHebrew
-              ? "לבטל את ההימור? הסטטוס יעבור ל'בוטל'."
-              : "Cancel this bet? Status will move to 'cancelled'.",
-          )
-        }
-        className="min-h-[40px] py-2 px-4 text-sm"
-      >
-        <X className="h-4 w-4" strokeWidth={2.5} />
-        {isHebrew ? "בטל" : "Cancel"}
-      </PillButton>
+      {/* Cancel only where the lifecycle allows it — the server rejects a
+          cancel on graded / cancelled bets, so we hide the control there. */}
+      {status !== "graded" && status !== "cancelled" && (
+        <PillButton
+          type="button"
+          variant="ghost"
+          disabled={pending}
+          onClick={() =>
+            handle(
+              () => cancelCustomBet(id),
+              "cancelled",
+              isHebrew
+                ? "לבטל את ההימור? הסטטוס יעבור ל'בוטל'."
+                : "Cancel this bet? Status will move to 'cancelled'.",
+            )
+          }
+          className="min-h-[40px] py-2 px-4 text-sm"
+        >
+          <X className="h-4 w-4" strokeWidth={2.5} />
+          {isHebrew ? "בטל" : "Cancel"}
+        </PillButton>
+      )}
     </div>
   );
 }

@@ -33,6 +33,8 @@ import { usePendingAction } from "@/lib/use-pending-action";
 import { withTimeout, SAVE_TIMEOUT_MS } from "@/lib/with-timeout";
 import { resolvePickPayoutAtSubmit } from "@/lib/bets/payout";
 import {
+  formatLiveRatio,
+  liveDisplayRatios,
   liveOptionPayout,
   resolvePricingMode,
   resolveYesNoSideOdds,
@@ -900,9 +902,15 @@ function AnswerWidget({
 }) {
   const isHebrew = locale === "he";
   const cfg = bet.answerConfig;
+  // Per-option multipliers for live (match/day) bets, shown inline on every
+  // option so players see "כן ×4 / לא ×2" upfront instead of only after
+  // picking. Null for free-pick / legacy bets, which carry no live odds.
+  const ratios = liveDisplayRatios(cfg);
 
   if (bet.answerType === "yes_no") {
     const current = value?.type === "yes_no" ? value.value : null;
+    const yesRatio = ratios?.kind === "yes_no" ? ratios.yes : null;
+    const noRatio = ratios?.kind === "yes_no" ? ratios.no : null;
     return (
       <div className="grid grid-cols-2 gap-3">
         <ChoicePill
@@ -912,7 +920,7 @@ function AnswerWidget({
             onChange(current === true ? null : { type: "yes_no", value: true })
           }
         >
-          {isHebrew ? "כן" : "Yes"}
+          <PillContent label={isHebrew ? "כן" : "Yes"} ratio={yesRatio} />
         </ChoicePill>
         <ChoicePill
           active={current === false}
@@ -921,7 +929,7 @@ function AnswerWidget({
             onChange(current === false ? null : { type: "yes_no", value: false })
           }
         >
-          {isHebrew ? "לא" : "No"}
+          <PillContent label={isHebrew ? "לא" : "No"} ratio={noRatio} />
         </ChoicePill>
       </div>
     );
@@ -1044,13 +1052,28 @@ function AnswerWidget({
     const opts: MultiChoiceOption[] =
       cfg.kind === "multi_choice" ? cfg.options : [];
     const current = value?.type === "multi_choice" ? value.value : null;
+    const oddsByValue = ratios?.kind === "multi_choice" ? ratios.byValue : null;
     // Long lists become a searchable single-select dropdown — pill
     // grids stop being usable once you have to scroll through them
-    // (48 WC teams, ~1,200 players).
+    // (48 WC teams, ~1,200 players). For a live multi-choice market we
+    // splice the ×N multiplier into each option's subtitle so the ratio
+    // stays visible inside the picker, mirroring the pill-grid badge.
     if (opts.length > SEARCHABLE_THRESHOLD) {
+      const pickerOpts = oddsByValue
+        ? opts.map((o) => {
+            const r = oddsByValue[o.value];
+            if (typeof r !== "number") return o;
+            const tag = formatLiveRatio(r);
+            return {
+              ...o,
+              subtitleHe: o.subtitleHe ? `${o.subtitleHe} · ${tag}` : tag,
+              subtitleEn: o.subtitleEn ? `${o.subtitleEn} · ${tag}` : tag,
+            };
+          })
+        : opts;
       return (
         <SearchableChoicePicker
-          options={opts}
+          options={pickerOpts}
           currentValue={current}
           locale={locale}
           disabled={disabled}
@@ -1076,7 +1099,10 @@ function AnswerWidget({
               )
             }
           >
-            {isHebrew ? o.labelHe : o.labelEn}
+            <PillContent
+              label={isHebrew ? o.labelHe : o.labelEn}
+              ratio={oddsByValue?.[o.value] ?? null}
+            />
           </ChoicePill>
         ))}
       </div>
@@ -1184,6 +1210,32 @@ function DynamicPickerWidget({
         onChange(v == null ? null : { type: "multi_choice", value: v })
       }
     />
+  );
+}
+
+// Label + optional ×N multiplier rendered inside a ChoicePill. The ratio
+// rides at the inherited text colour (70% opacity) so it reads on both the
+// active and inactive pill backgrounds without a hard-coded palette, and
+// dir="ltr" keeps "×4" left-to-right inside Hebrew labels. When there is no
+// ratio (free-pick / legacy bets) it falls back to the bare label.
+function PillContent({
+  label,
+  ratio,
+}: {
+  label: React.ReactNode;
+  ratio: number | null;
+}) {
+  if (ratio == null) return <>{label}</>;
+  return (
+    <span className="inline-flex items-center justify-center gap-1.5">
+      <span>{label}</span>
+      <span
+        dir="ltr"
+        className="text-sm font-extrabold tabular-nums opacity-70"
+      >
+        {formatLiveRatio(ratio)}
+      </span>
+    </span>
   );
 }
 

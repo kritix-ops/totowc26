@@ -6,6 +6,8 @@ import { Card, Chip, LabelCaps, PillButton, SectionHeading } from "@/components/
 import { localePath } from "@/lib/paths";
 import { formatDateTime } from "@/lib/format";
 import { isFreePickScope } from "@/lib/bets/free-pick-scopes";
+import { formatLiveRatio, liveDisplayRatios } from "@/lib/bets/price-options";
+import type { AnswerConfig } from "@/lib/bets/types";
 import {
   BET_TYPES,
   betTypeLabel,
@@ -581,6 +583,32 @@ function FilterChip({
   );
 }
 
+// Flatten a bet's live answer config into {label, ratio} rows for the
+// list card. Yes/No becomes two rows; multi_choice maps each option that
+// has captured odds to its localized label. Returns [] for free-pick /
+// legacy / number / free-text bets so the card renders no ratios row.
+function liveRatioRows(
+  bet: AdminCustomBetRow,
+  isHebrew: boolean,
+): Array<{ label: string; ratio: number }> {
+  const cfg = bet.answerConfig as AnswerConfig | null | undefined;
+  const ratios = liveDisplayRatios(cfg);
+  if (!ratios) return [];
+  if (ratios.kind === "yes_no") {
+    const rows: Array<{ label: string; ratio: number }> = [];
+    if (ratios.yes != null) rows.push({ label: isHebrew ? "כן" : "Yes", ratio: ratios.yes });
+    if (ratios.no != null) rows.push({ label: isHebrew ? "לא" : "No", ratio: ratios.no });
+    return rows;
+  }
+  if (cfg?.kind !== "multi_choice") return [];
+  return cfg.options
+    .filter((o) => ratios.byValue[o.value] != null)
+    .map((o) => ({
+      label: isHebrew ? o.labelHe : o.labelEn,
+      ratio: ratios.byValue[o.value],
+    }));
+}
+
 function BetCard({
   bet,
   locale,
@@ -596,6 +624,10 @@ function BetCard({
     hour: "2-digit",
     minute: "2-digit",
   });
+  // Per-option live ratios (×N) so a manager scanning the list sees the
+  // multiplier on every outcome without opening the bet. Empty for free-pick
+  // / legacy bets that carry no live odds.
+  const ratioRows = liveRatioRows(bet, isHebrew);
 
   return (
     <Card className="p-4 md:p-5 flex flex-col gap-3">
@@ -624,6 +656,17 @@ function BetCard({
           </span>
         </div>
       </div>
+      {ratioRows.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 pt-3 border-t border-outline-variant">
+          <LabelCaps>{isHebrew ? "יחסים" : "Ratios"}</LabelCaps>
+          {ratioRows.map((r, i) => (
+            <Chip key={i} tone="secondary" className="tabular-nums">
+              <bdi>{r.label}</bdi>{" "}
+              <span dir="ltr">{formatLiveRatio(r.ratio)}</span>
+            </Chip>
+          ))}
+        </div>
+      )}
       <div className="flex items-center justify-between gap-3 flex-wrap pt-3 border-t border-outline-variant">
         <p className="text-sm text-on-surface-variant">
           {isFreePickScope(bet.scope)

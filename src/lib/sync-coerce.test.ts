@@ -235,6 +235,57 @@ describe("coerceMatchField — wrong answer type rejection", () => {
   }
 });
 
+describe("coerceMatchField — multi_choice range options", () => {
+  // A range bet ("how many goals? 0-1 / 2-3 / 4+") auto-grades by mapping
+  // the numeric field onto the option whose range contains it. This is the
+  // path that was silently skipping, so a 5-goal game never resolved to 4+.
+  const GOALS = [
+    { value: "0-1", labelHe: "0-1", labelEn: "0-1" },
+    { value: "2-3", labelHe: "2-3", labelEn: "2-3" },
+    { value: "4+", labelHe: "4+", labelEn: "4+" },
+  ];
+
+  it("maps total_goals onto the matching range option", () => {
+    // FINAL is 3-1 → 4 total goals → 4+.
+    expect(coerceMatchField("multi_choice", "total_goals", FINAL, GOALS)).toEqual(
+      { type: "multi_choice", value: "4+" },
+    );
+    // SCORELESS is 0-0 → 0 total → 0-1.
+    expect(
+      coerceMatchField("multi_choice", "total_goals", SCORELESS, GOALS),
+    ).toEqual({ type: "multi_choice", value: "0-1" });
+  });
+
+  it("maps winning_margin onto a range option", () => {
+    // FINAL margin = |3-1| = 2 → 2-3.
+    expect(
+      coerceMatchField("multi_choice", "winning_margin", FINAL, GOALS),
+    ).toEqual({ type: "multi_choice", value: "2-3" });
+  });
+
+  it("still resolves number bets to the raw number", () => {
+    expect(coerceMatchField("number", "total_goals", FINAL, GOALS)).toEqual({
+      type: "number",
+      value: 4,
+    });
+  });
+
+  it("skips a range bet when no options are supplied", () => {
+    expect(coerceMatchField("multi_choice", "total_goals", FINAL)).toBe("skip");
+  });
+
+  it("skips when the number falls outside every option range", () => {
+    const partial = [
+      { value: "0-1", labelHe: "0-1", labelEn: "0-1" },
+      { value: "2-3", labelHe: "2-3", labelEn: "2-3" },
+    ];
+    // FINAL = 4 total goals, no option covers it → manual.
+    expect(
+      coerceMatchField("multi_choice", "total_goals", FINAL, partial),
+    ).toBe("skip");
+  });
+});
+
 describe("coerceMatchField — missing halftime score", () => {
   // Halves-dependent fields need both htHomeScore and htAwayScore. If
   // either is null the resolver returns "skip" instead of guessing —
