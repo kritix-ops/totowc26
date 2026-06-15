@@ -13,6 +13,8 @@ const event = (
   titleEn: "",
   detailHe: null,
   detailEn: null,
+  matchLabel: null,
+  matchAt: null,
   ...overrides,
 });
 

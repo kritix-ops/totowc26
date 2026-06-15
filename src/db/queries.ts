@@ -594,6 +594,12 @@ export type LeaderboardEvent = {
   titleEn: string;
   detailHe: string | null;
   detailEn: string | null;
+  // The match this event ties to, when it has one. matchLabel is the
+  // "HOM AWY" team-code pair (null for day/tournament/duel/adjustment that
+  // aren't anchored to a single match); matchAt is that match's kickoff,
+  // formatted client-side in Asia/Jerusalem.
+  matchLabel: string | null;
+  matchAt: string | null;
 };
 
 export type LeaderboardBreakdown = {
@@ -632,6 +638,8 @@ async function loadLeaderboardBreakdownsFromDb(
     titleEn: string;
     detailHe: string | null;
     detailEn: string | null;
+    matchLabel: string | null;
+    matchAt: string | null;
   }>(sql`
     with target as (
       select unnest(array[${idList}]) as user_id
@@ -653,7 +661,11 @@ async function loadLeaderboardBreakdownsFromDb(
         (
           'Pick ' || coalesce(mb.home_score::text, '?') || ':' || coalesce(mb.away_score::text, '?')
           || ' · result ' || coalesce(m.home_score::text, '?') || ':' || coalesce(m.away_score::text, '?')
-        )                                           as detail_en
+        )                                           as detail_en,
+        -- Teams sit in the title for match bets, so only the date is new
+        -- here. kickoff_at is the scheduled match time the row anchors to.
+        null::text                                  as match_label,
+        m.kickoff_at                                as match_at
       from public.match_bets mb
       join public.matches m on m.id = mb.match_id
       join target t on t.user_id = mb.user_id
@@ -674,9 +686,17 @@ async function loadLeaderboardBreakdownsFromDb(
         cb.question_he                              as title_he,
         cb.question_en                              as title_en,
         null::text                                  as detail_he,
-        null::text                                  as detail_en
+        null::text                                  as detail_en,
+        -- match-scoped bets carry their match; day/tournament scopes have
+        -- no single match (cb.match_id null) so the label/date stay null.
+        case when cb.match_id is not null
+             then (m2.home_team || ' ' || m2.away_team)
+             else null
+        end                                         as match_label,
+        m2.kickoff_at                               as match_at
       from public.user_custom_bet_picks pk
       join public.custom_bets cb on cb.id = pk.custom_bet_id
+      left join public.matches m2 on m2.id = cb.match_id
       join target t on t.user_id = pk.user_id
       where cb.status in ('graded', 'reversed') and pk.points_earned is not null
 
@@ -692,7 +712,9 @@ async function loadLeaderboardBreakdownsFromDb(
         coalesce(d.question_he, 'דו-קרב')           as title_he,
         coalesce(d.question_en, 'Duel')             as title_en,
         null::text                                  as detail_he,
-        null::text                                  as detail_en
+        null::text                                  as detail_en,
+        null::text                                  as match_label,
+        null::timestamptz                           as match_at
       from public.duels d
       join (
         select t.user_id, d2.id as duel_id
@@ -717,7 +739,9 @@ async function loadLeaderboardBreakdownsFromDb(
         coalesce(pa.reason, 'התאמה ידנית')           as title_he,
         coalesce(pa.reason, 'Manual adjustment')    as title_en,
         null::text                                  as detail_he,
-        null::text                                  as detail_en
+        null::text                                  as detail_en,
+        null::text                                  as match_label,
+        null::timestamptz                           as match_at
       from public.point_adjustments pa
       join target t on t.user_id = pa.user_id
     ),
@@ -737,7 +761,9 @@ async function loadLeaderboardBreakdownsFromDb(
       r.title_he                                    as "titleHe",
       r.title_en                                    as "titleEn",
       r.detail_he                                   as "detailHe",
-      r.detail_en                                   as "detailEn"
+      r.detail_en                                   as "detailEn",
+      r.match_label                                 as "matchLabel",
+      r.match_at                                    as "matchAt"
     from ranked r
     -- Keep the LIMIT most recent events OR anything from today/yesterday
     -- (Jerusalem). The date floor is yesterday 00:00 Jerusalem, expressed
@@ -761,6 +787,8 @@ async function loadLeaderboardBreakdownsFromDb(
       titleEn: r.titleEn,
       detailHe: r.detailHe,
       detailEn: r.detailEn,
+      matchLabel: r.matchLabel,
+      matchAt: r.matchAt,
     });
     out.set(r.userId, arr);
   }

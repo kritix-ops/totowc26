@@ -439,6 +439,18 @@ function EventRow({
     hour: "2-digit",
     minute: "2-digit",
   });
+  // The match this bet belongs to, dated in Asia/Jerusalem. When the event
+  // is tied to a real match we show that match's kickoff; otherwise we fall
+  // back to the event timestamp, and only in the dated (yesterday) groups.
+  const matchDate = event.matchAt
+    ? formatDateTime(event.matchAt, locale, {
+        day: "numeric",
+        month: "short",
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+    : null;
+  const metaDate = matchDate ?? (showRelativeDate ? when : null);
   return (
     <li className="flex items-start gap-2 p-2 rounded-lg bg-surface-container-lowest border border-outline-variant">
       <div className="flex-1 min-w-0 flex flex-col gap-0.5">
@@ -446,9 +458,14 @@ function EventRow({
           <span className="text-[10px] font-bold tracking-[0.05em] uppercase text-on-surface-variant px-1.5 py-0.5 rounded-full bg-surface-container">
             {kindLabel}
           </span>
-          {showRelativeDate && (
+          {event.matchLabel && (
+            <span className="text-xs font-bold text-on-surface-variant bidi-ltr">
+              {event.matchLabel}
+            </span>
+          )}
+          {metaDate && (
             <span className="text-xs text-on-surface-variant tabular-nums">
-              {when}
+              {metaDate}
             </span>
           )}
         </div>
