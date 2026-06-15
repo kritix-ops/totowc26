@@ -154,6 +154,13 @@ export function NewDuelForm({
     scopeDay: isHebrew ? "יום משחקים" : "Match day",
     scopeTournament: isHebrew ? "טורניר" : "Tournament",
     matchPicker: isHebrew ? "בחר משחק" : "Pick a match",
+    // Duels run through the semi-finals only. The picker already drops
+    // final / third-place fixtures (see loadUpcomingFixtures); this line
+    // explains the absence so a player near the end of the tournament
+    // isn't left wondering why the final isn't listed.
+    matchPickerHint: isHebrew
+      ? "דו-קרבים על משחק זמינים עד חצי הגמר. הגמר והמשחק על המקום השלישי לא ניתנים לבחירה."
+      : "Match duels run through the semi-finals. The final and third-place playoff aren't selectable.",
     matchdayDate: isHebrew ? "בחר תאריך יום משחקים" : "Pick a match-day date",
     answerQ: isHebrew ? "התשובה שלך" : "Your answer",
     yes: isHebrew ? "כן" : "Yes",
@@ -335,6 +342,9 @@ export function NewDuelForm({
                 </option>
               ))}
             </select>
+            <span className="text-xs font-normal text-on-surface-variant">
+              {labels.matchPickerHint}
+            </span>
           </label>
         )}
 
@@ -750,8 +760,8 @@ function OptionsEditor({
     <div className="flex flex-col gap-3 mt-2">
       <p className="text-xs text-on-surface-variant">
         {isHebrew
-          ? `הגדר 2 עד ${OPTION_MAX_COUNT} אופציות. ליחס בין 1.5× ל-5.0×. הזוכה מקבל stake × יחס של האופציה שלו.`
-          : `Set 2 to ${OPTION_MAX_COUNT} options. Multipliers between 1.5x and 5.0x. Winner takes stake x their option's multiplier.`}
+          ? `הגדר 2 עד ${OPTION_MAX_COUNT} אופציות. ליחס בין 1.5× ל-3.0×. הזוכה מקבל stake × יחס של האופציה שלו.`
+          : `Set 2 to ${OPTION_MAX_COUNT} options. Multipliers between 1.5x and 3.0x. Winner takes stake x their option's multiplier.`}
       </p>
       <div className="flex flex-col gap-3">
         {options.map((o, i) => {
@@ -873,9 +883,7 @@ function OptionsEditor({
   );
 }
 
-const MULTIPLIER_CHOICES = [
-  150, 175, 200, 225, 250, 275, 300, 325, 350, 400, 450, 500,
-];
+const MULTIPLIER_CHOICES = [150, 175, 200, 225, 250, 275, 300];
 
 // Quick-template chip row for match-scope duels. Tapping a chip
 // expands it into a tiny threshold stepper; "Apply" pours the

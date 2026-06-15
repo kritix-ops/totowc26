@@ -975,9 +975,11 @@ export const duels = pgTable(
     // ------ Custom-option duels (migration 0058) ------
     // NULL on legacy yes/no duels; both shapes coexist forever.
     // `options` shape: [{ key: string, labelHe: string, labelEn: string,
-    //                     multiplierPct: number /* 150..500 */ }]
+    //                     multiplierPct: number /* 150..300 */ }]
     // Multiplier is stored as integer hundredths (1.5x = 150) so the
-    // bank-balance SQL doesn't need float math.
+    // bank-balance SQL doesn't need float math. App-level cap is 3.0x
+    // (MULTIPLIER_MAX_PCT); the migration-0058 CHECK still allows up to
+    // 500 as a backstop for duels opened while 5.0x was live.
     options: jsonb("options"),
     openerOption: text("opener_option"),
     joinerOption: text("joiner_option"),

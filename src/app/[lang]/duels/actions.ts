@@ -50,6 +50,7 @@ type DuelErr =
   | "rate_limited"
   | "match_not_found"
   | "match_locked"
+  | "match_stage_locked"
   | "matchday_empty"
   | "deadline_past"
   | "duel_not_found"
@@ -210,12 +211,20 @@ export async function openDuel(input: OpenDuelInput): Promise<OpenDuelResult> {
         id: matchesTable.id,
         kickoffAt: matchesTable.kickoffAt,
         status: matchesTable.status,
+        stage: matchesTable.stage,
       })
       .from(matchesTable)
       .where(eq(matchesTable.id, input.matchId))
       .limit(1);
     if (!m) return { ok: false, error: "match_not_found" };
     if (m.status !== "scheduled") return { ok: false, error: "match_locked" };
+    // Match duels are available up to and including the semi-finals.
+    // The final and the third-place playoff cannot host a duel. The
+    // /new picker already hides these fixtures; this is the server-side
+    // twin that rejects a tampered request shipping a final-match id.
+    if (m.stage === "final" || m.stage === "third_place") {
+      return { ok: false, error: "match_stage_locked" };
+    }
     matchId = m.id;
     matchdayId = await upsertMatchdayFromKickoff(m.kickoffAt);
     resolveAt = m.kickoffAt;
