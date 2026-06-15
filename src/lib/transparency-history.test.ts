@@ -77,6 +77,28 @@ describe("summarizeHistory", () => {
     expect(s.byCategory.duel).toEqual({ net: 20, count: 1 });
     expect(s.byCategory.match).toEqual({ net: 0, count: 0 });
   });
+
+  it("excludes adjustment rows from every betting tally", () => {
+    const s = summarizeHistory([
+      row({ category: "match", refId: "m1", net: 15, stake: 0 }),
+      row({
+        category: "live",
+        refId: "adj1",
+        net: 30,
+        stake: 0,
+        isAdjustment: true,
+      }),
+    ]);
+    // Only the real bet counts; the +30 correction touches no tally and
+    // never lands in a per-category bucket.
+    expect(s.totalBets).toBe(1);
+    expect(s.settledCount).toBe(1);
+    expect(s.wins).toBe(1);
+    expect(s.totalWon).toBe(15);
+    expect(s.totalStaked).toBe(0);
+    expect(s.net).toBe(15);
+    expect(s.byCategory.live).toEqual({ net: 0, count: 0 });
+  });
 });
 
 describe("splitPendingSettled", () => {
@@ -111,6 +133,12 @@ describe("computeSharedQuestions", () => {
   it("ignores duels (those are tallied as a record)", () => {
     const a = [row({ category: "duel", refId: "d1" })];
     const b = [row({ category: "duel", refId: "d1" })];
+    expect(computeSharedQuestions(a, b)).toHaveLength(0);
+  });
+
+  it("ignores adjustment rows (corrections aren't shared bets)", () => {
+    const a = [row({ category: "live", refId: "adj1", isAdjustment: true })];
+    const b = [row({ category: "live", refId: "adj1", isAdjustment: true })];
     expect(computeSharedQuestions(a, b)).toHaveLength(0);
   });
 

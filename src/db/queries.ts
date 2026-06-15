@@ -3260,9 +3260,48 @@ export async function getUserBetHistory(
     };
   });
 
-  const rows = [...matchRows, ...customRows, ...duelRows].sort((a, b) =>
-    a.sortTs < b.sortTs ? 1 : a.sortTs > b.sortTs ? -1 : 0,
-  );
+  // Point adjustments (manual credits/debits + the opener live-bet refund).
+  // Surfaced as their own timeline cards via isAdjustment and excluded from
+  // the betting summary — a correction is not a bet. Mirrors the leaderboard
+  // accordion, which already lists adjustments with the reason as the title.
+  const adjustmentRaw = await execRows<{
+    refId: string;
+    reason: string | null;
+    sortTs: string;
+    delta: number;
+  }>(sql`
+    select
+      pa.id::text          as "refId",
+      pa.reason            as "reason",
+      pa.created_at::text  as "sortTs",
+      pa.delta::int        as "delta"
+    from public.point_adjustments pa
+    where pa.user_id = ${userId}
+  `);
+
+  const adjustmentRows: UserHistoryRow[] = adjustmentRaw.map((r) => ({
+    // Filler category: never read for adjustment rows (see isAdjustment).
+    category: "live",
+    refId: r.refId,
+    question: r.reason ?? (isHebrew ? "התאמת נקודות" : "Points adjustment"),
+    contextLabel: null,
+    sortTs: r.sortTs,
+    pickLabel: "",
+    resultLabel: null,
+    stake: 0,
+    net: r.delta,
+    isPending: false,
+    opponentId: null,
+    opponentName: null,
+    isAdjustment: true,
+  }));
+
+  const rows = [
+    ...matchRows,
+    ...customRows,
+    ...duelRows,
+    ...adjustmentRows,
+  ].sort((a, b) => (a.sortTs < b.sortTs ? 1 : a.sortTs > b.sortTs ? -1 : 0));
   const summary = summarizeHistory(rows);
   console.info("[user history] result", {
     userId,

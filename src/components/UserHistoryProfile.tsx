@@ -235,6 +235,35 @@ function HistoryRowCard({
   row: UserHistoryRow;
 }) {
   const isHebrew = locale === "he";
+
+  // Point-adjustment rows (e.g. the opener live-bet refund) aren't bets, so
+  // they skip the pick/result/stake layout: a distinct "התאמה" chip, the
+  // reason text, and the signed points chip. Matches the leaderboard's
+  // adjustment styling so the same event reads the same on both surfaces.
+  if (row.isAdjustment) {
+    return (
+      <Card className="p-4 md:p-5 flex flex-col gap-3">
+        <div className="flex items-center justify-between gap-3">
+          <span className="inline-flex items-center gap-1.5 px-2 h-6 rounded-full text-[11px] font-bold bg-tertiary-fixed text-on-tertiary-fixed-variant">
+            {isHebrew ? "התאמה" : "Adjustment"}
+          </span>
+          <span className="text-[11px] text-outline tabular-nums">
+            {formatDateTime(row.sortTs, locale, {
+              day: "numeric",
+              month: "short",
+            })}
+          </span>
+        </div>
+        <div className="flex items-center justify-between gap-3">
+          <p className="flex-1 min-w-0 font-bold text-sm md:text-base text-on-surface break-words">
+            {row.question}
+          </p>
+          <NetChip net={row.net} isPending={false} pendingLabel="" />
+        </div>
+      </Card>
+    );
+  }
+
   const categoryLabel = t[CATEGORY_LABEL[row.category]];
   const context =
     row.category === "duel"

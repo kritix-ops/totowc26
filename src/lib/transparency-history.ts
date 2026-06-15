@@ -47,6 +47,12 @@ export type UserHistoryRow = {
   // Duels only — lets head-to-head isolate the two players' shared duels.
   opponentId: string | null;
   opponentName: string | null;
+  // True for a point-adjustment row (manual credit/debit, e.g. the opener
+  // live-bet refund). These render as their own timeline card and are
+  // deliberately excluded from every betting tally in summarizeHistory —
+  // a correction is not a bet. `category` carries a filler value only to
+  // satisfy the type; it is never read for adjustment rows.
+  isAdjustment?: boolean;
 };
 
 export type CategoryTotals = { net: number; count: number };
@@ -79,11 +85,13 @@ function emptyByCategory(): Record<UserHistoryCategory, CategoryTotals> {
 // count toward totalBets / pendingCount / totalStaked (the stake is
 // already at risk) but never toward win/loss/net, so the summary always
 // reconciles with the settled rows the timeline shows: net === totalWon -
-// totalLost.
+// totalLost. Adjustment rows are skipped entirely (a correction is not a
+// bet); they live only in the timeline, so the bet invariant is preserved.
 export function summarizeHistory(
   rows: ReadonlyArray<UserHistoryRow>,
 ): UserHistorySummary {
   const byCategory = emptyByCategory();
+  let totalBets = 0;
   let settledCount = 0;
   let pendingCount = 0;
   let wins = 0;
@@ -94,6 +102,8 @@ export function summarizeHistory(
   let totalLost = 0;
 
   for (const r of rows) {
+    if (r.isAdjustment) continue;
+    totalBets += 1;
     byCategory[r.category].count += 1;
     totalStaked += r.stake;
     if (r.isPending) {
@@ -115,7 +125,7 @@ export function summarizeHistory(
   }
 
   return {
-    totalBets: rows.length,
+    totalBets,
     settledCount,
     pendingCount,
     wins,
@@ -175,13 +185,13 @@ export function computeSharedQuestions(
   const key = (r: UserHistoryRow) => `${r.category}|${r.refId}`;
   const bByKey = new Map<string, UserHistoryRow>();
   for (const r of bRows) {
-    if (r.category === "duel") continue;
+    if (r.category === "duel" || r.isAdjustment) continue;
     bByKey.set(key(r), r);
   }
 
   const out: SharedQuestion[] = [];
   for (const a of aRows) {
-    if (a.category === "duel") continue;
+    if (a.category === "duel" || a.isAdjustment) continue;
     const b = bByKey.get(key(a));
     if (!b) continue;
     const bothSettled = !a.isPending && !b.isPending;
