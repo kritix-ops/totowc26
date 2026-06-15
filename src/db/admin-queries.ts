@@ -308,17 +308,13 @@ export async function listCustomBets(opts: {
         or cb.group_id ilike ${qPattern}
         or md.date::text ilike ${qPattern}
       )
+    -- Newest-created first, so a bet the manager just added (or the most
+    -- recent live bet) sits at the top regardless of status. Status no
+    -- longer groups the list — recency wins outright. id is the stable
+    -- tiebreaker for rows created in the same instant (e.g. quick-add).
     order by
-      case cb.status
-        when 'draft'     then 0
-        when 'open'      then 1
-        when 'locked'    then 2
-        when 'graded'    then 3
-        when 'reversed'  then 4
-        when 'cancelled' then 5
-      end asc,
-      cb.lock_at asc nulls last,
-      cb.created_at desc
+      cb.created_at desc,
+      cb.id desc
     limit ${limit}
   `);
 }
@@ -443,13 +439,12 @@ export async function listDuelsForAdmin(opts: {
         or d.question_en ilike ${qPattern}
         or (m.home_team || ' vs ' || m.away_team) ilike ${qPattern}
       )
+    -- Newest-created first, matching the bets list: the most recently
+    -- opened duel sits at the top regardless of status. id is the stable
+    -- tiebreaker for duels created in the same instant.
     order by
-      case when d.status in ('open', 'matched') then 0 else 1 end asc,
-      case when d.status in ('open', 'matched')
-           then d.join_deadline_at end asc,
-      case when d.status in ('settled', 'cancelled')
-           then d.resolve_at end desc nulls last,
-      d.created_at desc
+      d.created_at desc,
+      d.id desc
     limit ${limit}
   `);
 }
