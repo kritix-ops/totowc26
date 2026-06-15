@@ -573,6 +573,14 @@ export const settings = pgTable("settings", {
   liveShowUpcoming: boolean("live_show_upcoming")
     .notNull()
     .default(true),
+  // "Player history" mode on /transparency: lets any member browse one
+  // player's complete, all-surfaces bet history + head-to-head compare.
+  // When off, the by-question feed stays up and the player-history mode is
+  // hidden. Admin toggle lives on /[lang]/admin/system. See migration 0060
+  // and _plans/2026-06-15-per-user-bet-history.md.
+  transparencyHistoryEnabled: boolean("transparency_history_enabled")
+    .notNull()
+    .default(true),
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .notNull()
     .defaultNow(),

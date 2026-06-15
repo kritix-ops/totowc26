@@ -421,6 +421,13 @@
       "when": 1782260000000,
       "tag": "0059_notification_kind_live_bet",
       "breakpoints": true
+    },
+    {
+      "idx": 60,
+      "version": "7",
+      "when": 1782270000000,
+      "tag": "0060_transparency_history_toggle",
+      "breakpoints": true
     }
   ]
 }

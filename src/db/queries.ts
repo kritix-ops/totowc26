@@ -19,6 +19,17 @@ import {
   type TransparencyPickerRow,
   type TransparencyQuestionRow,
 } from "@/lib/transparency-group";
+import {
+  computeDuelRecord,
+  computeSharedQuestions,
+  summarizeHistory,
+  type DuelRecord,
+  type SharedQuestion,
+  type UserHistoryCategory,
+  type UserHistoryRow,
+  type UserHistorySummary,
+} from "@/lib/transparency-history";
+import { findOption, type DuelOption } from "@/lib/duels/options";
 
 export type { CurrentStage };
 
@@ -63,6 +74,7 @@ export type DashboardSettingsRow = {
   matchRiskEnabled: boolean;
   matchRiskPenalty: number;
   dashboardDigestEnabled: boolean;
+  transparencyHistoryEnabled: boolean;
   whatsappGroupUrl: string | null;
 };
 
@@ -70,12 +82,13 @@ export const getSettingsRow = cache(
   async (): Promise<DashboardSettingsRow | null> =>
     execFirstRow<DashboardSettingsRow>(sql`
       select
-        scoring_exact            as "scoringExact",
-        scoring_outcome          as "scoringOutcome",
-        match_risk_enabled       as "matchRiskEnabled",
-        match_risk_penalty       as "matchRiskPenalty",
-        dashboard_digest_enabled as "dashboardDigestEnabled",
-        whatsapp_group_url       as "whatsappGroupUrl"
+        scoring_exact                as "scoringExact",
+        scoring_outcome              as "scoringOutcome",
+        match_risk_enabled           as "matchRiskEnabled",
+        match_risk_penalty           as "matchRiskPenalty",
+        dashboard_digest_enabled     as "dashboardDigestEnabled",
+        transparency_history_enabled as "transparencyHistoryEnabled",
+        whatsapp_group_url           as "whatsappGroupUrl"
       from public.settings where id = 1
     `),
 );
@@ -2970,6 +2983,335 @@ async function loadTransparencyDigestFromDb(
     highlights: digest.highlights.length,
   });
   return digest;
+}
+
+// ---------- Per-user bet history (/transparency "Player history") ----------
+//
+// The complete, all-surfaces betting history for ONE player, built from
+// the SAME lock-safe visibility rules the transparency feed uses
+// (match status in live/final; custom_bets lock_at <= now(); duels public
+// from creation). It NEVER reads the bank-history query, which records a
+// stake event at pick time and would leak un-locked picks. See
+// _plans/2026-06-15-per-user-bet-history.md.
+//
+// Net is normalised so the page never special-cases a surface:
+//   match  → points_earned (already the net 1/X/2 score; null = pending)
+//   custom → points_earned - stake_paid (null points = pending)
+//   duel   → duelCaseSql (settled only; open/matched = pending)
+// cancelled/void custom bets and duels are dropped (refunded → not history).
+
+export type { UserHistoryCategory, UserHistoryRow, UserHistorySummary };
+
+export type UserBetHistory = {
+  rows: UserHistoryRow[];
+  summary: UserHistorySummary;
+};
+
+// Raw shapes from the three branch queries, before JS resolves the
+// human-readable pick/result labels.
+type MatchHistRow = {
+  refId: string;
+  question: string;
+  sortTs: string;
+  pickLabel: string;
+  resultLabel: string | null;
+  stake: number;
+  net: number | null;
+  isPending: boolean;
+};
+
+type CustomHistRaw = {
+  refId: string;
+  category: UserHistoryCategory;
+  question: string;
+  contextLabel: string | null;
+  sortTs: string;
+  answerType: "yes_no" | "number" | "multi_choice" | "free_text";
+  answerConfig: unknown;
+  answer: unknown;
+  resolvedValue: unknown;
+  stake: number;
+  pointsEarned: number | null;
+  status: string;
+};
+
+type DuelHistRaw = {
+  refId: string;
+  question: string;
+  sortTs: string;
+  status: string;
+  stake: number;
+  net: number | null;
+  options: DuelOption[] | null;
+  openerId: string;
+  joinerId: string | null;
+  openerAnswer: boolean | null;
+  openerOption: string | null;
+  joinerOption: string | null;
+  resolvedValue: boolean | null;
+  resolvedOption: string | null;
+  openerName: string;
+  joinerName: string | null;
+};
+
+export async function getUserBetHistory(
+  userId: string,
+  locale: "he" | "en",
+): Promise<UserBetHistory> {
+  const isHebrew = locale === "he";
+  const homeNameCol = isHebrew ? sql`ht.name_he` : sql`ht.name_en`;
+  const awayNameCol = isHebrew ? sql`at.name_he` : sql`at.name_en`;
+  const cHomeNameCol = isHebrew ? sql`cht.name_he` : sql`cht.name_en`;
+  const cAwayNameCol = isHebrew ? sql`cat.name_he` : sql`cat.name_en`;
+  const questionCol = isHebrew ? sql`cb.question_he` : sql`cb.question_en`;
+  const duelQuestionCol = isHebrew ? sql`d.question_he` : sql`d.question_en`;
+  const yesLabel = isHebrew ? "כן" : "Yes";
+  const noLabel = isHebrew ? "לא" : "No";
+
+  console.info("[user history] query", { userId, locale });
+
+  // 1/X/2 match picks. points_earned is the net already; null = the
+  // match has kicked off but isn't graded yet (pending).
+  const matchRowsRaw = await execRows<MatchHistRow>(sql`
+    select
+      m.id::text                                       as "refId",
+      (${homeNameCol} || ' vs ' || ${awayNameCol})      as "question",
+      m.kickoff_at::text                               as "sortTs",
+      (mb.home_score || '-' || mb.away_score)          as "pickLabel",
+      case when m.status = 'final'
+                and m.home_score is not null
+                and m.away_score is not null
+           then (m.home_score || '-' || m.away_score)
+           else null end                               as "resultLabel",
+      coalesce(mb.stake_paid_main, 0)::int             as "stake",
+      mb.points_earned                                 as "net",
+      (mb.points_earned is null)                       as "isPending"
+    from public.match_bets mb
+    join public.matches m on m.id = mb.match_id
+    join public.teams ht  on ht.code = m.home_team
+    join public.teams at  on at.code = m.away_team
+    where mb.user_id = ${userId}
+      and m.status in ('live', 'final')
+  `);
+
+  // Custom bets (live / tournament / group), cancelled excluded. Pick
+  // and result labels are resolved in JS via renderPickAnswer so country
+  // codes / number ranges / player ids never leak as raw values.
+  const customRaw = await execRows<CustomHistRaw>(sql`
+    select
+      cb.id::text                                      as "refId",
+      case cb.scope::text
+        when 'tournament' then 'tournament'
+        when 'stage'      then 'tournament'
+        when 'group'      then 'group'
+        else 'live'
+      end                                              as "category",
+      ${questionCol}                                   as "question",
+      case when cb.match_id is not null
+           then (${cHomeNameCol} || ' vs ' || ${cAwayNameCol})
+           else null end                               as "contextLabel",
+      cb.lock_at::text                                 as "sortTs",
+      cb.answer_type::text                             as "answerType",
+      cb.answer_config                                 as "answerConfig",
+      pk.answer                                        as "answer",
+      cb.resolved_value                                as "resolvedValue",
+      pk.stake_paid::int                               as "stake",
+      pk.points_earned                                 as "pointsEarned",
+      cb.status::text                                  as "status"
+    from public.user_custom_bet_picks pk
+    join public.custom_bets cb on cb.id = pk.custom_bet_id
+    left join public.matches mt on mt.id = cb.match_id
+    left join public.teams cht  on cht.code = mt.home_team
+    left join public.teams cat  on cat.code = mt.away_team
+    where pk.user_id = ${userId}
+      and cb.lock_at <= now()
+      and cb.status <> 'cancelled'
+  `);
+
+  // Duels on either side, cancelled excluded. Net is computed by the
+  // shared duelCaseSql so the netting rules can never drift from the bank.
+  const duelRaw = await execRows<DuelHistRaw>(sql`
+    select
+      d.id::text                                       as "refId",
+      ${duelQuestionCol}                               as "question",
+      coalesce(d.joined_at, d.created_at)::text         as "sortTs",
+      d.status::text                                   as "status",
+      d.stake::int                                     as "stake",
+      case when d.status = 'settled'
+           then ${duelCaseSql(userId)}
+           else null end                               as "net",
+      d.options                                        as "options",
+      d.opener_id::text                                as "openerId",
+      d.joiner_id::text                                as "joinerId",
+      d.opener_answer                                  as "openerAnswer",
+      d.opener_option                                  as "openerOption",
+      d.joiner_option                                  as "joinerOption",
+      d.resolved_value                                 as "resolvedValue",
+      d.resolved_option                                as "resolvedOption",
+      po.display_name                                  as "openerName",
+      pj.display_name                                  as "joinerName"
+    from public.duels d
+    join public.profiles po on po.id = d.opener_id
+    left join public.profiles pj on pj.id = d.joiner_id
+    where (d.opener_id = ${userId} or d.joiner_id = ${userId})
+      and d.status <> 'cancelled'
+  `);
+
+  // Player-roster custom markets (golden ball / top scorer) keep their
+  // label in the players table; only pay for that lookup when one is here.
+  const needsPlayerNames = customRaw.some(
+    (r) =>
+      (r.answerConfig as { dynamicSource?: string } | null)?.dynamicSource ===
+      "players",
+  );
+  const playerNames = needsPlayerNames
+    ? await fetchPlayerNamesById()
+    : undefined;
+
+  const matchRows: UserHistoryRow[] = matchRowsRaw.map((r) => ({
+    category: "match",
+    refId: r.refId,
+    question: r.question,
+    contextLabel: null,
+    sortTs: r.sortTs,
+    pickLabel: r.pickLabel,
+    resultLabel: r.resultLabel,
+    stake: r.stake,
+    net: r.isPending ? null : r.net,
+    isPending: r.isPending,
+    opponentId: null,
+    opponentName: null,
+  }));
+
+  const customRows: UserHistoryRow[] = customRaw.map((r) => {
+    const isPending = r.pointsEarned === null;
+    return {
+      category: r.category,
+      refId: r.refId,
+      question: r.question,
+      contextLabel: r.contextLabel,
+      sortTs: r.sortTs,
+      pickLabel: renderPickAnswer(
+        r.answerType,
+        r.answerConfig,
+        r.answer,
+        isHebrew,
+        playerNames,
+      ),
+      resultLabel:
+        r.resolvedValue == null
+          ? null
+          : renderPickAnswer(
+              r.answerType,
+              r.answerConfig,
+              r.resolvedValue,
+              isHebrew,
+              playerNames,
+            ),
+      stake: r.stake,
+      net: isPending ? null : (r.pointsEarned ?? 0) - r.stake,
+      isPending,
+      opponentId: null,
+      opponentName: null,
+    };
+  });
+
+  const duelRows: UserHistoryRow[] = duelRaw.map((r) => {
+    const iAmOpener = r.openerId === userId;
+    const opponentId = iAmOpener ? r.joinerId : r.openerId;
+    const opponentName = iAmOpener ? r.joinerName : r.openerName;
+    const isPending = r.status !== "settled";
+
+    // My pick: legacy yes/no duels carry a boolean, custom-option duels
+    // carry an option key resolved against the options array.
+    let pickLabel: string;
+    if (r.options) {
+      const myKey = iAmOpener ? r.openerOption : r.joinerOption;
+      const opt = findOption(r.options, myKey);
+      pickLabel = opt ? (isHebrew ? opt.labelHe : opt.labelEn) : "—";
+    } else {
+      const myAnswer = iAmOpener ? r.openerAnswer : !r.openerAnswer;
+      pickLabel = myAnswer ? yesLabel : noLabel;
+    }
+
+    let resultLabel: string | null = null;
+    if (r.status === "settled") {
+      if (r.options) {
+        const opt = findOption(r.options, r.resolvedOption);
+        resultLabel = opt ? (isHebrew ? opt.labelHe : opt.labelEn) : null;
+      } else if (r.resolvedValue != null) {
+        resultLabel = r.resolvedValue ? yesLabel : noLabel;
+      }
+    }
+
+    return {
+      category: "duel",
+      refId: r.refId,
+      question: r.question,
+      contextLabel: opponentName,
+      sortTs: r.sortTs,
+      pickLabel,
+      resultLabel,
+      stake: r.stake,
+      net: r.net,
+      isPending,
+      opponentId,
+      opponentName,
+    };
+  });
+
+  const rows = [...matchRows, ...customRows, ...duelRows].sort((a, b) =>
+    a.sortTs < b.sortTs ? 1 : a.sortTs > b.sortTs ? -1 : 0,
+  );
+  const summary = summarizeHistory(rows);
+  console.info("[user history] result", {
+    userId,
+    rows: rows.length,
+    pending: summary.pendingCount,
+    net: summary.net,
+  });
+  return { rows, summary };
+}
+
+// ---------- Head-to-head ("me vs. them") ----------
+
+export type HeadToHeadUser = {
+  id: string;
+  name: string;
+  summary: UserHistorySummary;
+};
+
+export type HeadToHead = {
+  a: HeadToHeadUser;
+  b: HeadToHeadUser;
+  shared: SharedQuestion[];
+  duelRecord: DuelRecord;
+};
+
+export async function getUserHeadToHead(
+  aId: string,
+  bId: string,
+  locale: "he" | "en",
+): Promise<HeadToHead> {
+  const [aHistory, bHistory, names] = await Promise.all([
+    getUserBetHistory(aId, locale),
+    getUserBetHistory(bId, locale),
+    execRows<{ id: string; displayName: string }>(sql`
+      select id::text as "id", display_name as "displayName"
+      from public.profiles
+      where id in (${aId}, ${bId})
+    `),
+  ]);
+
+  const nameOf = (id: string) =>
+    names.find((n) => n.id === id)?.displayName ?? id;
+
+  return {
+    a: { id: aId, name: nameOf(aId), summary: aHistory.summary },
+    b: { id: bId, name: nameOf(bId), summary: bHistory.summary },
+    shared: computeSharedQuestions(aHistory.rows, bHistory.rows),
+    duelRecord: computeDuelRecord(aHistory.rows, bId),
+  };
 }
 
 // Aggregated per-user performance card for /me/bank.

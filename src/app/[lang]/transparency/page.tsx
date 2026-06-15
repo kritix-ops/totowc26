@@ -4,12 +4,20 @@ import { Eye, X } from "lucide-react";
 import { getDictionary, hasLocale, type Locale } from "../dictionaries";
 import { Card, Chip } from "@/components/ui";
 import { TransparencyTabs } from "@/components/TransparencyTabs";
+import { TransparencyModeTabs } from "@/components/TransparencyModeTabs";
 import { TransparencyList } from "@/components/TransparencyList";
+import { UserHistoryProfile } from "@/components/UserHistoryProfile";
+import { HeadToHeadView } from "@/components/HeadToHeadView";
 import { getRequestUser } from "@/lib/request-user";
 import {
+  getSettingsRow,
   getTransparencyByQuestion,
   getTransparencyUsers,
+  getUserBetHistory,
+  getUserHeadToHead,
+  type HeadToHead,
   type TransparencyCategory,
+  type UserBetHistory,
 } from "@/db/queries";
 import { localePath } from "@/lib/paths";
 import { gatePage } from "@/lib/page-visibility";
@@ -19,6 +27,8 @@ type SearchSP = {
   tab?: string | string[];
   category?: string | string[]; // legacy alias of `tab`
   date?: string | string[];
+  view?: string | string[]; // "questions" (default) | "player"
+  vs?: string | string[]; // second user id for head-to-head
 };
 
 type PageParams = {
@@ -34,6 +44,7 @@ const CATEGORIES: TransparencyCategory[] = [
   "duel",
 ];
 const DEFAULT_TAB: TransparencyCategory = "match";
+const UUID_RE = /^[0-9a-f-]{36}$/i;
 
 export default async function TransparencyPage({
   params,
@@ -45,45 +56,205 @@ export default async function TransparencyPage({
   const locale = lang as Locale;
   const dict = await getDictionary(locale);
   const isHebrew = locale === "he";
+  const dbLocale = locale === "he" ? "he" : "en";
 
   const user = await getRequestUser();
   if (!user) redirect(localePath(locale, "login"));
 
   const sp = await searchParams;
-  const rawUser = Array.isArray(sp.user) ? sp.user[0] : sp.user;
-  const rawTab = Array.isArray(sp.tab) ? sp.tab[0] : sp.tab;
-  const rawLegacyCategory = Array.isArray(sp.category)
-    ? sp.category[0]
-    : sp.category;
-  const rawDate = Array.isArray(sp.date) ? sp.date[0] : sp.date;
+  const first = (v: string | string[] | undefined) =>
+    Array.isArray(v) ? v[0] : v;
+  const rawUser = first(sp.user);
+  const rawTab = first(sp.tab);
+  const rawLegacyCategory = first(sp.category);
+  const rawDate = first(sp.date);
+  const rawView = first(sp.view);
+  const rawVs = first(sp.vs);
 
-  const userId =
-    rawUser && /^[0-9a-f-]{36}$/i.test(rawUser) ? rawUser : undefined;
+  const userId = rawUser && UUID_RE.test(rawUser) ? rawUser : undefined;
+  const vsId = rawVs && UUID_RE.test(rawVs) ? rawVs : undefined;
   const date =
     rawDate && /^\d{4}-\d{2}-\d{2}$/.test(rawDate) ? rawDate : undefined;
 
-  // Old links carry `?category=` from the previous flat-feed UI. Map it
-  // to the new `?tab=` param so external links (and the dashboard
-  // digest "see all" links) keep working until we cycle them out.
   const tabSource = rawTab ?? rawLegacyCategory;
   const tab: TransparencyCategory =
     tabSource && (CATEGORIES as string[]).includes(tabSource)
       ? (tabSource as TransparencyCategory)
       : DEFAULT_TAB;
 
-  // Defensive: this is a public-trust surface that "must always be up".
-  // Each data dependency gets its own try/catch with a logged error and
-  // a safe default so a single query throw degrades to an empty feed /
-  // empty filter list instead of a full-page 500. Mirrors the same
-  // pattern already used on /bets/live/[date].
-  let rows: Awaited<ReturnType<typeof getTransparencyByQuestion>> = [];
+  // The per-user "Player history" mode is admin-gated. When off, the mode
+  // tab is hidden and any ?view=player link falls back to the feed.
+  let historyEnabled = true;
+  try {
+    const settingsRow = await getSettingsRow();
+    historyEnabled = settingsRow?.transparencyHistoryEnabled ?? true;
+  } catch (err) {
+    console.error("[transparency] getSettingsRow threw", { err });
+  }
+  const view: "questions" | "player" =
+    rawView === "player" && historyEnabled ? "player" : "questions";
+
+  // The user list powers both the feed filter and the history picker, so
+  // it loads in either mode. Defensive: this is a "must always be up"
+  // public-trust surface, so a query throw degrades to an empty list.
   let users: Awaited<ReturnType<typeof getTransparencyUsers>> = [];
+  try {
+    users = await getTransparencyUsers();
+  } catch (err) {
+    console.error("[transparency] getTransparencyUsers threw", { err });
+  }
+  const nameOf = (id: string) =>
+    users.find((u) => u.id === id)?.displayName ?? id;
+
+  const header = (
+    <header className="flex flex-col gap-3">
+      <h1 className="font-[family-name:var(--font-display)] text-[28px] leading-9 md:text-[40px] md:leading-[44px] font-bold text-primary inline-flex items-center gap-3">
+        <Eye className="h-6 w-6 md:h-7 md:w-7" strokeWidth={1.75} />
+        {dict.transparency.title}
+      </h1>
+      <p className="text-sm text-on-surface-variant">
+        {dict.transparency.subtitle}
+      </p>
+    </header>
+  );
+
+  const modeTabs = (
+    <TransparencyModeTabs
+      locale={locale}
+      active={view}
+      userId={userId}
+      tab={tab}
+      showPlayerHistory={historyEnabled}
+      labels={{
+        byQuestion: dict.transparency.modeByQuestion,
+        playerHistory: dict.transparency.modePlayerHistory,
+      }}
+    />
+  );
+
+  // ---------------- Player history mode ----------------
+  if (view === "player") {
+    const t = dict.transparency;
+    const selfCompare = Boolean(vsId && vsId === userId);
+
+    let history: UserBetHistory | null = null;
+    let head: HeadToHead | null = null;
+    if (userId) {
+      if (vsId && vsId !== userId) {
+        try {
+          head = await getUserHeadToHead(userId, vsId, dbLocale);
+        } catch (err) {
+          console.error("[transparency] getUserHeadToHead threw", {
+            userId,
+            vsId,
+            err,
+          });
+        }
+      } else {
+        try {
+          history = await getUserBetHistory(userId, dbLocale);
+        } catch (err) {
+          console.error("[transparency] getUserBetHistory threw", {
+            userId,
+            err,
+          });
+        }
+      }
+    }
+
+    const base = localePath(locale, "transparency");
+    return (
+      <section className="px-4 md:px-16 py-6 md:py-12 flex flex-col gap-6 md:gap-8 max-w-3xl mx-auto w-full pb-24">
+        {header}
+        {modeTabs}
+
+        <Card className="p-4 md:p-5 flex flex-col gap-3">
+          <form
+            method="GET"
+            action={base}
+            className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-end"
+          >
+            <input type="hidden" name="view" value="player" />
+            <label className="flex flex-col gap-1.5 text-xs font-bold text-on-surface">
+              {t.filterUser}
+              <select
+                name="user"
+                defaultValue={userId ?? ""}
+                className="h-12 px-3 rounded-lg border border-outline bg-surface-container-lowest text-sm"
+              >
+                <option value="">{t.pickAUser}</option>
+                {users.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.displayName}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="flex flex-col gap-1.5 text-xs font-bold text-on-surface">
+              {t.compareWith}
+              <select
+                name="vs"
+                defaultValue={vsId ?? ""}
+                className="h-12 px-3 rounded-lg border border-outline bg-surface-container-lowest text-sm"
+              >
+                <option value="">{t.compareNone}</option>
+                {users
+                  .filter((u) => u.id !== userId)
+                  .map((u) => (
+                    <option key={u.id} value={u.id}>
+                      {u.displayName}
+                    </option>
+                  ))}
+              </select>
+            </label>
+            <div className="sm:col-span-2">
+              <button
+                type="submit"
+                className="press-down h-10 px-4 rounded-full bg-primary text-on-primary font-bold text-sm"
+              >
+                {t.filterApply}
+              </button>
+            </div>
+          </form>
+        </Card>
+
+        {selfCompare && (
+          <Card className="p-4 text-center text-sm text-on-surface-variant">
+            {t.selfCompareNote}
+          </Card>
+        )}
+
+        {!userId ? (
+          <Card className="p-6 text-center text-on-surface-variant">
+            {t.pickAUser}
+          </Card>
+        ) : head ? (
+          <HeadToHeadView locale={locale} dict={dict} data={head} />
+        ) : history ? (
+          <UserHistoryProfile
+            locale={locale}
+            dict={dict}
+            name={nameOf(userId)}
+            rows={history.rows}
+            summary={history.summary}
+          />
+        ) : (
+          <Card className="p-6 text-center text-on-surface-variant">
+            {t.historyEmpty}
+          </Card>
+        )}
+      </section>
+    );
+  }
+
+  // ---------------- By-question feed (default) ----------------
+  let rows: Awaited<ReturnType<typeof getTransparencyByQuestion>> = [];
   try {
     rows = await getTransparencyByQuestion({
       tab,
       userId,
       date,
-      locale: locale === "he" ? "he" : "en",
+      locale: dbLocale,
     });
   } catch (err) {
     console.error("[transparency] getTransparencyByQuestion threw", {
@@ -93,19 +264,9 @@ export default async function TransparencyPage({
       err,
     });
   }
-  try {
-    users = await getTransparencyUsers();
-  } catch (err) {
-    console.error("[transparency] getTransparencyUsers threw", { err });
-  }
 
   const activeFilters = [
-    userId
-      ? {
-          key: "user",
-          label: users.find((u) => u.id === userId)?.displayName ?? userId,
-        }
-      : null,
+    userId ? { key: "user", label: nameOf(userId) } : null,
     date ? { key: "date", label: date } : null,
   ].filter((f): f is { key: string; label: string } => Boolean(f));
 
@@ -113,15 +274,8 @@ export default async function TransparencyPage({
 
   return (
     <section className="px-4 md:px-16 py-6 md:py-12 flex flex-col gap-6 md:gap-8 max-w-3xl mx-auto w-full pb-24">
-      <header className="flex flex-col gap-3">
-        <h1 className="font-[family-name:var(--font-display)] text-[28px] leading-9 md:text-[40px] md:leading-[44px] font-bold text-primary inline-flex items-center gap-3">
-          <Eye className="h-6 w-6 md:h-7 md:w-7" strokeWidth={1.75} />
-          {dict.transparency.title}
-        </h1>
-        <p className="text-sm text-on-surface-variant">
-          {dict.transparency.subtitle}
-        </p>
-      </header>
+      {header}
+      {modeTabs}
 
       <TransparencyTabs
         locale={locale}
@@ -231,4 +385,3 @@ function categoryLabel(
       return dict.transparency.categoryDuel;
   }
 }
-
