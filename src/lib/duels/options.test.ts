@@ -217,3 +217,22 @@ describe("grossPayoutOnWin", () => {
     expect(grossPayoutOnWin(3, 150)).toBe(4); // 4.5 truncated
   });
 });
+
+describe("multiplier cap (3.0x)", () => {
+  // The cap is a product rule, not an arbitrary constant. Pin it so a
+  // future change is deliberate and forces an update to the UI choices,
+  // dictionary copy, and DB-backstop note alongside it.
+  it("caps the multiplier ceiling at 3.0x", () => {
+    expect(MULTIPLIER_MAX_PCT).toBe(300);
+  });
+
+  it("accepts exactly 3.0x", () => {
+    const r = validateOptions(sample([{ multiplierPct: 300 }]));
+    expect(r.ok).toBe(true);
+  });
+
+  it("rejects 3.25x (allowed under the old 5.0x cap)", () => {
+    const r = validateOptions(sample([{ multiplierPct: 325 }]));
+    expect(r).toEqual({ ok: false, error: "multiplier_out_of_range" });
+  });
+});

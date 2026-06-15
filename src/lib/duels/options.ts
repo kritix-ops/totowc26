@@ -14,7 +14,14 @@
 export const OPTION_MIN_COUNT = 2;
 export const OPTION_MAX_COUNT = 5;
 export const MULTIPLIER_MIN_PCT = 150; // 1.5x
-export const MULTIPLIER_MAX_PCT = 500; // 5.0x
+export const MULTIPLIER_MAX_PCT = 300; // 3.0x
+// NOTE: the DB CHECK twins in migration 0058 (duels_*_multiplier_range)
+// still allow up to 500 (5.0x). They are a deliberate backstop, not the
+// active cap: validateOptions below rejects anything above 300 on every
+// new duel, and the join path re-derives the multiplier from the already
+// validated stored options, so nothing above 3.0x reaches the DB through
+// the normal flow. The looser CHECK is left in place so duels opened while
+// the 5.0x cap was live keep settling untouched.
 
 export type DuelOption = {
   // Stable key written into opener_option / joiner_option / resolved_option.

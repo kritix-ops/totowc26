@@ -23,6 +23,7 @@ import { PayboxSettingsPanel } from "../PayboxSettingsPanel";
 import { PublicSignupSettingsPanel } from "../SignupSettingsPanel";
 import { WhatsAppSettingsPanel } from "../WhatsAppSettingsPanel";
 import { DashboardDigestSettingsPanel } from "../DashboardDigestSettingsPanel";
+import { TransparencyHistorySettingsPanel } from "../TransparencyHistorySettingsPanel";
 import { LiveShowUpcomingSettingsPanel } from "../LiveShowUpcomingSettingsPanel";
 
 // "System & ops" page — the home for everything an admin sets once and
@@ -56,6 +57,7 @@ export default async function AdminSystemPage({
         whatsappGroupUrl: settings.whatsappGroupUrl,
         publicSignupOpen: settings.publicSignupOpen,
         dashboardDigestEnabled: settings.dashboardDigestEnabled,
+        transparencyHistoryEnabled: settings.transparencyHistoryEnabled,
         liveShowUpcoming: settings.liveShowUpcoming,
       })
       .from(settings)
@@ -110,6 +112,12 @@ export default async function AdminSystemPage({
           <DashboardDigestSettingsPanel
             locale={locale}
             current={settingsRow?.dashboardDigestEnabled ?? true}
+          />
+        </div>
+        <div className="md:col-span-2">
+          <TransparencyHistorySettingsPanel
+            locale={locale}
+            current={settingsRow?.transparencyHistoryEnabled ?? true}
           />
         </div>
         <div className="md:col-span-2">

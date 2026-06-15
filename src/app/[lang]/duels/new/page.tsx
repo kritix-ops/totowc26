@@ -113,6 +113,11 @@ async function loadUpcomingFixtures(locale: Locale): Promise<FixtureOption[]> {
     from public.matches m
     where m.status = 'scheduled'
       and m.kickoff_at > now() + interval '5 minutes'
+      -- Match duels run through the semi-finals only; never offer the
+      -- final or the third-place playoff as a duel anchor. openDuel
+      -- enforces the same guard server-side. Day-scope and tournament-
+      -- scope duels are unaffected (loadUpcomingMatchdays below stays open).
+      and m.stage not in ('final', 'third_place')
     order by m.kickoff_at asc
     limit 50
   `);

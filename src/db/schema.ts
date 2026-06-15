@@ -573,6 +573,14 @@ export const settings = pgTable("settings", {
   liveShowUpcoming: boolean("live_show_upcoming")
     .notNull()
     .default(true),
+  // "Player history" mode on /transparency: lets any member browse one
+  // player's complete, all-surfaces bet history + head-to-head compare.
+  // When off, the by-question feed stays up and the player-history mode is
+  // hidden. Admin toggle lives on /[lang]/admin/system. See migration 0060
+  // and _plans/2026-06-15-per-user-bet-history.md.
+  transparencyHistoryEnabled: boolean("transparency_history_enabled")
+    .notNull()
+    .default(true),
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
@@ -967,9 +975,11 @@ export const duels = pgTable(
     // ------ Custom-option duels (migration 0058) ------
     // NULL on legacy yes/no duels; both shapes coexist forever.
     // `options` shape: [{ key: string, labelHe: string, labelEn: string,
-    //                     multiplierPct: number /* 150..500 */ }]
+    //                     multiplierPct: number /* 150..300 */ }]
     // Multiplier is stored as integer hundredths (1.5x = 150) so the
-    // bank-balance SQL doesn't need float math.
+    // bank-balance SQL doesn't need float math. App-level cap is 3.0x
+    // (MULTIPLIER_MAX_PCT); the migration-0058 CHECK still allows up to
+    // 500 as a backstop for duels opened while 5.0x was live.
     options: jsonb("options"),
     openerOption: text("opener_option"),
     joinerOption: text("joiner_option"),

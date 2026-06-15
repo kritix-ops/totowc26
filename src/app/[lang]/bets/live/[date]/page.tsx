@@ -14,7 +14,7 @@ import {
   getOverdraftConfig,
 } from "@/lib/bank";
 import { localePath } from "@/lib/paths";
-import { formatDateTime } from "@/lib/format";
+import { formatDateTime, ilDateParts } from "@/lib/format";
 import { serverNow } from "@/lib/server-now";
 import { getPlayDayDetail } from "@/db/queries";
 import type {
@@ -101,19 +101,33 @@ export default async function BetsLiveDayPage({
   const isEditable = (b: { status: string; lockAt: string }) =>
     access.canEdit && b.status === "open" && new Date(b.lockAt).getTime() > nowMs;
 
-  // Hide finished matches from the day view — once a fixture is final
-  // it just adds visual noise to the upcoming-bets surface and pushes the
-  // still-actionable kickoffs further down the page. Match-scope bets
-  // attached to those fixtures fall out of the list too (they render
-  // nested inside their fixture row), but their final result is still
-  // reachable via /bets/live?view=past for anyone looking for it.
-  const liveFixtures = detail.fixtures.filter((f) => f.status !== "final");
-  const liveFixtureIds = new Set(liveFixtures.map((f) => f.id));
+  // A matchday is "past" once its date is before today in Asia/Jerusalem —
+  // the same boundary listPastPlayDays uses to build the past list. This
+  // page is shared between the upcoming surface and that past list (each
+  // past-day card links straight here), so we branch on it below.
+  const todayIL = (() => {
+    const p = ilDateParts(serverNow());
+    return `${p.year}-${p.month}-${p.day}`;
+  })();
+  const isPastDay = date < todayIL;
+
+  // On the upcoming surface, hide finished matches — once a fixture is
+  // final it just adds visual noise and pushes the still-actionable
+  // kickoffs further down the page; the match-scope bets nested under
+  // those fixtures fall out with them. On a past day every fixture is
+  // final, so applying that filter would blank the whole page (the
+  // empty-state card fires even though the player has graded picks to
+  // review). Past days therefore show the full board read-only — the bets
+  // are already non-editable (graded/locked), so no extra guard is needed.
+  const shownFixtures = isPastDay
+    ? detail.fixtures
+    : detail.fixtures.filter((f) => f.status !== "final");
+  const shownFixtureIds = new Set(shownFixtures.map((f) => f.id));
 
   const dayBets = detail.bets.filter((b) => b.scope === "day");
   const matchBets = detail.bets
     .filter((b) => b.scope === "match")
-    .filter((b) => !b.matchId || liveFixtureIds.has(b.matchId));
+    .filter((b) => !b.matchId || shownFixtureIds.has(b.matchId));
   // Group match-scope bets by the matchId they target so we can render
   // them beneath their fixture card.
   const matchBetsByMatchId = new Map<string, typeof matchBets>();
@@ -128,7 +142,7 @@ export default async function BetsLiveDayPage({
   // search + filter island that owns presentation; the server still does
   // all the per-bet editability math (lockAt vs serverNow + access check)
   // so the client never needs Date.now() at render.
-  const fixtureItems: FixtureItem[] = liveFixtures.map((m) => ({
+  const fixtureItems: FixtureItem[] = shownFixtures.map((m) => ({
     id: m.id,
     kickoffAt: m.kickoffAt,
     homeCode: m.homeCode,
@@ -157,7 +171,7 @@ export default async function BetsLiveDayPage({
     year: "numeric",
   });
 
-  const hiddenFinalCount = detail.fixtures.length - liveFixtures.length;
+  const hiddenFinalCount = detail.fixtures.length - shownFixtures.length;
 
   return (
     <section className="px-4 md:px-16 py-6 md:py-12 flex flex-col gap-6 md:gap-8 max-w-3xl mx-auto w-full pb-24">
@@ -178,8 +192,8 @@ export default async function BetsLiveDayPage({
         </h2>
         <p className="text-sm text-on-surface-variant">
           {isHebrew
-            ? `${liveFixtures.length} משחקים · ${matchBets.length + dayBets.length} הימורים`
-            : `${liveFixtures.length} matches · ${matchBets.length + dayBets.length} bets`}
+            ? `${shownFixtures.length} משחקים · ${matchBets.length + dayBets.length} הימורים`
+            : `${shownFixtures.length} matches · ${matchBets.length + dayBets.length} bets`}
           {hiddenFinalCount > 0 && (
             <>
               {" · "}
@@ -195,7 +209,7 @@ export default async function BetsLiveDayPage({
 
       {!access.canEdit && <PayGateBanner locale={locale} dict={dict} />}
 
-      {access.canEdit && (matchBets.length > 0 || dayBets.length > 0) && (
+      {access.canEdit && !isPastDay && (matchBets.length > 0 || dayBets.length > 0) && (
         <SurpriseMeButton locale={locale} target={{ surface: "live", date }} />
       )}
 

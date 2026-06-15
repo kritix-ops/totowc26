@@ -475,10 +475,11 @@ export async function publishCustomBet(
   }
 }
 
-// Soft-cancel a bet. If it was draft → moves straight to cancelled.
-// If it was open/locked with picks → also moves to cancelled; the grading
-// pass should refund stakes when it sees status='cancelled'. (Refund loop
-// lands with the grading pipeline in a follow-up commit.)
+// Soft-cancel a bet. Draft → straight to cancelled. open/locked with picks
+// → cancelled AND every pick's stake is refunded in the same transaction by
+// setting points_earned = stake_paid, so the pick nets to zero in every
+// bank/leaderboard sum (all of which compute points_earned - stake_paid).
+// Without this a cancelled bet silently kept the pickers' stake.
 export async function cancelCustomBet(
   id: string,
 ): Promise<{ ok: true } | { ok: false; error: Err }> {
@@ -500,10 +501,24 @@ export async function cancelCustomBet(
       return { ok: false, error: "invalid_status" };
     }
 
-    await db
-      .update(customBets)
-      .set({ status: "cancelled", updatedAt: new Date() })
-      .where(eq(customBets.id, id));
+    await db.transaction(async (tx) => {
+      await tx
+        .update(customBets)
+        .set({ status: "cancelled", updatedAt: new Date() })
+        .where(eq(customBets.id, id));
+      // Refund the stake on every still-ungraded pick (points_earned null).
+      // points_earned = stake_paid nets the pick to zero everywhere the bank
+      // is summed, so the picker is made whole without a separate pipeline.
+      await tx
+        .update(userCustomBetPicks)
+        .set({ pointsEarned: sql`${userCustomBetPicks.stakePaid}`, updatedAt: new Date() })
+        .where(
+          and(
+            eq(userCustomBetPicks.customBetId, id),
+            sql`${userCustomBetPicks.pointsEarned} is null`,
+          ),
+        );
+    });
 
     console.info("[bet cancel]", { id, prevStatus: row.status, by: user.id });
     // Every surface that filters on status in ('open','locked') needs to drop
