@@ -131,27 +131,100 @@ export function CustomBetCard({
   const [confirmingCancel, setConfirmingCancel] = useState(false);
   const { pending, run } = usePendingAction();
 
-  // Tournament/stage/group bets are free picks: stake is forced to 0
-  // regardless of what bet.stakeSnapshot says, in case a legacy record
-  // slipped through with a non-zero value. They carry no money commit, so —
-  // unlike priced (match/day) bets — they AUTO-SAVE on every answer change
-  // instead of waiting for an explicit "Save pick" tap.
+  // Tournament/stage/group bets are free picks (no stake); match/day bets are
+  // priced (they stake points). BOTH auto-commit now — there is no Save tap.
+  // Priced commits are gated on affordability + lock, and every commit offers
+  // an Undo so a mis-tap that spends points is instantly reversible.
   const isFreePick = isFreePickScope(bet.scope);
 
-  // Tracks whether the user has un-saved local edits, so the prop-sync
-  // effects below don't clobber an in-flight change. Reset after every
-  // successful save so the next server update flows through.
+  // Tracks whether the user has un-saved local edits, so the prop-sync effects
+  // below don't clobber an in-flight change. Reset after every successful save
+  // so the next server update flows through.
   const userEditedRef = useRef(false);
 
-  // Free-pick autosave: persist the answer (no stake) through the shared
-  // single-flight scheduler. Priced bets never call schedule() — they keep
-  // their deliberate stake-commit button. On failure it raises a toast and
-  // returns false so the inline <SaveStatus /> shows error + retry; no
-  // success toast, since the inline status is the (quiet) confirmation.
-  const saveFreePick = useCallback(
-    async (answer: PickAnswer): Promise<boolean> => {
+  // Player-chosen stake for live (match/day) bets. Seeded from the player's
+  // last saved choice (if any) or the bet's snapshotted default, then
+  // constrained by the admin's [minStake, maxStake] range. Free-pick scopes
+  // ignore this. Declared up here because the commit handlers below read it.
+  const stakeDefault = bet.myStakePaid ?? bet.stakeSnapshot;
+  const initialStake = isFreePick
+    ? 0
+    : liveStakeConfig
+      ? clampStake(stakeDefault, liveStakeConfig.minStake, liveStakeConfig.maxStake)
+      : stakeDefault;
+  const [chosenStake, setChosenStake] = useState<number>(initialStake);
+
+  // Can a priced bet at this stake be auto-committed? Mirrors the overdraw +
+  // negative-balance-lock checks used for the inline display below, computed
+  // from props so a prospective stake can be checked before scheduling a
+  // write. Free picks always pass.
+  const canCommit = (stake: number) => {
+    if (isFreePick) return true;
+    if (lockedFromBetting) return false;
+    const bankAfterStake = bankBalance + (bet.myStakePaid ?? 0) - stake;
+    return bankAfterStake >= -maxOverdraft;
+  };
+
+  // Last value known committed on the server, kept so Undo can revert to it.
+  // Seeded from props (the player's saved pick, if any).
+  const committedRef = useRef<{ answer: PickAnswer | null; stake: number | null }>(
+    { answer: bet.myAnswer, stake: bet.myStakePaid },
+  );
+
+  // Undo: revert to a previously committed state. No prior pick → remove the
+  // just-placed one (refunding its stake); otherwise re-file the prior
+  // answer/stake. Runs immediately, not debounced — an undo should feel
+  // instant.
+  const revertPick = useCallback(
+    (prev: { answer: PickAnswer | null; stake: number | null }) => {
+      void run(async () => {
+        // submit vs cancel return different result unions, so branch the
+        // awaited call rather than feeding both into one withTimeout generic.
+        const res = prev.answer
+          ? await withTimeout(
+              submitCustomBetPick(
+                bet.id,
+                prev.answer,
+                isFreePick ? undefined : prev.stake ?? undefined,
+              ),
+              SAVE_TIMEOUT_MS,
+            ).catch(() => null)
+          : await withTimeout(cancelCustomBetPick(bet.id), SAVE_TIMEOUT_MS).catch(
+              () => null,
+            );
+        if (!res || !res.ok) {
+          toast.error(isHebrew ? "הביטול נכשל" : "Undo failed");
+          return;
+        }
+        userEditedRef.current = false;
+        setDraft(prev.answer);
+        if (!isFreePick && prev.stake != null) setChosenStake(prev.stake);
+        committedRef.current = { answer: prev.answer, stake: prev.stake };
+        toast.success(
+          prev.answer
+            ? isHebrew ? "שוחזר" : "Reverted"
+            : isHebrew ? "בוטל" : "Undone",
+        );
+      });
+    },
+    [bet.id, isFreePick, isHebrew, run],
+  );
+
+  // Persist the current (answer, stake) through the shared single-flight
+  // scheduler. On success it advances committedRef and offers an Undo toast,
+  // leading with the staked amount for priced bets so spending points is never
+  // silent. On failure it raises a toast and returns false so the inline
+  // status shows error + retry.
+  const savePick = useCallback(
+    async ({
+      answer,
+      stake,
+    }: {
+      answer: PickAnswer;
+      stake: number;
+    }): Promise<boolean> => {
       const res = await withTimeout(
-        submitCustomBetPick(bet.id, answer, undefined),
+        submitCustomBetPick(bet.id, answer, isFreePick ? undefined : stake),
         SAVE_TIMEOUT_MS,
       ).catch(() => null);
       if (!res) {
@@ -164,18 +237,43 @@ export function CustomBetCard({
         toast.error(translateError(res.error, isHebrew, res));
         return false;
       }
-      // Let the next server-side change flow back into the draft.
       userEditedRef.current = false;
+      const prev = committedRef.current;
+      committedRef.current = { answer, stake: isFreePick ? null : stake };
+      toast.success(
+        isFreePick
+          ? isHebrew ? "נשמר" : "Saved"
+          : isHebrew ? `סיכנת ${stake} נק׳` : `Staked ${stake} pts`,
+        {
+          duration: 6000,
+          action: {
+            label: isHebrew ? "בטל" : "Undo",
+            onClick: () => revertPick(prev),
+          },
+        },
+      );
       return true;
     },
-    [bet.id, isHebrew],
+    [bet.id, isFreePick, isHebrew, revertPick],
   );
   const {
-    status: freePickStatus,
-    schedule: scheduleFreePick,
-    retry: retryFreePick,
-    cancel: cancelFreePick,
-  } = useAutosave<PickAnswer>({ save: saveFreePick });
+    status: pickStatus,
+    schedule: schedulePick,
+    retry: retryPick,
+    cancel: cancelPick,
+  } = useAutosave<{ answer: PickAnswer; stake: number }>({ save: savePick });
+
+  // Schedule a commit for a prospective (answer, stake). A null answer, or a
+  // priced bet that would overdraw / is locked, drops any pending commit and
+  // schedules nothing — the inline status explains the block instead of firing
+  // a server rejection on every tap.
+  const commitPick = (answer: PickAnswer | null, stake: number) => {
+    if (!answer || !canCommit(stake)) {
+      cancelPick();
+      return;
+    }
+    schedulePick({ answer, stake });
+  };
 
   // Sync the draft from the server when fresh props arrive (e.g. after
   // the "Surprise me" / deadline auto-fill / monkey-bot fill updated the
@@ -190,27 +288,11 @@ export function CustomBetCard({
   const editDraft = (next: PickAnswer | null) => {
     userEditedRef.current = true;
     setDraft(next);
-    // Free picks commit themselves: a non-null answer schedules the save.
-    // Deselecting (next === null) does NOT auto-cancel a saved pick — it
-    // just drops any pending save; removing a saved pick is the deliberate
-    // Cancel button.
-    if (isFreePick) {
-      if (next) scheduleFreePick(next);
-      else cancelFreePick();
-    }
+    // Auto-commit the new answer at the current stake. Deselecting (next ===
+    // null) drops any pending commit but does NOT remove a saved pick — that's
+    // the deliberate Cancel button.
+    commitPick(next, chosenStake);
   };
-
-  // Player-chosen stake for live (match/day) bets. Seeded from the
-  // player's last saved choice (if any) or the bet's snapshotted default,
-  // then constrained by the admin's [minStake, maxStake] range. Free-pick
-  // scopes ignore this entirely.
-  const stakeDefault = bet.myStakePaid ?? bet.stakeSnapshot;
-  const initialStake = isFreePick
-    ? 0
-    : liveStakeConfig
-      ? clampStake(stakeDefault, liveStakeConfig.minStake, liveStakeConfig.maxStake)
-      : stakeDefault;
-  const [chosenStake, setChosenStake] = useState<number>(initialStake);
 
   // Resync the chosen stake when fresh server props arrive (auto-fill,
   // monkey bot, server revalidate), unless the user has un-saved edits.
@@ -244,13 +326,13 @@ export function CustomBetCard({
     JSON.stringify(draft ?? null) !== JSON.stringify(bet.myAnswer ?? null) ||
     stakeDirty;
 
-  // Drive the free-pick status off the local draft — the source of truth for
-  // "is there a pick" — so cancelling drops straight back to the idle hint
-  // instead of showing a stale "saved", and a pre-existing pick reads as
-  // saved on load. Active saving/error states from the hook take priority.
-  const freePickDisplayState: SaveState =
-    freePickStatus === "saving" || freePickStatus === "error"
-      ? freePickStatus
+  // Drive the status off the local draft — the source of truth for "is there a
+  // pick" — so cancelling drops straight back to the idle hint instead of a
+  // stale "saved", and a pre-existing pick reads as saved on load. Active
+  // saving/error states from the hook take priority.
+  const pickDisplayState: SaveState =
+    pickStatus === "saving" || pickStatus === "error"
+      ? pickStatus
       : draft
         ? "saved"
         : "idle";
@@ -258,6 +340,8 @@ export function CustomBetCard({
   const onChosenStake = (next: number) => {
     userEditedRef.current = true;
     setChosenStake(next);
+    // Re-commit at the new stake (only when an answer is already chosen).
+    commitPick(draft, next);
   };
 
   const onCancel = () => {
@@ -287,44 +371,11 @@ export function CustomBetCard({
       setDraft(null);
       setChosenStake(initialStake);
       setConfirmingCancel(false);
-      // Clear any pending/last free-pick autosave state so the status drops
-      // to idle rather than lingering on "saved"/"error" after a cancel.
-      cancelFreePick();
+      // Clear any pending/last autosave state and the undo marker so the
+      // status drops to idle rather than lingering on "saved"/"error".
+      cancelPick();
+      committedRef.current = { answer: null, stake: null };
       toast.success(isHebrew ? "הניחוש בוטל" : "Pick cancelled");
-    });
-  };
-
-  const onSubmit = () => {
-    if (!draft || !editable || overdrawn || locked || pending) return;
-    // usePendingAction releases the button on the action response, not
-    // on submitCustomBetPick's revalidation re-render, so submitting
-    // several bets in a row never leaves one stuck on "שומר…". withTimeout
-    // is the backstop for the other failure mode — the server never
-    // responding at all (pooler saturated) — so the button still releases
-    // instead of hanging. The write is an idempotent overwrite, so a retry
-    // after a false-timeout cannot double-save.
-    void run(async () => {
-      // Only send a stake for live (priced) bets — free picks ignore it
-      // on the server but it's clearer to omit at the boundary.
-      const stakeArg = isFreePick ? undefined : chosenStake;
-      const res = await withTimeout(
-        submitCustomBetPick(bet.id, draft, stakeArg),
-        SAVE_TIMEOUT_MS,
-      ).catch(() => null);
-      if (!res) {
-        toast.error(
-          isHebrew ? "השמירה נתקעה. נסה שוב." : "Save timed out. Try again.",
-        );
-        return;
-      }
-      if (!res.ok) {
-        toast.error(translateError(res.error, isHebrew, res));
-        return;
-      }
-      // Drop the "user has unsaved edits" guard so the next server-side
-      // change (Surprise me / auto-fill / monkey) flows back into draft.
-      userEditedRef.current = false;
-      toast.success(isHebrew ? "נשמר" : "Saved");
     });
   };
 
@@ -560,44 +611,31 @@ export function CustomBetCard({
                 </button>
               </div>
             )}
-            {isFreePick ? (
-              // Free picks auto-save — no commit button. When nothing is
-              // picked yet the status is idle, so show a quiet hint that the
-              // choice saves itself; once they pick, <SaveStatus /> reports
-              // saving / saved / error+retry.
-              freePickDisplayState === "idle" ? (
-                <span className="inline-flex items-center min-h-[44px] text-xs text-on-surface-variant">
-                  {isHebrew ? "התשובה נשמרת אוטומטית" : "Your answer saves itself"}
-                </span>
-              ) : (
-                <SaveStatus
-                  state={freePickDisplayState}
-                  locale={locale}
-                  onRetry={retryFreePick}
-                  className="min-h-[44px]"
-                />
-              )
+            {/* No commit button — picks auto-commit. Priced bets show the
+                lock / overdraft reason when a commit is blocked; otherwise a
+                quiet "saves itself" hint before a pick, then <SaveStatus />
+                (saving / saved / error+retry) once there's a pick. */}
+            {locked ? (
+              <span className="inline-flex items-center min-h-[44px] text-xs font-bold text-error">
+                {isHebrew ? "נעול: יתרה שלילית" : "Locked: negative bank"}
+              </span>
+            ) : !isFreePick && overdrawn ? (
+              <span className="inline-flex items-center min-h-[44px] text-xs font-bold text-error">
+                {isHebrew ? "חורג מתקרת המינוס" : "Past overdraft cap"}
+              </span>
+            ) : pickDisplayState === "idle" ? (
+              <span className="inline-flex items-center min-h-[44px] text-xs text-on-surface-variant">
+                {isFreePick
+                  ? isHebrew ? "התשובה נשמרת אוטומטית" : "Your answer saves itself"
+                  : isHebrew ? "הבחירה נשמרת אוטומטית" : "Your pick saves itself"}
+              </span>
             ) : (
-              <button
-                type="button"
-                onClick={onSubmit}
-                disabled={!editable || pending || overdrawn || locked || !hasChoice || !dirty}
-                className={clsx(
-                  "press-down inline-flex items-center justify-center gap-2 min-h-[44px] px-5 rounded-full text-sm font-bold transition-colors",
-                  "bg-primary text-on-primary shadow-md hover:bg-surface-tint",
-                  "disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-primary",
-                )}
-              >
-                {pending && !confirmingCancel
-                  ? isHebrew ? "שומר…" : "Saving…"
-                  : locked
-                    ? isHebrew ? "נעול: יתרה שלילית" : "Locked: negative bank"
-                    : overdrawn
-                      ? isHebrew ? "חורג מתקרת המינוס" : "Past overdraft cap"
-                      : bet.myAnswer
-                        ? isHebrew ? "עדכן ניחוש" : "Update pick"
-                        : isHebrew ? "שמור ניחוש" : "Save pick"}
-              </button>
+              <SaveStatus
+                state={pickDisplayState}
+                locale={locale}
+                onRetry={retryPick}
+                className="min-h-[44px]"
+              />
             )}
           </div>
         </div>

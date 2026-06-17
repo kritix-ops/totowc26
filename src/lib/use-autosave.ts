@@ -39,6 +39,7 @@ export function useAutosave<T>({
   schedule: (value: T) => void;
   retry: () => void;
   cancel: () => void;
+  flush: () => void;
 } {
   const [status, setStatus] = useState<AutosaveState>("idle");
 
@@ -132,6 +133,18 @@ export function useAutosave<T>({
     void runSave();
   }, [runSave]);
 
+  // Fire a pending debounced save immediately (e.g. the user is navigating
+  // away and we don't want to lose the last sub-debounce edit). No-op when
+  // nothing is queued. The write itself still runs server-side even if the
+  // component then unmounts, since the action is already dispatched.
+  const flush = useCallback(() => {
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+      void runSave();
+    }
+  }, [runSave]);
+
   // Drop a not-yet-started save and return to idle. Used when an edit is
   // undone before it persists — e.g. deselecting a free-pick option within
   // the debounce window, which should save nothing rather than commit the
@@ -148,5 +161,5 @@ export function useAutosave<T>({
     }
   }, []);
 
-  return { status, schedule, retry, cancel };
+  return { status, schedule, retry, cancel, flush };
 }

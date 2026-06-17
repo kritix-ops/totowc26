@@ -158,6 +158,33 @@ intent snapshots; deliberate commits stay explicit.** The owner's
   area + bottom nav; inline status does not cause horizontal scroll or clip
   Hebrew. Touch targets ≥44px. Test landscape.
 
+## Round 2 (2026-06-17, same day): owner widened the scope after feeling friction
+
+The owner found live bets still required a Save tap (which was the deliberate
+"money commit stays explicit" guard from round 1) and asked for full
+auto-commit with undo, plus admin auto-create. Decisions:
+
+- **Live bets auto-commit.** Priced (match/day) picks no longer have a Save
+  button. Selecting an answer + stake auto-commits (debounced, single-flight),
+  gated on affordability + the negative-balance lock so an unaffordable bet
+  never fires a server rejection on every tap. Every commit raises a
+  "סיכנת X נק׳ · בטל" (Staked X · Undo) toast; Undo cancels/refunds or reverts
+  to the prior pick instantly. Free picks get the same, with a "נשמר · בטל"
+  toast.
+- **Match picks undo.** Quiet inline "בטל" on the saved state (a per-row toast
+  would be noisy across a full matchday). Reverts to the previously committed
+  score; not offered on a brand-new first pick (a match pick can't be cleared).
+- **Admin auto-create + auto-save.** All bet-builder writes go through one
+  single-flight autosave that creates the draft once the form is first valid,
+  remembers its id, and updates thereafter. Authoring is zero clicks. The
+  footer button changed from "Save changes / Save as draft" to **"Done"** (it
+  just flushes any pending save and navigates) — eliminating a second create
+  path that could race the autosave into a duplicate draft. **Publishing to
+  users stays a separate, explicit tap** — the owner agreed auto-publish is too
+  dangerous (a half-built bet going live to the pool with real points on it).
+- Added `flush()` and `cancel()` to the useAutosave hook (flush fires a pending
+  debounced save before navigating; cancel drops an undone-before-saved edit).
+
 ## Open questions
 
 - Toast library: in-house component (default, $0, matches existing

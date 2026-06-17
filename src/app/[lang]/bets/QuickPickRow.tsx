@@ -76,6 +76,18 @@ export function QuickPickRow({
   // fresh pick back to a stale 0:0 (the 2026-06-04 "מחק לי תוצאות 0-0" report).
   const justSavedRef = useRef<{ home: number; away: number } | null>(null);
 
+  // Undo support: committedScoreRef holds the score currently on the server;
+  // undoScore is the value before the last save, surfaced as an inline "undo"
+  // on the saved state. Null when there's nothing to revert to (a brand-new
+  // first pick — a match pick can't be cleared back to "no pick").
+  const committedScoreRef = useRef<{ home: number; away: number } | null>(
+    hadPick ? { home: match.myHomeScore!, away: match.myAwayScore! } : null,
+  );
+  const [undoScore, setUndoScore] = useState<{
+    home: number;
+    away: number;
+  } | null>(null);
+
   // Persist one scoreline through the /api/bets/save Route Handler (parallel
   // via fetch — Server Functions dispatch one-at-a-time per tab and queued
   // behind each other's revalidation, the 2026-06-04 lost-pick incident).
@@ -130,6 +142,10 @@ export function QuickPickRow({
       // Stamp what we wrote BEFORE the prop-sync effect can run so it sees
       // the guard and won't paint stale props over the value we just saved.
       justSavedRef.current = { home: h, away: a };
+      // Advance the undo target to the score that was committed before this
+      // save, then record the new committed score.
+      setUndoScore(committedScoreRef.current);
+      committedScoreRef.current = { home: h, away: a };
       return true;
     },
     [match.id, dict],
@@ -228,6 +244,15 @@ export function QuickPickRow({
     });
   };
 
+  // Revert to the previously committed score and re-save it. Only offered
+  // when there is a prior score to go back to (undoScore != null).
+  const onUndoScore = () => {
+    if (disabled || !undoScore) return;
+    setHome(undoScore.home);
+    setAway(undoScore.away);
+    schedule(undoScore);
+  };
+
   const pickDirection: "1" | "X" | "2" =
     home === away ? "X" : home > away ? "1" : "2";
 
@@ -324,6 +349,7 @@ export function QuickPickRow({
             state={displayState}
             locale={locale}
             onRetry={retry}
+            onUndo={undoScore ? onUndoScore : undefined}
             className="justify-end"
           />
         </div>

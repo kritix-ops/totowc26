@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AlertCircle, Plus, RotateCcw, Trash2 } from "lucide-react";
 import { clsx } from "clsx";
@@ -631,7 +631,6 @@ export function BetForm({
 
   // ---- Submission ----
   const [error, setError] = useState<string | null>(null);
-  const [pending, startTransition] = useTransition();
 
   // Build + validate the full payload from the current form state. PURE — no
   // setState — so it's safe to call during render to drive both the explicit
@@ -754,7 +753,7 @@ export function BetForm({
     };
   };
 
-  // Current build, recomputed each render. Drives the explicit submit, the
+  // Current build, recomputed each render. Drives the Done button, the
   // autosave-valid gate, and the inline draft-status hint. draftKey is a
   // stable string that only changes when the built payload (or its validity)
   // changes — the trigger for the draft autosave effect below.
@@ -763,59 +762,47 @@ export function BetForm({
     ? JSON.stringify(draftBuild.payload)
     : `invalid:${draftBuild.error}`;
 
-  const submit = (e: React.FormEvent) => {
-    e.preventDefault();
-    setError(null);
-    if (!draftBuild.ok) {
-      setError(draftBuild.error);
-      return;
-    }
-    const { payload } = draftBuild;
-    startTransition(async () => {
-      if (mode === "edit") {
-        if (!betId) {
-          setError("Missing bet id");
-          return;
-        }
-        const res = await updateCustomBet(betId, payload);
-        if (!res.ok) {
-          setError(translateError(res.error, isHebrew));
-          return;
-        }
-        router.push(localePath(locale, `admin/bets/${betId}`));
-        router.refresh();
-      } else {
-        const res = await createCustomBet(payload);
-        if (!res.ok) {
-          setError(translateError(res.error, isHebrew));
-          return;
-        }
-        router.push(localePath(locale, "admin/bets"));
-        router.refresh();
-      }
-    });
-  };
-
-  // ---- Draft autosave (edit mode only) ----
-  // Persist an existing draft's edits as the admin works, without leaving the
-  // form. Creation stays an explicit act (no auto-creating partial rows), and
-  // ONLY valid payloads are written — the trigger effect skips invalid
-  // mid-edit states, so a half-typed config never reaches the DB.
-  // updateCustomBet is draft-only server-side, so a published bet can't be
-  // silently rewritten. The explicit "Save changes" button stays as the
-  // finish-and-go-back action.
+  // ---- Draft autosave (create + edit) ----
+  // All writes go through here, single-flight, so the draft can't be created
+  // twice. Edit mode updates the existing draft. Create mode creates the draft
+  // the first time the form is valid, remembers its id, and updates that same
+  // draft thereafter — so authoring a bet is zero clicks. Only valid payloads
+  // reach here (the trigger effect skips invalid mid-edit states), and
+  // create/update enforce draft-only + permissions server-side. Publishing to
+  // users stays a separate, explicit action elsewhere.
+  const createdIdRef = useRef<string | null>(null);
   const saveDraft = useCallback(
     async (payload: BetPayload): Promise<boolean> => {
-      if (!betId) return false;
+      const id = betId ?? createdIdRef.current;
+      if (id) {
+        const res = await withTimeout(
+          updateCustomBet(id, payload),
+          SAVE_TIMEOUT_MS,
+        ).catch(() => null);
+        if (!res) {
+          toast.error(
+            isHebrew
+              ? "השמירה האוטומטית נכשלה. נסה שוב."
+              : "Autosave failed. Try again.",
+          );
+          return false;
+        }
+        if (!res.ok) {
+          toast.error(translateError(res.error, isHebrew));
+          return false;
+        }
+        return true;
+      }
+      // No id yet → create the draft once and remember it for later saves.
       const res = await withTimeout(
-        updateCustomBet(betId, payload),
+        createCustomBet(payload),
         SAVE_TIMEOUT_MS,
       ).catch(() => null);
       if (!res) {
         toast.error(
           isHebrew
-            ? "השמירה האוטומטית נכשלה. נסה שוב."
-            : "Autosave failed. Try again.",
+            ? "יצירת הטיוטה נכשלה. נסה שוב."
+            : "Draft creation failed. Try again.",
         );
         return false;
       }
@@ -823,6 +810,7 @@ export function BetForm({
         toast.error(translateError(res.error, isHebrew));
         return false;
       }
+      createdIdRef.current = res.id;
       return true;
     },
     [betId, isHebrew],
@@ -831,6 +819,7 @@ export function BetForm({
     status: draftStatus,
     schedule: scheduleDraftSave,
     retry: retryDraftSave,
+    flush: flushDraftSave,
   } = useAutosave<BetPayload>({ save: saveDraft });
 
   // Hold the latest build for the trigger effect without reading it during
@@ -841,13 +830,13 @@ export function BetForm({
     draftBuildRef.current = draftBuild;
   });
 
-  // Fire the autosave whenever the built payload changes — edit mode only,
-  // valid only, skipping the initial render (the loaded draft is already
-  // saved). useAutosave debounces + coalesces, so a run through several
-  // fields is one write.
+  // Fire the autosave whenever the built payload changes — valid only,
+  // skipping the initial render (a loaded draft is already saved; a fresh
+  // create form starts invalid anyway, so nothing fires until it's complete).
+  // Covers create (auto-create once valid) and edit (update). useAutosave
+  // debounces + coalesces, so a run through several fields is one write.
   const firstDraftRender = useRef(true);
   useEffect(() => {
-    if (mode !== "edit") return;
     if (firstDraftRender.current) {
       firstDraftRender.current = false;
       return;
@@ -855,7 +844,27 @@ export function BetForm({
     const built = draftBuildRef.current;
     if (!built.ok) return;
     scheduleDraftSave(built.payload);
-  }, [draftKey, mode, scheduleDraftSave]);
+  }, [draftKey, scheduleDraftSave]);
+
+  // The form no longer "saves" on submit — autosave handles every write. The
+  // primary button just flushes any pending debounced save and navigates to
+  // the bet (or the list for a never-yet-valid create). An invalid form stays
+  // put and surfaces the reason instead of navigating away from unsaved work.
+  const finish = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!draftBuild.ok) {
+      setError(draftBuild.error);
+      return;
+    }
+    setError(null);
+    flushDraftSave();
+    const id = betId ?? createdIdRef.current;
+    router.push(
+      id
+        ? localePath(locale, `admin/bets/${id}`)
+        : localePath(locale, "admin/bets"),
+    );
+  };
 
   const cancelHref =
     mode === "edit" && betId
@@ -863,7 +872,7 @@ export function BetForm({
       : localePath(locale, "admin/bets");
 
   return (
-    <form onSubmit={submit} className="flex flex-col gap-6 md:gap-8">
+    <form onSubmit={finish} className="flex flex-col gap-6 md:gap-8">
       {/* 0. Template picker (create-mode only). Hidden when editing —
           mutating a draft we came in to fix would silently throw away
           the unsaved tweaks the admin's mid-typing. */}
@@ -1746,44 +1755,39 @@ export function BetForm({
       )}
 
       <div className="flex flex-col-reverse md:flex-row md:items-center md:justify-end gap-3 pt-4 border-t border-outline-variant">
-        {/* Draft autosave status (edit mode). The draft persists itself as
-            you go; this reports it, and the explicit button below stays as
-            the deliberate finish-and-go-back action. */}
-        {mode === "edit" && (
-          <div className="flex items-center md:me-auto min-h-[44px] text-xs">
-            {!draftBuild.ok ? (
-              <span className="inline-flex items-center gap-1.5 text-on-surface-variant">
-                {isHebrew
-                  ? "השלם את השדות כדי שהטיוטה תישמר אוטומטית"
-                  : "Complete the fields so the draft autosaves"}
-              </span>
-            ) : draftStatus === "idle" ? (
-              <span className="text-on-surface-variant">
-                {isHebrew ? "הטיוטה נשמרת אוטומטית" : "Draft saves automatically"}
-              </span>
-            ) : (
-              <SaveStatus
-                state={draftStatus}
-                locale={locale}
-                savedLabel={isHebrew ? "טיוטה נשמרה" : "Draft saved"}
-                onRetry={retryDraftSave}
-              />
-            )}
-          </div>
-        )}
+        {/* Draft autosave status. The draft persists itself as you go — in
+            create mode it auto-creates once the form is valid, then keeps
+            updating that same draft. The button is just "Done" (flush +
+            navigate); publishing to users stays a separate, explicit action. */}
+        <div className="flex items-center md:me-auto min-h-[44px] text-xs">
+          {!draftBuild.ok ? (
+            <span className="inline-flex items-center gap-1.5 text-on-surface-variant">
+              {isHebrew
+                ? "השלם את השדות כדי שהטיוטה תישמר אוטומטית"
+                : "Complete the fields so the draft autosaves"}
+            </span>
+          ) : draftStatus === "idle" ? (
+            <span className="text-on-surface-variant">
+              {isHebrew ? "הטיוטה נשמרת אוטומטית" : "Draft saves automatically"}
+            </span>
+          ) : (
+            <SaveStatus
+              state={draftStatus}
+              locale={locale}
+              savedLabel={isHebrew ? "טיוטה נשמרה" : "Draft saved"}
+              onRetry={retryDraftSave}
+            />
+          )}
+        </div>
         <button
           type="button"
           onClick={() => router.push(cancelHref)}
           className="min-h-[48px] px-6 rounded-full border border-outline bg-surface-container-lowest text-on-surface font-bold hover:bg-surface-container"
         >
-          {isHebrew ? "ביטול" : "Cancel"}
+          {isHebrew ? "חזור" : "Back"}
         </button>
-        <PillButton type="submit" disabled={pending} className="min-h-[48px]">
-          {pending
-            ? isHebrew ? "שומר…" : "Saving…"
-            : mode === "edit"
-              ? isHebrew ? "שמור שינויים" : "Save changes"
-              : isHebrew ? "שמור כטיוטה" : "Save as draft"}
+        <PillButton type="submit" className="min-h-[48px]">
+          {isHebrew ? "סיום" : "Done"}
         </PillButton>
       </div>
     </form>

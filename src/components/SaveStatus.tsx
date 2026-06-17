@@ -20,6 +20,7 @@ export function SaveStatus({
   locale,
   savedLabel,
   onRetry,
+  onUndo,
   className,
 }: {
   state: SaveState;
@@ -28,6 +29,10 @@ export function SaveStatus({
   // what was persisted, not just that something saved. Falls back to "נשמר".
   savedLabel?: string;
   onRetry?: () => void;
+  // Optional inline "undo" shown on the saved state — reverts to the value
+  // before the last auto-save. Used where a per-save toast would be noisy
+  // (e.g. a long list of match rows).
+  onUndo?: () => void;
   className?: string;
 }) {
   const isHebrew = locale === "he";
@@ -62,6 +67,15 @@ export function SaveStatus({
       >
         <Check className="h-3.5 w-3.5" strokeWidth={2.5} />
         {savedLabel ?? (isHebrew ? "נשמר" : "Saved")}
+        {onUndo && (
+          <button
+            type="button"
+            onClick={onUndo}
+            className="press-down inline-flex items-center min-h-11 px-2 -my-2 rounded-full font-bold text-on-surface-variant underline hover:text-on-surface"
+          >
+            {isHebrew ? "בטל" : "Undo"}
+          </button>
+        )}
       </span>
     );
   }
