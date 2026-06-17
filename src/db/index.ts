@@ -33,13 +33,20 @@ const isBuildPhase = process.env.NEXT_PHASE === "phase-production-build";
 
 const client = postgres(connectionString, {
   prepare: false,
-  // Small per-instance pool. On Vercel each warm function instance keeps
-  // its own pool, so many instances times a large `max` can oversubscribe
-  // the shared Supavisor pooler (max client conns 400 on Small compute).
-  // With Vercel and Supabase co-located in eu-west-1 (vercel.json region
-  // dub1) every query is ~1-2ms, so a handful of connections per instance
-  // is ample and leaves the pooler headroom under burst.
-  max: 3,
+  // Per-instance pool size. The dashboard (/[lang]) fans out ~20 queries
+  // concurrently across its Suspense sections plus the SmartHub
+  // generators, and on a cold Data Cache (e.g. right after the 5-min cron
+  // sync busts the tags) they all hit the DB at once. postgres-js has NO
+  // pool-acquisition timeout, so if a render needs more connections than
+  // `max` provides, the surplus queries wait indefinitely and the function
+  // is killed at its 300s limit. `max: 3` did exactly that on 2026-06-17
+  // and took the homepage down (see
+  // _plans/2026-06-17-performance-root-cause-and-fix.md). 10 is the
+  // long-proven value; the shared Supavisor pooler caps total client
+  // connections at 400, far above 10 per instance times the real instance
+  // count, so this never oversubscribes it. Co-location keeps each query
+  // ~1-2ms, so the pool drains the burst fast.
+  max: 10,
   idle_timeout: 20,
   ...(isBuildPhase
     ? {}

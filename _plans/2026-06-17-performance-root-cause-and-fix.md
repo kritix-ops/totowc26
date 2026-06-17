@@ -222,6 +222,40 @@ Not done by deliberate decision: T2.1 fan-out re-architecture (see its
 entry above) and the optional DB-to-Frankfurt move. T3 verification waits
 on a prod deploy.
 
+## Post-deploy verification (2026-06-17, prod live)
+
+- Probe confirmed the change is live on prod and serving traffic (match
+  bets 1514 to 1551, custom picks 1559 to 1616 between baseline and
+  re-probe).
+- Advisory lock: the ~49 acquisitions since the fix added ~1ms total
+  (essentially instant, zero contention) vs the 106s hold in the incident
+  history. Live activity showed 1 active query, no queued or lock-waiting
+  backends, 0 deadlocks.
+- Reset pg_stat_statements (user-approved) so go-forward numbers are
+  clean; the advisory-lock row now restarts from 0. The historical 106s
+  baseline is preserved in this plan and in the chat record.
+- Still outstanding: a peak-load confirmation during the next match-day
+  rush, which is the true stress test. Re-run diag-db.mjs then; the
+  advisory-lock max should stay in single-digit ms.
+
+## Regression and fix (2026-06-17, same day)
+
+After 3a0c958 reached prod, the homepage (/he) started returning 504
+"Task timed out after 300 seconds"; other routes (/he/bets, /he/admin/*,
+crons) kept returning 200, which cleared the dub1 region change as the
+cause. Root cause: max:3 was too low. The dashboard fans out ~20 queries
+concurrently (Suspense sections + SmartHub generators); on a cold Data
+Cache (the 5-min cron sync busts the tags) they hit the DB at once, and
+postgres-js has no pool-acquisition timeout, so the surplus queries over 3
+waited indefinitely and the function died at its 300s limit. Lighter pages
+survived because they need fewer connections. The DB itself stayed healthy
+throughout (probe: low backends, 0 deadlocks, no lock waits), confirming
+the starvation was client-side in the app pool, invisible to Postgres.
+
+Fix: revert max 3 to 10 (the long-proven value) in src/db/index.ts. Keep
+co-location (dub1, confirmed good by the 200s) and the lock fix. Lesson:
+do not set the per-instance pool below the dashboard's concurrent fan-out.
+
 ## Cost (rule 8)
 
 - T1.1 co-location: free.
