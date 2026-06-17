@@ -462,11 +462,11 @@ export function CustomBetCard({
         disabled={!editable || pending}
       />
 
-      {/* Player-chosen stake picker (live scope only). Rendered above
-          the scenarios so the live preview reacts to the same numbers
-          the player sees on the pills. Free-pick scopes skip the row
-          entirely — their cost is fixed at 0. */}
-      {!isFreePick && liveStakeConfig && (
+      {/* Player-chosen stake picker (live scope only). Only shown once an
+          answer is picked — before that, surfacing a stake/cost makes the
+          card look like a bet is already staged when none is. Free-pick
+          scopes skip the row entirely — their cost is fixed at 0. */}
+      {!isFreePick && liveStakeConfig && hasChoice && (
         <StakePicker
           locale={locale}
           value={chosenStake}
@@ -478,9 +478,9 @@ export function CustomBetCard({
       )}
 
       {/* "How the payout is calculated" — tap-to-expand explainer.
-          Live scope only; free-pick bets already render "ללא עלות"
-          on the summary so there's nothing to explain there. */}
-      {!isFreePick && liveStakeConfig && (
+          Live scope only, and only once an answer is picked (same reason as
+          the stake picker). Free-pick bets render "ללא עלות" instead. */}
+      {!isFreePick && liveStakeConfig && hasChoice && (
         <PayoutExplainer
           locale={locale}
           bet={bet}
@@ -490,33 +490,31 @@ export function CustomBetCard({
         />
       )}
 
-      {/* Scenarios: shows current bank, post-stake balance, and the
-          balance under each possible outcome. The "if correct" delta is
-          computed against the chosen stake for live bets so the pill
-          row and the bank preview agree. Free-pick scopes use the
-          per-option resolver (outright curves). */}
-      {/* Scenarios always render the prospective stake row, even before the
-          user has tapped an answer pill — that's the row that makes "אם תטעה"
-          read as a loss of the staked points (post-stake balance) instead
-          of misleadingly showing 0 → currentBalance. Free-pick scopes still
-          get stake=0 because their cost is genuinely zero. */}
-      <PickScenarios
-        locale={locale}
-        currentBalance={effective}
-        stake={effectiveStake}
-        scenarios={[
-          {
-            label: isHebrew ? "אם תפגע" : "If correct",
-            delta: grossPayout,
-            tone: "positive",
-          },
-          {
-            label: isHebrew ? "אם תטעה" : "If wrong",
-            delta: 0,
-            tone: "neutral",
-          },
-        ]}
-      />
+      {/* Scenarios: current bank + balance under each outcome. For priced
+          bets this only renders once an answer is picked — showing a
+          post-stake "cost" before any pick made the card look like a bet was
+          already placed (the source of the "it auto-saved 3 pts I never bet"
+          confusion). Free-pick scopes always show it (their cost is 0, so
+          there's nothing misleading). */}
+      {(isFreePick || hasChoice) && (
+        <PickScenarios
+          locale={locale}
+          currentBalance={effective}
+          stake={effectiveStake}
+          scenarios={[
+            {
+              label: isHebrew ? "אם תפגע" : "If correct",
+              delta: grossPayout,
+              tone: "positive",
+            },
+            {
+              label: isHebrew ? "אם תטעה" : "If wrong",
+              delta: 0,
+              tone: "neutral",
+            },
+          ]}
+        />
+      )}
 
       {/* Stake/payout + submit */}
       <div className="flex flex-col-reverse md:flex-row md:items-center md:justify-between gap-3 pt-3 border-t border-outline-variant">
@@ -525,28 +523,36 @@ export function CustomBetCard({
             <span className="font-bold text-on-surface">
               {isHebrew ? "ללא עלות" : "Free"}
             </span>
-          ) : (
-            <span>
-              {isHebrew ? "סיכון" : "Risk"}:{" "}
-              <bdi className="tabular-nums font-bold text-on-surface">
-                {effectiveStake}
-              </bdi>
+          ) : !hasChoice ? (
+            // No answer yet → no cost is being risked. Say so plainly instead
+            // of showing "Risk: 3", which read as a placed bet.
+            <span className="font-bold text-on-surface">
+              {isHebrew ? "בחר תשובה כדי להמר" : "Pick an answer to bet"}
             </span>
-          )}
-          <span aria-hidden className="opacity-40">·</span>
-          <span>
-            {isHebrew ? "זכייה אפשרית" : "Potential win"}:{" "}
-            <bdi className="tabular-nums font-bold text-on-surface">
-              +{Math.max(0, grossPayout - effectiveStake)}
-            </bdi>
-          </span>
-          {hasChoice && dirty && newCost > 0 && (
+          ) : (
             <>
-              <span aria-hidden className="opacity-40">·</span>
-              <span className={clsx(overdrawn && "text-error font-bold")}>
-                {isHebrew ? "בנק אחרי" : "Bank after"}:{" "}
-                <bdi className="tabular-nums">{bankAfter}</bdi>
+              <span>
+                {isHebrew ? "סיכון" : "Risk"}:{" "}
+                <bdi className="tabular-nums font-bold text-on-surface">
+                  {effectiveStake}
+                </bdi>
               </span>
+              <span aria-hidden className="opacity-40">·</span>
+              <span>
+                {isHebrew ? "זכייה אפשרית" : "Potential win"}:{" "}
+                <bdi className="tabular-nums font-bold text-on-surface">
+                  +{Math.max(0, grossPayout - effectiveStake)}
+                </bdi>
+              </span>
+              {dirty && newCost > 0 && (
+                <>
+                  <span aria-hidden className="opacity-40">·</span>
+                  <span className={clsx(overdrawn && "text-error font-bold")}>
+                    {isHebrew ? "בנק אחרי" : "Bank after"}:{" "}
+                    <bdi className="tabular-nums">{bankAfter}</bdi>
+                  </span>
+                </>
+              )}
             </>
           )}
         </div>
@@ -612,9 +618,12 @@ export function CustomBetCard({
               </div>
             )}
             {/* No commit button — picks auto-commit. Priced bets show the
-                lock / overdraft reason when a commit is blocked; otherwise a
-                quiet "saves itself" hint before a pick, then <SaveStatus />
-                (saving / saved / error+retry) once there's a pick. */}
+                lock / overdraft reason when a commit is blocked, then
+                <SaveStatus /> (saving / saved / error+retry) once there's a
+                pick. Before a pick there's deliberately NOTHING here for a
+                priced bet — the summary already says "pick an answer to bet",
+                so we don't also claim it "saves itself" (that read as a placed
+                bet). Free picks keep the reassuring auto-save hint. */}
             {locked ? (
               <span className="inline-flex items-center min-h-[44px] text-xs font-bold text-error">
                 {isHebrew ? "נעול: יתרה שלילית" : "Locked: negative bank"}
@@ -624,11 +633,11 @@ export function CustomBetCard({
                 {isHebrew ? "חורג מתקרת המינוס" : "Past overdraft cap"}
               </span>
             ) : pickDisplayState === "idle" ? (
-              <span className="inline-flex items-center min-h-[44px] text-xs text-on-surface-variant">
-                {isFreePick
-                  ? isHebrew ? "התשובה נשמרת אוטומטית" : "Your answer saves itself"
-                  : isHebrew ? "הבחירה נשמרת אוטומטית" : "Your pick saves itself"}
-              </span>
+              isFreePick ? (
+                <span className="inline-flex items-center min-h-[44px] text-xs text-on-surface-variant">
+                  {isHebrew ? "התשובה נשמרת אוטומטית" : "Your answer saves itself"}
+                </span>
+              ) : null
             ) : (
               <SaveStatus
                 state={pickDisplayState}
