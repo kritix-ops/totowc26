@@ -5,6 +5,8 @@ import { clsx } from "clsx";
 import { Sparkles, Clock, Swords, type LucideIcon } from "lucide-react";
 import { setSmartFlag } from "@/app/[lang]/profile/smart-hub-actions";
 import { usePendingAction } from "@/lib/use-pending-action";
+import { withTimeout, SAVE_TIMEOUT_MS } from "@/lib/with-timeout";
+import { toast } from "@/lib/toast";
 
 // Whitelist of icon names this toggle can render. Server-component
 // callers (e.g. /he/profile) pass a string here instead of a
@@ -59,14 +61,28 @@ export function SmartFlagToggle({
   function toggle() {
     if (disabled || pending) return;
     const next = !value;
-    // Optimistic flip so the switch feels instant. Roll back on
-    // server failure.
+    // Optimistic flip so the switch feels instant; the visible On/Off state
+    // is the success signal, so there's no success toast (it would be noise
+    // on a low-stakes switch). A failure rolls the switch back AND raises a
+    // loud toast — otherwise the switch would silently snap back and read as
+    // a glitch rather than "your change didn't save".
     setValue(next);
     void run(async () => {
-      const r = await setSmartFlag(flag, next);
-      if (!r.ok) {
+      let ok = false;
+      try {
+        const r = await withTimeout(setSmartFlag(flag, next), SAVE_TIMEOUT_MS);
+        ok = r.ok;
+        if (!r.ok) console.warn("[smart flag toggle failed]", { flag, error: r.error });
+      } catch (err) {
+        console.warn("[smart flag toggle threw]", { flag, err });
+      }
+      if (!ok) {
         setValue(!next);
-        console.warn("[smart flag toggle failed]", { flag, error: r.error });
+        toast.error(
+          isHebrew
+            ? "ההגדרה לא נשמרה. נסה שוב."
+            : "Couldn't save the setting. Try again.",
+        );
       }
     });
   }

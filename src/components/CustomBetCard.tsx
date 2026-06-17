@@ -1,9 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  AlertCircle,
-  Check,
   ChevronDown,
   Info,
   Lock,
@@ -30,7 +28,9 @@ import type {
 } from "@/lib/bets/types";
 import { usePickerOptions } from "@/lib/picker-options/client";
 import { usePendingAction } from "@/lib/use-pending-action";
+import { useAutosave } from "@/lib/use-autosave";
 import { withTimeout, SAVE_TIMEOUT_MS } from "@/lib/with-timeout";
+import { toast } from "@/lib/toast";
 import { resolvePickPayoutAtSubmit } from "@/lib/bets/payout";
 import {
   formatLiveRatio,
@@ -43,6 +43,7 @@ import { isFreePickScope } from "@/lib/bets/free-pick-scopes";
 import { liveStakeCap } from "@/lib/odds-normalize";
 import type { LiveStakeUiConfig } from "@/lib/bank";
 import { PickScenarios } from "@/components/PickScenarios";
+import { SaveStatus, type SaveState } from "@/components/SaveStatus";
 import {
   cancelCustomBetPick,
   submitCustomBetPick,
@@ -123,9 +124,6 @@ export function CustomBetCard({
   // The "current" answer the player has selected. Starts as their saved
   // pick if any, otherwise an empty draft of the right shape.
   const [draft, setDraft] = useState<PickAnswer | null>(bet.myAnswer);
-  const [error, setError] = useState<string | null>(null);
-  const [savedFlash, setSavedFlash] = useState(false);
-  const [cancelFlash, setCancelFlash] = useState(false);
   // Two-step destructive confirm: tap "Cancel pick" → strip flips to
   // "Sure? [Yes] [No]". A second deliberate tap is what actually fires
   // the destructive action. Keeps cancel discoverable without making a
@@ -133,15 +131,58 @@ export function CustomBetCard({
   const [confirmingCancel, setConfirmingCancel] = useState(false);
   const { pending, run } = usePendingAction();
 
+  // Tournament/stage/group bets are free picks: stake is forced to 0
+  // regardless of what bet.stakeSnapshot says, in case a legacy record
+  // slipped through with a non-zero value. They carry no money commit, so —
+  // unlike priced (match/day) bets — they AUTO-SAVE on every answer change
+  // instead of waiting for an explicit "Save pick" tap.
+  const isFreePick = isFreePickScope(bet.scope);
+
+  // Tracks whether the user has un-saved local edits, so the prop-sync
+  // effects below don't clobber an in-flight change. Reset after every
+  // successful save so the next server update flows through.
+  const userEditedRef = useRef(false);
+
+  // Free-pick autosave: persist the answer (no stake) through the shared
+  // single-flight scheduler. Priced bets never call schedule() — they keep
+  // their deliberate stake-commit button. On failure it raises a toast and
+  // returns false so the inline <SaveStatus /> shows error + retry; no
+  // success toast, since the inline status is the (quiet) confirmation.
+  const saveFreePick = useCallback(
+    async (answer: PickAnswer): Promise<boolean> => {
+      const res = await withTimeout(
+        submitCustomBetPick(bet.id, answer, undefined),
+        SAVE_TIMEOUT_MS,
+      ).catch(() => null);
+      if (!res) {
+        toast.error(
+          isHebrew ? "השמירה נתקעה. נסה שוב." : "Save timed out. Try again.",
+        );
+        return false;
+      }
+      if (!res.ok) {
+        toast.error(translateError(res.error, isHebrew, res));
+        return false;
+      }
+      // Let the next server-side change flow back into the draft.
+      userEditedRef.current = false;
+      return true;
+    },
+    [bet.id, isHebrew],
+  );
+  const {
+    status: freePickStatus,
+    schedule: scheduleFreePick,
+    retry: retryFreePick,
+    cancel: cancelFreePick,
+  } = useAutosave<PickAnswer>({ save: saveFreePick });
+
   // Sync the draft from the server when fresh props arrive (e.g. after
   // the "Surprise me" / deadline auto-fill / monkey-bot fill updated the
   // pick out-of-band and the parent re-fetched). useState only seeds on
   // first mount, so without this the widget would still show "no answer"
-  // even though the DB now holds an answer. We track local edits via a
-  // ref so that a user mid-tap on the widget isn't clobbered by a stray
-  // re-render. The ref is reset after every successful save, so the next
-  // server update flows through.
-  const userEditedRef = useRef(false);
+  // even though the DB now holds an answer. userEditedRef keeps a user
+  // mid-tap from being clobbered by a stray re-render.
   useEffect(() => {
     if (userEditedRef.current) return;
     setDraft(bet.myAnswer);
@@ -149,12 +190,15 @@ export function CustomBetCard({
   const editDraft = (next: PickAnswer | null) => {
     userEditedRef.current = true;
     setDraft(next);
+    // Free picks commit themselves: a non-null answer schedules the save.
+    // Deselecting (next === null) does NOT auto-cancel a saved pick — it
+    // just drops any pending save; removing a saved pick is the deliberate
+    // Cancel button.
+    if (isFreePick) {
+      if (next) scheduleFreePick(next);
+      else cancelFreePick();
+    }
   };
-
-  // Tournament/stage/group bets are free picks: stake is forced to 0
-  // regardless of what bet.stakeSnapshot says, in case a legacy record
-  // slipped through with a non-zero value.
-  const isFreePick = isFreePickScope(bet.scope);
 
   // Player-chosen stake for live (match/day) bets. Seeded from the
   // player's last saved choice (if any) or the bet's snapshotted default,
@@ -200,6 +244,17 @@ export function CustomBetCard({
     JSON.stringify(draft ?? null) !== JSON.stringify(bet.myAnswer ?? null) ||
     stakeDirty;
 
+  // Drive the free-pick status off the local draft — the source of truth for
+  // "is there a pick" — so cancelling drops straight back to the idle hint
+  // instead of showing a stale "saved", and a pre-existing pick reads as
+  // saved on load. Active saving/error states from the hook take priority.
+  const freePickDisplayState: SaveState =
+    freePickStatus === "saving" || freePickStatus === "error"
+      ? freePickStatus
+      : draft
+        ? "saved"
+        : "idle";
+
   const onChosenStake = (next: number) => {
     userEditedRef.current = true;
     setChosenStake(next);
@@ -207,21 +262,20 @@ export function CustomBetCard({
 
   const onCancel = () => {
     if (!editable || pending || !bet.myAnswer) return;
-    setError(null);
-    setSavedFlash(false);
-    setCancelFlash(false);
     void run(async () => {
       const res = await withTimeout(
         cancelCustomBetPick(bet.id),
         SAVE_TIMEOUT_MS,
       ).catch(() => null);
       if (!res) {
-        setError(isHebrew ? "הביטול נתקע. נסה שוב." : "Cancel timed out. Try again.");
+        toast.error(
+          isHebrew ? "הביטול נתקע. נסה שוב." : "Cancel timed out. Try again.",
+        );
         setConfirmingCancel(false);
         return;
       }
       if (!res.ok) {
-        setError(translateCancelError(res.error, isHebrew));
+        toast.error(translateCancelError(res.error, isHebrew));
         setConfirmingCancel(false);
         return;
       }
@@ -233,15 +287,15 @@ export function CustomBetCard({
       setDraft(null);
       setChosenStake(initialStake);
       setConfirmingCancel(false);
-      setCancelFlash(true);
+      // Clear any pending/last free-pick autosave state so the status drops
+      // to idle rather than lingering on "saved"/"error" after a cancel.
+      cancelFreePick();
+      toast.success(isHebrew ? "הניחוש בוטל" : "Pick cancelled");
     });
   };
 
   const onSubmit = () => {
     if (!draft || !editable || overdrawn || locked || pending) return;
-    setError(null);
-    setSavedFlash(false);
-    setCancelFlash(false);
     // usePendingAction releases the button on the action response, not
     // on submitCustomBetPick's revalidation re-render, so submitting
     // several bets in a row never leaves one stuck on "שומר…". withTimeout
@@ -258,17 +312,19 @@ export function CustomBetCard({
         SAVE_TIMEOUT_MS,
       ).catch(() => null);
       if (!res) {
-        setError(isHebrew ? "השמירה נתקעה. נסה שוב." : "Save timed out. Try again.");
+        toast.error(
+          isHebrew ? "השמירה נתקעה. נסה שוב." : "Save timed out. Try again.",
+        );
         return;
       }
       if (!res.ok) {
-        setError(translateError(res.error, isHebrew, res));
+        toast.error(translateError(res.error, isHebrew, res));
         return;
       }
       // Drop the "user has unsaved edits" guard so the next server-side
       // change (Surprise me / auto-fill / monkey) flows back into draft.
       userEditedRef.current = false;
-      setSavedFlash(true);
+      toast.success(isHebrew ? "נשמר" : "Saved");
     });
   };
 
@@ -444,24 +500,6 @@ export function CustomBetCard({
           )}
         </div>
         <div className="flex flex-col items-stretch md:items-end gap-1.5">
-          {error && (
-            <p className="inline-flex items-center gap-1.5 text-xs text-error">
-              <AlertCircle className="h-3 w-3" strokeWidth={2} />
-              {error}
-            </p>
-          )}
-          {savedFlash && !error && (
-            <p className="inline-flex items-center gap-1.5 text-xs text-secondary">
-              <Check className="h-3 w-3" strokeWidth={2.5} />
-              {isHebrew ? "נשמר" : "Saved"}
-            </p>
-          )}
-          {cancelFlash && !error && (
-            <p className="inline-flex items-center gap-1.5 text-xs text-secondary">
-              <Check className="h-3 w-3" strokeWidth={2.5} />
-              {isHebrew ? "הניחוש בוטל" : "Pick cancelled"}
-            </p>
-          )}
           <div className="flex flex-wrap items-center justify-end gap-2">
             {/* Cancel pick — only when there's a saved pick and the bet
                 is still editable. The two-step confirm strip prevents a
@@ -469,12 +507,7 @@ export function CustomBetCard({
             {bet.myAnswer && editable && !confirmingCancel && (
               <button
                 type="button"
-                onClick={() => {
-                  setError(null);
-                  setSavedFlash(false);
-                  setCancelFlash(false);
-                  setConfirmingCancel(true);
-                }}
+                onClick={() => setConfirmingCancel(true)}
                 disabled={pending}
                 className={clsx(
                   "press-down inline-flex items-center justify-center gap-1.5 min-h-[44px] px-4 rounded-full text-sm font-bold transition-colors",
@@ -527,26 +560,45 @@ export function CustomBetCard({
                 </button>
               </div>
             )}
-            <button
-              type="button"
-              onClick={onSubmit}
-              disabled={!editable || pending || overdrawn || locked || !hasChoice || !dirty}
-              className={clsx(
-                "press-down inline-flex items-center justify-center gap-2 min-h-[44px] px-5 rounded-full text-sm font-bold transition-colors",
-                "bg-primary text-on-primary shadow-md hover:bg-surface-tint",
-                "disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-primary",
-              )}
-            >
-              {pending && !confirmingCancel
-                ? isHebrew ? "שומר…" : "Saving…"
-                : locked
-                  ? isHebrew ? "נעול: יתרה שלילית" : "Locked: negative bank"
-                  : overdrawn
-                    ? isHebrew ? "חורג מתקרת המינוס" : "Past overdraft cap"
-                    : bet.myAnswer
-                      ? isHebrew ? "עדכן ניחוש" : "Update pick"
-                      : isHebrew ? "שמור ניחוש" : "Save pick"}
-            </button>
+            {isFreePick ? (
+              // Free picks auto-save — no commit button. When nothing is
+              // picked yet the status is idle, so show a quiet hint that the
+              // choice saves itself; once they pick, <SaveStatus /> reports
+              // saving / saved / error+retry.
+              freePickDisplayState === "idle" ? (
+                <span className="inline-flex items-center min-h-[44px] text-xs text-on-surface-variant">
+                  {isHebrew ? "התשובה נשמרת אוטומטית" : "Your answer saves itself"}
+                </span>
+              ) : (
+                <SaveStatus
+                  state={freePickDisplayState}
+                  locale={locale}
+                  onRetry={retryFreePick}
+                  className="min-h-[44px]"
+                />
+              )
+            ) : (
+              <button
+                type="button"
+                onClick={onSubmit}
+                disabled={!editable || pending || overdrawn || locked || !hasChoice || !dirty}
+                className={clsx(
+                  "press-down inline-flex items-center justify-center gap-2 min-h-[44px] px-5 rounded-full text-sm font-bold transition-colors",
+                  "bg-primary text-on-primary shadow-md hover:bg-surface-tint",
+                  "disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-primary",
+                )}
+              >
+                {pending && !confirmingCancel
+                  ? isHebrew ? "שומר…" : "Saving…"
+                  : locked
+                    ? isHebrew ? "נעול: יתרה שלילית" : "Locked: negative bank"
+                    : overdrawn
+                      ? isHebrew ? "חורג מתקרת המינוס" : "Past overdraft cap"
+                      : bet.myAnswer
+                        ? isHebrew ? "עדכן ניחוש" : "Update pick"
+                        : isHebrew ? "שמור ניחוש" : "Save pick"}
+              </button>
+            )}
           </div>
         </div>
       </div>

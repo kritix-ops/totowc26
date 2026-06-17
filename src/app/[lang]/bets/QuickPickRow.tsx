@@ -1,27 +1,32 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { Check, AlertCircle, Minus, Plus, Dices } from "lucide-react";
+import { useEffect, useCallback, useRef, useState } from "react";
+import { Minus, Plus, Dices } from "lucide-react";
 import { clsx } from "clsx";
 import { Card } from "@/components/ui";
 import { Flag } from "@/components/Flag";
+import { SaveStatus, type SaveState } from "@/components/SaveStatus";
 import type { Dictionary, Locale } from "../dictionaries";
 import { formatDateTime } from "@/lib/format";
 import { usePendingAction } from "@/lib/use-pending-action";
+import { useAutosave } from "@/lib/use-autosave";
+import { toast } from "@/lib/toast";
 import { withTimeout, SAVE_TIMEOUT_MS } from "@/lib/with-timeout";
 import { suggestMatchScore } from "./random-actions";
 import type { SaveBetResult } from "./[matchId]/actions";
 
-// One match row on the quick-picks /bets page. Self-contained: pre-
-// fills from the existing pick if any, runs the same saveBet server
-// action the per-match form uses, and shows inline feedback (saving /
-// saved / error) without leaving the page.
+// One match row on the quick-picks /bets page. Self-contained: pre-fills
+// from the existing pick if any and AUTO-SAVES — there is no Save button.
+// Changing a score (stepper or "Surprise me") schedules a debounced,
+// single-flight save through the same /api/bets/save Route Handler; the
+// inline <SaveStatus /> shows saving / saved / error+retry, and failures
+// also raise a loud toast in case the row has scrolled out of view.
 //
 // Layout is responsive by hand instead of via a single flex row.
 // On mobile we stack:
 //   1. Header (flags + names + kickoff time)
 //   2. Scoreboard (home stepper, direction, away stepper)
-//   3. Save button (full width)
+//   3. Save status (replaces the old full-width Save button)
 // On md+ we collapse back to a single row so the desktop list stays
 // dense. The earlier single-row layout was the right call for a wide
 // viewport but fell apart at 360px because the flag + steppers + save
@@ -60,33 +65,87 @@ export function QuickPickRow({
 
   const [home, setHome] = useState<number>(match.myHomeScore ?? 0);
   const [away, setAway] = useState<number>(match.myAwayScore ?? 0);
-  const [saved, setSaved] = useState<boolean>(hadPick);
-  const [dirty, setDirty] = useState<boolean>(false);
-  const [error, setError] = useState<string | null>(null);
-  const { pending, run } = usePendingAction();
+  // "Surprise me" runs a separate server fetch (not the autosave write), so
+  // it keeps its own in-flight guard to prevent a double re-roll.
+  const { pending: suggesting, run: runSuggest } = usePendingAction();
 
-  // Holds the home/away the user just successfully saved. Stays set
-  // until the next prop refresh arrives carrying those same values —
-  // at which point the server has caught up and we can let the normal
-  // prop sync run again. Why this exists: the /api/bets/save fetch
-  // does not trigger an automatic client refresh the way the old
-  // server action did, so when `dirty` flips to false on save the
-  // useEffect below would otherwise pull match.myHomeScore (still the
-  // pre-save value, often null) and flash the stepper back to 0:0
-  // even though the DB now holds the right pick — the 2026-06-04
-  // "מחק לי תוצאות 0-0" report.
+  // Holds the home/away the user just successfully saved. Stays set until
+  // the next prop refresh arrives carrying those same values — at which
+  // point the server has caught up and the prop-sync below can run again.
+  // Without it, a save's own revalidatePath race could repaint the user's
+  // fresh pick back to a stale 0:0 (the 2026-06-04 "מחק לי תוצאות 0-0" report).
   const justSavedRef = useRef<{ home: number; away: number } | null>(null);
 
-  // Sync the local stepper state from the server when fresh props arrive
-  // (e.g. after the "Surprise me" action + router.refresh()). useState
-  // only seeds on first mount, so without this the stepper would still
-  // show 0:0 even though the DB now holds 2:1.
-  // Guarded by `dirty`: if the user is mid-edit we don't clobber their
-  // in-flight input. Also guarded by justSavedRef so a save's own props
-  // race can't repaint our own write as 0:0.
-  /* eslint-disable react-hooks/set-state-in-effect */
+  // Persist one scoreline through the /api/bets/save Route Handler (parallel
+  // via fetch — Server Functions dispatch one-at-a-time per tab and queued
+  // behind each other's revalidation, the 2026-06-04 lost-pick incident).
+  // Returns true on success; on any failure it raises a localized toast and
+  // returns false so the autosave hook flips to its error + retry state. The
+  // write is an idempotent upsert, so a retry after a false-timeout can
+  // never double-write.
+  const doSave = useCallback(
+    async (score: { home: number; away: number }): Promise<boolean> => {
+      const { home: h, away: a } = score;
+      // Bound the wait so a hung pooler can't strand the row on "saving".
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), SAVE_TIMEOUT_MS);
+      let res: SaveBetResult;
+      try {
+        const r = await fetch("/api/bets/save", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ matchId: match.id, home: h, away: a }),
+          signal: controller.signal,
+        });
+        if (!r.ok) {
+          const bodyText = await r.text().catch(() => "<unreadable>");
+          console.error("[match-bet save http]", {
+            matchId: match.id,
+            status: r.status,
+            statusText: r.statusText,
+            body: bodyText.slice(0, 400),
+          });
+          toast.error(translateError("db", dict));
+          return false;
+        }
+        res = (await r.json()) as SaveBetResult;
+      } catch (err) {
+        // Our abort (timeout) or a transport failure — the pick is unsaved.
+        console.error("[match-bet save fetch]", { matchId: match.id, err });
+        toast.error(translateError("db", dict));
+        return false;
+      } finally {
+        clearTimeout(timeoutId);
+      }
+      if (!res.ok) {
+        console.error("[match-bet save error code]", {
+          matchId: match.id,
+          home: h,
+          away: a,
+          error: res.error,
+        });
+        toast.error(translateError(res.error, dict));
+        return false;
+      }
+      // Stamp what we wrote BEFORE the prop-sync effect can run so it sees
+      // the guard and won't paint stale props over the value we just saved.
+      justSavedRef.current = { home: h, away: a };
+      return true;
+    },
+    [match.id, dict],
+  );
+
+  const { status, schedule, retry } = useAutosave<{ home: number; away: number }>(
+    { save: doSave },
+  );
+
+  // Sync the local steppers from the server when fresh props arrive (e.g. a
+  // "Surprise me" elsewhere or a deadline auto-fill). Guarded so it never
+  // clobbers an in-flight edit: while a save is pending ("saving") or has
+  // failed ("error") the local value is the source of truth. justSavedRef
+  // additionally blocks a save's own props race from repainting 0:0.
   useEffect(() => {
-    if (dirty) return;
+    if (status === "saving" || status === "error") return;
     if (justSavedRef.current) {
       const j = justSavedRef.current;
       if (match.myHomeScore === j.home && match.myAwayScore === j.away) {
@@ -100,19 +159,7 @@ export function QuickPickRow({
     }
     setHome(match.myHomeScore ?? 0);
     setAway(match.myAwayScore ?? 0);
-    if (match.myHomeScore !== null && match.myAwayScore !== null) {
-      setSaved(true);
-    }
-  }, [match.myHomeScore, match.myAwayScore, dirty]);
-  /* eslint-enable react-hooks/set-state-in-effect */
-
-  // No auto-clear: a saved bet stays saved. The earlier 2.5s/6s
-  // timeout flipped the button back to "שמור" while the bet was
-  // still persistently in the DB, which the QA agent caught and which
-  // a user would read as "my save was undone". The button now stays
-  // on the "נשמר" state until the user edits the score (onBump sets
-  // saved=false + dirty=true, which is the correct transition - they
-  // are about to overwrite their pick).
+  }, [match.myHomeScore, match.myAwayScore, status]);
 
   const homeName = isHebrew ? match.homeNameHe : match.homeNameEn;
   const awayName = isHebrew ? match.awayNameHe : match.awayNameEn;
@@ -132,112 +179,52 @@ export function QuickPickRow({
     new Date(match.kickoffAt).getTime() - lockMinutes * 60_000 <= now;
   const disabled = !canEdit || locked;
 
+  // A pre-existing pick reads as "saved" on load even though no save has run
+  // this session (status is still "idle"); once the user edits, the live
+  // autosave status takes over.
+  const displayState: SaveState =
+    status === "idle" && hadPick ? "saved" : status;
+  const committed = hadPick || status === "saved";
+  // "Surprise me" is an entry-point affordance: offer it only until a pick
+  // exists, then the steppers are how the user adjusts.
+  const showSurprise = !disabled && !committed;
+
   const onBump = (side: "home" | "away", delta: 1 | -1) => {
     if (disabled) return;
-    setDirty(true);
-    setSaved(false);
-    if (side === "home") setHome((v) => Math.max(0, Math.min(99, v + delta)));
-    else setAway((v) => Math.max(0, Math.min(99, v + delta)));
+    const nextHome = side === "home" ? clampScore(home + delta) : home;
+    const nextAway = side === "away" ? clampScore(away + delta) : away;
+    // Tapping past the 0–99 floor/ceiling is a no-op; don't schedule a
+    // redundant save.
+    if (nextHome === home && nextAway === away) return;
+    setHome(nextHome);
+    setAway(nextAway);
+    schedule({ home: nextHome, away: nextAway });
   };
 
-  // Persist an explicit scoreline through the save Route Handler. Takes the
-  // values as arguments (rather than reading `home`/`away` state) so the
-  // "Surprise me" path can save the freshly-suggested score without waiting
-  // for a state-update render. Returns true on success.
-  const doSave = async (h: number, a: number): Promise<boolean> => {
-    // POST through a Route Handler (parallel via fetch) instead of the
-    // saveBet server action — Next dispatches Server Functions ONE AT
-    // A TIME per browser tab, so rapid-fire row saves queued behind
-    // each other's revalidatePath and lost picks when the user
-    // navigated away (2026-06-04 incident). usePendingAction still
-    // gates re-entrant clicks and clears the button in `finally`.
-    let res: SaveBetResult;
-    // Bound the wait: if the server hangs (pooler saturated, no response
-    // ever), abort after SAVE_TIMEOUT_MS so the button releases with an
-    // error the user can retry, instead of sitting on "שומר…" forever.
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), SAVE_TIMEOUT_MS);
-    try {
-      const r = await fetch("/api/bets/save", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ matchId: match.id, home: h, away: a }),
-        signal: controller.signal,
-      });
-      // Surface the raw response on non-2xx so the next debug pass
-      // (incl. the QA agent rerun) sees status + body text and can
-      // tell a 500 HTML error apart from a server-returned db code.
-      if (!r.ok) {
-        const bodyText = await r.text().catch(() => "<unreadable>");
-        console.error("[match-bet save http]", {
-          matchId: match.id,
-          status: r.status,
-          statusText: r.statusText,
-          body: bodyText.slice(0, 400),
-        });
-        setError("db");
-        return false;
-      }
-      res = (await r.json()) as SaveBetResult;
-    } catch (err) {
-      // Either our abort (timeout) or a transport failure — both leave
-      // the pick unsaved. The save is an idempotent upsert, so retrying
-      // after a false-timeout can never double-write.
-      console.error("[match-bet save fetch]", { matchId: match.id, err });
-      setError("db");
-      return false;
-    } finally {
-      clearTimeout(timeoutId);
-    }
-    if (!res.ok) {
-      console.error("[match-bet save error code]", {
-        matchId: match.id,
-        home: h,
-        away: a,
-        error: res.error,
-      });
-      setError(res.error);
-      return false;
-    }
-    // Stamp what we wrote BEFORE flipping dirty, so the post-save
-    // useEffect sees the guard and does not paint stale props over
-    // the value the user just saved.
-    justSavedRef.current = { home: h, away: a };
-    setSaved(true);
-    setDirty(false);
-    return true;
-  };
-
-  const submit = () => {
-    if (disabled || pending || !dirty) return;
-    setError(null);
-    void run(async () => {
-      await doSave(home, away);
-    });
-  };
-
-  // Per-match "Surprise me": ask the server for a realistic scoreline, paint it
-  // into the steppers, and save it through the same pipeline. The user can
-  // re-tap (re-roll) or adjust with the steppers before it sticks.
+  // Per-match "Surprise me": ask the server for a realistic scoreline, paint
+  // it into the steppers, and schedule the autosave. The user can re-tap
+  // (re-roll) or adjust with the steppers before it sticks. The suggestion
+  // fetch has its own in-flight guard (runSuggest) separate from the save.
   const onSurprise = () => {
-    if (disabled || pending) return;
-    setError(null);
-    void run(async () => {
+    if (disabled || suggesting) return;
+    void runSuggest(async () => {
       const res = await withTimeout(
         suggestMatchScore(match.id),
         SAVE_TIMEOUT_MS,
       ).catch(() => null);
       if (!res) {
-        setError("db");
+        toast.error(translateError("db", dict));
         return;
       }
       if (!res.ok) {
-        setError(res.error === "not_paid" ? "not_paid" : "db");
+        toast.error(
+          translateError(res.error === "not_paid" ? "not_paid" : "db", dict),
+        );
         return;
       }
       setHome(res.home);
       setAway(res.away);
-      await doSave(res.home, res.away);
+      schedule({ home: res.home, away: res.away });
     });
   };
 
@@ -312,74 +299,43 @@ export function QuickPickRow({
           />
         </div>
 
-        <div className="flex items-center gap-2 flex-1 md:flex-none justify-end">
-          {!disabled && !saved && (
+        <div className="flex items-center gap-2 flex-1 md:flex-none justify-end min-h-[44px]">
+          {showSurprise && (
             <button
               type="button"
               onClick={onSurprise}
-              disabled={pending}
+              disabled={suggesting}
               aria-label={isHebrew ? "תפתיע אותי" : "Surprise me"}
               title={isHebrew ? "תפתיע אותי" : "Surprise me"}
               className={clsx(
                 "press-down h-11 w-11 inline-flex items-center justify-center rounded-full shrink-0",
                 "bg-tertiary-fixed text-on-tertiary-fixed-variant border border-tertiary-fixed-dim",
-                pending && "opacity-60 cursor-wait",
+                suggesting && "opacity-60 cursor-wait",
               )}
             >
               <Dices className="h-5 w-5" strokeWidth={1.75} />
             </button>
           )}
 
-          <button
-            type="button"
-            onClick={submit}
-            disabled={disabled || pending || !dirty}
-          className={clsx(
-            "press-down min-h-[44px] px-5 inline-flex items-center justify-center gap-1.5 rounded-full text-sm font-bold flex-1 md:flex-none md:min-w-[120px]",
-            saved && !dirty
-              ? "bg-secondary-container text-on-secondary-container border border-secondary-fixed"
-              : dirty
-                ? "bg-primary text-on-primary"
-                : "bg-surface-container-low text-on-surface-variant border border-outline-variant",
-            (disabled || pending || !dirty) && "cursor-not-allowed",
-          )}
-          aria-label={
-            pending
-              ? isHebrew
-                ? "שומר הימור"
-                : "Saving bet"
-              : saved && !dirty
-                ? isHebrew
-                  ? "הימור נשמר"
-                  : "Bet saved"
-                : isHebrew
-                  ? "שמור הימור"
-                  : "Save bet"
-          }
-          aria-live="polite"
-        >
-          {pending ? (
-            isHebrew ? "שומר..." : "Saving..."
-          ) : saved && !dirty ? (
-            <>
-              <Check className="h-4 w-4" strokeWidth={2.5} />
-              {isHebrew ? "נשמר" : "Saved"}
-            </>
-          ) : (
-            <span>{isHebrew ? "שמור" : "Save"}</span>
-          )}
-          </button>
+          {/* Auto-save status replaces the old Save button: the row saves
+              itself on every change, so this just reports saving / saved /
+              error (with an inline retry, since there's no button to re-tap). */}
+          <SaveStatus
+            state={displayState}
+            locale={locale}
+            onRetry={retry}
+            className="justify-end"
+          />
         </div>
       </div>
-
-      {error && (
-        <span className="inline-flex items-center gap-1 text-[11px] text-error">
-          <AlertCircle className="h-3 w-3" strokeWidth={2} />
-          {translateError(error, dict)}
-        </span>
-      )}
     </Card>
   );
+}
+
+// Goals are clamped to a sane 0–99 range — the same bound the steppers
+// enforced inline before the value moved through the autosave scheduler.
+function clampScore(v: number): number {
+  return Math.max(0, Math.min(99, v));
 }
 
 function Stepper({

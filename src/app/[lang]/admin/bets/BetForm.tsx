@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { AlertCircle, Plus, RotateCcw, Trash2 } from "lucide-react";
 import { clsx } from "clsx";
@@ -38,7 +38,18 @@ import type { AdminAnchorMatch, AdminAnchorDay, BetTemplate } from "@/db/admin-q
 import type { BetTypeKey } from "@/db/schema";
 import { useAutoTranslate } from "@/lib/use-auto-translate";
 import { AutoTranslateHint } from "@/components/AutoTranslateHint";
+import { useAutosave } from "@/lib/use-autosave";
+import { withTimeout, SAVE_TIMEOUT_MS } from "@/lib/with-timeout";
+import { toast } from "@/lib/toast";
+import { SaveStatus } from "@/components/SaveStatus";
 import { createCustomBet, updateCustomBet } from "./actions";
+
+// Build payload type, shared by createCustomBet (arg 0) and updateCustomBet
+// (arg 1) — both take the same CreateCustomBetInput shape.
+type BetPayload = Parameters<typeof createCustomBet>[0];
+type BuildResult =
+  | { ok: true; payload: BetPayload }
+  | { ok: false; error: string };
 
 // Shared bet-author form. Two modes:
 //   create – default; submit hits createCustomBet, redirects to list.
@@ -622,10 +633,12 @@ export function BetForm({
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
-  const submit = (e: React.FormEvent) => {
-    e.preventDefault();
-    setError(null);
-
+  // Build + validate the full payload from the current form state. PURE — no
+  // setState — so it's safe to call during render to drive both the explicit
+  // submit and the draft autosave. Returns a typed error string rather than
+  // surfacing it; each caller decides what to do (inline error vs. wait for
+  // the form to become valid).
+  const buildPayload = (): BuildResult => {
     const built = buildAnswerConfig(
       answerType,
       { numberUnit, numberMin, numberMax },
@@ -633,8 +646,10 @@ export function BetForm({
       { freeTextPlaceholderHe, freeTextPlaceholderEn },
     );
     if (built === "invalid") {
-      setError(isHebrew ? "תצורת תשובה לא תקינה" : "Invalid answer config");
-      return;
+      return {
+        ok: false,
+        error: isHebrew ? "תצורת תשובה לא תקינה" : "Invalid answer config",
+      };
     }
 
     // Embed per-choice live pricing derived from the admin's probabilities.
@@ -654,16 +669,17 @@ export function BetForm({
         livePricingConfig,
       );
       if (priced === "incomplete") {
-        setError(
-          pricingMode === "ratio"
-            ? isHebrew
-              ? "מלא יחס לכל האפשרויות (או השאר את כולן ריקות)."
-              : "Fill a ratio for every option (or leave them all empty)."
-            : isHebrew
-              ? "מלא הסתברות לכל האפשרויות (או השאר את כולן ריקות)."
-              : "Fill a probability for every option (or leave them all empty).",
-        );
-        return;
+        return {
+          ok: false,
+          error:
+            pricingMode === "ratio"
+              ? isHebrew
+                ? "מלא יחס לכל האפשרויות (או השאר את כולן ריקות)."
+                : "Fill a ratio for every option (or leave them all empty)."
+              : isHebrew
+                ? "מלא הסתברות לכל האפשרויות (או השאר את כולן ריקות)."
+                : "Fill a probability for every option (or leave them all empty).",
+        };
       }
       if (priced) {
         answerConfig = priced;
@@ -691,8 +707,10 @@ export function BetForm({
       },
     );
     if (gradingConfig === "invalid") {
-      setError(isHebrew ? "תצורת דירוג לא תקינה" : "Invalid grading config");
-      return;
+      return {
+        ok: false,
+        error: isHebrew ? "תצורת דירוג לא תקינה" : "Invalid grading config",
+      };
     }
 
     // Reinterpret the widget value as Asia/Jerusalem wall time. Using
@@ -701,35 +719,58 @@ export function BetForm({
     // for any admin editing from outside IL.
     const lockAtIso = localInputValueToIso(lockAtLocal);
     if (!lockAtIso) {
-      setError(isHebrew ? "זמן סגירה לא תקין" : "Invalid lock time");
-      return;
+      return {
+        ok: false,
+        error: isHebrew ? "זמן סגירה לא תקין" : "Invalid lock time",
+      };
     }
 
-    const payload = {
-      scope,
-      matchId: scope === "match" ? matchId : null,
-      matchdayDate: scope === "day" ? dayDate : null,
-      stage: scope === "stage" ? stage : null,
-      groupId: scope === "group" ? groupId : null,
-      questionHe,
-      questionEn,
-      gradingRuleHe,
-      gradingRuleEn,
-      answerType,
-      answerConfig,
-      stakeSnapshot: stake,
-      payoutSnapshot: payout,
-      // Only live scopes ship a decimal_odds value, and only when pricing
-      // is a single outcome (number/free-text). Per-option/per-side priced
-      // bets carry their odds inside answer_config and null this out. The
-      // server re-asserts the scope gate and rejects a stray value on
-      // free-pick scopes.
-      decimalOdds: betLevelDecimalOdds,
-      gradingSource,
-      gradingConfig,
-      lockAt: lockAtIso,
+    return {
+      ok: true,
+      payload: {
+        scope,
+        matchId: scope === "match" ? matchId : null,
+        matchdayDate: scope === "day" ? dayDate : null,
+        stage: scope === "stage" ? stage : null,
+        groupId: scope === "group" ? groupId : null,
+        questionHe,
+        questionEn,
+        gradingRuleHe,
+        gradingRuleEn,
+        answerType,
+        answerConfig,
+        stakeSnapshot: stake,
+        payoutSnapshot: payout,
+        // Only live scopes ship a decimal_odds value, and only when pricing
+        // is a single outcome (number/free-text). Per-option/per-side priced
+        // bets carry their odds inside answer_config and null this out. The
+        // server re-asserts the scope gate and rejects a stray value on
+        // free-pick scopes.
+        decimalOdds: betLevelDecimalOdds,
+        gradingSource,
+        gradingConfig,
+        lockAt: lockAtIso,
+      },
     };
+  };
 
+  // Current build, recomputed each render. Drives the explicit submit, the
+  // autosave-valid gate, and the inline draft-status hint. draftKey is a
+  // stable string that only changes when the built payload (or its validity)
+  // changes — the trigger for the draft autosave effect below.
+  const draftBuild = buildPayload();
+  const draftKey = draftBuild.ok
+    ? JSON.stringify(draftBuild.payload)
+    : `invalid:${draftBuild.error}`;
+
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    if (!draftBuild.ok) {
+      setError(draftBuild.error);
+      return;
+    }
+    const { payload } = draftBuild;
     startTransition(async () => {
       if (mode === "edit") {
         if (!betId) {
@@ -754,6 +795,67 @@ export function BetForm({
       }
     });
   };
+
+  // ---- Draft autosave (edit mode only) ----
+  // Persist an existing draft's edits as the admin works, without leaving the
+  // form. Creation stays an explicit act (no auto-creating partial rows), and
+  // ONLY valid payloads are written — the trigger effect skips invalid
+  // mid-edit states, so a half-typed config never reaches the DB.
+  // updateCustomBet is draft-only server-side, so a published bet can't be
+  // silently rewritten. The explicit "Save changes" button stays as the
+  // finish-and-go-back action.
+  const saveDraft = useCallback(
+    async (payload: BetPayload): Promise<boolean> => {
+      if (!betId) return false;
+      const res = await withTimeout(
+        updateCustomBet(betId, payload),
+        SAVE_TIMEOUT_MS,
+      ).catch(() => null);
+      if (!res) {
+        toast.error(
+          isHebrew
+            ? "השמירה האוטומטית נכשלה. נסה שוב."
+            : "Autosave failed. Try again.",
+        );
+        return false;
+      }
+      if (!res.ok) {
+        toast.error(translateError(res.error, isHebrew));
+        return false;
+      }
+      return true;
+    },
+    [betId, isHebrew],
+  );
+  const {
+    status: draftStatus,
+    schedule: scheduleDraftSave,
+    retry: retryDraftSave,
+  } = useAutosave<BetPayload>({ save: saveDraft });
+
+  // Hold the latest build for the trigger effect without reading it during
+  // that effect's render (refs lint rule). This effect runs before the
+  // trigger effect below, so the ref is current when it fires.
+  const draftBuildRef = useRef(draftBuild);
+  useEffect(() => {
+    draftBuildRef.current = draftBuild;
+  });
+
+  // Fire the autosave whenever the built payload changes — edit mode only,
+  // valid only, skipping the initial render (the loaded draft is already
+  // saved). useAutosave debounces + coalesces, so a run through several
+  // fields is one write.
+  const firstDraftRender = useRef(true);
+  useEffect(() => {
+    if (mode !== "edit") return;
+    if (firstDraftRender.current) {
+      firstDraftRender.current = false;
+      return;
+    }
+    const built = draftBuildRef.current;
+    if (!built.ok) return;
+    scheduleDraftSave(built.payload);
+  }, [draftKey, mode, scheduleDraftSave]);
 
   const cancelHref =
     mode === "edit" && betId
@@ -1643,7 +1745,32 @@ export function BetForm({
         </p>
       )}
 
-      <div className="flex flex-col-reverse md:flex-row md:justify-end gap-3 pt-4 border-t border-outline-variant">
+      <div className="flex flex-col-reverse md:flex-row md:items-center md:justify-end gap-3 pt-4 border-t border-outline-variant">
+        {/* Draft autosave status (edit mode). The draft persists itself as
+            you go; this reports it, and the explicit button below stays as
+            the deliberate finish-and-go-back action. */}
+        {mode === "edit" && (
+          <div className="flex items-center md:me-auto min-h-[44px] text-xs">
+            {!draftBuild.ok ? (
+              <span className="inline-flex items-center gap-1.5 text-on-surface-variant">
+                {isHebrew
+                  ? "השלם את השדות כדי שהטיוטה תישמר אוטומטית"
+                  : "Complete the fields so the draft autosaves"}
+              </span>
+            ) : draftStatus === "idle" ? (
+              <span className="text-on-surface-variant">
+                {isHebrew ? "הטיוטה נשמרת אוטומטית" : "Draft saves automatically"}
+              </span>
+            ) : (
+              <SaveStatus
+                state={draftStatus}
+                locale={locale}
+                savedLabel={isHebrew ? "טיוטה נשמרה" : "Draft saved"}
+                onRetry={retryDraftSave}
+              />
+            )}
+          </div>
+        )}
         <button
           type="button"
           onClick={() => router.push(cancelHref)}
