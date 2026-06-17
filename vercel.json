@@ -1,5 +1,5 @@
 {
-  "regions": ["fra1"],
+  "regions": ["dub1"],
   "crons": [
     {
       "path": "/api/cron/sync",

@@ -33,7 +33,13 @@ const isBuildPhase = process.env.NEXT_PHASE === "phase-production-build";
 
 const client = postgres(connectionString, {
   prepare: false,
-  max: 10,
+  // Small per-instance pool. On Vercel each warm function instance keeps
+  // its own pool, so many instances times a large `max` can oversubscribe
+  // the shared Supavisor pooler (max client conns 400 on Small compute).
+  // With Vercel and Supabase co-located in eu-west-1 (vercel.json region
+  // dub1) every query is ~1-2ms, so a handful of connections per instance
+  // is ample and leaves the pooler headroom under burst.
+  max: 3,
   idle_timeout: 20,
   ...(isBuildPhase
     ? {}
