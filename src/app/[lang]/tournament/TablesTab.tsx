@@ -1,7 +1,8 @@
-import { getLiveStandings } from "@/db/queries";
+import { getLiveStandings, type LiveGroup } from "@/db/queries";
 import { getFormByCode } from "@/lib/stats";
 import { getDictionary, type Locale } from "../dictionaries";
 import { LiveStandings } from "./LiveStandings";
+import { settle } from "./safe";
 
 // Full live group standings. Thin wrapper around <LiveStandings/> so the
 // page.tsx server component can keep its tab dispatch flat. Hits both our
@@ -10,8 +11,8 @@ import { LiveStandings } from "./LiveStandings";
 
 export async function TablesTab({ locale }: { locale: Locale }) {
   const [groups, formByCode, dict] = await Promise.all([
-    getLiveStandings(),
-    getFormByCode(),
+    settle<LiveGroup[]>("tables:standings", [], () => getLiveStandings()),
+    settle<Map<string, string>>("tables:form", new Map(), () => getFormByCode()),
     getDictionary(locale),
   ]);
   return (
