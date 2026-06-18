@@ -428,6 +428,13 @@
       "when": 1782270000000,
       "tag": "0060_transparency_history_toggle",
       "breakpoints": true
+    },
+    {
+      "idx": 61,
+      "version": "7",
+      "when": 1782280000000,
+      "tag": "0061_notification_kind_bet_cancelled",
+      "breakpoints": true
     }
   ]
 }

@@ -536,6 +536,157 @@ export async function cancelCustomBet(
   }
 }
 
+export type VoidCustomBetResult =
+  | { ok: true; picksRefunded: number; recipients: number }
+  | { ok: false; error: GradeErr };
+
+// Cancel a live bet and refund the stake to EVERY picker — including when the
+// bet was already graded. The driving case: a player prop ("will X score")
+// where the player never took the field, so the auto cron already graded it
+// "no" and paid the wrong side. One click unwinds the whole thing: refund all
+// picks, write an audit row, close the bet as cancelled, and drop a feed
+// notice to each picker.
+//
+// Difference from cancelCustomBet: that one is the list's quick, no-reason
+// cancel and is ungraded-only (it rejects 'graded'). This one requires a
+// reason and accepts a graded bet — it is the corrective action surfaced on
+// the bet detail page.
+//
+// Refund mechanic (same primitive cancelCustomBet uses, applied to ALL picks):
+// set points_earned = stake_paid on every pick. The bank formula sums
+// points_earned - stake_paid, so each pick nets to exactly zero and the picker
+// is made whole, win or lose, graded or not. No pick row is ever deleted —
+// "user bets are SACRED".
+export async function voidCustomBet(
+  id: string,
+  reason: string,
+): Promise<VoidCustomBetResult> {
+  const user = await getUser();
+  if (!user) return { ok: false, error: "unauth" };
+  if (!(await hasPermission(user.id, "liveBets"))) {
+    console.warn("[bet void denied]", { userId: user.id, id });
+    return { ok: false, error: "forbidden" };
+  }
+
+  const trimmedReason = reason.trim();
+  if (trimmedReason.length < 3) {
+    return { ok: false, error: "invalid_reason" };
+  }
+
+  try {
+    const result = await db.transaction(async (tx) => {
+      const [bet] = await tx
+        .select({
+          status: customBets.status,
+          resolvedValue: customBets.resolvedValue,
+          questionHe: customBets.questionHe,
+        })
+        .from(customBets)
+        .where(eq(customBets.id, id))
+        .limit(1);
+
+      if (!bet) return { ok: false as const, error: "bet_not_found" as const };
+      // Already cancelled → nothing to void. Every other status (draft / open /
+      // locked / graded / reversed) is a valid void target.
+      if (bet.status === "cancelled") {
+        return { ok: false as const, error: "invalid_status" as const };
+      }
+
+      // Refund every pick. Setting points_earned = stake_paid nets the pick to
+      // zero in the bank formula; it also overwrites a graded pick's payout, so
+      // a wrongly auto-graded prop is fully unwound for both sides.
+      const refunded = await tx
+        .update(userCustomBetPicks)
+        .set({
+          pointsEarned: sql`${userCustomBetPicks.stakePaid}`,
+          updatedAt: new Date(),
+        })
+        .where(eq(userCustomBetPicks.customBetId, id))
+        .returning({ userId: userCustomBetPicks.userId });
+
+      await tx.insert(betGradingAudit).values({
+        customBetId: id,
+        action: "cancel",
+        previousStatus: bet.status,
+        newStatus: "cancelled",
+        previousResolvedValue: bet.resolvedValue as unknown,
+        newResolvedValue: null,
+        reason: trimmedReason,
+        performedBy: user.id,
+      });
+
+      await tx
+        .update(customBets)
+        .set({
+          status: "cancelled",
+          resolvedValue: null,
+          gradedAt: null,
+          gradedBy: null,
+          updatedAt: new Date(),
+        })
+        .where(eq(customBets.id, id));
+
+      // One pick per (user, bet) by unique index, so distinct users == picks.
+      return {
+        ok: true as const,
+        prevStatus: bet.status,
+        questionHe: bet.questionHe,
+        pickerIds: [...new Set(refunded.map((r) => r.userId))],
+      };
+    });
+
+    if (!result.ok) return result;
+
+    // Feed-only notice to each picker, AFTER the refund has committed. Strictly
+    // best-effort: the refund is the contract, the notice is a courtesy, so a
+    // notify failure is logged and swallowed and never rolls the refund back.
+    // push:false per the agreed scope — a cancellation does not buzz phones.
+    let recipients = 0;
+    if (result.pickerIds.length > 0) {
+      try {
+        const notice = await notifyUsers(
+          { kind: "users", userIds: result.pickerIds },
+          {
+            kind: "bet_cancelled",
+            title: "הימור בוטל",
+            body: `ההימור "${result.questionHe}" בוטל והנקודות שהימרת הוחזרו לך.`,
+            url: "/he/bets/live",
+            push: false,
+            createdBy: user.id,
+          },
+        );
+        recipients = notice.inserted;
+      } catch (err) {
+        console.error(
+          "[bet void] notify failed (refund already committed):",
+          err,
+        );
+      }
+    }
+
+    console.info("[bet void]", {
+      id,
+      prevStatus: result.prevStatus,
+      picksRefunded: result.pickerIds.length,
+      recipients,
+      by: user.id,
+    });
+    revalidatePath("/[lang]/admin/bets", "page");
+    revalidatePath(`/[lang]/admin/bets/${id}`, "page");
+    revalidatePath("/[lang]/play", "layout");
+    revalidatePath("/[lang]/leaderboard", "page");
+    revalidatePath("/[lang]/bets/tournament", "page");
+    return {
+      ok: true,
+      picksRefunded: result.pickerIds.length,
+      recipients,
+    };
+  } catch (err) {
+    console.error("[bet void] failed:", err);
+    return { ok: false, error: "db" };
+  }
+}
+
 // Announce one or more freshly-published live bets to the players via
 // push. Manual / batch only — there is no auto-on-publish path. The
 // admin selects open live bets in the composer; this builds a single

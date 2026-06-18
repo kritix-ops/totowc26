@@ -7,6 +7,7 @@ import { localePath } from "@/lib/paths";
 import { formatDateTime } from "@/lib/format";
 import { getAdminCustomBetDetail } from "@/db/admin-queries";
 import { GradeForm } from "./GradeForm";
+import { VoidBetForm } from "./VoidBetForm";
 import { TemplateArchiveCard } from "./TemplateArchiveCard";
 
 export default async function AdminBetDetailPage({
@@ -117,6 +118,10 @@ export default async function AdminBetDetailPage({
           payoutSnapshot: bet.payoutSnapshot,
         }}
       />
+
+      {/* Cancel & refund — works on a graded bet too, e.g. a player prop
+          where the player never played. Hidden for draft / cancelled. */}
+      <VoidBetForm locale={locale} bet={{ id: bet.id, status: bet.status }} />
 
       {/* Picks table */}
       <section className="flex flex-col gap-3">

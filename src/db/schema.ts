@@ -1158,6 +1158,10 @@ export const NOTIFICATION_KINDS = [
   // manually announces one or more freshly-published live bets. Body is
   // "match name + count" per anchor. See the live-bet push composer.
   "live_bet",
+  // Sent (feed only, no push) from voidCustomBet when an admin cancels a
+  // live bet and refunds the stake to everyone who picked — e.g. a player
+  // prop where the player never took the field. See migration 0061.
+  "bet_cancelled",
 ] as const;
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];
 
