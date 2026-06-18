@@ -435,6 +435,13 @@
       "when": 1782280000000,
       "tag": "0061_notification_kind_bet_cancelled",
       "breakpoints": true
+    },
+    {
+      "idx": 62,
+      "version": "7",
+      "when": 1782290000000,
+      "tag": "0062_reopen_audit_action",
+      "breakpoints": true
     }
   ]
 }

@@ -7,8 +7,10 @@ import { localePath } from "@/lib/paths";
 import { formatDateTime } from "@/lib/format";
 import { getAdminCustomBetDetail } from "@/db/admin-queries";
 import { GradeForm } from "./GradeForm";
+import { ReopenBetCard } from "./ReopenBetCard";
 import { VoidBetForm } from "./VoidBetForm";
 import { TemplateArchiveCard } from "./TemplateArchiveCard";
+import { canReopen } from "@/lib/bets/reopen";
 
 export default async function AdminBetDetailPage({
   params,
@@ -105,6 +107,14 @@ export default async function AdminBetDetailPage({
       {/* Template archive toggle — affects only the template picker /
           quick-add chip strips. Players never see this column. */}
       <TemplateArchiveCard betId={bet.id} archived={bet.templateArchived} locale={locale} />
+
+      {/* Reopen for filling — only for a reversed bet that still has time on
+          the clock. The recovery path for a grade-then-reverse done by
+          mistake before kickoff; placed above the grade form because that is
+          the more likely intent right after the mistake. */}
+      {canReopen(bet.status, new Date(bet.lockAt), new Date()) && (
+        <ReopenBetCard locale={locale} betId={bet.id} />
+      )}
 
       {/* Grade form OR resolved-value display */}
       <GradeForm

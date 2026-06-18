@@ -27,6 +27,7 @@ import type {
   ResolvedValue,
 } from "@/lib/bets/types";
 import { gradedPickPoints } from "@/lib/bets/payout";
+import { reopenBlockedReason } from "@/lib/bets/reopen";
 import {
   repriceAnswerConfigFromOdds,
   validateLiveOddsConfig,
@@ -1258,6 +1259,93 @@ export async function reverseCustomBetGrading(
     return result;
   } catch (err) {
     console.error("[grading reverse] failed:", err);
+    return { ok: false, error: "db" };
+  }
+}
+
+export type ReopenCustomBetResult =
+  | { ok: true }
+  | { ok: false; error: GradeErr | "no_time_left" };
+
+// Reopen a bet that was reversed by mistake so players can resume filling.
+// The driving case: an admin clicks an answer in the grade form and grades,
+// then "reverses" it — leaving status='reversed', which removes the bet from
+// every player fill surface (they gate on status='open'). If the match has
+// not started yet there is no reason it should be closed.
+//
+// Atomic + guarded:
+//   1. Re-read status + lock_at inside the txn.
+//   2. reopenBlockedReason enforces: must be 'reversed' AND lock_at in the
+//      future. (A reverse already reset every pick to ungraded, so flipping
+//      back to 'open' is clean — existing pickers keep their pick, new players
+//      can fill.)
+//   3. Audit row (action='reopen'), then status → 'open'.
+//
+// No resolved_value is touched (reverse already cleared it). No reason input is
+// required from the admin — this is a one-click correction — so we store a
+// fixed, descriptive audit reason that satisfies the non-empty CHECK.
+export async function reopenCustomBet(
+  id: string,
+): Promise<ReopenCustomBetResult> {
+  const user = await getUser();
+  if (!user) return { ok: false, error: "unauth" };
+  if (!(await hasPermission(user.id, "liveBets"))) {
+    console.warn("[bet reopen denied]", { userId: user.id, id });
+    return { ok: false, error: "forbidden" };
+  }
+
+  try {
+    const result = await db.transaction(async (tx) => {
+      const [bet] = await tx
+        .select({ status: customBets.status, lockAt: customBets.lockAt })
+        .from(customBets)
+        .where(eq(customBets.id, id))
+        .limit(1);
+
+      if (!bet) return { ok: false as const, error: "bet_not_found" as const };
+
+      const blocked = reopenBlockedReason(bet.status, bet.lockAt, new Date());
+      if (blocked === "not_reopenable") {
+        return { ok: false as const, error: "invalid_status" as const };
+      }
+      if (blocked === "no_time_left") {
+        return { ok: false as const, error: "no_time_left" as const };
+      }
+
+      await tx.insert(betGradingAudit).values({
+        customBetId: id,
+        action: "reopen",
+        previousStatus: "reversed",
+        newStatus: "open",
+        previousResolvedValue: null,
+        newResolvedValue: null,
+        reason: "Reopened for filling (was reversed before kickoff)",
+        performedBy: user.id,
+      });
+
+      await tx
+        .update(customBets)
+        .set({ status: "open", updatedAt: new Date() })
+        .where(and(eq(customBets.id, id), eq(customBets.status, "reversed")));
+
+      return { ok: true as const };
+    });
+
+    if (result.ok) {
+      console.info("[bet reopen]", { id, by: user.id });
+      // Bust every surface that filters on status='open': the admin list +
+      // detail, the player play/live fill pages, the leaderboard, and the
+      // tournament page. The live fill pages are auth-dynamic, but the
+      // admin segments are cached, so revalidate to flip the UI immediately.
+      revalidatePath("/[lang]/admin/bets", "page");
+      revalidatePath(`/[lang]/admin/bets/${id}`, "page");
+      revalidatePath("/[lang]/play", "layout");
+      revalidatePath("/[lang]/bets/live", "layout");
+      revalidatePath("/[lang]/leaderboard", "page");
+    }
+    return result;
+  } catch (err) {
+    console.error("[bet reopen] failed:", err);
     return { ok: false, error: "db" };
   }
 }
