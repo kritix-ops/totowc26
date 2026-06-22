@@ -1,0 +1,21 @@
+-- Add 'postponed' and 'canceled' to the match_status enum.
+--
+-- Until now match_status was scheduled / live / final only, so a match
+-- that was called off had no representation: the sync mapped upstream
+-- PST -> scheduled and CANC/ABD -> no_change, leaving the row stuck and
+-- its match_bets ungraded forever with no operator control and no signal
+-- to players. See _plans/2026-06-22-match-cancel-postpone-admin.md.
+--
+--   postponed - temporary. No scoring; picks are frozen. Admin sets a new
+--               kickoff later which flips the row back to scheduled.
+--   canceled  - terminal. The match is off. Sits pending (no scoring) until
+--               the admin picks a resolution for the 1/X/2 guesses, while
+--               its match-scoped live bets are voided + refunded immediately.
+--
+-- Standalone enum-value addition mirrors migration 0053. ADD VALUE is kept
+-- in its own migration (and not used here) so the new labels are committed
+-- before any later migration or runtime code references them. IF NOT EXISTS
+-- makes a re-run a no-op.
+ALTER TYPE "public"."match_status" ADD VALUE IF NOT EXISTS 'postponed';
+--> statement-breakpoint
+ALTER TYPE "public"."match_status" ADD VALUE IF NOT EXISTS 'canceled';

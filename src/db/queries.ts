@@ -3,6 +3,7 @@ import { cache } from "react";
 import { sql } from "drizzle-orm";
 import { unstable_cache } from "next/cache";
 import { execFirstRow, execRows } from "./helpers";
+import type { MatchStatus } from "./schema";
 import { approvedPotIlsSql, paidParticipantsSql } from "./pot";
 import type { MultiChoiceOption } from "@/lib/bets/types";
 import { renderPickAnswer } from "@/lib/bets/format";
@@ -108,7 +109,7 @@ export type FixtureRow = {
   kickoffAt: string;
   stage: string;
   groupId: string | null;
-  status: "scheduled" | "live" | "final";
+  status: MatchStatus;
   homeScore: number | null;
   awayScore: number | null;
   finalizedAt: string | null;
@@ -191,7 +192,7 @@ export type TodayBetsFixture = {
   awayNameHe: string;
   awayNameEn: string;
   kickoffAt: string;
-  status: "scheduled" | "live" | "final";
+  status: MatchStatus;
   homeScore: number | null;
   awayScore: number | null;
   myHome: number | null;
@@ -1251,7 +1252,7 @@ export async function getProfileStats(userId: string): Promise<ProfileStats> {
 // Profile screen: recent matches a user has interacted with.
 export type HistoryRow = {
   matchId: string;
-  status: "scheduled" | "live" | "final";
+  status: MatchStatus;
   kickoffAt: string;
   homeCode: string;
   homeNameHe: string;
@@ -1833,7 +1834,7 @@ export type TeamMatchRow = {
   kickoffAt: string;
   stage: string;
   groupId: string | null;
-  status: "scheduled" | "live" | "final";
+  status: MatchStatus;
   isHome: boolean;
   opponentCode: string;
   opponentNameHe: string;
@@ -1882,7 +1883,7 @@ export type H2HMatch = {
   matchId: string;
   kickoffAt: string;
   stage: string;
-  status: "scheduled" | "live" | "final";
+  status: MatchStatus;
   aGoals: number | null;
   bGoals: number | null;
   aIsHome: boolean;
@@ -2201,7 +2202,7 @@ export type PlayFixture = {
   awayCode: string;
   awayNameHe: string;
   awayNameEn: string;
-  status: "scheduled" | "live" | "final";
+  status: MatchStatus;
   myHome: number | null;
   myAway: number | null;
 };
@@ -3467,7 +3468,7 @@ export type LiveMatchRow = {
   awayNameHe: string;
   awayNameEn: string;
   kickoffAt: string;
-  status: "scheduled" | "live" | "final";
+  status: MatchStatus;
   homeScore: number | null;
   awayScore: number | null;
   myHomeScore: number | null;
@@ -3558,7 +3559,7 @@ export type PastMatchPickRow = {
   // 'scheduled' rows that slipped under the 5-minute lock window are
   // bucketed as 'live' from the player's POV — the match is effectively
   // locked even if API-Football hasn't promoted the status yet.
-  status: "scheduled" | "live" | "final";
+  status: MatchStatus;
   homeScore: number | null;
   awayScore: number | null;
   myHomeScore: number | null;

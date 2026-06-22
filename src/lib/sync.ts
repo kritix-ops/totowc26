@@ -38,6 +38,7 @@ import { BetLockReminderEmail } from "./email/templates/BetLockReminderEmail";
 import { formatDateTime } from "./format";
 import { formatMinutesRemainingHe } from "./format-he";
 import { notifyUsers } from "./notifications";
+import { scoreCanceledMatchesSweep } from "./matches/score-canceled";
 import { isPushConfigured, sendPush } from "./push";
 import TEAM_NAMES from "../../data/team-names.json";
 
@@ -205,6 +206,14 @@ async function _runSync(
   const scoring = await scoreFinalMatches();
   report.scoredBets = scoring.scoredBets;
   report.scoredMatches = scoring.scoredMatches;
+
+  // Safety net for canceled+resolved matches: if a resolve action graded the
+  // 1/X/2 guesses inline but was interrupted, finish the leftovers here. Pure
+  // no-op when there is nothing pending. Idempotent (points_earned IS NULL).
+  const canceledScoring = await scoreCanceledMatchesSweep();
+  if (canceledScoring.scoredBets > 0) {
+    console.info("[sync canceled sweep]", canceledScoring);
+  }
 
   // Auto-grade any custom_bets with grading_source='auto_football_data'
   // whose underlying matches are now final. Idempotent: only touches bets
@@ -378,9 +387,18 @@ async function _ingestFromApiFootball(
         ht_away_score = excluded.ht_away_score,
         went_to_penalties = excluded.went_to_penalties,
         finalized_at = case when excluded.status = 'final' and matches.finalized_at is null then now() else matches.finalized_at end
+      where matches.status not in ('postponed', 'canceled')
       returning (xmax = 0) as inserted
     `);
-    if (rows[0]?.inserted) {
+    if (rows.length === 0) {
+      // Conflict hit a row the admin has manually parked in postponed/canceled.
+      // The DO UPDATE WHERE skipped it, so upstream never stomps the hold.
+      report.skipped += 1;
+      console.info("[sync upsert]", {
+        fixtureId: f.fixtureId,
+        action: "skipped (manual hold)",
+      });
+    } else if (rows[0].inserted) {
       report.inserted += 1;
       console.info("[sync upsert]", { fixtureId: f.fixtureId, action: "inserted" });
     } else {
@@ -454,9 +472,17 @@ async function _ingestFromFootballData(
         ht_away_score = excluded.ht_away_score,
         went_to_penalties = excluded.went_to_penalties,
         finalized_at = case when excluded.status = 'final' and matches.finalized_at is null then now() else matches.finalized_at end
+      where matches.status not in ('postponed', 'canceled')
       returning (xmax = 0) as inserted
     `);
-    if (rows[0]?.inserted) {
+    if (rows.length === 0) {
+      // Admin-parked row (postponed/canceled): the DO UPDATE WHERE skipped it.
+      report.skipped += 1;
+      console.info("[sync upsert]", {
+        fixtureId: f.id,
+        action: "skipped (manual hold)",
+      });
+    } else if (rows[0].inserted) {
       report.inserted += 1;
       console.info("[sync upsert]", { fixtureId: f.id, action: "inserted" });
     } else {
