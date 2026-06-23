@@ -75,6 +75,15 @@ import {
   SectionHeading,
 } from "@/components/ui";
 
+// Cap server-side execution well below Vercel's 300s default. Without this
+// a render — or a Server Action on this page, maxDuration covers both — that
+// stalls waiting on a saturated DB pool squats the full 300s behind a spinner
+// (the recurring "loading forever" fall). 25s fails fast into a retryable
+// error and frees the function slot + connections instead of leaking them.
+// This is the heaviest read fan-out; no legitimate render approaches 25s. See
+// _plans/2026-06-23-prod-falls-reliability-fix.md.
+export const maxDuration = 25;
+
 export default async function HomePage({
   params,
   searchParams,

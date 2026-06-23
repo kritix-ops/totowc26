@@ -40,6 +40,14 @@ type DuelRow = {
   iAmJoiner: boolean;
 };
 
+// Cap server-side execution well below Vercel's 300s default. A render — or a
+// duel open/join Server Action on this page, maxDuration covers both — that
+// stalls on a saturated DB pool fails fast into a retryable error at 25s
+// instead of squatting five minutes (the recurring "loading forever" fall).
+// The bank advisory-lock section is ~1ms (06-17), so 25s never trips legit
+// work. See _plans/2026-06-23-prod-falls-reliability-fix.md.
+export const maxDuration = 25;
+
 export default async function DuelsIndexPage({
   params,
   searchParams,

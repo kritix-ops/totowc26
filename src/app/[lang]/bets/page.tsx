@@ -36,6 +36,14 @@ type GroupedDay = {
   matches: QuickPickRowData[];
 };
 
+// Cap server-side execution well below Vercel's 300s default. A render — or a
+// quick-pick Server Action on this page, maxDuration covers both — that stalls
+// on a saturated DB pool fails fast into a retryable error at 25s instead of
+// squatting five minutes (the recurring "loading forever" fall). 25s is far
+// above any legitimate work here. See
+// _plans/2026-06-23-prod-falls-reliability-fix.md.
+export const maxDuration = 25;
+
 export default async function QuickBetsPage({
   params,
   searchParams,

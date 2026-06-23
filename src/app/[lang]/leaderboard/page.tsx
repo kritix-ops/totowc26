@@ -27,6 +27,13 @@ type PageParams = {
 
 const TABS: LeaderboardTab[] = ["overall", "matches", "live", "duels"];
 
+// Cap server-side execution well below Vercel's 300s default so a render that
+// stalls on a saturated DB pool fails fast into a retryable error instead of
+// squatting five minutes behind a spinner (the recurring "loading forever"
+// fall). 25s is far above any legitimate cold render here. See
+// _plans/2026-06-23-prod-falls-reliability-fix.md.
+export const maxDuration = 25;
+
 export default async function LeaderboardPage({
   params,
   searchParams,
