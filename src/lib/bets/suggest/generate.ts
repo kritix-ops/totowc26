@@ -52,7 +52,7 @@ export type GenerateResult =
   | { ok: true; suggestions: LiveBetSuggestion[] }
   | { ok: false; error: "no_key" | "api_error" | "no_tool_use" | "empty" };
 
-const DEFAULT_COUNT = 6;
+const DEFAULT_COUNT = 8;
 const MIN_COUNT = 2;
 const MAX_COUNT = 10;
 
@@ -84,10 +84,14 @@ export async function generateSuggestions(
     model,
     system: buildSystemPrompt(context.scope),
     userContent: buildUserPrompt(context, count, opts),
-    // ~340 output tokens per bilingual bet; scale the cap to the requested
-    // count (+headroom). Web search adds its own reasoning tokens, so give a
-    // little more headroom when it's on.
-    maxTokens: Math.min(4096, (maxUses > 0 ? 1000 : 700) + count * 420),
+    // A rich bilingual bet (a 5-7 bucket distribution with He+En labels, a
+    // bilingual question + grading rule, grading config and rationale) runs
+    // ~550-650 output tokens — far more than a plain yes/no — so the old
+    // 4096 ceiling truncated a varied batch mid-tool-call and returned zero
+    // bets. Scale ~650/bet and cap at 8192 (well within the 4.x models' 64k
+    // output limit) so a 10-bet varied batch always completes. Web search
+    // adds reasoning tokens, so a touch more headroom when it's on.
+    maxTokens: Math.min(8192, (maxUses > 0 ? 1400 : 1000) + count * 650),
   };
 
   // Web search needs an agentic loop (the model searches, then emits), so we

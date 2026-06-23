@@ -75,7 +75,7 @@ async function generate(scope: GenerationScope, label: string, dossier: string, 
     },
     body: JSON.stringify({
       model: MODEL,
-      max_tokens: 4096,
+      max_tokens: 8192,
       system,
       messages: [{ role: "user", content: user }],
       tools: [
@@ -135,8 +135,8 @@ function printBatch(title: string, bets: Bet[], usage: any) {
   if (usage) console.log(`  tokens: in ${usage.input_tokens}, out ${usage.output_tokens}`);
 }
 
-const matchRes = await generate("match", "Spain (HE: ספרד) vs Germany (HE: גרמניה) — Group E", MATCH_DOSSIER, 7);
+const matchRes = await generate("match", "Spain (HE: ספרד) vs Germany (HE: גרמניה) — Group E", MATCH_DOSSIER, 9);
 printBatch("MATCH SCOPE — Spain vs Germany", matchRes.bets, matchRes.usage);
 
-const dayRes = await generate("day", "All matches on Sat 27 Jun (3 fixtures)", DAY_DOSSIER, 6);
+const dayRes = await generate("day", "All matches on Sat 27 Jun (3 fixtures)", DAY_DOSSIER, 8);
 printBatch("DAY SCOPE — 3-match slate (must aggregate across ALL)", dayRes.bets, dayRes.usage);

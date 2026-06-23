@@ -71,6 +71,28 @@ describe("validateSuggestion", () => {
   it("rejects a too-short grading rule", () => {
     expect(validateSuggestion({ ...mcBase, gradingRuleEn: "x" })).toMatch(/too short/);
   });
+
+  it("rejects a never-valid Hebrew token in an option label (שערות = hairs)", () => {
+    const bad = {
+      ...mcBase,
+      options: [
+        { ...mcBase.options![0], labelHe: "0-3 שערות" },
+        mcBase.options![1],
+        mcBase.options![2],
+      ],
+    };
+    expect(validateSuggestion(bad)).toMatch(/שערות/);
+  });
+
+  it("rejects the bad token in the question text too", () => {
+    expect(validateSuggestion({ ...mcBase, questionHe: "כמה שערות יהיו במשחק?" })).toMatch(
+      /שערות/,
+    );
+  });
+
+  it("does not flag the correct plural שערים", () => {
+    expect(validateSuggestion({ ...mcBase, questionHe: "כמה שערים יהיו במשחק?" })).toBeNull();
+  });
 });
 
 describe("suggestionToDraft", () => {

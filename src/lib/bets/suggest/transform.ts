@@ -28,6 +28,30 @@ export type SuggestionDraft = {
   grading: GradingConfig;
 };
 
+// Hebrew tokens that are NEVER valid in a football bet — a generation slip,
+// not a stylistic choice (e.g. 'שערות' = hairs, the wrong plural of 'שער' /
+// goals, which the model occasionally emitted for "goals"). A suggestion
+// containing one is hard-rejected so garbled Hebrew never reaches users. The
+// prompt's Hebrew-quality block is the first line of defence; this is the
+// deterministic backstop. Kept to UNAMBIGUOUS words only, so a legitimate term
+// (e.g. 'נגיחה' = header) is never dropped by mistake.
+const HEBREW_DENYLIST = ["שערות"];
+
+function hebrewDenylistHit(s: LiveBetSuggestion): string | null {
+  const fields = [
+    s.questionHe,
+    s.gradingRuleHe,
+    ...(s.options ?? []).map((o) => o.labelHe),
+  ];
+  for (const text of fields) {
+    if (!text) continue;
+    for (const bad of HEBREW_DENYLIST) {
+      if (text.includes(bad)) return `hebrew typo '${bad}'`;
+    }
+  }
+  return null;
+}
+
 // Shape-validate a single suggestion beyond what the JSON Schema guarantees:
 // the answer-type-specific fields must be present and internally consistent.
 // Returns a human-readable reason string on failure, or null when valid.
@@ -36,6 +60,8 @@ export function validateSuggestion(s: LiveBetSuggestion): string | null {
   if (s.gradingRuleHe.trim().length < 3 || s.gradingRuleEn.trim().length < 3) {
     return "grading rule too short";
   }
+  const heTypo = hebrewDenylistHit(s);
+  if (heTypo) return heTypo;
   if (s.answerType === "multi_choice") {
     const opts = s.options ?? [];
     if (opts.length < 2 || opts.length > 8) return "multi_choice needs 2-8 options";

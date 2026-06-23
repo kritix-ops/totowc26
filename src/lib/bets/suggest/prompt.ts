@@ -78,7 +78,7 @@ export function buildSystemPrompt(scope: GenerationScope): string {
     "Hard rules:",
     "- Every bet has Hebrew AND English question + grading rule. No em dashes anywhere.",
     "- Give each outcome a calibrated PROBABILITY (0..1). For multi_choice the options are mutually exclusive and their probabilities should roughly sum to 1. Be realistic and use the dossier: a likely outcome gets a high probability so it pays little. Do not flatten probabilities into a fake spread, and do not make a star striker's 'to score' a coin flip when the data says otherwise.",
-    "- Prefer ONE grouped multi_choice DISTRIBUTION over several yes/no bets when outcomes are related. A distribution with 4-7 options is more interesting than a 50/50 yes/no: the probability spreads, so each option pays more. Lead the batch with distributions; keep flat yes/no markets a minority.",
+    "- Prefer grouped multi_choice DISTRIBUTIONS over flat yes/no when outcomes are related, and give them MANY buckets: 4-7 mutually exclusive options, leaning to the finer end so the probability spreads and each option pays more. A 50/50 yes/no is the least interesting shape — keep those a minority.",
     "- A multi_choice market whose options are NUMERIC RANGES of a derivable quantity (total goals 0-1 / 2-3 / 4+, total corners, total cards, winning margin) MUST set grading to the matching auto source so it self-grades — the system maps the measured number to the option whose range contains it. Keep each option's `value` a plain range token ('0-1', '2-3', '4+') so the mapping is unambiguous; never sign-prefix it ('+4'). Make the ranges a clean partition with no gaps or overlaps.",
     "- Set grading to an auto source ONLY when the outcome is fully derivable from the feeds below; otherwise grading must be null (manual).",
     `  auto_football_data fields (final score / halves): ${AUTO_FOOTBALL_DATA_FIELDS.join(", ")}.`,
@@ -106,14 +106,15 @@ export function buildSystemPrompt(scope: GenerationScope): string {
 // supporting variety rather than the bulk.
 function matchCapabilities(): string {
   return [
-    "Capabilities (use the ones that fit, skip the rest). LEAD with distributions:",
-    "- COUNT DISTRIBUTIONS (multi_choice, your backbone): total corners, total yellow cards, total shots on target, total offsides, total fouls, total goals, or winning margin — each as 3-5 mutually exclusive range buckets. They all auto-grade. Pick buckets that actually split the probability for THIS matchup (a cagey game's corner buckets sit lower than an open one's).",
-    "- FIRST-EVENT-WINDOW DISTRIBUTIONS (multi_choice): which 15-minute window the first goal / first card / first substitution falls in, plus a 'no event' bucket. High-engagement, auto-graded (see firstEventWindow below).",
-    "- Player markets keyed to a real dossier player (to score, to score or assist, to be booked) when there is a standout worth featuring. A scrappy game with no big names does not need forced star props.",
-    "- Team angles: a side that concedes / keeps clean sheets a lot -> clean-sheet or both-teams-to-score; the projected scoreline -> a winning-margin or first-goal-window market.",
-    "- COMEBACK markets (yes_no): 'will a team come back from behind to win?' (or 'will TEAM come back to win?'). High drama, auto-graded (see comeback below). Reach for these when the dossier suggests a close, swingy game.",
-    "- A few sharp yes/no event markets (red card in a half, goal in the opening 15, a substitution before the hour) for flavor — keep them the minority.",
-    "Vary the shapes across the batch and never repeat an idea. YOU decide the mix that fits this specific fixture; nothing here is mandatory, but a batch that is all flat yes/no bets is a failure.",
+    "Capabilities. Aim for a VARIED, surprising batch — the obvious three (total goals, total cards, total corners) are NOT the point. Build mostly from the less-common angles below; the classics are allowed but must NOT dominate: at most one or two per batch, and never the lead.",
+    "- LESS-COMMON COUNT DISTRIBUTIONS (multi_choice — your primary material): total offsides, total shots on target, total shots from outside the box, total fouls, goalkeeper saves, winning margin. Each as 4-7 mutually exclusive range buckets. Lean to the FINER end (more, narrower buckets) when the quantity spreads wide, so the probability really splits and each option pays more. All auto-grade (auto_api_football stat, per_match; winning margin via auto_football_data).",
+    "- FIRST-EVENT-WINDOW DISTRIBUTIONS (multi_choice) — use these often: which 15-minute window the FIRST substitution / first card / first goal falls in (+ a 'no event' bucket). High-engagement, auto-graded (see firstEventWindow below).",
+    "- SUBSTITUTION & TIMING markets: a substitution before the hour (events, metric substitution, window {1,60}); a card in the opening 20; a goal in first-half stoppage ({45,50}); a penalty in the match. Use the substitution metric freely — it is a fresh angle the pool has not seen.",
+    "- COMEBACK (yes_no): 'will a team come back from behind to win?' (or a specific side). High drama, auto-graded (see comeback below).",
+    "- Player markets keyed to a real dossier player (to score, to be booked) — sparingly, only when a standout genuinely fits.",
+    "- Team angles: clean sheet, both-teams-to-score, winning-margin distribution.",
+    "- The CLASSICS (total goals / total cards / total corners): fine as ONE or TWO supporting bets, never the headline, never the whole batch.",
+    "Vary the METRIC and the BUCKETING across the batch — never repeat a metric, and do not make every bet a count distribution either (mix in a first-event-window, a timing yes/no, a comeback). Be genuinely creative within good taste; surprise the pool. A batch dominated by goals/cards/corners is a failure.",
   ].join("\n");
 }
 
@@ -121,11 +122,11 @@ function matchCapabilities(): string {
 // per-fixture markets are explicitly out of scope here.
 function dayCapabilities(): string {
   return [
-    "Capabilities (every market aggregates across ALL the day's fixtures — never a single game):",
-    "- DAY-WIDE COUNT DISTRIBUTIONS (multi_choice, your backbone): total goals across all of today's matches, total yellow cards on the day, total red cards, total corners, total offsides, total shots on target — each as 3-5 mutually exclusive range buckets sized to the number of fixtures in the dossier. These self-grade (total goals via auto_football_data total_goals; the rest via auto_api_football stat with aggregate sum_day).",
+    "Capabilities (every market aggregates across ALL the day's fixtures — never a single game). Aim for VARIETY; lead with the less-common stats, not just goals:",
+    "- DAY-WIDE COUNT DISTRIBUTIONS (multi_choice): total offsides, total shots on target, total shots from outside the box, total fouls, total saves, total corners, total cards (yellow/red), total goals, first-half goals — each as 4-7 mutually exclusive range buckets sized to the number of fixtures. Lean to finer buckets so the probability spreads. Foreground the less-common stats; total goals/cards are fine as one or two, not the whole batch.",
     "- The ONLY day-wide auto sources are auto_football_data total_goals/ht_total and auto_api_football stats with aggregate sum_day. Match-only sources (events, firstEventWindow, comeback, per_match/first_match stats) do NOT grade at day scope — a day bet using them settles MANUALLY. So make day bets distributions/numbers off a day-wide source; only write a day yes/no if you accept manual grading, and keep its wording unambiguous (say 'somewhere today / across the day', never 'in each match').",
     "- Avoid single-player props at day scope: one player's tally cannot be aggregated cleanly across the slate. Keep the focus on day-wide totals.",
-    "Vary the buckets and the stats across the batch; never repeat the same total twice. Size every range to the actual number of fixtures today.",
+    "Vary the stat AND the bucketing across the batch; never repeat the same total twice. Size every range to the actual number of fixtures today.",
   ].join("\n");
 }
 
@@ -138,7 +139,8 @@ function hebrewRegisterBlock(): string {
   return [
     "Hebrew quality (critical):",
     "- Write the Hebrew like an Israeli football fan texting friends, casual and natural, NOT like a translated betting slip. It should never read as if run through a translator.",
-    "- Use the natural Hebrew football register. Glossary: שער (goal), בישול/אסיסט (assist), כרטיס צהוב/אדום (yellow/red card), פנדל (penalty), קרן (corner), הפסקה/מחצית ראשונה/שנייה (half-time / first / second half), ניצחון/תיקו/הפסד (win/draw/loss), שער נקי (clean sheet), שתי הקבוצות יבקיעו (both teams to score).",
+    "- Use the natural Hebrew football register with the CORRECT plurals. Glossary: שער / שערים (goal / goals — the plural is 'שערים'; NEVER 'שערות', which means 'hairs'), קרן / קרנות (corner / corners; NEVER 'שערות קרן'), כרטיס / כרטיסים (card / cards), נבדל / נבדלים (offside / offsides; NEVER 'נגיחות'), בישול/אסיסט (assist), פנדל (penalty), בעיטה למסגרת (shot on target), בעיטה מחוץ לרחבה (shot from outside the box; NEVER 'קופסה'), עבירה / עבירות (foul / fouls), הצלת שוער / הצלות (goalkeeper save / saves), חילוף / חילופים (substitution), מרווח שערים (winning margin), הפסקה/מחצית ראשונה/שנייה (half-time / first / second half), ניצחון/תיקו/הפסד (win/draw/loss), שער נקי (clean sheet), שתי הקבוצות יבקיעו (both teams to score).",
+    "- PROOFREAD every Hebrew string before emitting — the question, the grading rule, AND every option label (labels are shown to users). Each must be complete and grammatical: keep the definite article ה where it belongs ('הפרש של שער אחד', never 'פרש שער אחד'), never drop or swap letters, and use the EXACT glossary word for the metric ('נבדלים' for offsides, never 'נגיחות'; 'רחבה', never 'קופסה'). A dropped letter or a wrong/garbled word in any label is a defect, not a stylistic choice.",
     "- Phrase player markets with the player's Hebrew name naturally, e.g. 'מסי יבקיע במשחק?' not 'האם השחקן ליאו מסי ירשום הבקעה'.",
     "- Numbers and ranges read right in Hebrew: 'יותר מ-2.5 שערים', 'השער הראשון ייפול ב-15 הדקות הראשונות'.",
     "- Examples. Natural: 'יבקיע אמבפה בכל זמן שהוא?' / 'יותר מ-9 קרנות במשחק?' / 'מי יבקיע ראשון, צרפת או אנגליה?'. Translated-sounding (AVOID): 'האם מבאפה יבצע הבקעה?' / 'מעל תשע קרניות בהתמודדות' / 'איזו נבחרת תשיג את ההבקעה הראשונה'.",
@@ -175,7 +177,7 @@ export function buildUserPrompt(
   lines.push(
     "",
     context.scope === "match"
-      ? `Produce about ${count} bets now, each specific to this fixture. Lead with multi_choice distribution markets; keep flat yes/no a minority.`
+      ? `Produce about ${count} bets now, each specific to this fixture. Make it VARIED and a little surprising: lead with the less-common angles (offsides, shots on target, shots from outside the box, fouls, saves, first-substitution / first-card windows, a comeback), use many-bucket distributions, and keep the classics (goals/cards/corners) to at most one or two — never the whole batch.`
       : `Produce about ${count} day-wide bets now. Each one MUST aggregate across ALL of today's matches combined (e.g. total goals / yellows / corners across the whole slate), never about a single fixture, and should self-grade via total_goals or a sum_day stat.`,
   );
 
