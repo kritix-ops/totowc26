@@ -127,6 +127,10 @@ export type AdminUserBetRow = {
   groupId: string | null;
   matchId: string | null;
   matchdayId: string | null;
+  // The day-scope bet's matchday date (YYYY-MM-DD, Asia/Jerusalem). NULL for
+  // non-day scopes. Lets the my-bets filter group day bets by matchday without
+  // a second lookup.
+  matchdayDate: string | null;
   questionHe: string;
   questionEn: string;
   answerType: "yes_no" | "number" | "multi_choice" | "free_text";
@@ -165,6 +169,7 @@ export async function fetchUserBetsForAdmin(
       cb.group_id                       as "groupId",
       cb.match_id::text                 as "matchId",
       cb.matchday_id::text              as "matchdayId",
+      md.date::text                     as "matchdayDate",
       cb.question_he                    as "questionHe",
       cb.question_en                    as "questionEn",
       cb.answer_type::text              as "answerType",
@@ -191,6 +196,7 @@ export async function fetchUserBetsForAdmin(
     left join public.user_custom_bet_picks pk
       on pk.custom_bet_id = cb.id and pk.user_id = ${userId}
     left join public.matches m on m.id = cb.match_id
+    left join public.matchdays md on md.id = cb.matchday_id
     left join public.teams ht on ht.code = m.home_team
     left join public.teams at on at.code = m.away_team
     where cb.status in ('open', 'locked', 'graded')

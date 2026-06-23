@@ -3,15 +3,7 @@ import { notFound } from "next/navigation";
 import {
   ChevronLeft,
   ChevronRight,
-  Sparkles,
-  Trophy,
-  CalendarDays,
-  Layers,
   ListChecks,
-  Check,
-  X,
-  Lock,
-  CircleHelp,
   ShieldCheck,
   History,
 } from "lucide-react";
@@ -22,31 +14,21 @@ import {
   fetchUserBetsForAdmin,
   fetchUserMatchPicksForAdmin,
   fetchPlayerNamesById,
-  type AdminUserBetRow,
-  type AdminUserMatchPickRow,
 } from "../users/queries";
-import {
-  Card,
-  Chip,
-  SectionHeading,
-  MatchupLabel,
-  ScoreLine,
-} from "@/components/ui";
+import { Card, Chip, SectionHeading } from "@/components/ui";
 import { localePath } from "@/lib/paths";
 import { getLiveStakeConfig } from "@/lib/bank";
 import { formatDateTime } from "@/lib/format";
-import { renderPickAnswer, type PlayerNameMap } from "@/lib/bets/format";
-import type { PickAnswer } from "@/lib/bets/types";
-import { MyBetsEditor } from "./MyBetsEditor";
+import { MyBetsBrowser } from "./MyBetsBrowser";
 import { fetchMyBackdateAudit, type MyBackdateAuditRow } from "./actions";
 
 // Admin self-backdate page. A FULL admin only — the admin layout's path
 // whitelist excludes /my-bets for scoped operators, and requireAdmin here is
-// the defense-in-depth mirror. Lists the admin's OWN bets across every surface
-// and lets them add or fix a pick even after a match has started/finished, so
-// a save dropped by the recurring prod DB hang can be corrected. Every edit is
-// recorded in the private audit log at the bottom — visible only to the admin.
-// See _plans/2026-06-23-admin-self-backdate-bets.md.
+// the defense-in-depth mirror. Loads the admin's OWN bets across every surface
+// and hands them to the client filter/browser, which lets them add or fix a
+// pick even after a match has started/finished. Every edit is recorded in the
+// private audit log at the bottom — visible only to the admin. See
+// _plans/2026-06-23-admin-self-backdate-bets.md.
 
 export default async function AdminMyBetsPage({
   params,
@@ -71,13 +53,6 @@ export default async function AdminMyBetsPage({
     ]);
   if (!me) notFound();
 
-  // Bounds for the live (match/day) stake picker. Passed to every bet row; the
-  // editor only renders the picker for live scopes, so free-pick rows ignore it.
-  const stakeBounds = {
-    minStake: liveStakeConfig.minStake,
-    maxStake: liveStakeConfig.maxStake,
-  };
-
   console.info("[admin self-backdate] page_read", {
     adminId: user.id,
     customBetCount: customRows.length,
@@ -85,7 +60,10 @@ export default async function AdminMyBetsPage({
     auditRows: audit.length,
   });
 
-  const buckets = groupByScope(customRows);
+  const stakeBounds = {
+    minStake: liveStakeConfig.minStake,
+    maxStake: liveStakeConfig.maxStake,
+  };
   const meName = isHebrew ? "אני" : "Me";
 
   return (
@@ -121,412 +99,18 @@ export default async function AdminMyBetsPage({
         </p>
       </Card>
 
-      {matchRows.length > 0 && (
-        <MatchPicksSection
-          rows={matchRows}
-          locale={locale}
-          selfUserId={user.id}
-          selfName={meName}
-        />
-      )}
-
-      {buckets.match.length > 0 && (
-        <ScopeSection
-          icon={<Sparkles className="h-5 w-5" strokeWidth={1.75} />}
-          title={isHebrew ? "הימורי לייב" : "Live bets"}
-          rows={buckets.match}
-          locale={locale}
-          selfUserId={user.id}
-          selfName={meName}
-          playerNames={playerNames}
-          stakeBounds={stakeBounds}
-        />
-      )}
-
-      {buckets.day.length > 0 && (
-        <ScopeSection
-          icon={<CalendarDays className="h-5 w-5" strokeWidth={1.75} />}
-          title={isHebrew ? "הימורי יום" : "Day bets"}
-          rows={buckets.day}
-          locale={locale}
-          selfUserId={user.id}
-          selfName={meName}
-          playerNames={playerNames}
-          stakeBounds={stakeBounds}
-        />
-      )}
-
-      {buckets.group.length > 0 && (
-        <ScopeSection
-          icon={<Layers className="h-5 w-5" strokeWidth={1.75} />}
-          title={isHebrew ? "הימורי בית" : "Group bets"}
-          rows={buckets.group}
-          locale={locale}
-          selfUserId={user.id}
-          selfName={meName}
-          playerNames={playerNames}
-          stakeBounds={stakeBounds}
-        />
-      )}
-
-      {buckets.stage.length > 0 && (
-        <ScopeSection
-          icon={<Layers className="h-5 w-5" strokeWidth={1.75} />}
-          title={isHebrew ? "הימורי שלב" : "Stage bets"}
-          rows={buckets.stage}
-          locale={locale}
-          selfUserId={user.id}
-          selfName={meName}
-          playerNames={playerNames}
-          stakeBounds={stakeBounds}
-        />
-      )}
-
-      {buckets.tournament.length > 0 && (
-        <ScopeSection
-          icon={<Trophy className="h-5 w-5" strokeWidth={1.75} />}
-          title={isHebrew ? "הימורי טורניר" : "Tournament bets"}
-          rows={buckets.tournament}
-          locale={locale}
-          selfUserId={user.id}
-          selfName={meName}
-          playerNames={playerNames}
-          stakeBounds={stakeBounds}
-        />
-      )}
-
-      {customRows.length === 0 && matchRows.length === 0 && (
-        <Card className="p-6 text-center text-on-surface-variant">
-          {isHebrew ? "אין הימורים במערכת." : "No bets in the system."}
-        </Card>
-      )}
+      <MyBetsBrowser
+        locale={locale}
+        selfUserId={user.id}
+        selfName={meName}
+        matchRows={matchRows}
+        customRows={customRows}
+        playerNames={playerNames}
+        stakeBounds={stakeBounds}
+      />
 
       <AuditLog rows={audit} locale={locale} />
     </section>
-  );
-}
-
-function groupByScope(rows: AdminUserBetRow[]) {
-  const out = {
-    tournament: [] as AdminUserBetRow[],
-    stage: [] as AdminUserBetRow[],
-    group: [] as AdminUserBetRow[],
-    day: [] as AdminUserBetRow[],
-    match: [] as AdminUserBetRow[],
-  };
-  for (const r of rows) out[r.scope].push(r);
-  return out;
-}
-
-function ScopeSection({
-  icon,
-  title,
-  rows,
-  locale,
-  selfUserId,
-  selfName,
-  playerNames,
-  stakeBounds,
-}: {
-  icon: React.ReactNode;
-  title: string;
-  rows: AdminUserBetRow[];
-  locale: Locale;
-  selfUserId: string;
-  selfName: string;
-  playerNames: PlayerNameMap;
-  stakeBounds: { minStake: number; maxStake: number };
-}) {
-  return (
-    <section className="flex flex-col gap-3">
-      <SectionHeading as="h2" underline="thin">
-        <span className="inline-flex items-center gap-2">
-          {icon}
-          {title}
-          <span className="text-xs font-normal text-on-surface-variant tabular-nums">
-            ({rows.filter((r) => r.pickId != null).length} / {rows.length})
-          </span>
-        </span>
-      </SectionHeading>
-      <div className="flex flex-col gap-2">
-        {rows.map((r) => (
-          <BetRow
-            key={r.betId}
-            row={r}
-            locale={locale}
-            selfUserId={selfUserId}
-            selfName={selfName}
-            playerNames={playerNames}
-            stakeBounds={stakeBounds}
-          />
-        ))}
-      </div>
-    </section>
-  );
-}
-
-function BetRow({
-  row,
-  locale,
-  selfUserId,
-  selfName,
-  playerNames,
-  stakeBounds,
-}: {
-  row: AdminUserBetRow;
-  locale: Locale;
-  selfUserId: string;
-  selfName: string;
-  playerNames: PlayerNameMap;
-  stakeBounds: { minStake: number; maxStake: number };
-}) {
-  const isHebrew = locale === "he";
-  const hasPick = row.pickId != null;
-  const lockLabel = formatDateTime(row.lockAt, locale, {
-    day: "numeric",
-    month: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-  const answerLabel = renderPickAnswer(
-    row.answerType,
-    row.answerConfig,
-    row.pickAnswer,
-    isHebrew,
-    playerNames,
-  );
-  return (
-    <Card className="p-4 flex flex-col gap-2">
-      <div className="flex items-start justify-between gap-3 flex-wrap">
-        <h3 className="text-sm md:text-base font-bold text-on-surface leading-snug min-w-0 flex-1">
-          {isHebrew ? row.questionHe : row.questionEn}
-        </h3>
-        <div className="flex flex-col items-end gap-1 shrink-0">
-          <Chip
-            tone={
-              row.status === "open"
-                ? "primary"
-                : row.status === "graded"
-                  ? "secondary"
-                  : "default"
-            }
-          >
-            {row.status === "open"
-              ? isHebrew
-                ? "פתוח"
-                : "Open"
-              : row.status === "graded"
-                ? isHebrew
-                  ? "נגמר"
-                  : "Settled"
-                : isHebrew
-                  ? "נסגר"
-                  : "Locked"}
-          </Chip>
-          <span className="text-xs text-on-surface-variant tabular-nums inline-flex items-center gap-1">
-            <Lock className="h-3 w-3" strokeWidth={2} />
-            {lockLabel}
-          </span>
-          <MyBetsEditor
-            surface="custom"
-            customBetId={row.betId}
-            questionHe={row.questionHe}
-            questionEn={row.questionEn}
-            answerType={row.answerType}
-            answerConfig={row.answerConfig}
-            currentAnswer={(row.pickAnswer ?? null) as PickAnswer | null}
-            stake={row.stakeSnapshot}
-            payout={row.payoutSnapshot}
-            scope={row.scope}
-            stakeBounds={stakeBounds}
-            currentStake={row.pickStakePaid}
-            targetUserId={selfUserId}
-            targetUserName={selfName}
-            locale={locale}
-            lockAt={row.lockAt}
-            triggerLabel={
-              hasPick
-                ? isHebrew
-                  ? "תקן"
-                  : "Fix"
-                : isHebrew
-                  ? "הוסף"
-                  : "Add"
-            }
-          />
-        </div>
-      </div>
-      {row.homeCode && row.awayCode && (
-        <div className="text-xs text-on-surface-variant">
-          <MatchupLabel
-            home={
-              isHebrew
-                ? (row.homeNameHe ?? row.homeCode)
-                : (row.homeNameEn ?? row.homeCode)
-            }
-            away={
-              isHebrew
-                ? (row.awayNameHe ?? row.awayCode)
-                : (row.awayNameEn ?? row.awayCode)
-            }
-            locale={locale}
-          />
-        </div>
-      )}
-      <div
-        className={`flex items-center gap-2 text-sm rounded p-2 ${
-          hasPick
-            ? "bg-surface-container-low border border-outline-variant"
-            : "bg-transparent border border-dashed border-outline-variant"
-        }`}
-      >
-        {hasPick ? (
-          <Check className="h-4 w-4 text-secondary shrink-0" strokeWidth={2.5} />
-        ) : (
-          <CircleHelp
-            className="h-4 w-4 text-on-surface-variant shrink-0"
-            strokeWidth={2}
-          />
-        )}
-        <span
-          className={`flex-1 ${hasPick ? "text-on-surface font-medium" : "text-on-surface-variant italic"}`}
-        >
-          {hasPick ? answerLabel : isHebrew ? "לא ניחשת" : "Not picked"}
-        </span>
-        {row.pickPointsEarned != null && (
-          <span
-            className={`text-xs tabular-nums font-bold ${
-              row.pickWasCorrect ? "text-secondary" : "text-error"
-            }`}
-          >
-            {row.pickWasCorrect ? "+" : ""}
-            {row.pickPointsEarned}
-          </span>
-        )}
-      </div>
-    </Card>
-  );
-}
-
-function MatchPicksSection({
-  rows,
-  locale,
-  selfUserId,
-  selfName,
-}: {
-  rows: AdminUserMatchPickRow[];
-  locale: Locale;
-  selfUserId: string;
-  selfName: string;
-}) {
-  const isHebrew = locale === "he";
-  const filled = rows.filter((r) => r.pickId != null).length;
-  return (
-    <section className="flex flex-col gap-3">
-      <SectionHeading as="h2" underline="thin">
-        <span className="inline-flex items-center gap-2">
-          <ListChecks className="h-5 w-5" strokeWidth={1.75} />
-          {isHebrew ? "הימורי 1/X/2" : "Score picks (1/X/2)"}
-          <span className="text-xs font-normal text-on-surface-variant tabular-nums">
-            ({filled} / {rows.length})
-          </span>
-        </span>
-      </SectionHeading>
-      <Card className="p-3 md:p-4 flex flex-col gap-1">
-        {rows.map((r) => (
-          <MatchPickRow
-            key={r.matchId}
-            row={r}
-            locale={locale}
-            selfUserId={selfUserId}
-            selfName={selfName}
-          />
-        ))}
-      </Card>
-    </section>
-  );
-}
-
-function MatchPickRow({
-  row,
-  locale,
-  selfUserId,
-  selfName,
-}: {
-  row: AdminUserMatchPickRow;
-  locale: Locale;
-  selfUserId: string;
-  selfName: string;
-}) {
-  const isHebrew = locale === "he";
-  const hasPick = row.pickId != null;
-  const kickoff = formatDateTime(row.kickoffAt, locale, {
-    day: "numeric",
-    month: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-  const home = isHebrew ? row.homeNameHe : row.homeNameEn;
-  const away = isHebrew ? row.awayNameHe : row.awayNameEn;
-  const matchupHe = `${row.homeNameHe} נגד ${row.awayNameHe}`;
-  const matchupEn = `${row.homeNameEn} vs ${row.awayNameEn}`;
-  // Unlike the read-only per-user inspector, EVERY match is editable here —
-  // that is the whole point. A started/finished match surfaces the lock-bypass
-  // checkbox inside the dialog.
-  const started = row.matchStatus !== "scheduled";
-  return (
-    <div className="flex items-center gap-2 py-2 px-2 rounded border-b border-outline-variant last:border-b-0">
-      <span className="text-xs text-on-surface-variant tabular-nums shrink-0 w-20 md:w-24">
-        {kickoff}
-      </span>
-      <span className="text-sm flex-1 min-w-0 truncate">
-        <MatchupLabel home={home} away={away} locale={locale} />
-        {started && (
-          <span className="ms-1 text-[10px] font-bold uppercase text-error align-middle">
-            {isHebrew ? "התחיל" : "started"}
-          </span>
-        )}
-      </span>
-      {hasPick ? (
-        <span className="text-sm font-bold tabular-nums shrink-0 inline-flex items-center gap-1">
-          <Check className="h-3.5 w-3.5 text-secondary" strokeWidth={2.5} />
-          <ScoreLine
-            home={row.pickHomeScore!}
-            away={row.pickAwayScore!}
-            separator="–"
-          />
-        </span>
-      ) : (
-        <span className="text-xs text-on-surface-variant italic shrink-0 inline-flex items-center gap-1">
-          <X className="h-3.5 w-3.5" strokeWidth={2} />—
-        </span>
-      )}
-      {row.pickPointsEarned != null && (
-        <span
-          className={`text-xs font-bold tabular-nums shrink-0 w-10 text-end ${
-            row.pickPointsEarned > 0 ? "text-secondary" : "text-on-surface-variant"
-          }`}
-        >
-          {row.pickPointsEarned > 0 ? "+" : ""}
-          {row.pickPointsEarned}
-        </span>
-      )}
-      <MyBetsEditor
-        surface="match"
-        matchId={row.matchId}
-        matchupHe={matchupHe}
-        matchupEn={matchupEn}
-        currentHomeScore={row.pickHomeScore}
-        currentAwayScore={row.pickAwayScore}
-        targetUserId={selfUserId}
-        targetUserName={selfName}
-        locale={locale}
-        lockAt={row.kickoffAt}
-        triggerLabel={
-          hasPick ? (isHebrew ? "תקן" : "Fix") : isHebrew ? "הוסף" : "Add"
-        }
-      />
-    </div>
   );
 }
 
