@@ -245,6 +245,11 @@ export async function listCustomBets(opts: {
   scopeIn?: AdminCustomBetRow["scope"][] | null;
   q?: string | null;
   matchId?: string | null;
+  // Filter to one matchday by calendar date (YYYY-MM-DD). Because
+  // custom_bets.matchday_id is set for BOTH match- and day-scoped bets,
+  // this single clause captures the whole day's live questions — the
+  // day-bet plus every match-bet of that date — in one filter.
+  matchdayDate?: string | null;
   limit?: number;
 } = {}): Promise<AdminCustomBetRow[]> {
   const status = opts.status ?? null;
@@ -252,6 +257,7 @@ export async function listCustomBets(opts: {
   const scopeIn = opts.scopeIn && opts.scopeIn.length > 0 ? opts.scopeIn : null;
   const q = opts.q?.trim() ? opts.q.trim() : null;
   const matchId = opts.matchId?.trim() ? opts.matchId.trim() : null;
+  const matchdayDate = opts.matchdayDate?.trim() ? opts.matchdayDate.trim() : null;
   const limit = opts.limit ?? 100;
   // Inline IN list (enum column) — same pattern as queries.ts. `true`
   // when no family constraint so the WHERE clause stays uniform.
@@ -299,6 +305,7 @@ export async function listCustomBets(opts: {
       (${scope}::text  is null or cb.scope::text  = ${scope}) and
       ${scopeInClause} and
       (${matchId}::uuid is null or cb.match_id = ${matchId}::uuid) and
+      (${matchdayDate}::date is null or md.date = ${matchdayDate}::date) and
       (
         ${qPattern}::text is null
         or cb.question_he ilike ${qPattern}
@@ -332,6 +339,11 @@ export type AdminBetMatchOption = {
   awayNameHe: string;
   awayNameEn: string;
   kickoffAt: string;
+  // Calendar date (YYYY-MM-DD) of the matchday this fixture's bets are
+  // anchored to, so the admin filter can bucket match pills under their
+  // day in the matchday → match drill-down. Null only if a match-scoped
+  // bet somehow has no matchday_id (shouldn't happen post-materialisation).
+  matchdayDate: string | null;
   betCount: number;
 };
 
@@ -346,14 +358,41 @@ export async function listCustomBetMatches(): Promise<AdminBetMatchOption[]> {
       at.name_he       as "awayNameHe",
       at.name_en       as "awayNameEn",
       m.kickoff_at     as "kickoffAt",
+      max(md.date)::text as "matchdayDate",
       count(cb.id)::int as "betCount"
     from public.matches m
     join public.custom_bets cb on cb.match_id = m.id
+    left join public.matchdays md on md.id = cb.matchday_id
     join public.teams ht on ht.code = m.home_team
     join public.teams at on at.code = m.away_team
     group by m.id, m.home_team, m.away_team, ht.name_he, ht.name_en,
              at.name_he, at.name_en, m.kickoff_at
     order by m.kickoff_at desc
+  `);
+}
+
+// Distinct matchday dates that carry at least one live-family custom bet
+// (match- or day-scoped), with a per-day count. Powers the "filter by
+// matchday" quick-filter strip on /admin/bets. Newest day first so the
+// most relevant matchday sits at the start of the strip, matching the
+// match picker's recency ordering.
+export type AdminBetMatchdayOption = {
+  date: string; // YYYY-MM-DD
+  betCount: number;
+};
+
+export async function listCustomBetMatchdays(): Promise<
+  AdminBetMatchdayOption[]
+> {
+  return execRows<AdminBetMatchdayOption>(sql`
+    select
+      md.date::text     as "date",
+      count(cb.id)::int as "betCount"
+    from public.matchdays md
+    join public.custom_bets cb on cb.matchday_id = md.id
+    where cb.scope::text in ('match', 'day')
+    group by md.date
+    order by md.date desc
   `);
 }
 

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Send, X, Edit3, Trash2, AlertCircle, Check } from "lucide-react";
 import { PillButton } from "@/components/ui";
@@ -29,6 +29,16 @@ export function BetsTableActions({
 }) {
   const isHebrew = locale === "he";
   const router = useRouter();
+  const searchParams = useSearchParams();
+  // Carry the live list filters into the detail / edit links as ?return=,
+  // so the back button there lands on the exact filtered view the admin
+  // left — no flash, no refetch. The detail page sanitises this value
+  // before reflecting it into its back href. (localStorage is the wider
+  // safety net for any other way back into the list.)
+  const returnQs = searchParams.toString();
+  const withReturn = (path: string) =>
+    localePath(locale, path) +
+    (returnQs ? `?return=${encodeURIComponent(returnQs)}` : "");
   const [error, setError] = useState<string | null>(null);
   const [okFlash, setOkFlash] = useState<"published" | "cancelled" | "deleted" | null>(null);
   const { pending, run } = usePendingAction();
@@ -86,7 +96,7 @@ export function BetsTableActions({
           to fix the result of a live bet that already passed. The detail
           page's GradeForm offers reverse + re-grade once a bet is graded. */}
       <Link
-        href={localePath(locale, `admin/bets/${id}`)}
+        href={withReturn(`admin/bets/${id}`)}
         className="inline-flex items-center justify-center gap-1.5 min-h-[40px] px-4 rounded-full border border-outline bg-surface-container-lowest text-on-surface text-sm font-bold hover:bg-surface-container"
       >
         <Edit3 className="h-4 w-4" strokeWidth={2} />
@@ -98,7 +108,7 @@ export function BetsTableActions({
       {status === "draft" && (
         <>
           <Link
-            href={localePath(locale, `admin/bets/${id}/edit`)}
+            href={withReturn(`admin/bets/${id}/edit`)}
             className="inline-flex items-center justify-center gap-1.5 min-h-[40px] px-4 rounded-full border border-outline bg-surface-container-lowest text-on-surface text-sm font-bold hover:bg-surface-container"
           >
             <Edit3 className="h-4 w-4" strokeWidth={2} />

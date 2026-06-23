@@ -12,12 +12,14 @@ import {
   listAnchorMatches,
   listAnchorDays,
 } from "@/db/admin-queries";
+import { sanitizeReturnQuery } from "@/lib/bets/admin-bet-filters";
 import { getDeadlineContext } from "@/lib/deadlines";
 import { BetForm, type InitialBet } from "../../BetForm";
 import type { AnswerConfig, GradingConfig } from "@/lib/bets/types";
 
 export default async function EditBetPage({
   params,
+  searchParams,
 }: PageProps<"/[lang]/admin/bets/[id]/edit">) {
   const { lang, id } = await params;
   if (!hasLocale(lang)) notFound();
@@ -25,12 +27,18 @@ export default async function EditBetPage({
   const isHebrew = locale === "he";
   const Chev = isHebrew ? ChevronLeft : ChevronRight;
 
+  // Keep the list filters alive through edit → back-to-bet → back-to-list.
+  const sp = await searchParams;
+  const returnQs = sanitizeReturnQuery(sp.return);
+  const returnSuffix = returnQs ? `?return=${encodeURIComponent(returnQs)}` : "";
+  const detailHref = localePath(locale, `admin/bets/${id}`) + returnSuffix;
+
   const bet = await getAdminCustomBetDetail(id);
   if (!bet) notFound();
   // Server-side gate: edit is draft-only. Anything else bounces back to
   // the detail page where the admin can publish / cancel / grade instead.
   if (bet.status !== "draft") {
-    redirect(localePath(locale, `admin/bets/${id}`));
+    redirect(detailHref);
   }
 
   const [anchorMatches, anchorDays, groupRows, [defaultsRow], deadlineCtx] =
@@ -93,7 +101,7 @@ export default async function EditBetPage({
     <section className="px-4 md:px-16 py-6 md:py-12 flex flex-col gap-6 md:gap-8 max-w-3xl mx-auto w-full pb-24">
       <header className="flex flex-col gap-3">
         <Link
-          href={localePath(locale, `admin/bets/${id}`)}
+          href={detailHref}
           className="inline-flex items-center gap-1 text-sm text-on-surface-variant hover:text-on-surface w-fit"
         >
           <Chev className="h-4 w-4" strokeWidth={2} />

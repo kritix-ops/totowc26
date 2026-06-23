@@ -6,6 +6,7 @@ import { Card, Chip, LabelCaps, SectionHeading } from "@/components/ui";
 import { localePath } from "@/lib/paths";
 import { formatDateTime } from "@/lib/format";
 import { getAdminCustomBetDetail } from "@/db/admin-queries";
+import { sanitizeReturnQuery } from "@/lib/bets/admin-bet-filters";
 import { GradeForm } from "./GradeForm";
 import { ReopenBetCard } from "./ReopenBetCard";
 import { VoidBetForm } from "./VoidBetForm";
@@ -14,12 +15,25 @@ import { canReopen } from "@/lib/bets/reopen";
 
 export default async function AdminBetDetailPage({
   params,
+  searchParams,
 }: PageProps<"/[lang]/admin/bets/[id]">) {
   const { lang, id } = await params;
   if (!hasLocale(lang)) notFound();
   const locale = lang as Locale;
   const isHebrew = locale === "he";
   const Chev = isHebrew ? ChevronLeft : ChevronRight;
+
+  // Reflect the list's filters back into the "back to list" link so the
+  // admin returns to the exact filtered view they came from. Sanitised to
+  // a whitelist of filter keys, so the value can only ever rebuild the
+  // bets-list query — never redirect elsewhere or inject a param.
+  const sp = await searchParams;
+  const returnQs = sanitizeReturnQuery(sp.return);
+  const backHref =
+    localePath(locale, "admin/bets") + (returnQs ? `?${returnQs}` : "");
+  const editHref =
+    localePath(locale, `admin/bets/${id}/edit`) +
+    (returnQs ? `?return=${encodeURIComponent(returnQs)}` : "");
 
   const bet = await getAdminCustomBetDetail(id);
   if (!bet) notFound();
@@ -40,7 +54,7 @@ export default async function AdminBetDetailPage({
     <section className="px-4 md:px-16 py-6 md:py-12 flex flex-col gap-6 md:gap-8 max-w-3xl mx-auto w-full pb-24">
       <header className="flex flex-col gap-3">
         <Link
-          href={localePath(locale, "admin/bets")}
+          href={backHref}
           className="inline-flex items-center gap-1 text-sm text-on-surface-variant hover:text-on-surface w-fit"
         >
           <Chev className="h-4 w-4" strokeWidth={2} />
@@ -56,7 +70,7 @@ export default async function AdminBetDetailPage({
             </Chip>
             {bet.status === "draft" && (
               <Link
-                href={localePath(locale, `admin/bets/${bet.id}/edit`)}
+                href={editHref}
                 className="inline-flex items-center justify-center gap-1.5 min-h-[40px] px-4 rounded-full border border-outline bg-surface-container-lowest text-on-surface text-sm font-bold hover:bg-surface-container"
               >
                 <Edit3 className="h-4 w-4" strokeWidth={2} />

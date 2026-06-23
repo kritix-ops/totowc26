@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Plus, ChevronLeft, ChevronRight, Copy, RefreshCw, Zap, Swords } from "lucide-react";
@@ -25,17 +26,21 @@ import {
 import {
   countDuplicateCustomBets,
   listCustomBetMatches,
+  listCustomBetMatchdays,
   listCustomBets,
   listDuelsForAdmin,
   listOpenLiveBetsForPush,
   type AdminBetMatchOption,
+  type AdminBetMatchdayOption,
   type AdminCustomBetRow,
   type AdminDuelRow,
 } from "@/db/admin-queries";
 import { liveBetAnchor } from "@/lib/bets/live-bet-push";
+import { parseDayFilter } from "@/lib/bets/admin-bet-filters";
 import { BetsTableActions } from "./BetsTableActions";
 import { BetsSearchBox } from "./BetsSearchBox";
-import { BetsMatchFilter } from "./BetsMatchFilter";
+import { BetsActiveFilters } from "./BetsActiveFilters";
+import { BetsFilterMemory } from "./BetsFilterMemory";
 import { DuelAdminActions } from "./DuelAdminActions";
 import { LiveBetPushComposer, type LiveBetPushItem } from "./LiveBetPushComposer";
 
@@ -62,11 +67,13 @@ export default async function AdminBetsPage({
   let bets: AdminCustomBetRow[] = [];
   let duels: AdminDuelRow[] = [];
   let betMatches: AdminBetMatchOption[] = [];
+  let matchdays: AdminBetMatchdayOption[] = [];
   let customStatus: AdminCustomBetRow["status"] | null = null;
   let customScope: CustomBetScope | null = null;
   let duelStatus: DuelStatus | null = null;
   let duelScope: DuelScope | null = null;
   let matchFilter: string | null = null;
+  let dayFilter: string | null = null;
   // Open live bets a manager can announce via push (live view only).
   let pushItems: LiveBetPushItem[] = [];
 
@@ -92,19 +99,26 @@ export default async function AdminBetsPage({
     // the picker options nor honour a hand-edited ?match= there.
     const useMatchFilter = betType === "live";
     matchFilter = useMatchFilter ? parseMatchFilter(sp.match) : null;
-    const [betRows, betMatchRows] = await Promise.all([
+    // Matchday (calendar-date) sub-filter rides the live family only, the
+    // same surface that owns match-scoped questions. The date captures the
+    // whole day — the day-bet plus every match-bet of that date.
+    dayFilter = useMatchFilter ? parseDayFilter(sp.day) : null;
+    const [betRows, betMatchRows, matchdayRows] = await Promise.all([
       listCustomBets({
         status: customStatus,
         scope: customScope,
         scopeIn: scopesForBetType(betType),
         q: queryFilter,
         matchId: matchFilter,
+        matchdayDate: dayFilter,
         limit: 200,
       }),
       useMatchFilter ? listCustomBetMatches() : Promise.resolve([]),
+      useMatchFilter ? listCustomBetMatchdays() : Promise.resolve([]),
     ]);
     bets = betRows;
     betMatches = betMatchRows;
+    matchdays = matchdayRows;
 
     // The push composer announces match/day bets, so it only belongs on
     // the live view. Resolve each open live bet to its display anchor via
@@ -143,7 +157,35 @@ export default async function AdminBetsPage({
     scope: betType === "duel" ? duelScope : customScope,
     q: queryFilter,
     match: matchFilter,
+    day: dayFilter,
     rows: betType === "duel" ? duels.length : bets.length,
+  });
+
+  // Active narrowing filters, resolved to human labels + a "remove this
+  // one" href on the server so the summary bar stays a dumb client island.
+  const activeFilters = buildActiveFilters({
+    isHebrew,
+    locale,
+    betType,
+    customStatus,
+    customScope,
+    duelStatus,
+    duelScope,
+    queryFilter,
+    matchFilter,
+    dayFilter,
+    betMatches,
+  });
+  // "Clear all" drops every narrowing filter but keeps the current bet
+  // type — clearing filters shouldn't yank the admin off the duel /
+  // tournament view back to live.
+  const clearFiltersHref = buildBetsHref({
+    betType,
+    status: null,
+    scope: null,
+    q: null,
+    match: null,
+    day: null,
   });
 
   const isEmpty = betType === "duel" ? duels.length === 0 : bets.length === 0;
@@ -268,8 +310,17 @@ export default async function AdminBetsPage({
         duelScope={duelScope}
         queryFilter={queryFilter}
         matchFilter={matchFilter}
+        dayFilter={dayFilter}
         betMatches={betMatches}
+        matchdays={matchdays}
       />
+
+      <BetsActiveFilters
+        locale={locale}
+        items={activeFilters}
+        clearHref={clearFiltersHref}
+      />
+      <BetsFilterMemory />
 
       {isEmpty ? (
         <Card className="p-6 text-center text-on-surface-variant">
@@ -374,7 +425,9 @@ function FilterBar({
   duelScope,
   queryFilter,
   matchFilter,
+  dayFilter,
   betMatches,
+  matchdays,
 }: {
   locale: Locale;
   betType: BetType;
@@ -384,10 +437,25 @@ function FilterBar({
   duelScope: DuelScope | null;
   queryFilter: string | null;
   matchFilter: string | null;
+  dayFilter: string | null;
   betMatches: AdminBetMatchOption[];
+  matchdays: AdminBetMatchdayOption[];
 }) {
   const isHebrew = locale === "he";
   const isDuel = betType === "duel";
+
+  // Drill-down context: a selected matchday is either the explicit ?day=
+  // filter or the day implied by a selected ?match= (so deep-linking to a
+  // fixture still lights up its day and reveals that day's match pills).
+  // The match strip only appears once a day is in context — that's the
+  // whole point of the drill-down: keep the pill count tiny.
+  const selectedMatch = matchFilter
+    ? betMatches.find((m) => m.matchId === matchFilter) ?? null
+    : null;
+  const contextDay = dayFilter ?? selectedMatch?.matchdayDate ?? null;
+  const dayMatches = contextDay
+    ? betMatches.filter((m) => m.matchdayDate === contextDay)
+    : [];
 
   // The contextual status / scope chip sets depend on the bet type.
   const statusChips: Array<{ key: string | "all"; label: string }> = isDuel
@@ -444,14 +512,63 @@ function FilterBar({
         </div>
       </div>
 
-      {betType === "live" && betMatches.length > 0 && (
+      {betType === "live" && matchdays.length > 0 && (
         <div className="flex flex-col gap-2">
-          <LabelCaps>{isHebrew ? "סינון לפי משחק" : "Filter by match"}</LabelCaps>
-          <BetsMatchFilter
-            locale={locale}
-            matches={betMatches}
-            currentMatchId={matchFilter}
-          />
+          <LabelCaps>{isHebrew ? "יום משחק" : "Matchday"}</LabelCaps>
+          <FilterScroller>
+            <MatchdayChip
+              label={isHebrew ? "הכל" : "All"}
+              date={null}
+              active={contextDay === null}
+              betType={betType}
+              statusValue={activeStatus}
+              scopeValue={activeScope}
+              queryFilter={queryFilter}
+            />
+            {matchdays.map((md) => (
+              <MatchdayChip
+                key={md.date}
+                label={`${formatMatchdayShort(md.date, locale)} · ${md.betCount}`}
+                date={md.date}
+                active={contextDay === md.date}
+                betType={betType}
+                statusValue={activeStatus}
+                scopeValue={activeScope}
+                queryFilter={queryFilter}
+              />
+            ))}
+          </FilterScroller>
+        </div>
+      )}
+
+      {betType === "live" && contextDay !== null && dayMatches.length > 0 && (
+        <div className="flex flex-col gap-2">
+          <LabelCaps>{isHebrew ? "משחק" : "Match"}</LabelCaps>
+          <FilterScroller>
+            <MatchChip
+              label={isHebrew ? "כל המשחקים" : "All matches"}
+              matchId={null}
+              day={contextDay}
+              active={matchFilter === null}
+              betType={betType}
+              statusValue={activeStatus}
+              scopeValue={activeScope}
+              queryFilter={queryFilter}
+            />
+            {dayMatches.map((m) => (
+              <MatchChip
+                key={m.matchId}
+                label={`${m.homeCode}–${m.awayCode} · ${m.betCount}`}
+                matchId={m.matchId}
+                day={contextDay}
+                active={matchFilter === m.matchId}
+                betType={betType}
+                statusValue={activeStatus}
+                scopeValue={activeScope}
+                queryFilter={queryFilter}
+              />
+            ))}
+          </FilterScroller>
         </div>
       )}
       <div className="flex flex-col gap-2">
@@ -475,6 +592,7 @@ function FilterBar({
               scopeValue={activeScope}
               queryFilter={queryFilter}
               matchFilter={matchFilter}
+              dayFilter={dayFilter}
             />
           ))}
         </div>
@@ -496,6 +614,7 @@ function FilterBar({
               scopeValue={activeScope}
               queryFilter={queryFilter}
               matchFilter={matchFilter}
+              dayFilter={dayFilter}
             />
           ))}
         </div>
@@ -504,7 +623,54 @@ function FilterBar({
   );
 }
 
-// The primary type chip. Switching type resets status / scope / match
+// Single source of truth for a bets-list URL. Every chip rebuilds the
+// FULL param set so the OTHER dimensions carry through instead of getting
+// wiped — chaining filters never forces the admin back to square one. The
+// per-type gates keep meaningless params off a URL where they don't apply
+// (live is the implicit default type; match/day belong to the live family).
+function buildBetsHref(parts: {
+  betType: BetType;
+  status: string | null;
+  scope: string | null;
+  q: string | null;
+  match: string | null;
+  day: string | null;
+}): string {
+  const next = new URLSearchParams();
+  if (parts.betType !== "live") next.set("type", parts.betType);
+  if (parts.status) next.set("status", parts.status);
+  if (parts.scope) next.set("scope", parts.scope);
+  if (parts.q) next.set("q", parts.q);
+  if (parts.day && parts.betType === "live") next.set("day", parts.day);
+  if (parts.match && parts.betType !== "duel") next.set("match", parts.match);
+  const qs = next.toString();
+  return qs ? `?${qs}` : "?";
+}
+
+// Compact matchday label: weekday + D.M projected onto Asia/Jerusalem. A
+// UTC-midnight date string stays on the same calendar day there, so no
+// off-by-one drift across the date boundary.
+function formatMatchdayShort(date: string, locale: Locale): string {
+  return formatDateTime(date, locale, {
+    weekday: "short",
+    day: "numeric",
+    month: "numeric",
+  });
+}
+
+// Horizontal, snap-scrolling rail for the quick-filter pill strips. Bleeds
+// to the screen edges on mobile so a long day/match list scrolls edge to
+// edge, then wraps normally from md up. Scrollbar hidden — the snap and the
+// partial last pill are the "there's more" affordance.
+function FilterScroller({ children }: { children: ReactNode }) {
+  return (
+    <div className="flex gap-2 overflow-x-auto snap-x snap-mandatory -mx-4 px-4 md:mx-0 md:px-0 md:flex-wrap pb-1 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+      {children}
+    </div>
+  );
+}
+
+// The primary type chip. Switching type resets status / scope / match / day
 // (each type owns its own vocabulary) but carries the free-text query
 // through, so the admin can keep a search term while flipping families.
 function TypeChip({
@@ -518,14 +684,17 @@ function TypeChip({
   active: boolean;
   queryFilter: string | null;
 }) {
-  const next = new URLSearchParams();
-  if (type !== "live") next.set("type", type);
-  if (queryFilter) next.set("q", queryFilter);
-  const qs = next.toString();
-  const href = qs ? `?${qs}` : "?";
+  const href = buildBetsHref({
+    betType: type,
+    status: null,
+    scope: null,
+    q: queryFilter,
+    match: null,
+    day: null,
+  });
   return (
     <Link href={href} replace scroll={false}>
-      <Chip tone={active ? "primary" : "default"} className="min-h-[40px] px-4 cursor-pointer font-bold">
+      <Chip tone={active ? "primary" : "default"} className="min-h-[44px] px-4 cursor-pointer font-bold">
         {type === "duel" && <Swords className="h-4 w-4" strokeWidth={2} />}
         {label}
       </Chip>
@@ -543,6 +712,7 @@ function FilterChip({
   scopeValue,
   queryFilter,
   matchFilter,
+  dayFilter,
 }: {
   label: string;
   paramKey: "status" | "scope";
@@ -553,34 +723,172 @@ function FilterChip({
   scopeValue: string | null;
   queryFilter: string | null;
   matchFilter: string | null;
+  dayFilter: string | null;
 }) {
-  // The chip writes its filter into the URL query string so the page is
-  // a pure server-component with no client state. `replace: true` keeps
-  // the history clean while the admin scrolls through filter options.
-  // We rebuild the full param set on every click so the OTHER dimensions
-  // (type, status when toggling scope, scope when toggling status, the
-  // free-text q, and the match picker) carry through instead of getting
-  // wiped, which used to force the admin back to square one when chaining
-  // filters.
-  const next = new URLSearchParams();
-  if (betType !== "live") next.set("type", betType);
-  const nextStatus = paramKey === "status" ? paramValue : statusValue;
-  const nextScope = paramKey === "scope" ? paramValue : scopeValue;
-  if (nextStatus) next.set("status", nextStatus);
-  if (nextScope) next.set("scope", nextScope);
-  if (queryFilter) next.set("q", queryFilter);
-  // The match picker only applies to custom bets; never carry it onto a
-  // duel URL where it has no meaning.
-  if (matchFilter && betType !== "duel") next.set("match", matchFilter);
-  const qs = next.toString();
-  const href = qs ? `?${qs}` : "?";
+  // `replace: true` keeps history clean while the admin scrolls options.
+  const href = buildBetsHref({
+    betType,
+    status: paramKey === "status" ? paramValue : statusValue,
+    scope: paramKey === "scope" ? paramValue : scopeValue,
+    q: queryFilter,
+    match: matchFilter,
+    day: dayFilter,
+  });
   return (
     <Link href={href} replace scroll={false}>
-      <Chip tone={active ? "primary" : "default"} className="min-h-[36px] cursor-pointer">
+      <Chip tone={active ? "primary" : "default"} className="min-h-[44px] cursor-pointer">
         {label}
       </Chip>
     </Link>
   );
+}
+
+// Matchday quick-filter pill. Picking a day starts a fresh fixture context,
+// so it sets ?day= and CLEARS ?match= (a match from another day no longer
+// applies). "All" (date=null) clears both.
+function MatchdayChip({
+  label,
+  date,
+  active,
+  betType,
+  statusValue,
+  scopeValue,
+  queryFilter,
+}: {
+  label: string;
+  date: string | null;
+  active: boolean;
+  betType: BetType;
+  statusValue: string | null;
+  scopeValue: string | null;
+  queryFilter: string | null;
+}) {
+  const href = buildBetsHref({
+    betType,
+    status: statusValue,
+    scope: scopeValue,
+    q: queryFilter,
+    match: null,
+    day: date,
+  });
+  return (
+    <Link href={href} replace scroll={false} className="shrink-0 snap-start">
+      <Chip tone={active ? "primary" : "default"} className="min-h-[44px] px-4 cursor-pointer whitespace-nowrap tabular-nums">
+        {label}
+      </Chip>
+    </Link>
+  );
+}
+
+// Match quick-filter pill, shown only inside a selected matchday. Sets
+// ?match= and pins ?day= to the context day so the URL is explicit and
+// stable across back/forward. "All matches" keeps the day, clears match.
+function MatchChip({
+  label,
+  matchId,
+  day,
+  active,
+  betType,
+  statusValue,
+  scopeValue,
+  queryFilter,
+}: {
+  label: string;
+  matchId: string | null;
+  day: string | null;
+  active: boolean;
+  betType: BetType;
+  statusValue: string | null;
+  scopeValue: string | null;
+  queryFilter: string | null;
+}) {
+  const href = buildBetsHref({
+    betType,
+    status: statusValue,
+    scope: scopeValue,
+    q: queryFilter,
+    match: matchId,
+    day,
+  });
+  return (
+    <Link href={href} replace scroll={false} className="shrink-0 snap-start">
+      <Chip tone={active ? "primary" : "default"} className="min-h-[44px] px-4 cursor-pointer whitespace-nowrap tabular-nums">
+        <bdi>{label}</bdi>
+      </Chip>
+    </Link>
+  );
+}
+
+// Resolve the active narrowing filters (everything but the always-visible
+// type facet) to { label, href-with-it-removed } so the client summary bar
+// can render removable chips without re-deriving any label logic.
+function buildActiveFilters(args: {
+  isHebrew: boolean;
+  locale: Locale;
+  betType: BetType;
+  customStatus: AdminCustomBetRow["status"] | null;
+  customScope: CustomBetScope | null;
+  duelStatus: DuelStatus | null;
+  duelScope: DuelScope | null;
+  queryFilter: string | null;
+  matchFilter: string | null;
+  dayFilter: string | null;
+  betMatches: AdminBetMatchOption[];
+}): Array<{ key: string; label: string; href: string }> {
+  const { isHebrew, locale, betType } = args;
+  const isDuel = betType === "duel";
+  const status = isDuel ? args.duelStatus : args.customStatus;
+  const scope = isDuel ? args.duelScope : args.customScope;
+  const base = {
+    betType,
+    status: status as string | null,
+    scope: scope as string | null,
+    q: args.queryFilter,
+    match: args.matchFilter,
+    day: args.dayFilter,
+  };
+  const items: Array<{ key: string; label: string; href: string }> = [];
+  if (status) {
+    items.push({
+      key: "status",
+      label: isDuel
+        ? duelStatusLabel(status as DuelStatus, isHebrew)
+        : statusLabel(status as AdminCustomBetRow["status"], isHebrew),
+      href: buildBetsHref({ ...base, status: null }),
+    });
+  }
+  if (scope) {
+    items.push({
+      key: "scope",
+      label: isDuel
+        ? duelScopeLabel(scope as DuelScope, isHebrew)
+        : customScopeLabel(scope as CustomBetScope, isHebrew),
+      href: buildBetsHref({ ...base, scope: null }),
+    });
+  }
+  if (args.dayFilter) {
+    items.push({
+      key: "day",
+      label: formatMatchdayShort(args.dayFilter, locale),
+      href: buildBetsHref({ ...base, day: null }),
+    });
+  }
+  if (args.matchFilter) {
+    const m = args.betMatches.find((x) => x.matchId === args.matchFilter);
+    items.push({
+      key: "match",
+      label: m ? `${m.homeCode}–${m.awayCode}` : isHebrew ? "משחק" : "Match",
+      href: buildBetsHref({ ...base, match: null }),
+    });
+  }
+  if (args.queryFilter) {
+    items.push({
+      key: "q",
+      label: `"${args.queryFilter}"`,
+      href: buildBetsHref({ ...base, q: null }),
+    });
+  }
+  return items;
 }
 
 // Flatten a bet's live answer config into {label, ratio} rows for the
