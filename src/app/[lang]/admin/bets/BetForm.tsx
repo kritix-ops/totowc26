@@ -546,6 +546,18 @@ export function BetForm({
   const [autoFdField, setAutoFdField] = useState<AutoFdField>(
     initialFd?.field ?? "total_goals",
   );
+  // An LLM-authored auto_api_football rule this form has no editor for yet
+  // (first-event-window distribution, comeback): it carries neither `stat`
+  // nor `events`. Editing such a draft's wording must NOT silently rewrite the
+  // grading to a stats config, so we hold the original and re-emit it on save
+  // unless the admin explicitly asks to replace it.
+  const initialAdvancedConfig =
+    initialBet?.gradingConfig?.source === "auto_api_football" &&
+    !("stat" in initialBet.gradingConfig) &&
+    !("events" in initialBet.gradingConfig)
+      ? initialBet.gradingConfig
+      : null;
+  const [replaceAdvanced, setReplaceAdvanced] = useState(false);
 
   // ---- Templates (create-mode only) ----
   //
@@ -690,6 +702,7 @@ export function BetForm({
     const gradingConfig = buildGradingConfig(
       gradingSource,
       {
+        advancedConfig: replaceAdvanced ? null : initialAdvancedConfig,
         autoAfStat,
         autoAfAgg,
         autoFdField,
@@ -1551,6 +1564,22 @@ export function BetForm({
               : undefined
           }
         >
+          {initialAdvancedConfig && !replaceAdvanced ? (
+            <div className="flex flex-col gap-2 text-sm">
+              <p className="text-on-surface-variant">
+                {isHebrew
+                  ? "הימור זה מוגדר עם כלל דירוג אוטומטי מתקדם (חלון אירוע ראשון / מהפך) שנוצר על ידי ה-AI. אפשר לערוך כאן ניסוח ותמחור, וכלל הדירוג יישמר כפי שהוא."
+                  : "This bet uses an advanced auto-grading rule (first-event window / comeback) authored by the AI. Edit the wording and pricing here; the grading rule is preserved as-is."}
+              </p>
+              <button
+                type="button"
+                onClick={() => setReplaceAdvanced(true)}
+                className="self-start text-xs underline text-on-surface-variant"
+              >
+                {isHebrew ? "החלף בכלל דירוג אחר" : "Replace with a different rule"}
+              </button>
+            </div>
+          ) : (
           <div className="flex flex-col gap-3">
             <SegmentedRow
               options={[
@@ -1692,6 +1721,7 @@ export function BetForm({
               </div>
             )}
           </div>
+          )}
         </Section>
       )}
 
@@ -2239,6 +2269,10 @@ function embedLivePricing(
 function buildGradingConfig(
   source: GradingSource,
   fields: {
+    // An advanced auto_api_football rule the form can't edit (first-event
+    // window / comeback). When present and the admin hasn't asked to replace
+    // it, re-emit it verbatim so editing wording never corrupts the grading.
+    advancedConfig: GradingConfig;
     autoAfStat: string;
     autoAfAgg: "sum_day" | "per_match" | "first_match";
     autoFdField: AutoFdField;
@@ -2256,6 +2290,7 @@ function buildGradingConfig(
 ): GradingConfig | "invalid" {
   if (source === "manual") return null;
   if (source === "auto_api_football") {
+    if (fields.advancedConfig) return fields.advancedConfig;
     if (fields.autoAfMode === "events") {
       return buildEventGradingConfig(fields.ev);
     }

@@ -832,10 +832,17 @@ function validateGradingConfig(
   if (!config) return false;
   if (source === "auto_api_football") {
     if (config.source !== "auto_api_football") return false;
-    // Two shapes share this source: the stats path (stat + aggregate) and
-    // the event-timeline path (events spec). Discriminate on which is set.
+    // Three shapes share this source: the stats path (stat + aggregate), the
+    // event-timeline path (events spec), and the first-event-window
+    // distribution (firstEventWindow spec). Discriminate on which is set.
     if ("events" in config && config.events) {
       return validateEventSpec(config.events);
+    }
+    if ("firstEventWindow" in config && config.firstEventWindow) {
+      return validateFirstEventWindowSpec(config.firstEventWindow);
+    }
+    if ("comeback" in config && config.comeback) {
+      return validateComebackSpec(config.comeback);
     }
     if ("stat" in config) {
       return (
@@ -900,7 +907,7 @@ function validateEventSpec(spec: unknown): boolean {
     value?: unknown;
     team?: unknown;
   };
-  const metrics = ["red_card", "yellow_card", "card", "goal", "penalty", "var"];
+  const metrics = ["red_card", "yellow_card", "card", "goal", "penalty", "substitution", "var"];
   const ops = [">=", ">", "=", "<=", "<"];
   if (typeof s.metric !== "string" || !metrics.includes(s.metric)) return false;
   if (typeof s.op !== "string" || !ops.includes(s.op)) return false;
@@ -915,6 +922,45 @@ function validateEventSpec(spec: unknown): boolean {
     return typeof o.fromMinute === "number" && typeof o.toMinute === "number";
   }
   return false;
+}
+
+// Validate a first-event-window grading spec (which window did the first
+// goal/card/substitution fall in). The windows live in the bet's
+// multi_choice options, so the spec itself only carries the metric and
+// optional team/player narrowing. Mirrors FirstEventWindowSpec in
+// src/lib/bets/events-grade.ts.
+function validateFirstEventWindowSpec(spec: unknown): boolean {
+  if (!spec || typeof spec !== "object") return false;
+  const s = spec as {
+    metric?: unknown;
+    team?: unknown;
+    playerApiId?: unknown;
+    byAssist?: unknown;
+  };
+  const metrics = ["goal", "yellow_card", "red_card", "card", "penalty", "substitution"];
+  if (typeof s.metric !== "string" || !metrics.includes(s.metric)) return false;
+  if (s.team !== undefined && !["home", "away", "any"].includes(s.team as string)) {
+    return false;
+  }
+  if (
+    s.playerApiId !== undefined &&
+    (typeof s.playerApiId !== "number" || !Number.isInteger(s.playerApiId) || s.playerApiId < 1)
+  ) {
+    return false;
+  }
+  if (s.byAssist !== undefined && typeof s.byAssist !== "boolean") return false;
+  return true;
+}
+
+// Validate a comeback grading spec (lead-then-lose). Only an optional team
+// narrowing. Mirrors ComebackSpec in src/lib/bets/events-grade.ts.
+function validateComebackSpec(spec: unknown): boolean {
+  if (!spec || typeof spec !== "object") return false;
+  const s = spec as { team?: unknown };
+  if (s.team !== undefined && !["home", "away", "any"].includes(s.team as string)) {
+    return false;
+  }
+  return true;
 }
 
 // Re-derive a live bet's per-choice payouts from its captured odds using

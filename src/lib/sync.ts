@@ -28,7 +28,14 @@ import {
   type ApiFootballStats,
 } from "./api-football";
 import type { AutoApiFootballStat, MultiChoiceOption } from "./bets/types";
-import { gradeEventBet, type EventGradeSpec } from "./bets/events-grade";
+import {
+  gradeEventBet,
+  gradeFirstEventWindow,
+  gradeComeback,
+  type EventGradeSpec,
+  type FirstEventWindowSpec,
+  type ComebackSpec,
+} from "./bets/events-grade";
 import { matchRangeOption } from "./bets/range-grade";
 import { gradedPickPoints } from "./bets/payout";
 import { pickGroupWinner, type GroupStandingRow } from "./grade-group";
@@ -806,6 +813,13 @@ type CandidateBet = {
     // Present for event-timeline grading (red-in-half, goal-in-window).
     // Discriminates the auto_api_football branch from the stats path.
     events?: EventGradeSpec;
+    // Present for the "which window did the first <metric> fall in"
+    // multi_choice distribution. Discriminates a third auto_api_football
+    // shape, graded by gradeFirstEventWindow.
+    firstEventWindow?: FirstEventWindowSpec;
+    // Present for a comeback (lead-then-lose) market. Discriminates a fourth
+    // auto_api_football shape, graded by gradeComeback.
+    comeback?: ComebackSpec;
   } | null;
 };
 
@@ -1042,6 +1056,20 @@ async function tryResolve(
     if (events) {
       if (bet.scope !== "match") return "skip";
       return resolveMatchScopeApiFootballEvents(bet, events);
+    }
+    // First-event-window distribution: same on-demand event feed, bucketed
+    // onto a multi_choice window option. Match scope only.
+    const firstEventWindow = bet.gradingConfig?.firstEventWindow;
+    if (firstEventWindow) {
+      if (bet.scope !== "match") return "skip";
+      return resolveMatchScopeFirstEventWindow(bet, firstEventWindow);
+    }
+    // Comeback (lead-then-lose): reconstructs the running score from the same
+    // event feed plus the final score. Match scope only.
+    const comeback = bet.gradingConfig?.comeback;
+    if (comeback) {
+      if (bet.scope !== "match") return "skip";
+      return resolveMatchScopeComeback(bet, comeback);
     }
     const stat = bet.gradingConfig?.stat as AutoApiFootballStat | undefined;
     const aggregate = bet.gradingConfig?.aggregate;
@@ -1293,6 +1321,109 @@ async function resolveMatchScopeApiFootballEvents(
     homeTeamId: row.homeApiId ?? undefined,
     awayTeamId: row.awayApiId ?? undefined,
   });
+}
+
+// "Which window did the first <metric> fall in" — the multi_choice
+// distribution markets (first goal in 1-15 / 16-30 / ... / no goal). Same
+// on-demand event feed + final-match gate as the event-timeline path, then
+// buckets the first matching event onto a window option. multi_choice only;
+// anything else (or no options) skips to manual.
+async function resolveMatchScopeFirstEventWindow(
+  bet: CandidateBet,
+  spec: FirstEventWindowSpec,
+): Promise<Resolved | "not_ready" | "skip"> {
+  if (!bet.matchId) return "skip";
+  if (bet.answerType !== "multi_choice") return "skip";
+  const options = candidateOptions(bet);
+  if (options.length === 0) return "skip";
+
+  const [row] = await execRows<{
+    status: string;
+    apiId: number | null;
+    homeApiId: number | null;
+    awayApiId: number | null;
+  }>(drizzleSql`
+    select
+      m.status::text             as "status",
+      m.api_football_fixture_id  as "apiId",
+      ht.api_football_team_id    as "homeApiId",
+      at.api_football_team_id    as "awayApiId"
+    from public.matches m
+    join public.teams ht on ht.code = m.home_team
+    join public.teams at on at.code = m.away_team
+    where m.id = ${bet.matchId}::uuid
+    limit 1
+  `);
+  if (!row || row.status !== "final") return "not_ready";
+  if (row.apiId === null) return "not_ready";
+
+  const events = await fetchFixtureEvents(row.apiId);
+  if (!events) return "not_ready";
+
+  const resolved = gradeFirstEventWindow(events, spec, options, {
+    homeTeamId: row.homeApiId ?? undefined,
+    awayTeamId: row.awayApiId ?? undefined,
+  });
+  if (resolved !== "skip") {
+    console.info("[live-grade first-window]", {
+      betId: bet.id,
+      metric: spec.metric,
+      value: resolved.value,
+    });
+  }
+  return resolved;
+}
+
+// Comeback (lead-then-lose) market. Needs the final score (winner + feed
+// completeness guard) and the goal timeline, both at match scope. yes_no
+// only; anything else skips to manual.
+async function resolveMatchScopeComeback(
+  bet: CandidateBet,
+  spec: ComebackSpec,
+): Promise<Resolved | "not_ready" | "skip"> {
+  if (!bet.matchId) return "skip";
+  if (bet.answerType !== "yes_no") return "skip";
+
+  const [row] = await execRows<{
+    status: string;
+    homeScore: number | null;
+    awayScore: number | null;
+    apiId: number | null;
+    homeApiId: number | null;
+    awayApiId: number | null;
+  }>(drizzleSql`
+    select
+      m.status::text             as "status",
+      m.home_score               as "homeScore",
+      m.away_score               as "awayScore",
+      m.api_football_fixture_id  as "apiId",
+      ht.api_football_team_id    as "homeApiId",
+      at.api_football_team_id    as "awayApiId"
+    from public.matches m
+    join public.teams ht on ht.code = m.home_team
+    join public.teams at on at.code = m.away_team
+    where m.id = ${bet.matchId}::uuid
+    limit 1
+  `);
+  if (!row || row.status !== "final") return "not_ready";
+  if (row.homeScore === null || row.awayScore === null) return "not_ready";
+  if (row.apiId === null) return "not_ready";
+
+  const events = await fetchFixtureEvents(row.apiId);
+  if (!events) return "not_ready";
+
+  const resolved = gradeComeback(events, spec, row.homeScore, row.awayScore, {
+    homeTeamId: row.homeApiId ?? undefined,
+    awayTeamId: row.awayApiId ?? undefined,
+  });
+  if (resolved !== "skip") {
+    console.info("[live-grade comeback]", {
+      betId: bet.id,
+      team: spec.team ?? "any",
+      value: resolved.value,
+    });
+  }
+  return resolved;
 }
 
 async function resolveDayScopeApiFootball(

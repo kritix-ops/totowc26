@@ -19,6 +19,7 @@ import {
   type DossierInput,
 } from "@/lib/bets/suggest/dossier";
 import { suggestionToDraft } from "@/lib/bets/suggest/transform";
+import type { GradingConfig } from "@/lib/bets/types";
 import { listFixturesForDate } from "@/db/admin-queries";
 import { SUGGEST_MODELS } from "@/lib/bets/suggest/models";
 import { notifyUsers } from "@/lib/notifications";
@@ -317,6 +318,33 @@ type DayGenArgs = {
   instructions?: string;
 };
 
+// Decide how a day-scope suggestion settles. Day scope auto-grades only the
+// shapes that aggregate across the whole slate without a single fixture
+// anchor: total goals (auto_football_data total_goals / ht_total) and any
+// per-stat day total (auto_api_football sum_day). Everything else — event
+// timelines, first-event-window distributions, per-match stats, player props,
+// or an absent config — has no day-scope resolver, so it settles manually.
+// Mirrors resolveDayScope / resolveDayScopeApiFootball in src/lib/sync.ts.
+function dayScopeGrading(grading: GradingConfig): {
+  gradingSource: "auto_football_data" | "auto_api_football" | "manual";
+  gradingConfig: GradingConfig;
+} {
+  if (
+    grading?.source === "auto_football_data" &&
+    (grading.field === "total_goals" || grading.field === "ht_total")
+  ) {
+    return { gradingSource: "auto_football_data", gradingConfig: grading };
+  }
+  if (
+    grading?.source === "auto_api_football" &&
+    "stat" in grading &&
+    grading.aggregate === "sum_day"
+  ) {
+    return { gradingSource: "auto_api_football", gradingConfig: grading };
+  }
+  return { gradingSource: "manual", gradingConfig: null };
+}
+
 // The heavy half of generateDaySuggestions, run after the response is sent.
 async function runDayGeneration(args: DayGenArgs): Promise<void> {
   const { date, fixtures, adminId, lockAtIso } = args;
@@ -374,6 +402,11 @@ async function runDayGeneration(args: DayGenArgs): Promise<void> {
         console.warn("[live-gen-day draft skip]", { reason: draft.error, q: suggestion.questionEn });
         continue;
       }
+      // Day scope auto-grades the shapes that aggregate across the whole
+      // slate without a single matchId (total goals via total_goals/ht_total,
+      // and any sum_day stat). Event-timeline / first-event-window / per-match
+      // shapes can't anchor at day scope, so those fall back to manual.
+      const dayGrade = dayScopeGrading(draft.grading);
       const res = await createCustomBet({
         scope: "day",
         matchdayDate: date,
@@ -386,10 +419,8 @@ async function runDayGeneration(args: DayGenArgs): Promise<void> {
         stakeSnapshot: draft.stakeSnapshot,
         payoutSnapshot: draft.payoutSnapshot,
         decimalOdds: null,
-        // Day scope can't anchor the events grader (no single matchId), so it
-        // settles manually regardless of what the model proposed.
-        gradingSource: "manual",
-        gradingConfig: null,
+        gradingSource: dayGrade.gradingSource,
+        gradingConfig: dayGrade.gradingConfig,
         lockAt: lockAtIso,
       });
       if (res.ok) created += 1;

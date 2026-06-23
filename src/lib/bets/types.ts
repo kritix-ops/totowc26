@@ -8,7 +8,7 @@
 
 // Type-only import: events-grade.ts type-imports ApiFootballEvent, so this
 // stays free of the server-only runtime and is safe in client bundles.
-import type { EventGradeSpec } from "./events-grade";
+import type { EventGradeSpec, FirstEventWindowSpec, ComebackSpec } from "./events-grade";
 
 // How a live (match/day) market's per-choice odds were authored.
 //   - "probability" (the default; also when the field is absent): the
@@ -202,6 +202,26 @@ export type AutoApiFootballEventsConfig = {
   events: EventGradeSpec;
 };
 
+// "Which window did the FIRST <metric> fall in" multi_choice distribution
+// (first goal in 1-15 / 16-30 / ... / no goal). Shares the auto_api_football
+// source, discriminated by `firstEventWindow`. The grader buckets the first
+// matching event's minute onto a range option; evaluator
+// gradeFirstEventWindow in src/lib/bets/events-grade.ts. See
+// _plans/2026-06-23-live-bet-distribution-and-day-aggregation.md.
+export type AutoApiFootballFirstEventWindowConfig = {
+  source: "auto_api_football";
+  firstEventWindow: FirstEventWindowSpec;
+};
+
+// Comeback (lead-then-lose) market. Shares the auto_api_football source,
+// discriminated by `comeback`. Grader gradeComeback in
+// src/lib/bets/events-grade.ts reconstructs the running score from goal
+// events and checks whether the full-time winner ever trailed.
+export type AutoApiFootballComebackConfig = {
+  source: "auto_api_football";
+  comeback: ComebackSpec;
+};
+
 export type AutoFootballDataConfig = {
   source: "auto_football_data";
   // Mirrored from AutoFootballField in src/lib/sync.ts. Three buckets:
@@ -237,6 +257,8 @@ export type AutoFootballDataConfig = {
 export type GradingConfig =
   | AutoApiFootballConfig
   | AutoApiFootballEventsConfig
+  | AutoApiFootballFirstEventWindowConfig
+  | AutoApiFootballComebackConfig
   | AutoFootballDataConfig
   | null;
 

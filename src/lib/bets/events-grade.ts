@@ -9,11 +9,16 @@
 //     zero Var events despite on-field reviews), so a VAR metric never
 //     auto-resolves — it returns "skip" and the bet waits in the manual
 //     queue. Never infer "no VAR" from absence.
-//   - multi_choice / free_text answer types: which-window-was-first style
-//     markets need ordering logic out of scope here; they return "skip".
-// See _plans/2026-06-12-live-bets-llm-overhaul.md Phase 3.
+//
+// gradeEventBet still grades only yes_no / number (a count compared to a
+// threshold). The multi_choice "which window did the FIRST <event> fall in"
+// distribution markets — the juiciest live bets — are graded by the separate
+// gradeFirstEventWindow below, which buckets the first matching event's clock
+// minute onto a window option. See
+// _plans/2026-06-23-live-bet-distribution-and-day-aggregation.md.
 
 import type { ApiFootballEvent } from "@/lib/api-football";
+import { matchRangeOption, optionRange, type RangeOption } from "./range-grade";
 
 // Named half windows or an explicit clock-minute range. Half buckets use
 // the clock minute (event.minute), so 45+2 stoppage stays in the first
@@ -30,6 +35,7 @@ export type EventMetric =
   | "card"
   | "goal"
   | "penalty"
+  | "substitution"
   | "var";
 
 export type EventOp = ">=" | ">" | "=" | "<=" | "<";
@@ -59,8 +65,24 @@ export type EventGradeContext = {
   awayTeamId?: number;
 };
 
+// Spec for a "which window did the FIRST <metric> fall in" multi_choice
+// market. No op/value/window: the windows live in the bet's multi_choice
+// options (as minute-range tokens), and the answer is the bucket containing
+// the first matching event's clock minute. A "no event" option (a non-range
+// bucket like "no goal") catches the case where the metric never occurs.
+export type FirstEventWindowSpec = {
+  metric: EventMetric;
+  team?: "home" | "away" | "any";
+  // Restrict to one player by API-Football id (e.g. "in which window does
+  // Messi score his first goal"). Unset = team-or-match level.
+  playerApiId?: number;
+  // With metric goal, bucket the player's first ASSIST instead of goal.
+  byAssist?: boolean;
+};
+
 type ResolvedYesNo = { type: "yes_no"; value: boolean };
 type ResolvedNumber = { type: "number"; value: number };
+type ResolvedMultiChoice = { type: "multi_choice"; value: string };
 
 // Grade an event bet. Returns a resolved value, or "skip" when the spec
 // isn't auto-gradable (VAR, unsupported answer type, malformed spec) so
@@ -137,6 +159,10 @@ function matchesMetric(e: ApiFootballEvent, metric: EventMetric): boolean {
     case "penalty":
       // A converted penalty.
       return e.type === "Goal" && detail.includes("penalty") && !detail.includes("missed");
+    case "substitution":
+      // The feed labels substitutions `type:"subst"` (player = coming on,
+      // assist = going off). Exact type match so nothing else is miscounted.
+      return e.type.toLowerCase() === "subst";
     case "var":
       return false; // unreachable — guarded in gradeEventBet
   }
@@ -172,4 +198,122 @@ function isWindow(w: unknown): w is EventWindow {
     );
   }
   return false;
+}
+
+// Grade a "which window did the FIRST <metric> fall in" multi_choice market.
+// Buckets the first matching event's clock minute onto the option whose range
+// token contains it (reusing the tested range matcher). When the metric never
+// occurs, resolves to the single non-range "no event" option. Fails closed —
+// ambiguous options, a malformed filter, or a minute that no/many options
+// claim → "skip" → the bet stays in the manual queue rather than risk a wrong
+// credit. The caller owns the "match is final + feed reachable" gate.
+export function gradeFirstEventWindow(
+  events: ApiFootballEvent[],
+  spec: FirstEventWindowSpec,
+  options: RangeOption[],
+  ctx?: EventGradeContext,
+): ResolvedMultiChoice | "skip" {
+  if (spec.metric === "var") return "skip";
+  // An assist filter only makes sense on goals.
+  if (spec.byAssist && spec.metric !== "goal") return "skip";
+
+  const side = spec.team ?? "any";
+  let teamId: number | undefined;
+  if (side === "home") teamId = ctx?.homeTeamId;
+  if (side === "away") teamId = ctx?.awayTeamId;
+  if (side !== "any" && teamId === undefined) return "skip";
+
+  const first = events
+    .filter((e) => {
+      if (!matchesMetric(e, spec.metric)) return false;
+      if (side !== "any" && e.teamId !== teamId) return false;
+      if (spec.playerApiId !== undefined) {
+        const actorId = spec.byAssist ? e.assistId : e.playerId;
+        if (actorId !== spec.playerApiId) return false;
+      }
+      return true;
+    })
+    // Earliest event wins. Stoppage (extra) breaks ties within a minute so a
+    // 45+2 event sorts after a clean 45'. Clock minute is used for bucketing
+    // so 45+2 stays in the first-half window.
+    .sort((a, b) => a.minute - b.minute || (a.extra ?? 0) - (b.extra ?? 0))[0];
+
+  if (!first) {
+    // No matching event: resolve to the sole non-range bucket ("no goal").
+    const none = options.filter((o) => optionRange(o) === null);
+    return none.length === 1
+      ? { type: "multi_choice", value: none[0].value }
+      : "skip";
+  }
+
+  const value = matchRangeOption(options, first.minute);
+  return value ? { type: "multi_choice", value } : "skip";
+}
+
+// Spec for a comeback (lead-then-lose) market: did the full-time winner trail
+// on the scoreboard at some point? `team` narrows to one side completing the
+// comeback ("will HOME come back to win"); "any"/unset = either side.
+export type ComebackSpec = {
+  team?: "home" | "away" | "any";
+};
+
+// Grade a comeback market (yes_no). Reconstructs the running score from goal
+// events in minute order — own goals credited to the OTHER side — and reports
+// whether the eventual full-time winner was ever strictly behind. Needs the
+// real final score: it determines the winner AND guards feed completeness
+// (if the reconstructed final does not equal the real final the timeline is
+// missing or carries stray goals, so we fail closed to manual rather than
+// risk a wrong grade). A drawn match (incl. decided on penalties) has no
+// scoreboard winner, so it is never a comeback.
+export function gradeComeback(
+  events: ApiFootballEvent[],
+  spec: ComebackSpec,
+  finalHomeScore: number,
+  finalAwayScore: number,
+  ctx: EventGradeContext,
+): ResolvedYesNo | "skip" {
+  if (ctx.homeTeamId === undefined || ctx.awayTeamId === undefined) return "skip";
+
+  const goals = events
+    .filter(
+      (e) =>
+        e.type === "Goal" &&
+        !e.detail.toLowerCase().includes("cancel") &&
+        !e.detail.toLowerCase().includes("missed"),
+    )
+    .sort((a, b) => a.minute - b.minute || (a.extra ?? 0) - (b.extra ?? 0));
+
+  const winner =
+    finalHomeScore > finalAwayScore
+      ? "home"
+      : finalAwayScore > finalHomeScore
+        ? "away"
+        : "draw";
+
+  let home = 0;
+  let away = 0;
+  let winnerEverBehind = false;
+  for (const g of goals) {
+    // An own goal is logged under the conceding player's team, so it scores
+    // for the opponent.
+    const ownGoal = g.detail.toLowerCase().includes("own goal");
+    let scoringSide: "home" | "away" | null = null;
+    if (g.teamId === ctx.homeTeamId) scoringSide = ownGoal ? "away" : "home";
+    else if (g.teamId === ctx.awayTeamId) scoringSide = ownGoal ? "home" : "away";
+    if (scoringSide === null) continue; // stray team id → trips the guard below
+
+    if (scoringSide === "home") home += 1;
+    else away += 1;
+    if (winner === "home" && home < away) winnerEverBehind = true;
+    if (winner === "away" && away < home) winnerEverBehind = true;
+  }
+
+  // Feed-completeness guard: the reconstructed final must match the real one.
+  if (home !== finalHomeScore || away !== finalAwayScore) return "skip";
+
+  if (winner === "draw") return { type: "yes_no", value: false };
+  if (spec.team && spec.team !== "any" && spec.team !== winner) {
+    return { type: "yes_no", value: false };
+  }
+  return { type: "yes_no", value: winnerEverBehind };
 }
