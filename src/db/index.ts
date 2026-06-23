@@ -35,18 +35,25 @@ const client = postgres(connectionString, {
   prepare: false,
   // Per-instance pool size. The dashboard (/[lang]) fans out ~20 queries
   // concurrently across its Suspense sections plus the SmartHub
-  // generators, and on a cold Data Cache (e.g. right after the 5-min cron
-  // sync busts the tags) they all hit the DB at once. postgres-js has NO
-  // pool-acquisition timeout, so if a render needs more connections than
-  // `max` provides, the surplus queries wait indefinitely and the function
-  // is killed at its 300s limit. `max: 3` did exactly that on 2026-06-17
-  // and took the homepage down (see
-  // _plans/2026-06-17-performance-root-cause-and-fix.md). 10 is the
-  // long-proven value; the shared Supavisor pooler caps total client
-  // connections at 400, far above 10 per instance times the real instance
-  // count, so this never oversubscribes it. Co-location keeps each query
-  // ~1-2ms, so the pool drains the burst fast.
-  max: 10,
+  // generators, and on a cold Data Cache they all hit the DB at once.
+  // postgres-js has NO pool-acquisition timeout (verified against the
+  // installed v3.4.9 README: max / idle_timeout / connect_timeout /
+  // max_lifetime exist, no acquire-queue timeout). So if a render needs
+  // more connections than `max` provides, the surplus queries wait with no
+  // bound and the function is killed at the Vercel ceiling — the recurring
+  // "loading forever" fall. `max: 3` proved this on 2026-06-17 and took the
+  // homepage down (_plans/2026-06-17-performance-root-cause-and-fix.md).
+  // 10 held but left zero headroom: a single render's ~20-query fan-out
+  // still queued against itself the moment two sections raced. Raised to 20
+  // so one full render fits without self-queuing
+  // (_plans/2026-06-23-prod-falls-reliability-fix.md, T2.1). The shared
+  // Supavisor pooler caps total CLIENT connections at 400 — with ~30 users
+  // and a handful of warm Fluid instances, 20 per instance stays far under
+  // that, so this never oversubscribes the pooler. Co-location keeps each
+  // query ~1-2ms, so the pool drains the burst fast. The per-section
+  // withTimeout fallbacks (T2.2) bound the residual wait when several
+  // renders share one instance, so even then nothing reaches maxDuration.
+  max: 20,
   idle_timeout: 20,
   ...(isBuildPhase
     ? {}

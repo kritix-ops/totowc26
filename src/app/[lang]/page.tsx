@@ -32,6 +32,7 @@ import {
 import { WhatsAppInviteCard } from "@/components/WhatsAppInviteCard";
 import { PoolDigestSection } from "@/components/PoolDigestSection";
 import { isWhatsAppCardDismissed } from "@/lib/whatsapp-dismiss";
+import { withTimeout } from "@/lib/moments/timeout";
 import {
   HeroStatsCardSkeleton,
   LastBetSectionSkeleton,
@@ -413,6 +414,21 @@ function PlayerHome({
 // whole time.
 // ────────────────────────────────────────────────────────────────────
 
+// Per-section read budget for the streamed dashboard. The uncached,
+// per-user reads below (upcoming fixtures, last final, points trend) can
+// queue waiting for a DB connection during a matchday burst; without a
+// bound a single starved section would hold its serverless function open
+// until the page's maxDuration cap and 504 the whole page. withTimeout
+// resolves the read to a safe empty/null fallback at this budget — far
+// above the ~1-2ms co-located latency, far below the 25s page cap — so the
+// section degrades to its empty state (a refresh refills it) instead of
+// taking the page down. Cached aggregates (leaderboard, pool digest, news,
+// hero stats, rank) are deliberately left unwrapped: they rarely touch the
+// DB and an empty fallback would mislead. The same empty/null shapes are
+// exercised by mockDashboard() above, so the components render them safely.
+// See _plans/2026-06-23-prod-falls-reliability-fix.md (T2.2).
+const DASH_SECTION_TIMEOUT_MS = 8_000;
+
 async function HeroStatsCardAsync({
   locale,
   dict,
@@ -508,7 +524,12 @@ async function UpcomingSectionAsync({
   // single-row lookups; the heavy one is the fixtures query. The two
   // new lookups feed the per-card scenarios panel.
   const [upcoming, access, lockMinutes, scoringRow, bankBalance] = await Promise.all([
-    getUpcomingFixtures(userId, 6),
+    withTimeout(
+      getUpcomingFixtures(userId, 6),
+      DASH_SECTION_TIMEOUT_MS,
+      "dashboard:upcoming",
+      [],
+    ),
     getUserAccess(userId),
     getBetLockMinutes(),
     getSettingsRow(),
@@ -542,7 +563,12 @@ async function LastBetSectionAsync({
   dict: Awaited<ReturnType<typeof getDictionary>>;
   userId: string;
 }) {
-  const lastFinal = await getLatestFinalForUser(userId);
+  const lastFinal = await withTimeout(
+    getLatestFinalForUser(userId),
+    DASH_SECTION_TIMEOUT_MS,
+    "dashboard:last-bet",
+    null,
+  );
   return <LastBetSection locale={locale} dict={dict} lastFinal={lastFinal} />;
 }
 
@@ -555,7 +581,12 @@ async function TrendSectionAsync({
   dict: Awaited<ReturnType<typeof getDictionary>>;
   userId: string;
 }) {
-  const trend = await getPointsTrend(userId);
+  const trend = await withTimeout(
+    getPointsTrend(userId),
+    DASH_SECTION_TIMEOUT_MS,
+    "dashboard:trend",
+    [],
+  );
   return <TrendSection locale={locale} dict={dict} trend={trend} />;
 }
 

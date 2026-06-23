@@ -191,6 +191,36 @@ Shipped on the `sandbox` branch:
 Tier 2 (pool `max` 10->20 + `withTimeout` on the hot reads) is the next pass,
 per the user's chosen staging (Tier 1 tonight, Tier 2 after).
 
+## Implementation result — Tier 2 (2026-06-23)
+
+Shipped on the `sandbox` branch:
+- T2.1: `src/db/index.ts` postgres-js `max` 10 -> 20, so one render's ~20-query
+  fan-out fits without self-queuing. Verified against the installed postgres
+  v3.4.9 README that there is NO native pool-acquire timeout (only max /
+  idle_timeout / connect_timeout / max_lifetime), so the wait had to be bounded
+  in app code. Client-connection math checked: ~30 users x a few warm instances
+  x 20 stays far under the pooler's 400 client ceiling. Comment updated so it is
+  not stale.
+- T2.2: wrapped the three uncached, per-user dashboard section reads —
+  `getUpcomingFixtures`, `getLatestFinalForUser`, `getPointsTrend` — in the
+  existing server `withTimeout` (`@/lib/moments/timeout`) at an 8s budget
+  (`DASH_SECTION_TIMEOUT_MS`), resolving to `[]` / `null` / `[]`. A starved
+  section now degrades to its empty state (refresh refills it) instead of
+  holding the function open to the 25s page cap. Fallback shapes are the same
+  ones `mockDashboard()` already renders, so they are proven safe.
+- Deliberately NOT wrapped: the cached aggregates (leaderboard, pool digest,
+  news, hero stats, rank). They rarely touch the DB and an empty fallback would
+  mislead; maxDuration (T1) is their backstop.
+- Honest behavior change: `withTimeout` resolves the fallback on a query *error*
+  too, not only on timeout. For these three non-critical display sections that
+  means a query error now degrades that one card (logged via
+  `[moments generator failed]`) instead of bubbling to `[lang]/error.tsx` and
+  blanking the page — which is exactly the "degrade one card, not the page" goal
+  that boundary's own comment states. Bank / auth / write paths are untouched.
+- QA: `vitest run` 725/725 pass; `eslint` + `tsc --noEmit` clean on changed
+  files. The wrapped behavior's core logic (value / timeout-fallback /
+  error-fallback) is covered by `src/lib/moments/timeout.test.ts`.
+
 ## Verification after deploy (rule 6)
 
 1. During the next matchday peak, re-run the DB + slow-query probes; confirm no
