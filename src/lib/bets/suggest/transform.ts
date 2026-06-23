@@ -90,6 +90,21 @@ export function validateSuggestion(s: LiveBetSuggestion): string | null {
   return null;
 }
 
+// Cap LLM-suggested payouts at this multiple of the stake. The model's
+// probabilities can be very low on a longshot (a comeback, a deep player
+// prop), which inverts to ×20 or more — unrealistic for a friends' pool.
+// Flooring the priced probability at 1/MAX caps the ratio at ×5 while a
+// favourite outcome still earns its fair, lower multiplier. Suggestion flow
+// only; hand-authored bets keep the global pricing band.
+const MAX_SUGGESTION_RATIO = 5;
+
+function capSuggestionPricing(config: PriceOptionsConfig): PriceOptionsConfig {
+  return {
+    ...config,
+    minProbability: Math.max(config.minProbability ?? 0, 1 / MAX_SUGGESTION_RATIO),
+  };
+}
+
 // Convert a validated suggestion into a priced draft. Caller must have run
 // validateSuggestion first (this trusts the shape). Returns { error } if the
 // answer type is one we don't price.
@@ -97,11 +112,12 @@ export function suggestionToDraft(
   s: LiveBetSuggestion,
   pricingConfig: PriceOptionsConfig,
 ): SuggestionDraft | { error: string } {
+  const cappedConfig = capSuggestionPricing(pricingConfig);
   if (s.answerType === "multi_choice") {
     const opts = s.options ?? [];
     const priced = priceOptionsFromProbabilities(
       opts.map((o) => ({ value: o.value, probability: o.probability })),
-      pricingConfig,
+      cappedConfig,
     );
     const decimalOddsByValue: Record<string, number> = {};
     const payoutOverridesByValue: Record<string, number> = {};
@@ -135,7 +151,7 @@ export function suggestionToDraft(
   }
 
   if (s.answerType === "yes_no") {
-    const yn = priceYesNo(s.yesProbability as number, pricingConfig);
+    const yn = priceYesNo(s.yesProbability as number, cappedConfig);
     const answerConfig: AnswerConfig = {
       kind: "yes_no",
       decimalOddsYes: yn.decimalOddsYes,

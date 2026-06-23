@@ -157,4 +157,29 @@ describe("suggestionToDraft", () => {
     if ("error" in draft) throw new Error("priced");
     expect(draft.stakeSnapshot).toBe(pricingConfig.baseStake);
   });
+
+  it("caps a longshot yes_no ratio at x5 (a 4% chance would be ~x25 fair)", () => {
+    const draft = suggestionToDraft({ ...yesNoBase, yesProbability: 0.04 }, pricingConfig);
+    if ("error" in draft) throw new Error(draft.error);
+    if (draft.answerConfig.kind !== "yes_no") throw new Error("kind");
+    expect(draft.answerConfig.decimalOddsYes).toBeLessThanOrEqual(5);
+    expect(draft.answerConfig.decimalOddsYes).toBeGreaterThan(1);
+  });
+
+  it("caps every multi_choice option ratio at x5", () => {
+    const longshots: LiveBetSuggestion = {
+      ...mcBase,
+      options: [
+        { value: "a", labelHe: "א", labelEn: "A", probability: 0.02 },
+        { value: "b", labelHe: "ב", labelEn: "B", probability: 0.03 },
+        { value: "c", labelHe: "ג", labelEn: "C", probability: 0.95 },
+      ],
+    };
+    const draft = suggestionToDraft(longshots, pricingConfig);
+    if ("error" in draft) throw new Error(draft.error);
+    if (draft.answerConfig.kind !== "multi_choice") throw new Error("kind");
+    for (const odds of Object.values(draft.answerConfig.decimalOddsByValue ?? {})) {
+      expect(odds).toBeLessThanOrEqual(5);
+    }
+  });
 });
