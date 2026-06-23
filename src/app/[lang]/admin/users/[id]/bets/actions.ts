@@ -66,6 +66,11 @@ export async function adminSetCustomBetPick(args: {
   answer: PickAnswer;
   reason: string;
   lockBypassed: boolean;
+  // Optional live (match/day) stake. Forwarded as-is; write-core clamps it to
+  // the admin range and ignores it for free-pick scopes. The proxy editor
+  // currently renders no stake picker, so this stays undefined there and the
+  // bet default is kept — behaviour unchanged.
+  requestedStake?: number;
 }): Promise<AdminWriteResult> {
   const guard = await gateAdmin(args.targetUserId);
   if ("ok" in guard) return guard;
@@ -80,7 +85,11 @@ export async function adminSetCustomBetPick(args: {
       reason: args.reason,
       lockBypassed: !!args.lockBypassed,
     },
-    { customBetId: args.customBetId, answer: args.answer },
+    {
+      customBetId: args.customBetId,
+      answer: args.answer,
+      requestedStake: args.requestedStake,
+    },
   );
   revalidateUserBetsPage(args.targetUserId);
   return { ok: true, outcome };

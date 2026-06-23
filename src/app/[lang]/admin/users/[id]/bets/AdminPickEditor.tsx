@@ -37,6 +37,10 @@ export type AdminPickActions = {
     answer: PickAnswer;
     reason: string;
     lockBypassed: boolean;
+    // Player-chosen stake for live (match/day) bets. Omitted on free-pick
+    // scopes and when the dialog renders no stake picker — then the server
+    // keeps the bet's default stake.
+    requestedStake?: number;
   }) => Promise<AdminWriteResult>;
   clearCustom: (args: {
     targetUserId: string;
@@ -87,6 +91,14 @@ type CustomKind = {
   currentAnswer: PickAnswer | null;
   stake: number;
   payout: number;
+  // Scope + live-stake bounds + the existing pick's stake. When the scope is
+  // live (match/day) and the bounds are present, the dialog shows a "how much
+  // to risk" pill row seeded from currentStake (or the bet's default). Absent
+  // on the proxy edit path, so that dialog is unchanged. Free-pick scopes
+  // (tournament/stage/group) never stake points, so no picker is shown.
+  scope?: "match" | "day" | "stage" | "group" | "tournament";
+  stakeBounds?: { minStake: number; maxStake: number };
+  currentStake?: number | null;
 };
 
 type MatchKind = {
@@ -201,6 +213,20 @@ function Dialog(props: Props & { onClose: () => void }) {
       : "",
   );
 
+  // Live-stake picker state. Only meaningful for a live-scope custom bet with
+  // bounds supplied; otherwise the row never renders and the stake stays the
+  // bet default. Seeded from the existing pick's stake (or the bet default),
+  // clamped into the admin's [min, max] range.
+  const showStakePicker =
+    props.surface === "custom" &&
+    (props.scope === "match" || props.scope === "day") &&
+    props.stakeBounds != null;
+  const [chosenStake, setChosenStake] = useState<number>(() => {
+    if (props.surface !== "custom" || !props.stakeBounds) return 0;
+    const seed = props.currentStake ?? props.stake;
+    return clampStake(seed, props.stakeBounds.minStake, props.stakeBounds.maxStake);
+  });
+
   // Snapshot the lock state when the dialog opens. The bet's `lockAt` is
   // a fixed instant, so a re-render mid-edit doesn't change whether the
   // checkbox is needed. Computing inside useState keeps Date.now() pure
@@ -244,6 +270,7 @@ function Dialog(props: Props & { onClose: () => void }) {
         answer,
         reason,
         lockBypassed,
+        requestedStake: showStakePicker ? chosenStake : undefined,
       });
       const msg = translateResult(result);
       if (msg) {
@@ -429,6 +456,20 @@ function Dialog(props: Props & { onClose: () => void }) {
                 setMatchHome(h);
                 setMatchAway(a);
               }}
+            />
+          )}
+
+          {/* Live-stake picker — how many points to risk. Only for live-scope
+              custom bets; mirrors the player card's pill row. */}
+          {props.surface === "custom" && showStakePicker && props.stakeBounds && (
+            <StakePicker
+              locale={props.locale}
+              value={chosenStake}
+              baseStake={props.stake}
+              minStake={props.stakeBounds.minStake}
+              maxStake={props.stakeBounds.maxStake}
+              disabled={pending}
+              onChange={setChosenStake}
             />
           )}
 
@@ -740,6 +781,95 @@ function FreeTextInputRow({
       rows={3}
       className="w-full min-h-[80px] px-3 py-2 rounded-lg border border-outline-variant bg-surface text-base text-on-surface focus:outline-none focus:border-primary"
     />
+  );
+}
+
+// Canonical stake stops, mirrored from the player bet card so the admin sees
+// the same row. Filtered to the admin's [min, max] range; the bet's own
+// baseStake is always inserted (sorted) even if it's off the canonical list.
+const STAKE_STOPS = [1, 3, 5, 10, 20, 30] as const;
+
+function clampStake(value: number, min: number, max: number): number {
+  if (!Number.isFinite(value)) return min;
+  return Math.max(min, Math.min(max, Math.round(value)));
+}
+
+function StakePicker({
+  locale,
+  value,
+  baseStake,
+  minStake,
+  maxStake,
+  disabled,
+  onChange,
+}: {
+  locale: Locale;
+  value: number;
+  baseStake: number;
+  minStake: number;
+  maxStake: number;
+  disabled: boolean;
+  onChange: (next: number) => void;
+}) {
+  const isHebrew = locale === "he";
+  const stops = STAKE_STOPS.filter((s) => s >= minStake && s <= maxStake);
+  const clampedBase = clampStake(baseStake, minStake, maxStake);
+  const stopsWithBase = Array.from(new Set([...stops, clampedBase])).sort(
+    (a, b) => a - b,
+  );
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="text-xs font-bold text-on-surface-variant uppercase tracking-wide">
+          {isHebrew ? "כמה לסכן?" : "How much to risk?"}
+        </span>
+        <span className="text-xs text-on-surface-variant tabular-nums">
+          {isHebrew
+            ? `${minStake}–${maxStake} נק׳`
+            : `${minStake}–${maxStake} pts`}
+        </span>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        {stopsWithBase.map((stop) => {
+          const active = stop === value;
+          const isDefault = stop === clampedBase;
+          return (
+            <button
+              key={stop}
+              type="button"
+              disabled={disabled}
+              onClick={() => onChange(stop)}
+              aria-pressed={active}
+              aria-label={
+                isHebrew
+                  ? `סכן ${stop} נקודות${isDefault ? " (ברירת מחדל)" : ""}`
+                  : `Risk ${stop} points${isDefault ? " (default)" : ""}`
+              }
+              className={clsx(
+                "min-h-11 min-w-11 px-3 inline-flex items-center justify-center gap-1 rounded-full border text-sm font-bold tabular-nums transition-colors",
+                active
+                  ? "bg-primary text-on-primary border-primary shadow-sm"
+                  : "bg-surface-container-lowest text-on-surface border-outline hover:border-primary",
+                "disabled:opacity-50 disabled:cursor-not-allowed",
+              )}
+            >
+              {stop}
+              {isDefault && (
+                <span
+                  aria-hidden
+                  className={clsx(
+                    "text-[10px] font-bold",
+                    active ? "text-on-primary/80" : "text-on-surface-variant",
+                  )}
+                >
+                  ★
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 

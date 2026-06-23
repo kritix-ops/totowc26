@@ -33,6 +33,7 @@ import {
   ScoreLine,
 } from "@/components/ui";
 import { localePath } from "@/lib/paths";
+import { getLiveStakeConfig } from "@/lib/bank";
 import { formatDateTime } from "@/lib/format";
 import { renderPickAnswer, type PlayerNameMap } from "@/lib/bets/format";
 import type { PickAnswer } from "@/lib/bets/types";
@@ -59,14 +60,23 @@ export default async function AdminMyBetsPage({
   const { user } = await requireAdmin(locale);
   const ChevronBack = isHebrew ? ChevronRight : ChevronLeft;
 
-  const [me, customRows, matchRows, playerNames, audit] = await Promise.all([
-    fetchUserBasic(user.id),
-    fetchUserBetsForAdmin(user.id),
-    fetchUserMatchPicksForAdmin(user.id),
-    fetchPlayerNamesById(),
-    fetchMyBackdateAudit(),
-  ]);
+  const [me, customRows, matchRows, playerNames, audit, liveStakeConfig] =
+    await Promise.all([
+      fetchUserBasic(user.id),
+      fetchUserBetsForAdmin(user.id),
+      fetchUserMatchPicksForAdmin(user.id),
+      fetchPlayerNamesById(),
+      fetchMyBackdateAudit(),
+      getLiveStakeConfig(),
+    ]);
   if (!me) notFound();
+
+  // Bounds for the live (match/day) stake picker. Passed to every bet row; the
+  // editor only renders the picker for live scopes, so free-pick rows ignore it.
+  const stakeBounds = {
+    minStake: liveStakeConfig.minStake,
+    maxStake: liveStakeConfig.maxStake,
+  };
 
   console.info("[admin self-backdate] page_read", {
     adminId: user.id,
@@ -129,6 +139,7 @@ export default async function AdminMyBetsPage({
           selfUserId={user.id}
           selfName={meName}
           playerNames={playerNames}
+          stakeBounds={stakeBounds}
         />
       )}
 
@@ -141,6 +152,7 @@ export default async function AdminMyBetsPage({
           selfUserId={user.id}
           selfName={meName}
           playerNames={playerNames}
+          stakeBounds={stakeBounds}
         />
       )}
 
@@ -153,6 +165,7 @@ export default async function AdminMyBetsPage({
           selfUserId={user.id}
           selfName={meName}
           playerNames={playerNames}
+          stakeBounds={stakeBounds}
         />
       )}
 
@@ -165,6 +178,7 @@ export default async function AdminMyBetsPage({
           selfUserId={user.id}
           selfName={meName}
           playerNames={playerNames}
+          stakeBounds={stakeBounds}
         />
       )}
 
@@ -177,6 +191,7 @@ export default async function AdminMyBetsPage({
           selfUserId={user.id}
           selfName={meName}
           playerNames={playerNames}
+          stakeBounds={stakeBounds}
         />
       )}
 
@@ -211,6 +226,7 @@ function ScopeSection({
   selfUserId,
   selfName,
   playerNames,
+  stakeBounds,
 }: {
   icon: React.ReactNode;
   title: string;
@@ -219,6 +235,7 @@ function ScopeSection({
   selfUserId: string;
   selfName: string;
   playerNames: PlayerNameMap;
+  stakeBounds: { minStake: number; maxStake: number };
 }) {
   return (
     <section className="flex flex-col gap-3">
@@ -240,6 +257,7 @@ function ScopeSection({
             selfUserId={selfUserId}
             selfName={selfName}
             playerNames={playerNames}
+            stakeBounds={stakeBounds}
           />
         ))}
       </div>
@@ -253,12 +271,14 @@ function BetRow({
   selfUserId,
   selfName,
   playerNames,
+  stakeBounds,
 }: {
   row: AdminUserBetRow;
   locale: Locale;
   selfUserId: string;
   selfName: string;
   playerNames: PlayerNameMap;
+  stakeBounds: { minStake: number; maxStake: number };
 }) {
   const isHebrew = locale === "he";
   const hasPick = row.pickId != null;
@@ -317,6 +337,9 @@ function BetRow({
             currentAnswer={(row.pickAnswer ?? null) as PickAnswer | null}
             stake={row.stakeSnapshot}
             payout={row.payoutSnapshot}
+            scope={row.scope}
+            stakeBounds={stakeBounds}
+            currentStake={row.pickStakePaid}
             targetUserId={selfUserId}
             targetUserName={selfName}
             locale={locale}

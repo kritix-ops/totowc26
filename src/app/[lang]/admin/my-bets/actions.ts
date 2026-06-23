@@ -127,6 +127,9 @@ export async function selfBackdateCustomBetPick(args: {
   answer: PickAnswer;
   reason: string;
   lockBypassed: boolean;
+  // Live (match/day) stake the admin chose. write-core clamps it to the admin
+  // range; free-pick scopes ignore it (always 0).
+  requestedStake?: number;
 }): Promise<AdminWriteResult> {
   const guard = await gateSelf();
   if ("ok" in guard) return guard;
@@ -139,7 +142,11 @@ export async function selfBackdateCustomBetPick(args: {
       reason: args.reason,
       lockBypassed: true,
     },
-    { customBetId: args.customBetId, answer: args.answer },
+    {
+      customBetId: args.customBetId,
+      answer: args.answer,
+      requestedStake: args.requestedStake,
+    },
   );
   revalidateSelf();
   return { ok: true, outcome };
