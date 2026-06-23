@@ -14,6 +14,7 @@ import {
   type LocalizedTuple,
 } from "@/lib/error-i18n";
 import type { SaveBetResult } from "@/app/[lang]/bets/[matchId]/actions";
+import type { MatchStatus } from "@/db/schema";
 
 // Vertical pick card for the dashboard "Your upcoming matches" section.
 // Behaves like a single QuickPickRow but laid out top to bottom so it
@@ -29,7 +30,7 @@ type DashboardPickCardData = {
   awayNameHe: string;
   awayNameEn: string;
   kickoffAt: string;
-  status: "scheduled" | "live" | "final";
+  status: MatchStatus;
   myHome: number | null;
   myAway: number | null;
 };

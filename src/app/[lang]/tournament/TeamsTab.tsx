@@ -4,13 +4,14 @@ import { Flag } from "@/components/Flag";
 import { localePath } from "@/lib/paths";
 import { getAllTeamsWithRecord, type TeamCardRow } from "@/lib/stats";
 import type { Locale } from "../dictionaries";
+import { settle } from "./safe";
 
 // All 32 nations grouped by FIFA group, each card a link to /teams/[code].
 // Lives in its own tab so the Summary stays glanceable instead of having to
 // scroll past 32 team cards to reach anything below.
 
 export async function TeamsTab({ locale }: { locale: Locale }) {
-  const teams = await getAllTeamsWithRecord();
+  const teams = await settle<TeamCardRow[]>("teams", [], () => getAllTeamsWithRecord());
   const isHebrew = locale === "he";
 
   const byGroup = new Map<string | null, TeamCardRow[]>();

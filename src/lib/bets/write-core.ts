@@ -15,6 +15,7 @@ import {
   bankBalanceSql,
   getOverdraftConfig,
   lockUserForBetting,
+  type OverdraftConfig,
 } from "@/lib/bank";
 import type { AnswerConfig, PickAnswer } from "@/lib/bets/types";
 import { resolvePickPayoutAtSubmit } from "@/lib/bets/payout";
@@ -321,11 +322,18 @@ export type CustomPickInput = {
 };
 
 // Inner write, assumes the per-user advisory lock is already held on `tx`.
+// `overdraft` is read ONCE by the caller BEFORE the lock is taken and
+// passed in, so the locked transaction never stops to grab a second
+// pooler connection. A global-`db` read while the advisory lock is held
+// can stall under pool pressure and pin the lock for seconds (the probe
+// in _plans/2026-06-17-performance-root-cause-and-fix.md §T2.2 saw a
+// 106s hold), which is exactly the "save stuck forever" symptom.
 async function writeCustomPickTx(
   tx: Tx,
   principal: WritePrincipal,
   input: CustomPickInput,
   opts: WriteOpts,
+  overdraft: OverdraftConfig,
 ): Promise<WriteOutcome> {
   const [bet] = await tx
     .select({
@@ -475,7 +483,6 @@ async function writeCustomPickTx(
   // guard so a player currently locked from live/duel can still place /
   // edit free picks — the recovery path back to a positive bank.
   if (!isFreePick) {
-    const overdraft = await getOverdraftConfig();
     const guard = assertBettingAllowed({
       balance: effectiveBalance,
       stake: effectiveStake,
@@ -545,9 +552,12 @@ export async function writeCustomPick(
 ): Promise<WriteOutcome> {
   if (!gateAccess(principal)) return { status: "skipped", reason: "not_allowed" };
   try {
+    // Read global settings BEFORE the lock so the locked txn makes no
+    // global-`db` round trip while it holds the advisory lock.
+    const overdraft = await getOverdraftConfig();
     return await db.transaction(async (tx) => {
       await lockUserForBetting(tx, principal.userId);
-      return writeCustomPickTx(tx, principal, input, opts);
+      return writeCustomPickTx(tx, principal, input, opts, overdraft);
     });
   } catch (err) {
     console.error("[write-core customPick] failed", err);
@@ -853,6 +863,8 @@ export async function writeCustomPickAdmin(
   assertAdminReason(principal.reason);
 
   try {
+    // Settings read hoisted out of the lock (see writeCustomPickTx).
+    const overdraft = await getOverdraftConfig();
     return await db.transaction(async (tx) => {
       await lockUserForBetting(tx, principal.userId);
 
@@ -867,10 +879,13 @@ export async function writeCustomPickAdmin(
         )
         .limit(1);
 
-      const outcome = await writeCustomPickTx(tx, principal, input, {
-        overwrite: true,
-        allowAfterDeadline: principal.lockBypassed,
-      });
+      const outcome = await writeCustomPickTx(
+        tx,
+        principal,
+        input,
+        { overwrite: true, allowAfterDeadline: principal.lockBypassed },
+        overdraft,
+      );
       if (outcome.status !== "filled") return outcome;
 
       await tx.insert(betAdminAudit).values({
@@ -1078,11 +1093,14 @@ export async function writeCustomPicksBulk(
   }
   if (items.length === 0) return [];
   try {
+    // One settings read for the whole batch, BEFORE the lock — the loop
+    // below never makes a global-`db` round trip under the advisory lock.
+    const overdraft = await getOverdraftConfig();
     return await db.transaction(async (tx) => {
       await lockUserForBetting(tx, principal.userId);
       const out: WriteOutcome[] = [];
       for (const item of items) {
-        out.push(await writeCustomPickTx(tx, principal, item, opts));
+        out.push(await writeCustomPickTx(tx, principal, item, opts, overdraft));
       }
       return out;
     });

@@ -8,6 +8,16 @@ import {
 } from "./schema";
 import { validateSuggestion } from "./transform";
 import { modelById } from "./models";
+import {
+  buildSystemPrompt,
+  buildUserPrompt,
+  type GenerationContext,
+  type GenerateOptions,
+} from "./prompt";
+
+// Re-exported so existing callers that imported these from generate keep
+// working; the definitions now live in the pure ./prompt module.
+export type { GenerationContext, GenerationScope, GenerateOptions } from "./prompt";
 
 // LLM live-bet suggestion generator. Given a fixture, asks Claude for a
 // batch of complete, in-format live bets — each with a probability per
@@ -38,122 +48,9 @@ export type FixtureContext = {
   kickoffLabel: string;
 };
 
-// Scope-aware generation context. Today's surfaces are `match` (one fixture)
-// and `day` (a whole matchday), but the shape is deliberately open so
-// tournament/stage/group generation can slot in later without reworking the
-// generator. The scope drives the prompt header + the grading note; the
-// actual dossier text + valid player ids ride in GenerateOptions.
-//
-// See _plans/2026-06-13-live-bet-suggestions-enrichment.md (clarification 5).
-export type GenerationScope = "match" | "day" | "tournament" | "stage" | "group";
-
-export type GenerationContext = {
-  scope: GenerationScope;
-  // One-line description of what we're generating for, rendered at the top
-  // of the user prompt, e.g. "Argentina (HE: ארגנטינה) vs Mexico ..." or
-  // "All matches on Sat 14 Jun (Asia/Jerusalem)".
-  label: string;
-};
-
 export type GenerateResult =
   | { ok: true; suggestions: LiveBetSuggestion[] }
   | { ok: false; error: "no_key" | "api_error" | "no_tool_use" | "empty" };
-
-// The settlement vocabulary the model may target. Anything outside this set
-// must be `grading: null` (manual). Kept in sync with the auto sources the
-// system can actually evaluate today (src/lib/bets/types.ts + the grader).
-// Event-window markets (VAR, red-in-half) have no auto source yet, so the
-// prompt tells the model to leave those manual.
-const AUTO_FOOTBALL_DATA_FIELDS = [
-  "winner", "total_goals", "ht_total", "second_half_total", "home_score",
-  "away_score", "winning_margin", "went_to_penalties", "btts", "home_scored",
-  "away_scored", "clean_sheet_home", "clean_sheet_away", "first_half_goal",
-  "second_half_goal", "both_halves_scored", "over_0_5_goals", "over_1_5_goals",
-  "over_2_5_goals", "over_3_5_goals", "over_4_5_goals",
-];
-const AUTO_API_FOOTBALL_STATS = [
-  "corners", "yellow_cards", "red_cards", "shots", "shots_on_goal",
-  "shots_inside_box", "shots_outside_box", "possession", "fouls", "offsides",
-  "saves", "total_passes", "pass_accuracy",
-];
-
-function buildSystemPrompt(scope: GenerationScope): string {
-  const subject = scope === "match" ? "this exact fixture" : "these fixtures";
-  return [
-    "You design live in-play betting markets for a private World Cup pool played between friends.",
-    scope === "match"
-      ? "You are generating markets for ONE fixture."
-      : "You are generating markets that span a whole matchday. Day-scope markets that aggregate across fixtures (total goals on the day, how many red cards across all games) are great, but they have no single-match settlement feed, so set their grading to null (manual). A market that is really about one specific fixture should be generated at match scope instead.",
-    `You are given a DOSSIER of real data for ${subject} (form, injuries, key players with ids, the model's win probabilities, recent results). Treat it as a toolbox, not a checklist: read it, judge what actually fits, and build markets around what you find. The goal is bets that could only have been written for ${subject}, not generic ones that would fit any game ('over 2.5 goals', 'will there be a red card') unless the dossier gives a concrete reason to feature them.`,
-    "Return a batch of varied bets via the tool.",
-    "",
-    "Capabilities available to you (use the ones that fit, skip the ones that don't):",
-    "- Player markets keyed to a real player from the dossier (to score, to score or assist, to be booked). Reach for these when the dossier shows a player worth featuring; a scrappy game with no standout names does not need forced star props.",
-    "- A team that concedes / keeps clean sheets a lot -> a clean-sheet or both-teams-to-score angle aimed at the side the data points at.",
-    "- The model's projected scoreline -> a winning-margin or first-goal-window market around it.",
-    "- A key injury/suspension -> a market that turns on who is missing.",
-    "- Stat and event markets (cards, corners, shots) when the matchup or referee context supports them.",
-    "Vary the shapes across the batch and do not repeat the same idea twice. YOU decide the mix that fits this specific game; nothing here is mandatory.",
-    "",
-    "Hard rules:",
-    "- Every bet has Hebrew AND English question + grading rule. No em dashes anywhere.",
-    "- Give each outcome a calibrated PROBABILITY (0..1). For multi_choice the options are mutually exclusive and their probabilities should roughly sum to 1. Be realistic and use the dossier: a likely outcome gets a high probability so it pays little. Do not flatten probabilities, and do not make a star striker's 'to score' a coin flip when the data says otherwise.",
-    "- Prefer ONE grouped multi_choice market over several yes/no bets when outcomes are related (e.g. first-goal window: 0-15 / 16-30 / 31-45 / 46-60 / 61-75 / 76-90 / no goal).",
-    "- Set grading to an auto source ONLY when the outcome is fully derivable from the data below; otherwise grading must be null (manual).",
-    "- A multi_choice market whose options are NUMERIC RANGES of a derivable quantity (total goals 0-1 / 2-3 / 4+, total corners, winning margin) MUST set grading to the matching auto source (e.g. auto_football_data total_goals) so it self-grades — the system maps the final number to the option whose range contains it. Keep each option's `value` a plain range token ('0-1', '2-3', '4+') so the mapping is unambiguous; never sign-prefix it ('+4').",
-    `  auto_football_data fields (final score / halves): ${AUTO_FOOTBALL_DATA_FIELDS.join(", ")}.`,
-    `  auto_api_football stats (team totals, number bets): ${AUTO_API_FOOTBALL_STATS.join(", ")} (aggregate per_match).`,
-    "  auto_api_football events (timeline, yes/no bets ONLY): { source:'auto_api_football', events:{ metric, window, op, value, team?, playerApiId?, byAssist? } }.",
-    "    metric ∈ red_card|yellow_card|card|goal|penalty. window ∈ '1H'|'2H'|'FT' or {fromMinute,toMinute}. op ∈ >=|>|=|<=|<. team ∈ home|away|any (default any).",
-    "    Use this for markets like 'red card in the first half?' (metric red_card, window 1H, op >=, value 1) or 'goal in the opening 15 minutes?' ({fromMinute:1,toMinute:15}).",
-    "  PLAYER markets auto-grade too: set events with playerApiId = the player's id FROM THE DOSSIER (never invent an id). 'X to score' -> metric goal, window FT, op >=, value 1, playerApiId. 'X to assist' -> same plus byAssist:true. 'X to be booked' -> metric yellow_card (or card), window FT, op >=, value 1, playerApiId. Player markets must be yes_no.",
-    "- Only reference a player id that appears in the dossier. If you want a player market for someone not listed, set grading null (manual) instead of guessing an id.",
-    "- VAR markets have NO reliable auto source — always leave their grading null (manual).",
-    "- The grading rule must be unambiguous and match the grading source/spec exactly.",
-    "- rationale: one short sentence on why the probabilities are calibrated that way, citing the dossier where relevant.",
-    "",
-    hebrewRegisterBlock(),
-  ].join("\n");
-}
-
-// Hebrew quality is a first-class requirement, not a translation afterthought.
-// The pool is Israeli and reads these on their phones; translated-sounding
-// Hebrew is exactly what the user flagged. Give the model register, a small
-// glossary, and contrasting examples so the output reads like a friend wrote
-// it, not like a localized bookmaker.
-function hebrewRegisterBlock(): string {
-  return [
-    "Hebrew quality (critical):",
-    "- Write the Hebrew like an Israeli football fan texting friends, casual and natural, NOT like a translated betting slip. It should never read as if run through a translator.",
-    "- Use the natural Hebrew football register. Glossary: שער (goal), בישול/אסיסט (assist), כרטיס צהוב/אדום (yellow/red card), פנדל (penalty), קרן (corner), הפסקה/מחצית ראשונה/שנייה (half-time / first / second half), ניצחון/תיקו/הפסד (win/draw/loss), שער נקי (clean sheet), שתי הקבוצות יבקיעו (both teams to score).",
-    "- Phrase player markets with the player's Hebrew name naturally, e.g. 'מסי יבקיע במשחק?' not 'האם השחקן ליאו מסי ירשום הבקעה'.",
-    "- Numbers and ranges read right in Hebrew: 'יותר מ-2.5 שערים', 'השער הראשון ייפול ב-15 הדקות הראשונות'.",
-    "- Examples. Natural: 'יבקיע אמבפה בכל זמן שהוא?' / 'יותר מ-9 קרנות במשחק?' / 'מי יבקיע ראשון, צרפת או אנגליה?'. Translated-sounding (AVOID): 'האם מבאפה יבצע הבקעה?' / 'מעל תשע קרניות בהתמודדות' / 'איזו נבחרת תשיג את ההבקעה הראשונה'.",
-  ].join("\n");
-}
-
-export type GenerateOptions = {
-  // How many bets to ask for (clamped 2..10). Default 6.
-  count?: number;
-  // Free-text admin steer appended to the prompt, e.g. "focus on cards and
-  // corners" or "no VAR bets". Untrusted text — it can only influence the
-  // wording/selection, never bypass the schema validation downstream.
-  instructions?: string;
-  // Rendered match dossier (src/lib/bets/suggest/dossier.ts). The whole
-  // point of the overhaul: without it the model has nothing fixture-specific
-  // to say and regresses to generic markets.
-  dossierText?: string;
-  // Every valid API-Football player id for this fixture. Any player-prop the
-  // model emits with an id outside this set has its grading nulled (manual)
-  // so a hallucinated id can never reach the auto grader.
-  validPlayerIds?: Set<number>;
-  // Questions already live/drafted for this fixture, so the model does not
-  // re-propose them — the anti-repetition lever the user asked for.
-  existingQuestions?: string[];
-  // How many web searches the model may run before emitting (0 = off, the
-  // forced-tool single shot). Clamped to 0..3. The user chose focused search.
-  webSearchMaxUses?: number;
-};
 
 const DEFAULT_COUNT = 6;
 const MIN_COUNT = 2;
@@ -162,44 +59,6 @@ const MAX_COUNT = 10;
 function clampCount(count: number | undefined): number {
   if (count === undefined || !Number.isFinite(count)) return DEFAULT_COUNT;
   return Math.max(MIN_COUNT, Math.min(MAX_COUNT, Math.round(count)));
-}
-
-function buildUserPrompt(
-  context: GenerationContext,
-  count: number,
-  opts?: GenerateOptions,
-): string {
-  const subjectWord = context.scope === "match" ? "fixture" : "matchday";
-  const lines = [`${context.scope === "match" ? "Fixture" : "Matchday"}: ${context.label}`];
-
-  const dossier = opts?.dossierText?.trim();
-  if (dossier) {
-    lines.push("", `=== DOSSIER (real data for this ${subjectWord}) ===`, dossier, "=== END DOSSIER ===");
-  } else {
-    lines.push("", `(No dossier available for this ${subjectWord} — fall back to general knowledge, but stay specific to the teams involved.)`);
-  }
-
-  const existing = (opts?.existingQuestions ?? [])
-    .map((q) => q.trim())
-    .filter(Boolean)
-    .slice(0, 25);
-  if (existing.length > 0) {
-    lines.push(
-      "",
-      `Bets ALREADY live for this ${subjectWord} — do NOT repeat these or trivial rewordings of them:`,
-      ...existing.map((q) => `- ${q}`),
-    );
-  }
-
-  lines.push("", `Produce about ${count} bets now, each specific to this ${subjectWord}.`);
-
-  const steer = opts?.instructions?.trim();
-  if (steer) {
-    // Fence the admin's request so the model treats it as guidance, not as
-    // instructions that could override the hard rules above.
-    lines.push("", "Admin request (follow within the hard rules above):", steer.slice(0, 600));
-  }
-  return lines.join("\n");
 }
 
 export async function generateSuggestions(

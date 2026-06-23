@@ -27,6 +27,7 @@ import type {
   ResolvedValue,
 } from "@/lib/bets/types";
 import { gradedPickPoints } from "@/lib/bets/payout";
+import { reopenBlockedReason } from "@/lib/bets/reopen";
 import {
   repriceAnswerConfigFromOdds,
   validateLiveOddsConfig,
@@ -536,6 +537,157 @@ export async function cancelCustomBet(
   }
 }
 
+export type VoidCustomBetResult =
+  | { ok: true; picksRefunded: number; recipients: number }
+  | { ok: false; error: GradeErr };
+
+// Cancel a live bet and refund the stake to EVERY picker — including when the
+// bet was already graded. The driving case: a player prop ("will X score")
+// where the player never took the field, so the auto cron already graded it
+// "no" and paid the wrong side. One click unwinds the whole thing: refund all
+// picks, write an audit row, close the bet as cancelled, and drop a feed
+// notice to each picker.
+//
+// Difference from cancelCustomBet: that one is the list's quick, no-reason
+// cancel and is ungraded-only (it rejects 'graded'). This one requires a
+// reason and accepts a graded bet — it is the corrective action surfaced on
+// the bet detail page.
+//
+// Refund mechanic (same primitive cancelCustomBet uses, applied to ALL picks):
+// set points_earned = stake_paid on every pick. The bank formula sums
+// points_earned - stake_paid, so each pick nets to exactly zero and the picker
+// is made whole, win or lose, graded or not. No pick row is ever deleted —
+// "user bets are SACRED".
+export async function voidCustomBet(
+  id: string,
+  reason: string,
+): Promise<VoidCustomBetResult> {
+  const user = await getUser();
+  if (!user) return { ok: false, error: "unauth" };
+  if (!(await hasPermission(user.id, "liveBets"))) {
+    console.warn("[bet void denied]", { userId: user.id, id });
+    return { ok: false, error: "forbidden" };
+  }
+
+  const trimmedReason = reason.trim();
+  if (trimmedReason.length < 3) {
+    return { ok: false, error: "invalid_reason" };
+  }
+
+  try {
+    const result = await db.transaction(async (tx) => {
+      const [bet] = await tx
+        .select({
+          status: customBets.status,
+          resolvedValue: customBets.resolvedValue,
+          questionHe: customBets.questionHe,
+        })
+        .from(customBets)
+        .where(eq(customBets.id, id))
+        .limit(1);
+
+      if (!bet) return { ok: false as const, error: "bet_not_found" as const };
+      // Already cancelled → nothing to void. Every other status (draft / open /
+      // locked / graded / reversed) is a valid void target.
+      if (bet.status === "cancelled") {
+        return { ok: false as const, error: "invalid_status" as const };
+      }
+
+      // Refund every pick. Setting points_earned = stake_paid nets the pick to
+      // zero in the bank formula; it also overwrites a graded pick's payout, so
+      // a wrongly auto-graded prop is fully unwound for both sides.
+      const refunded = await tx
+        .update(userCustomBetPicks)
+        .set({
+          pointsEarned: sql`${userCustomBetPicks.stakePaid}`,
+          updatedAt: new Date(),
+        })
+        .where(eq(userCustomBetPicks.customBetId, id))
+        .returning({ userId: userCustomBetPicks.userId });
+
+      await tx.insert(betGradingAudit).values({
+        customBetId: id,
+        action: "cancel",
+        previousStatus: bet.status,
+        newStatus: "cancelled",
+        previousResolvedValue: bet.resolvedValue as unknown,
+        newResolvedValue: null,
+        reason: trimmedReason,
+        performedBy: user.id,
+      });
+
+      await tx
+        .update(customBets)
+        .set({
+          status: "cancelled",
+          resolvedValue: null,
+          gradedAt: null,
+          gradedBy: null,
+          updatedAt: new Date(),
+        })
+        .where(eq(customBets.id, id));
+
+      // One pick per (user, bet) by unique index, so distinct users == picks.
+      return {
+        ok: true as const,
+        prevStatus: bet.status,
+        questionHe: bet.questionHe,
+        pickerIds: [...new Set(refunded.map((r) => r.userId))],
+      };
+    });
+
+    if (!result.ok) return result;
+
+    // Feed-only notice to each picker, AFTER the refund has committed. Strictly
+    // best-effort: the refund is the contract, the notice is a courtesy, so a
+    // notify failure is logged and swallowed and never rolls the refund back.
+    // push:false per the agreed scope — a cancellation does not buzz phones.
+    let recipients = 0;
+    if (result.pickerIds.length > 0) {
+      try {
+        const notice = await notifyUsers(
+          { kind: "users", userIds: result.pickerIds },
+          {
+            kind: "bet_cancelled",
+            title: "הימור בוטל",
+            body: `ההימור "${result.questionHe}" בוטל והנקודות שהימרת הוחזרו לך.`,
+            url: "/he/bets/live",
+            push: false,
+            createdBy: user.id,
+          },
+        );
+        recipients = notice.inserted;
+      } catch (err) {
+        console.error(
+          "[bet void] notify failed (refund already committed):",
+          err,
+        );
+      }
+    }
+
+    console.info("[bet void]", {
+      id,
+      prevStatus: result.prevStatus,
+      picksRefunded: result.pickerIds.length,
+      recipients,
+      by: user.id,
+    });
+    revalidatePath("/[lang]/admin/bets", "page");
+    revalidatePath(`/[lang]/admin/bets/${id}`, "page");
+    revalidatePath("/[lang]/play", "layout");
+    revalidatePath("/[lang]/leaderboard", "page");
+    revalidatePath("/[lang]/bets/tournament", "page");
+    return {
+      ok: true,
+      picksRefunded: result.pickerIds.length,
+      recipients,
+    };
+  } catch (err) {
+    console.error("[bet void] failed:", err);
+    return { ok: false, error: "db" };
+  }
+}
+
 // Announce one or more freshly-published live bets to the players via
 // push. Manual / batch only — there is no auto-on-publish path. The
 // admin selects open live bets in the composer; this builds a single
@@ -680,10 +832,17 @@ function validateGradingConfig(
   if (!config) return false;
   if (source === "auto_api_football") {
     if (config.source !== "auto_api_football") return false;
-    // Two shapes share this source: the stats path (stat + aggregate) and
-    // the event-timeline path (events spec). Discriminate on which is set.
+    // Three shapes share this source: the stats path (stat + aggregate), the
+    // event-timeline path (events spec), and the first-event-window
+    // distribution (firstEventWindow spec). Discriminate on which is set.
     if ("events" in config && config.events) {
       return validateEventSpec(config.events);
+    }
+    if ("firstEventWindow" in config && config.firstEventWindow) {
+      return validateFirstEventWindowSpec(config.firstEventWindow);
+    }
+    if ("comeback" in config && config.comeback) {
+      return validateComebackSpec(config.comeback);
     }
     if ("stat" in config) {
       return (
@@ -748,7 +907,7 @@ function validateEventSpec(spec: unknown): boolean {
     value?: unknown;
     team?: unknown;
   };
-  const metrics = ["red_card", "yellow_card", "card", "goal", "penalty", "var"];
+  const metrics = ["red_card", "yellow_card", "card", "goal", "penalty", "substitution", "var"];
   const ops = [">=", ">", "=", "<=", "<"];
   if (typeof s.metric !== "string" || !metrics.includes(s.metric)) return false;
   if (typeof s.op !== "string" || !ops.includes(s.op)) return false;
@@ -763,6 +922,45 @@ function validateEventSpec(spec: unknown): boolean {
     return typeof o.fromMinute === "number" && typeof o.toMinute === "number";
   }
   return false;
+}
+
+// Validate a first-event-window grading spec (which window did the first
+// goal/card/substitution fall in). The windows live in the bet's
+// multi_choice options, so the spec itself only carries the metric and
+// optional team/player narrowing. Mirrors FirstEventWindowSpec in
+// src/lib/bets/events-grade.ts.
+function validateFirstEventWindowSpec(spec: unknown): boolean {
+  if (!spec || typeof spec !== "object") return false;
+  const s = spec as {
+    metric?: unknown;
+    team?: unknown;
+    playerApiId?: unknown;
+    byAssist?: unknown;
+  };
+  const metrics = ["goal", "yellow_card", "red_card", "card", "penalty", "substitution"];
+  if (typeof s.metric !== "string" || !metrics.includes(s.metric)) return false;
+  if (s.team !== undefined && !["home", "away", "any"].includes(s.team as string)) {
+    return false;
+  }
+  if (
+    s.playerApiId !== undefined &&
+    (typeof s.playerApiId !== "number" || !Number.isInteger(s.playerApiId) || s.playerApiId < 1)
+  ) {
+    return false;
+  }
+  if (s.byAssist !== undefined && typeof s.byAssist !== "boolean") return false;
+  return true;
+}
+
+// Validate a comeback grading spec (lead-then-lose). Only an optional team
+// narrowing. Mirrors ComebackSpec in src/lib/bets/events-grade.ts.
+function validateComebackSpec(spec: unknown): boolean {
+  if (!spec || typeof spec !== "object") return false;
+  const s = spec as { team?: unknown };
+  if (s.team !== undefined && !["home", "away", "any"].includes(s.team as string)) {
+    return false;
+  }
+  return true;
 }
 
 // Re-derive a live bet's per-choice payouts from its captured odds using
@@ -1107,6 +1305,93 @@ export async function reverseCustomBetGrading(
     return result;
   } catch (err) {
     console.error("[grading reverse] failed:", err);
+    return { ok: false, error: "db" };
+  }
+}
+
+export type ReopenCustomBetResult =
+  | { ok: true }
+  | { ok: false; error: GradeErr | "no_time_left" };
+
+// Reopen a bet that was reversed by mistake so players can resume filling.
+// The driving case: an admin clicks an answer in the grade form and grades,
+// then "reverses" it — leaving status='reversed', which removes the bet from
+// every player fill surface (they gate on status='open'). If the match has
+// not started yet there is no reason it should be closed.
+//
+// Atomic + guarded:
+//   1. Re-read status + lock_at inside the txn.
+//   2. reopenBlockedReason enforces: must be 'reversed' AND lock_at in the
+//      future. (A reverse already reset every pick to ungraded, so flipping
+//      back to 'open' is clean — existing pickers keep their pick, new players
+//      can fill.)
+//   3. Audit row (action='reopen'), then status → 'open'.
+//
+// No resolved_value is touched (reverse already cleared it). No reason input is
+// required from the admin — this is a one-click correction — so we store a
+// fixed, descriptive audit reason that satisfies the non-empty CHECK.
+export async function reopenCustomBet(
+  id: string,
+): Promise<ReopenCustomBetResult> {
+  const user = await getUser();
+  if (!user) return { ok: false, error: "unauth" };
+  if (!(await hasPermission(user.id, "liveBets"))) {
+    console.warn("[bet reopen denied]", { userId: user.id, id });
+    return { ok: false, error: "forbidden" };
+  }
+
+  try {
+    const result = await db.transaction(async (tx) => {
+      const [bet] = await tx
+        .select({ status: customBets.status, lockAt: customBets.lockAt })
+        .from(customBets)
+        .where(eq(customBets.id, id))
+        .limit(1);
+
+      if (!bet) return { ok: false as const, error: "bet_not_found" as const };
+
+      const blocked = reopenBlockedReason(bet.status, bet.lockAt, new Date());
+      if (blocked === "not_reopenable") {
+        return { ok: false as const, error: "invalid_status" as const };
+      }
+      if (blocked === "no_time_left") {
+        return { ok: false as const, error: "no_time_left" as const };
+      }
+
+      await tx.insert(betGradingAudit).values({
+        customBetId: id,
+        action: "reopen",
+        previousStatus: "reversed",
+        newStatus: "open",
+        previousResolvedValue: null,
+        newResolvedValue: null,
+        reason: "Reopened for filling (was reversed before kickoff)",
+        performedBy: user.id,
+      });
+
+      await tx
+        .update(customBets)
+        .set({ status: "open", updatedAt: new Date() })
+        .where(and(eq(customBets.id, id), eq(customBets.status, "reversed")));
+
+      return { ok: true as const };
+    });
+
+    if (result.ok) {
+      console.info("[bet reopen]", { id, by: user.id });
+      // Bust every surface that filters on status='open': the admin list +
+      // detail, the player play/live fill pages, the leaderboard, and the
+      // tournament page. The live fill pages are auth-dynamic, but the
+      // admin segments are cached, so revalidate to flip the UI immediately.
+      revalidatePath("/[lang]/admin/bets", "page");
+      revalidatePath(`/[lang]/admin/bets/${id}`, "page");
+      revalidatePath("/[lang]/play", "layout");
+      revalidatePath("/[lang]/bets/live", "layout");
+      revalidatePath("/[lang]/leaderboard", "page");
+    }
+    return result;
+  } catch (err) {
+    console.error("[bet reopen] failed:", err);
     return { ok: false, error: "db" };
   }
 }

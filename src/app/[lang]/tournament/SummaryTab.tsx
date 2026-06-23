@@ -29,13 +29,30 @@ import {
   type TournamentSummary,
 } from "@/lib/stats";
 import { getDictionary, type Locale, type Dictionary } from "../dictionaries";
+import { settle } from "./safe";
 
 // The default tab: the at-a-glance picture of the tournament right now.
 // Aggregates summary stats, the most recent results, top scorers + assists +
 // yellow cards, an injury banner, group leaders, and a goals-per-day mini
 // chart. Heavier full-table and team browsing live in their own tabs.
 
+// Zeroed headline numbers so a failed summary query renders a 0/0 strip
+// rather than throwing on `summary.avgGoalsPerMatch.toFixed` downstream.
+const FALLBACK_SUMMARY: TournamentSummary = {
+  totalMatches: 0,
+  playedMatches: 0,
+  totalGoals: 0,
+  avgGoalsPerMatch: 0,
+  cleanSheets: 0,
+  drawCount: 0,
+};
+
 export async function SummaryTab({ locale }: { locale: Locale }) {
+  // Each source is isolated via settle(): this tab pulls our DB plus
+  // several external sports APIs, and before this one failing source threw
+  // the whole page into the error boundary. Now a broken source degrades to
+  // its own empty card and is logged. dict stays a hard dependency — without
+  // labels there is nothing to render — and it is a safe local read.
   const [
     summary,
     scorers,
@@ -47,14 +64,14 @@ export async function SummaryTab({ locale }: { locale: Locale }) {
     standings,
     dict,
   ] = await Promise.all([
-    getTournamentSummary(),
-    getLiveTopScorers(10),
-    getLiveTopAssists(10),
-    getLiveTopYellowCards(10),
-    getLiveInjuries(12),
-    getRecentResults(8),
-    getGoalsPerDay(),
-    getLiveStandings(),
+    settle("summary", FALLBACK_SUMMARY, () => getTournamentSummary()),
+    settle<LiveScorer[]>("scorers", [], () => getLiveTopScorers(10)),
+    settle<LiveAssister[]>("assists", [], () => getLiveTopAssists(10)),
+    settle<LiveCardLeader[]>("yellows", [], () => getLiveTopYellowCards(10)),
+    settle<LiveInjury[]>("injuries", [], () => getLiveInjuries(12)),
+    settle<RecentResult[]>("recent", [], () => getRecentResults(8)),
+    settle<GoalsPerDay[]>("goalsPerDay", [], () => getGoalsPerDay()),
+    settle<LiveGroup[]>("standings", [], () => getLiveStandings()),
     getDictionary(locale),
   ]);
   const isHebrew = locale === "he";

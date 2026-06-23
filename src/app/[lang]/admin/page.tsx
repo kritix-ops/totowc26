@@ -10,6 +10,7 @@ import {
   Smartphone,
   Clock,
   Grid3x3,
+  CalendarX2,
   Copy,
   EyeOff,
   Megaphone,
@@ -181,6 +182,12 @@ export default async function AdminPage({
           path="admin/deadlines"
           icon={<Clock className="h-5 w-5" strokeWidth={1.75} />}
           label={isHebrew ? "מועדי סגירה" : "Deadlines"}
+        />
+        <AdminTile
+          locale={locale}
+          path="admin/matches"
+          icon={<CalendarX2 className="h-5 w-5" strokeWidth={1.75} />}
+          label={isHebrew ? "ניהול משחקים (דחייה/ביטול)" : "Match management"}
         />
       </AdminSection>
 

@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { gradeEventBet, type EventGradeSpec } from "./events-grade";
+import {
+  gradeEventBet,
+  gradeFirstEventWindow,
+  gradeComeback,
+  type EventGradeSpec,
+  type FirstEventWindowSpec,
+} from "./events-grade";
 import type { ApiFootballEvent } from "@/lib/api-football";
+import type { RangeOption } from "./range-grade";
 
 // Fixture modelled on the real WC 2026 opener (Mexico 2-0 South Africa,
 // fixture 1489369): a yellow at 17' and 23', a red at 49', a yellow at
@@ -191,5 +198,209 @@ describe("gradeEventBet — unsupported", () => {
       value: 1,
     };
     expect(gradeEventBet(events, spec, "yes_no", ctx)).toEqual({ type: "yes_no", value: false });
+  });
+});
+
+// ─── substitution metric ──────────────────────────────────────────
+// Subs come from the same /fixtures/events feed (type "subst"): player =
+// coming on, assist = going off. A 46' and 62' sub for the away side, a 70'
+// sub for the home side, modelled on a normal in-game shape.
+const subEvents: ApiFootballEvent[] = [
+  { minute: 46, extra: null, teamId: AWAY, type: "subst", detail: "Substitution 1", playerId: 6001, assistId: 6002 },
+  { minute: 62, extra: null, teamId: AWAY, type: "subst", detail: "Substitution 2", playerId: 6003, assistId: 6004 },
+  { minute: 70, extra: null, teamId: HOME, type: "subst", detail: "Substitution 1", playerId: 6005, assistId: 6006 },
+];
+
+describe("gradeEventBet — substitution metric", () => {
+  it("'a substitution before the hour?' → yes (46')", () => {
+    const spec: EventGradeSpec = { metric: "substitution", window: { fromMinute: 1, toMinute: 60 }, op: ">=", value: 1 };
+    expect(gradeEventBet(subEvents, spec, "yes_no", ctx)).toEqual({ type: "yes_no", value: true });
+  });
+
+  it("counts all substitutions in the match → 3", () => {
+    const spec: EventGradeSpec = { metric: "substitution", window: "FT", op: ">=", value: 0 };
+    expect(gradeEventBet(subEvents, spec, "number", ctx)).toEqual({ type: "number", value: 3 });
+  });
+
+  it("does not count cards or goals as substitutions", () => {
+    const spec: EventGradeSpec = { metric: "substitution", window: "FT", op: ">=", value: 0 };
+    expect(gradeEventBet(events, spec, "number", ctx)).toEqual({ type: "number", value: 0 });
+  });
+});
+
+// ─── gradeFirstEventWindow (distribution markets) ──────────────────
+// Six 15-minute buckets plus a non-range "no event" bucket — the shape the
+// prompt instructs the model to emit.
+const WINDOWS: RangeOption[] = [
+  { value: "1-15" },
+  { value: "16-30" },
+  { value: "31-45" },
+  { value: "46-60" },
+  { value: "61-75" },
+  { value: "76-90" },
+  { value: "none", labelEn: "no goal", labelHe: "אין שער" },
+];
+
+describe("gradeFirstEventWindow", () => {
+  it("first goal at 9' → '1-15' bucket", () => {
+    const spec: FirstEventWindowSpec = { metric: "goal" };
+    expect(gradeFirstEventWindow(events, spec, WINDOWS, ctx)).toEqual({
+      type: "multi_choice",
+      value: "1-15",
+    });
+  });
+
+  it("picks the EARLIEST matching event even when events are out of order", () => {
+    const spec: FirstEventWindowSpec = { metric: "goal" };
+    const shuffled = [events[4], events[0]]; // 67' goal before 9' goal
+    expect(gradeFirstEventWindow(shuffled, spec, WINDOWS, ctx)).toEqual({
+      type: "multi_choice",
+      value: "1-15",
+    });
+  });
+
+  it("first card at 17' → '16-30' bucket (metric card)", () => {
+    const spec: FirstEventWindowSpec = { metric: "card" };
+    expect(gradeFirstEventWindow(events, spec, WINDOWS, ctx)).toEqual({
+      type: "multi_choice",
+      value: "16-30",
+    });
+  });
+
+  it("first RED card at 49' → '46-60' bucket", () => {
+    const spec: FirstEventWindowSpec = { metric: "red_card" };
+    expect(gradeFirstEventWindow(events, spec, WINDOWS, ctx)).toEqual({
+      type: "multi_choice",
+      value: "46-60",
+    });
+  });
+
+  it("buckets a 45+2 first goal into '31-45' by clock minute", () => {
+    const spec: FirstEventWindowSpec = { metric: "goal" };
+    const stoppage: ApiFootballEvent[] = [
+      { minute: 45, extra: 2, teamId: HOME, type: "Goal", detail: "Normal Goal", playerId: 7001, assistId: null },
+    ];
+    expect(gradeFirstEventWindow(stoppage, spec, WINDOWS, ctx)).toEqual({
+      type: "multi_choice",
+      value: "31-45",
+    });
+  });
+
+  it("no matching event → the non-range 'none' bucket", () => {
+    const spec: FirstEventWindowSpec = { metric: "goal", team: "away" };
+    // All goals in the fixture are home; the away side never scores.
+    expect(gradeFirstEventWindow(events, spec, WINDOWS, ctx)).toEqual({
+      type: "multi_choice",
+      value: "none",
+    });
+  });
+
+  it("first home goal honours the team filter → '1-15'", () => {
+    const spec: FirstEventWindowSpec = { metric: "goal", team: "home" };
+    expect(gradeFirstEventWindow(events, spec, WINDOWS, ctx)).toEqual({
+      type: "multi_choice",
+      value: "1-15",
+    });
+  });
+
+  it("player filter: Quinones' first goal → '1-15'", () => {
+    const spec: FirstEventWindowSpec = { metric: "goal", playerApiId: QUINONES };
+    expect(gradeFirstEventWindow(events, spec, WINDOWS, ctx)).toEqual({
+      type: "multi_choice",
+      value: "1-15",
+    });
+  });
+
+  it("first substitution window → '46-60' (sub at 46')", () => {
+    const spec: FirstEventWindowSpec = { metric: "substitution" };
+    expect(gradeFirstEventWindow(subEvents, spec, WINDOWS, ctx)).toEqual({
+      type: "multi_choice",
+      value: "46-60",
+    });
+  });
+
+  it("skips when no event AND no non-range bucket exists (fail closed)", () => {
+    const spec: FirstEventWindowSpec = { metric: "goal", team: "away" };
+    const numericOnly = WINDOWS.slice(0, 6); // drop the 'none' bucket
+    expect(gradeFirstEventWindow(events, spec, numericOnly, ctx)).toBe("skip");
+  });
+
+  it("skips ambiguous overlapping windows (more than one bucket matches)", () => {
+    const spec: FirstEventWindowSpec = { metric: "goal" };
+    const overlap: RangeOption[] = [{ value: "1-15" }, { value: "5-20" }];
+    // The 9' goal falls in both → ambiguous → skip to manual.
+    expect(gradeFirstEventWindow(events, spec, overlap, ctx)).toBe("skip");
+  });
+
+  it("skips a VAR metric", () => {
+    const spec = { metric: "var" } as unknown as FirstEventWindowSpec;
+    expect(gradeFirstEventWindow(events, spec, WINDOWS, ctx)).toBe("skip");
+  });
+
+  it("skips byAssist on a non-goal metric", () => {
+    const spec: FirstEventWindowSpec = { metric: "card", byAssist: true };
+    expect(gradeFirstEventWindow(events, spec, WINDOWS, ctx)).toBe("skip");
+  });
+
+  it("skips a side filter with no team ids in context", () => {
+    const spec: FirstEventWindowSpec = { metric: "goal", team: "home" };
+    expect(gradeFirstEventWindow(events, spec, WINDOWS)).toBe("skip");
+  });
+});
+
+// ─── gradeComeback (lead-then-lose) ────────────────────────────────
+const goal = (minute: number, teamId: number, detail = "Normal Goal"): ApiFootballEvent => ({
+  minute,
+  extra: null,
+  teamId,
+  type: "Goal",
+  detail,
+  playerId: null,
+  assistId: null,
+});
+
+describe("gradeComeback", () => {
+  it("away comes back from 0-1 to win 2-1 → yes", () => {
+    const tl = [goal(10, HOME), goal(55, AWAY), goal(80, AWAY)];
+    expect(gradeComeback(tl, {}, 1, 2, ctx)).toEqual({ type: "yes_no", value: true });
+  });
+
+  it("attributes that comeback to the away side, not the home side", () => {
+    const tl = [goal(10, HOME), goal(55, AWAY), goal(80, AWAY)];
+    expect(gradeComeback(tl, { team: "away" }, 1, 2, ctx)).toEqual({ type: "yes_no", value: true });
+    // The market asked about HOME coming back, but home lost → no.
+    expect(gradeComeback(tl, { team: "home" }, 1, 2, ctx)).toEqual({ type: "yes_no", value: false });
+  });
+
+  it("a wire-to-wire 2-0 win is not a comeback → no", () => {
+    // The opener fixture: both home goals (9', 67'), final 2-0.
+    expect(gradeComeback(events, {}, 2, 0, ctx)).toEqual({ type: "yes_no", value: false });
+  });
+
+  it("leading, being pegged level, then winning is NOT a comeback (never strictly behind)", () => {
+    const tl = [goal(20, HOME), goal(60, AWAY), goal(80, HOME)]; // 1-0, 1-1, 2-1
+    expect(gradeComeback(tl, {}, 2, 1, ctx)).toEqual({ type: "yes_no", value: false });
+  });
+
+  it("a draw has no scoreboard winner → no comeback", () => {
+    const tl = [goal(30, AWAY), goal(70, HOME)]; // 0-1, 1-1
+    expect(gradeComeback(tl, {}, 1, 1, ctx)).toEqual({ type: "yes_no", value: false });
+  });
+
+  it("credits an own goal to the opponent (home comeback via an away own goal)", () => {
+    // away scores at 10 (0-1); away own goal at 50 credits home (1-1); home
+    // wins it at 80 (2-1). Home trailed early → comeback.
+    const tl = [goal(10, AWAY), goal(50, AWAY, "Own Goal"), goal(80, HOME)];
+    expect(gradeComeback(tl, {}, 2, 1, ctx)).toEqual({ type: "yes_no", value: true });
+  });
+
+  it("fails closed when the reconstructed score does not match the real final", () => {
+    const tl = [goal(10, HOME), goal(55, AWAY), goal(80, AWAY)]; // reconstructs 1-2
+    expect(gradeComeback(tl, {}, 3, 2, ctx)).toBe("skip"); // real final says 3-2
+  });
+
+  it("skips when team ids are missing from context", () => {
+    const tl = [goal(10, HOME), goal(55, AWAY), goal(80, AWAY)];
+    expect(gradeComeback(tl, {}, 1, 2, {})).toBe("skip");
   });
 });

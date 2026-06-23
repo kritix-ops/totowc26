@@ -15,6 +15,7 @@ import {
 } from "./dictionaries";
 import { AppShell } from "@/components/AppShell";
 import { HiddenPageToast } from "@/components/HiddenPageToast";
+import { Toaster } from "@/components/Toaster";
 import { SandboxBanner } from "@/components/SandboxBanner";
 import { ServiceWorkerRegistrar } from "@/components/ServiceWorkerRegistrar";
 import { SplashOverlay } from "@/components/SplashOverlay";
@@ -130,6 +131,7 @@ export default async function RootLayout({
         <Suspense fallback={null}>
           <HiddenPageToast locale={locale} />
         </Suspense>
+        <Toaster />
         <ServiceWorkerRegistrar />
       </body>
     </html>

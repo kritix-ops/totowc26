@@ -73,8 +73,10 @@ export function parseRangeToken(raw: string): ParsedRange | null {
 }
 
 // Resolve an option's range from its value, falling back to its English then
-// Hebrew label. Returns null when none of them parse.
-function optionRange(o: RangeOption): ParsedRange | null {
+// Hebrew label. Returns null when none of them parse — exported so callers
+// (e.g. the first-event-window grader) can detect the non-numeric "none"
+// bucket in a window partition.
+export function optionRange(o: RangeOption): ParsedRange | null {
   return (
     parseRangeToken(o.value) ??
     (o.labelEn ? parseRangeToken(o.labelEn) : null) ??

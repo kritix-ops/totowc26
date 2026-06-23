@@ -11,6 +11,7 @@ import {
   type LiveCardLeader,
 } from "@/lib/stats";
 import type { Dictionary, Locale } from "../dictionaries";
+import { settle } from "./safe";
 
 // Players tab - one stop for top scorers, top assists, and discipline.
 // Three columns on desktop; stacks vertically under `md` for mobile.
@@ -22,10 +23,12 @@ export async function PlayersTab({
   locale: Locale;
   dict: Dictionary;
 }) {
+  // Isolated per source (see ./safe): one external feed failing shows that
+  // column empty rather than throwing the whole players tab.
   const [scorers, assists, yellows] = await Promise.all([
-    getLiveTopScorers(20),
-    getLiveTopAssists(20),
-    getLiveTopYellowCards(20),
+    settle<LiveScorer[]>("players:scorers", [], () => getLiveTopScorers(20)),
+    settle<LiveAssister[]>("players:assists", [], () => getLiveTopAssists(20)),
+    settle<LiveCardLeader[]>("players:yellows", [], () => getLiveTopYellowCards(20)),
   ]);
   const isHebrew = locale === "he";
 

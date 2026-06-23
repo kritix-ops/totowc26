@@ -28,7 +28,14 @@ import {
   type ApiFootballStats,
 } from "./api-football";
 import type { AutoApiFootballStat, MultiChoiceOption } from "./bets/types";
-import { gradeEventBet, type EventGradeSpec } from "./bets/events-grade";
+import {
+  gradeEventBet,
+  gradeFirstEventWindow,
+  gradeComeback,
+  type EventGradeSpec,
+  type FirstEventWindowSpec,
+  type ComebackSpec,
+} from "./bets/events-grade";
 import { matchRangeOption } from "./bets/range-grade";
 import { gradedPickPoints } from "./bets/payout";
 import { pickGroupWinner, type GroupStandingRow } from "./grade-group";
@@ -38,6 +45,7 @@ import { BetLockReminderEmail } from "./email/templates/BetLockReminderEmail";
 import { formatDateTime } from "./format";
 import { formatMinutesRemainingHe } from "./format-he";
 import { notifyUsers } from "./notifications";
+import { scoreCanceledMatchesSweep } from "./matches/score-canceled";
 import { isPushConfigured, sendPush } from "./push";
 import TEAM_NAMES from "../../data/team-names.json";
 
@@ -205,6 +213,14 @@ async function _runSync(
   const scoring = await scoreFinalMatches();
   report.scoredBets = scoring.scoredBets;
   report.scoredMatches = scoring.scoredMatches;
+
+  // Safety net for canceled+resolved matches: if a resolve action graded the
+  // 1/X/2 guesses inline but was interrupted, finish the leftovers here. Pure
+  // no-op when there is nothing pending. Idempotent (points_earned IS NULL).
+  const canceledScoring = await scoreCanceledMatchesSweep();
+  if (canceledScoring.scoredBets > 0) {
+    console.info("[sync canceled sweep]", canceledScoring);
+  }
 
   // Auto-grade any custom_bets with grading_source='auto_football_data'
   // whose underlying matches are now final. Idempotent: only touches bets
@@ -378,9 +394,18 @@ async function _ingestFromApiFootball(
         ht_away_score = excluded.ht_away_score,
         went_to_penalties = excluded.went_to_penalties,
         finalized_at = case when excluded.status = 'final' and matches.finalized_at is null then now() else matches.finalized_at end
+      where matches.status not in ('postponed', 'canceled')
       returning (xmax = 0) as inserted
     `);
-    if (rows[0]?.inserted) {
+    if (rows.length === 0) {
+      // Conflict hit a row the admin has manually parked in postponed/canceled.
+      // The DO UPDATE WHERE skipped it, so upstream never stomps the hold.
+      report.skipped += 1;
+      console.info("[sync upsert]", {
+        fixtureId: f.fixtureId,
+        action: "skipped (manual hold)",
+      });
+    } else if (rows[0].inserted) {
       report.inserted += 1;
       console.info("[sync upsert]", { fixtureId: f.fixtureId, action: "inserted" });
     } else {
@@ -454,9 +479,17 @@ async function _ingestFromFootballData(
         ht_away_score = excluded.ht_away_score,
         went_to_penalties = excluded.went_to_penalties,
         finalized_at = case when excluded.status = 'final' and matches.finalized_at is null then now() else matches.finalized_at end
+      where matches.status not in ('postponed', 'canceled')
       returning (xmax = 0) as inserted
     `);
-    if (rows[0]?.inserted) {
+    if (rows.length === 0) {
+      // Admin-parked row (postponed/canceled): the DO UPDATE WHERE skipped it.
+      report.skipped += 1;
+      console.info("[sync upsert]", {
+        fixtureId: f.id,
+        action: "skipped (manual hold)",
+      });
+    } else if (rows[0].inserted) {
       report.inserted += 1;
       console.info("[sync upsert]", { fixtureId: f.id, action: "inserted" });
     } else {
@@ -780,6 +813,13 @@ type CandidateBet = {
     // Present for event-timeline grading (red-in-half, goal-in-window).
     // Discriminates the auto_api_football branch from the stats path.
     events?: EventGradeSpec;
+    // Present for the "which window did the first <metric> fall in"
+    // multi_choice distribution. Discriminates a third auto_api_football
+    // shape, graded by gradeFirstEventWindow.
+    firstEventWindow?: FirstEventWindowSpec;
+    // Present for a comeback (lead-then-lose) market. Discriminates a fourth
+    // auto_api_football shape, graded by gradeComeback.
+    comeback?: ComebackSpec;
   } | null;
 };
 
@@ -1016,6 +1056,20 @@ async function tryResolve(
     if (events) {
       if (bet.scope !== "match") return "skip";
       return resolveMatchScopeApiFootballEvents(bet, events);
+    }
+    // First-event-window distribution: same on-demand event feed, bucketed
+    // onto a multi_choice window option. Match scope only.
+    const firstEventWindow = bet.gradingConfig?.firstEventWindow;
+    if (firstEventWindow) {
+      if (bet.scope !== "match") return "skip";
+      return resolveMatchScopeFirstEventWindow(bet, firstEventWindow);
+    }
+    // Comeback (lead-then-lose): reconstructs the running score from the same
+    // event feed plus the final score. Match scope only.
+    const comeback = bet.gradingConfig?.comeback;
+    if (comeback) {
+      if (bet.scope !== "match") return "skip";
+      return resolveMatchScopeComeback(bet, comeback);
     }
     const stat = bet.gradingConfig?.stat as AutoApiFootballStat | undefined;
     const aggregate = bet.gradingConfig?.aggregate;
@@ -1267,6 +1321,109 @@ async function resolveMatchScopeApiFootballEvents(
     homeTeamId: row.homeApiId ?? undefined,
     awayTeamId: row.awayApiId ?? undefined,
   });
+}
+
+// "Which window did the first <metric> fall in" — the multi_choice
+// distribution markets (first goal in 1-15 / 16-30 / ... / no goal). Same
+// on-demand event feed + final-match gate as the event-timeline path, then
+// buckets the first matching event onto a window option. multi_choice only;
+// anything else (or no options) skips to manual.
+async function resolveMatchScopeFirstEventWindow(
+  bet: CandidateBet,
+  spec: FirstEventWindowSpec,
+): Promise<Resolved | "not_ready" | "skip"> {
+  if (!bet.matchId) return "skip";
+  if (bet.answerType !== "multi_choice") return "skip";
+  const options = candidateOptions(bet);
+  if (options.length === 0) return "skip";
+
+  const [row] = await execRows<{
+    status: string;
+    apiId: number | null;
+    homeApiId: number | null;
+    awayApiId: number | null;
+  }>(drizzleSql`
+    select
+      m.status::text             as "status",
+      m.api_football_fixture_id  as "apiId",
+      ht.api_football_team_id    as "homeApiId",
+      at.api_football_team_id    as "awayApiId"
+    from public.matches m
+    join public.teams ht on ht.code = m.home_team
+    join public.teams at on at.code = m.away_team
+    where m.id = ${bet.matchId}::uuid
+    limit 1
+  `);
+  if (!row || row.status !== "final") return "not_ready";
+  if (row.apiId === null) return "not_ready";
+
+  const events = await fetchFixtureEvents(row.apiId);
+  if (!events) return "not_ready";
+
+  const resolved = gradeFirstEventWindow(events, spec, options, {
+    homeTeamId: row.homeApiId ?? undefined,
+    awayTeamId: row.awayApiId ?? undefined,
+  });
+  if (resolved !== "skip") {
+    console.info("[live-grade first-window]", {
+      betId: bet.id,
+      metric: spec.metric,
+      value: resolved.value,
+    });
+  }
+  return resolved;
+}
+
+// Comeback (lead-then-lose) market. Needs the final score (winner + feed
+// completeness guard) and the goal timeline, both at match scope. yes_no
+// only; anything else skips to manual.
+async function resolveMatchScopeComeback(
+  bet: CandidateBet,
+  spec: ComebackSpec,
+): Promise<Resolved | "not_ready" | "skip"> {
+  if (!bet.matchId) return "skip";
+  if (bet.answerType !== "yes_no") return "skip";
+
+  const [row] = await execRows<{
+    status: string;
+    homeScore: number | null;
+    awayScore: number | null;
+    apiId: number | null;
+    homeApiId: number | null;
+    awayApiId: number | null;
+  }>(drizzleSql`
+    select
+      m.status::text             as "status",
+      m.home_score               as "homeScore",
+      m.away_score               as "awayScore",
+      m.api_football_fixture_id  as "apiId",
+      ht.api_football_team_id    as "homeApiId",
+      at.api_football_team_id    as "awayApiId"
+    from public.matches m
+    join public.teams ht on ht.code = m.home_team
+    join public.teams at on at.code = m.away_team
+    where m.id = ${bet.matchId}::uuid
+    limit 1
+  `);
+  if (!row || row.status !== "final") return "not_ready";
+  if (row.homeScore === null || row.awayScore === null) return "not_ready";
+  if (row.apiId === null) return "not_ready";
+
+  const events = await fetchFixtureEvents(row.apiId);
+  if (!events) return "not_ready";
+
+  const resolved = gradeComeback(events, spec, row.homeScore, row.awayScore, {
+    homeTeamId: row.homeApiId ?? undefined,
+    awayTeamId: row.awayApiId ?? undefined,
+  });
+  if (resolved !== "skip") {
+    console.info("[live-grade comeback]", {
+      betId: bet.id,
+      team: spec.team ?? "any",
+      value: resolved.value,
+    });
+  }
+  return resolved;
 }
 
 async function resolveDayScopeApiFootball(

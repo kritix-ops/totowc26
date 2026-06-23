@@ -14,6 +14,7 @@ import {
 import { localePath } from "@/lib/paths";
 import { formatDateTime } from "@/lib/format";
 import type { LiveStakeUiConfig } from "@/lib/bank";
+import type { MatchStatus } from "@/db/schema";
 
 // Client board for /bets/live/[date].
 //
@@ -33,7 +34,7 @@ export type FixtureItem = {
   awayCode: string;
   awayNameHe: string;
   awayNameEn: string;
-  status: "scheduled" | "live" | "final";
+  status: MatchStatus;
   myHome: number | null;
   myAway: number | null;
   matchBets: BetItem[];

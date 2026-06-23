@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { assertBettingAllowed } from "./bank";
+import {
+  assertBettingAllowed,
+  liveStakeConfigFromRow,
+  overdraftConfigFromRow,
+} from "./bank";
 
 // Defaults shipped in migration 0050.
 const CAP = 30;
@@ -134,6 +138,68 @@ describe("assertBettingAllowed — kill-switch", () => {
       balance: -20,
       cap: CAP,
       needed: 5,
+    });
+  });
+});
+
+// The settings-row mappers back getOverdraftConfig / getLiveStakeConfig,
+// which now share one cached pooler checkout per request. The mapping +
+// missing-row defaults are the part with real branching, so they get the
+// coverage; the DB round trip itself is exercised in integration.
+const FULL_ROW = {
+  maxOverdraft: 25,
+  lockBetsWhenNegative: false,
+  liveBaseStake: 4,
+  liveMinStake: 2,
+  liveMaxStake: 40,
+  liveMaxPayoutRatio: 10,
+  liveMaxPayoutCeiling: 120,
+  liveHouseEdgePct: 7,
+};
+
+describe("overdraftConfigFromRow", () => {
+  it("maps a present row to the overdraft config", () => {
+    expect(overdraftConfigFromRow(FULL_ROW)).toEqual({
+      maxOverdraft: 25,
+      lockBetsWhenNegative: false,
+    });
+  });
+
+  it("falls back to the migration-0050 defaults when the row is missing", () => {
+    expect(overdraftConfigFromRow(null)).toEqual({
+      maxOverdraft: 30,
+      lockBetsWhenNegative: true,
+    });
+  });
+
+  it("does not leak the live-stake columns into the overdraft config", () => {
+    expect(Object.keys(overdraftConfigFromRow(FULL_ROW)).sort()).toEqual([
+      "lockBetsWhenNegative",
+      "maxOverdraft",
+    ]);
+  });
+});
+
+describe("liveStakeConfigFromRow", () => {
+  it("maps a present row to the live-stake UI config", () => {
+    expect(liveStakeConfigFromRow(FULL_ROW)).toEqual({
+      baseStake: 4,
+      minStake: 2,
+      maxStake: 40,
+      maxPayoutRatio: 10,
+      maxPayoutCeiling: 120,
+      houseEdgePct: 7,
+    });
+  });
+
+  it("falls back to the migration-0047 defaults when the row is missing", () => {
+    expect(liveStakeConfigFromRow(null)).toEqual({
+      baseStake: 3,
+      minStake: 1,
+      maxStake: 30,
+      maxPayoutRatio: 8,
+      maxPayoutCeiling: 100,
+      houseEdgePct: 5,
     });
   });
 });

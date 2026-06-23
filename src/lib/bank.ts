@@ -1,5 +1,6 @@
 import "server-only";
 
+import { cache } from "react";
 import { sql, type SQL } from "drizzle-orm";
 import { unstable_cache } from "next/cache";
 import { db } from "@/db";
@@ -271,14 +272,56 @@ export type OverdraftConfig = {
   lockBetsWhenNegative: boolean;
 };
 
+// Both the overdraft config and the live-stake UI config read the same
+// settings row (id = 1). The live-bet day board reads BOTH on every
+// render, which used to be two separate pooler checkouts. A React
+// cache() memo collapses them into ONE round trip per request — the same
+// pattern getSettingsRow uses in db/queries.ts. Per-request only, so an
+// admin settings edit shows on the very next render with no cross-request
+// staleness. See _plans/2026-06-17-live-day-pool-fix.md.
+type SettingsConfigRow = {
+  maxOverdraft: number;
+  lockBetsWhenNegative: boolean;
+  liveBaseStake: number;
+  liveMinStake: number;
+  liveMaxStake: number;
+  liveMaxPayoutRatio: number;
+  liveMaxPayoutCeiling: number;
+  liveHouseEdgePct: number;
+};
+
+const loadSettingsConfigRow = cache(
+  (): Promise<SettingsConfigRow | null> =>
+    execFirstRow<SettingsConfigRow>(sql`
+      select
+        max_overdraft                 as "maxOverdraft",
+        lock_bets_when_negative       as "lockBetsWhenNegative",
+        live_odds_base_stake          as "liveBaseStake",
+        live_odds_min_stake           as "liveMinStake",
+        live_odds_max_stake           as "liveMaxStake",
+        live_odds_max_payout_ratio    as "liveMaxPayoutRatio",
+        live_odds_max_payout_ceiling  as "liveMaxPayoutCeiling",
+        live_odds_house_edge_pct      as "liveHouseEdgePct"
+      from public.settings where id = 1
+    `),
+);
+
+// Pure row → config mappers, exported for unit tests. Each falls back to
+// the migration-shipped defaults when the settings row is missing (only
+// possible if the seeded row 1 was deleted — an unrecoverable state, but
+// we degrade to safe defaults rather than throw on the hot path).
+export function overdraftConfigFromRow(
+  row: SettingsConfigRow | null,
+): OverdraftConfig {
+  if (!row) return { maxOverdraft: 30, lockBetsWhenNegative: true };
+  return {
+    maxOverdraft: row.maxOverdraft,
+    lockBetsWhenNegative: row.lockBetsWhenNegative,
+  };
+}
+
 export async function getOverdraftConfig(): Promise<OverdraftConfig> {
-  const row = await execFirstRow<OverdraftConfig>(sql`
-    select
-      max_overdraft           as "maxOverdraft",
-      lock_bets_when_negative as "lockBetsWhenNegative"
-    from public.settings where id = 1
-  `);
-  return row ?? { maxOverdraft: 30, lockBetsWhenNegative: true };
+  return overdraftConfigFromRow(await loadSettingsConfigRow());
 }
 
 // Take the per-user advisory lock that all bet-submission server actions
@@ -332,24 +375,31 @@ export type LiveStakeUiConfig = {
   houseEdgePct: number;
 };
 
-export async function getLiveStakeConfig(): Promise<LiveStakeUiConfig> {
-  const row = await execFirstRow<LiveStakeUiConfig>(sql`
-    select
-      live_odds_base_stake            as "baseStake",
-      live_odds_min_stake             as "minStake",
-      live_odds_max_stake             as "maxStake",
-      live_odds_max_payout_ratio      as "maxPayoutRatio",
-      live_odds_max_payout_ceiling    as "maxPayoutCeiling",
-      live_odds_house_edge_pct        as "houseEdgePct"
-    from public.settings where id = 1
-  `);
-  // Settings row 1 is seeded at db init; defaults match migration 0047.
-  return row ?? {
-    baseStake: 3,
-    minStake: 1,
-    maxStake: 30,
-    maxPayoutRatio: 8,
-    maxPayoutCeiling: 100,
-    houseEdgePct: 5,
+// Defaults match migration 0047. See overdraftConfigFromRow above for the
+// shared-row rationale.
+export function liveStakeConfigFromRow(
+  row: SettingsConfigRow | null,
+): LiveStakeUiConfig {
+  if (!row) {
+    return {
+      baseStake: 3,
+      minStake: 1,
+      maxStake: 30,
+      maxPayoutRatio: 8,
+      maxPayoutCeiling: 100,
+      houseEdgePct: 5,
+    };
+  }
+  return {
+    baseStake: row.liveBaseStake,
+    minStake: row.liveMinStake,
+    maxStake: row.liveMaxStake,
+    maxPayoutRatio: row.liveMaxPayoutRatio,
+    maxPayoutCeiling: row.liveMaxPayoutCeiling,
+    houseEdgePct: row.liveHouseEdgePct,
   };
+}
+
+export async function getLiveStakeConfig(): Promise<LiveStakeUiConfig> {
+  return liveStakeConfigFromRow(await loadSettingsConfigRow());
 }

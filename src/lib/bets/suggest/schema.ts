@@ -143,7 +143,7 @@ export const SUGGESTION_INPUT_SCHEMA = {
                     properties: {
                       metric: {
                         type: "string",
-                        enum: ["red_card", "yellow_card", "card", "goal", "penalty"],
+                        enum: ["red_card", "yellow_card", "card", "goal", "penalty", "substitution"],
                       },
                       // Player-prop filter. When set, the market resolves on
                       // events by THIS api-football player id only (the id
@@ -168,6 +168,53 @@ export const SUGGESTION_INPUT_SCHEMA = {
                       },
                       op: { type: "string", enum: [">=", ">", "=", "<=", "<"] },
                       value: { type: "number", minimum: 0 },
+                      team: { type: "string", enum: ["home", "away", "any"] },
+                    },
+                  },
+                },
+              },
+              {
+                // "Which window did the FIRST <metric> fall in" distribution.
+                // Only valid on multi_choice bets whose options are minute
+                // ranges (1-15 / 16-30 / ...) plus one non-range "no event"
+                // bucket. The grader buckets the first matching event's clock
+                // minute. No op/value/window — the windows ARE the options.
+                type: "object",
+                additionalProperties: false,
+                required: ["source", "firstEventWindow"],
+                properties: {
+                  source: { type: "string", enum: ["auto_api_football"] },
+                  firstEventWindow: {
+                    type: "object",
+                    additionalProperties: false,
+                    required: ["metric"],
+                    properties: {
+                      metric: {
+                        type: "string",
+                        enum: ["goal", "yellow_card", "red_card", "card", "penalty", "substitution"],
+                      },
+                      // Optional narrowing, same semantics as the events spec.
+                      team: { type: "string", enum: ["home", "away", "any"] },
+                      playerApiId: { type: "integer", minimum: 1 },
+                      byAssist: { type: "boolean" },
+                    },
+                  },
+                },
+              },
+              {
+                // Comeback (lead-then-lose) market. yes_no only. The grader
+                // reconstructs the running score from goals and checks if the
+                // full-time winner ever trailed. `team` narrows to one side
+                // completing the comeback.
+                type: "object",
+                additionalProperties: false,
+                required: ["source", "comeback"],
+                properties: {
+                  source: { type: "string", enum: ["auto_api_football"] },
+                  comeback: {
+                    type: "object",
+                    additionalProperties: false,
+                    properties: {
                       team: { type: "string", enum: ["home", "away", "any"] },
                     },
                   },

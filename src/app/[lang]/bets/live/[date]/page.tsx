@@ -9,7 +9,7 @@ import type { CustomBetCardData } from "@/components/CustomBetCard";
 import { getRequestUser } from "@/lib/request-user";
 import { getUserAccess } from "@/lib/access";
 import {
-  getBankBalance,
+  getBankBreakdown,
   getLiveStakeConfig,
   getOverdraftConfig,
 } from "@/lib/bank";
@@ -27,6 +27,16 @@ import { BetsDayBoard, type FixtureItem, type BetItem } from "./BetsDayBoard";
 // the legacy /play/[date]; the page moved to live under the
 // unified Bets tab strip. The old URL redirects here so existing
 // bookmarks and PWA shortcuts keep working through the cutover.
+
+// Cap server-side execution well below Vercel's 300s function ceiling.
+// This is the hot live-bet surface; under a matchday traffic burst a
+// render — or a bet-placement Server Action, maxDuration covers both —
+// that stalls waiting on a saturated DB pool should fail fast at 60s and
+// free its function slot + connections instead of squatting for five
+// minutes and 504-ing (the Jun 17 2026 alert). 60s leaves generous
+// headroom over the heaviest legitimate action (a full-matchday
+// "Surprise me" bulk fill). See _plans/2026-06-17-live-day-pool-fix.md.
+export const maxDuration = 60;
 
 export default async function BetsLiveDayPage({
   params,
@@ -80,9 +90,14 @@ export default async function BetsLiveDayPage({
     detail = { date, matchdayId: null, fixtures: [], bets: [] };
   }
   try {
-    bankBalance = await getBankBalance(user.id);
+    // Cross-request cached (bankCacheTag), busted by every bet/duel
+    // mutation — so the hot live surface reads the bank from the Data
+    // Cache instead of issuing the 6-subquery balance recompute on every
+    // load. The number is advisory for the board's display + negative
+    // lock; placement re-checks the live balance inside its own txn.
+    bankBalance = (await getBankBreakdown(user.id)).balance;
   } catch (err) {
-    console.error("[bets/live/date] getBankBalance threw", { date, err });
+    console.error("[bets/live/date] getBankBreakdown threw", { date, err });
   }
   // Live-bet stake bounds + payout cap, read once per render and
   // threaded through every CustomBetCard so the pill row matches the

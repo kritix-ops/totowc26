@@ -428,6 +428,41 @@
       "when": 1782270000000,
       "tag": "0060_transparency_history_toggle",
       "breakpoints": true
+    },
+    {
+      "idx": 61,
+      "version": "7",
+      "when": 1782280000000,
+      "tag": "0061_notification_kind_bet_cancelled",
+      "breakpoints": true
+    },
+    {
+      "idx": 62,
+      "version": "7",
+      "when": 1782290000000,
+      "tag": "0062_reopen_audit_action",
+      "breakpoints": true
+    },
+    {
+      "idx": 63,
+      "version": "7",
+      "when": 1782300000000,
+      "tag": "0063_match_postponed_canceled_status",
+      "breakpoints": true
+    },
+    {
+      "idx": 64,
+      "version": "7",
+      "when": 1782310000000,
+      "tag": "0064_match_cancel_resolution",
+      "breakpoints": true
+    },
+    {
+      "idx": 65,
+      "version": "7",
+      "when": 1782320000000,
+      "tag": "0065_notification_kind_match_canceled",
+      "breakpoints": true
     }
   ]
 }

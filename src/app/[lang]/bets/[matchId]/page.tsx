@@ -10,7 +10,7 @@ import { db } from "@/db";
 import { settings as settingsTable, type StageKey } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { getBankBalance } from "@/lib/bank";
-import { Card, LabelCaps } from "@/components/ui";
+import { Card, Chip, LabelCaps } from "@/components/ui";
 import { PayGateBanner } from "@/components/PayGateBanner";
 import { LocksInCountdown } from "@/components/LocksInCountdown";
 import { localePath } from "@/lib/paths";
@@ -157,6 +157,11 @@ export default async function MatchBetPage({
     !myBet?.locked &&
     access.canEdit &&
     resolvedLock.effectiveLockAt.getTime() > now;
+  // A match called off: the lock countdown is meaningless and a clear
+  // notice replaces it. See _plans/2026-06-22-match-cancel-postpone-admin.md.
+  const isPostponed = match.status === "postponed";
+  const isCanceled = match.status === "canceled";
+  const special = isPostponed || isCanceled;
 
   return (
     <section className="px-4 md:px-16 py-6 md:py-12 flex flex-col gap-8 md:gap-12 max-w-5xl mx-auto w-full">
@@ -183,16 +188,51 @@ export default async function MatchBetPage({
             </span>
           </p>
         </div>
-        <Card className="px-4 py-3 inline-flex items-center gap-3 self-start md:self-auto">
-          <LabelCaps>{dict.common.locksIn}</LabelCaps>
-          <Countdown to={resolvedLock.effectiveLockAt.toISOString()} />
-          <LocksInCountdown
-            locale={locale}
-            lockAt={resolvedLock.effectiveLockAt.toISOString()}
-            variant="inline"
-          />
-        </Card>
+        {special ? (
+          <Chip tone="warning" className="self-start md:self-auto">
+            {isPostponed
+              ? isHebrew
+                ? "נדחה"
+                : "Postponed"
+              : isHebrew
+                ? "בוטל"
+                : "Canceled"}
+          </Chip>
+        ) : (
+          <Card className="px-4 py-3 inline-flex items-center gap-3 self-start md:self-auto">
+            <LabelCaps>{dict.common.locksIn}</LabelCaps>
+            <Countdown to={resolvedLock.effectiveLockAt.toISOString()} />
+            <LocksInCountdown
+              locale={locale}
+              lockAt={resolvedLock.effectiveLockAt.toISOString()}
+              variant="inline"
+            />
+          </Card>
+        )}
       </header>
+
+      {special && (
+        <Card className="p-4 md:p-5 bg-tertiary-fixed text-on-tertiary-fixed-variant border border-tertiary-fixed-dim flex flex-col gap-1">
+          <strong className="text-base">
+            {isPostponed
+              ? isHebrew
+                ? "המשחק נדחה"
+                : "Match postponed"
+              : isHebrew
+                ? "המשחק בוטל"
+                : "Match canceled"}
+          </strong>
+          <span className="text-sm">
+            {isPostponed
+              ? isHebrew
+                ? "הניחוש שלך נשמר וייפתח מחדש לעריכה כשייקבע מועד חדש. אין ניקוד בינתיים."
+                : "Your guess is saved and reopens for edits once a new kickoff is set. No scoring meanwhile."
+              : isHebrew
+                ? "הימורי הלייב על המשחק הוחזרו. ניקוד ניחוש התוצאה מטופל בנפרד לפי החלטת המנהל."
+                : "The match's live bets were refunded. The 1/X/2 guess is settled separately by the admin."}
+          </span>
+        </Card>
+      )}
 
       {!access.canEdit && <PayGateBanner locale={locale} dict={dict} />}
 
@@ -214,7 +254,7 @@ export default async function MatchBetPage({
         scoring={scoring}
       />
 
-      {!lockable && access.canEdit && (
+      {!lockable && access.canEdit && !special && (
         <Card className="p-4 text-center text-on-surface-variant">
           {match.status === "final"
             ? isHebrew ? "המשחק הסתיים. ההימור נסגר." : "Match is final. Bet is locked."

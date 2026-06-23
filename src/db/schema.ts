@@ -16,6 +16,7 @@ import {
   primaryKey,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
+import type { CancelResolutionConfig } from "@/lib/matches/cancel";
 
 // Enums
 // Ordered least → most privileged. `live_bets_admin` is a scoped admin
@@ -32,11 +33,31 @@ export const stageEnum = pgEnum("stage", [
   "third_place",
   "final",
 ]);
+// scheduled / live / final are the upstream-synced states. postponed and
+// canceled are admin-only terminal/holding states for a match that is called
+// off: postponed freezes everything until a new kickoff is set, canceled sits
+// pending (no scoring) until the admin picks a cancel_resolution for the
+// 1/X/2 guesses. The sync never overwrites a manually-set postponed/canceled
+// row. See _plans/2026-06-22-match-cancel-postpone-admin.md.
 export const matchStatusEnum = pgEnum("match_status", [
   "scheduled",
   "live",
   "final",
+  "postponed",
+  "canceled",
 ]);
+// How a canceled match's 1/X/2 guesses are settled. void = neutral (0 to all,
+// no risk penalty); awarded = grade vs a technical scoreline (wrong = 0, never
+// a penalty); split = flat points to every picker. Match-scoped live bets are
+// always voided + refunded on cancel regardless of this choice.
+export const cancelResolutionEnum = pgEnum("cancel_resolution", [
+  "void",
+  "awarded",
+  "split",
+]);
+// Canonical match-status union, derived from the enum so loader row types
+// stay in lockstep with the DB. Includes postponed/canceled.
+export type MatchStatus = (typeof matchStatusEnum.enumValues)[number];
 export const paymentMethodEnum = pgEnum("payment_method", ["bit", "paybox"]);
 export const paymentStatusEnum = pgEnum("payment_status", [
   "pending",
@@ -269,6 +290,17 @@ export const matches = pgTable(
     // happen to be anchored to this match still use their own lock_at.
     // See _plans/2026-05-27-betting-deadlines.md.
     lockAtOverride: timestamp("lock_at_override", { withTimezone: true }),
+    // Cancel handling (status = 'canceled'). cancelResolution is null while
+    // the match sits pending — no 1/X/2 scoring happens until the admin picks
+    // void / awarded / split. cancelResolutionConfig carries the scoreline
+    // ({home,away}) for awarded or the flat amount ({points}) for split; null
+    // for void. statusChangedAt stamps the last MANUAL status move (distinct
+    // from finalizedAt, which the sync owns). See
+    // _plans/2026-06-22-match-cancel-postpone-admin.md.
+    cancelResolution: cancelResolutionEnum("cancel_resolution"),
+    cancelResolutionConfig: jsonb("cancel_resolution_config")
+      .$type<CancelResolutionConfig>(),
+    statusChangedAt: timestamp("status_changed_at", { withTimezone: true }),
   },
   (t) => ({
     kickoffIdx: index("matches_kickoff_idx").on(t.kickoffAt),
@@ -438,6 +470,13 @@ export const settings = pgTable("settings", {
   stakeMain: smallint("stake_main").notNull().default(0),
   matchRiskEnabled: boolean("match_risk_enabled").notNull().default(false),
   matchRiskPenalty: smallint("match_risk_penalty").notNull().default(5),
+  // Default points awarded to every picker when a canceled match is resolved
+  // with the "split" option, so the admin does not retype it each time. 0 =
+  // no default (admin enters the amount on the resolution form). See
+  // _plans/2026-06-22-match-cancel-postpone-admin.md.
+  cancelSplitDefaultPoints: smallint("cancel_split_default_points")
+    .notNull()
+    .default(0),
   // Daily renewal. When enabled, the cron inserts a point_adjustments
   // row per active player at 00:00 Asia/Jerusalem with the configured
   // delta. Off by default - admin opts in.
@@ -875,6 +914,39 @@ export const betAdminAudit = pgTable(
   }),
 );
 
+// match_status_audit: append-only trail of every MANUAL match status move
+// (postpone / cancel / resolve / reschedule / reopen). Mirrors the
+// bet_grading_audit / bet_admin_audit precedent — admin-only RLS read+insert,
+// REVOKE UPDATE/DELETE in migration 0064 so a correction is a NEW row, never a
+// silent rewrite. `payload` snapshots the move-specific detail (the chosen
+// resolution + config, the old/new kickoff on a reschedule, how many live
+// bets were voided). See _plans/2026-06-22-match-cancel-postpone-admin.md.
+export const matchStatusAudit = pgTable(
+  "match_status_audit",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    matchId: uuid("match_id")
+      .notNull()
+      .references(() => matches.id, { onDelete: "cascade" }),
+    // 'postpone' | 'cancel' | 'resolve' | 'reschedule' | 'reopen'
+    action: text("action").notNull(),
+    previousStatus: matchStatusEnum("previous_status"),
+    newStatus: matchStatusEnum("new_status").notNull(),
+    payload: jsonb("payload"),
+    reason: text("reason").notNull(),
+    performedBy: uuid("performed_by")
+      .notNull()
+      .references(() => profiles.id, { onDelete: "restrict" }),
+    performedAt: timestamp("performed_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    matchIdx: index("match_status_audit_match_idx").on(t.matchId, t.performedAt),
+    timeIdx: index("match_status_audit_time_idx").on(t.performedAt),
+  }),
+);
+
 // password_reset_audit: append-only log of every admin-initiated password
 // reset (i.e. an admin generated a one-time recovery link for a user so
 // they can set a new password). Mirrors bet_admin_audit's immutability
@@ -1158,6 +1230,15 @@ export const NOTIFICATION_KINDS = [
   // manually announces one or more freshly-published live bets. Body is
   // "match name + count" per anchor. See the live-bet push composer.
   "live_bet",
+  // Sent (feed only, no push) from voidCustomBet when an admin cancels a
+  // live bet and refunds the stake to everyone who picked — e.g. a player
+  // prop where the player never took the field. See migration 0061.
+  "bet_cancelled",
+  // Sent (feed only, no push) when a canceled match's 1/X/2 guess is settled
+  // — void (refunded), awarded (graded vs a technical scoreline), or split
+  // (flat points). See _plans/2026-06-22-match-cancel-postpone-admin.md and
+  // migration 0065.
+  "match_canceled",
 ] as const;
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];
 

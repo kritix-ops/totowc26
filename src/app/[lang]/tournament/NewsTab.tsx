@@ -1,8 +1,9 @@
 import { Newspaper } from "lucide-react";
 import { Card, SectionHeading } from "@/components/ui";
-import { loadNewsArchivePage } from "@/lib/news-read";
+import { loadNewsArchivePage, type NewsArchivePage } from "@/lib/news-read";
 import type { Dictionary, Locale } from "../dictionaries";
 import { NewsList, type NewsListStrings } from "./NewsList";
+import { settle } from "./safe";
 
 // Server wrapper. Loads the first page of the news archive from the DB
 // (no live RSS fetch — the /api/cron/news job populates the table every
@@ -25,7 +26,11 @@ export async function NewsTab({
   dict: Dictionary;
 }) {
   const lang: "he" | "en" = locale === "he" ? "he" : "en";
-  const initial = await loadNewsArchivePage({ lang, limit: INITIAL_LIMIT });
+  const initial = await settle<NewsArchivePage>(
+    "news",
+    { items: [], nextCursor: null },
+    () => loadNewsArchivePage({ lang, limit: INITIAL_LIMIT }),
+  );
 
   console.info("[news render]", {
     locale,

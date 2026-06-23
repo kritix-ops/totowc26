@@ -381,3 +381,56 @@ describe("sandbox push-settings-to-prod: only touches the settings table", () =>
     expect(fn).not.toMatch(re);
   });
 });
+
+// voidCustomBet: admin "cancel a live bet and refund every picker", including
+// an already-graded one (the player-prop-never-played case). It mutates user
+// pick rows, so it lives under the same sacred-path scrutiny: gated by the
+// liveBets permission, refunds via the net-to-zero primitive (points_earned =
+// stake_paid) rather than deleting any pick, requires a reason, and writes an
+// immutable audit row. There is no test-DB harness in this repo, so these are
+// source-level guards on the same model as the rest of this file.
+describe("voidCustomBet: cancel-and-refund is gated, refunding, audited", () => {
+  const code = stripComments(read("src/app/[lang]/admin/bets/actions.ts"));
+  const start = code.indexOf("export async function voidCustomBet");
+  const after = code.indexOf("\nexport ", start + 1);
+  const fn = code.slice(start, after > start ? after : code.length);
+
+  it("the action exists in the admin bets actions file", () => {
+    expect(start).toBeGreaterThanOrEqual(0);
+  });
+
+  it("is gated by the liveBets permission", () => {
+    expect(fn).toMatch(/hasPermission\s*\(\s*user\.id\s*,\s*["']liveBets["']\s*\)/);
+  });
+
+  it("sources the actor from the live session via getUser()", () => {
+    expect(fn).toMatch(/const\s+user\s*=\s*await\s+getUser\s*\(\s*\)/);
+  });
+
+  it("requires a reason of at least 3 characters", () => {
+    expect(fn).toMatch(/reason\.trim\(\)/);
+    expect(fn).toMatch(/length\s*<\s*3/);
+    expect(fn).toMatch(/invalid_reason/);
+  });
+
+  it("refunds by netting each pick to zero (points_earned = stake_paid), not by deleting it", () => {
+    expect(fn).toMatch(
+      /pointsEarned\s*:\s*sql`\$\{userCustomBetPicks\.stakePaid\}`/,
+    );
+    expect(fn).not.toMatch(/tx\.delete\s*\(\s*userCustomBetPicks\s*\)/);
+  });
+
+  it("writes an immutable bet_grading_audit row with action 'cancel'", () => {
+    expect(fn).toMatch(/tx\.insert\s*\(\s*betGradingAudit\s*\)/);
+    expect(fn).toMatch(/action\s*:\s*["']cancel["']/);
+  });
+
+  it("closes the bet as cancelled", () => {
+    expect(fn).toMatch(/status\s*:\s*["']cancelled["']/);
+  });
+
+  it("notifies pickers feed-only (push: false), never silently pushing", () => {
+    expect(fn).toMatch(/kind\s*:\s*["']bet_cancelled["']/);
+    expect(fn).toMatch(/push\s*:\s*false/);
+  });
+});

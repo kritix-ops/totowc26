@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AlertCircle, Plus, RotateCcw, Trash2 } from "lucide-react";
 import { clsx } from "clsx";
@@ -38,7 +38,18 @@ import type { AdminAnchorMatch, AdminAnchorDay, BetTemplate } from "@/db/admin-q
 import type { BetTypeKey } from "@/db/schema";
 import { useAutoTranslate } from "@/lib/use-auto-translate";
 import { AutoTranslateHint } from "@/components/AutoTranslateHint";
+import { useAutosave } from "@/lib/use-autosave";
+import { withTimeout, SAVE_TIMEOUT_MS } from "@/lib/with-timeout";
+import { toast } from "@/lib/toast";
+import { SaveStatus } from "@/components/SaveStatus";
 import { createCustomBet, updateCustomBet } from "./actions";
+
+// Build payload type, shared by createCustomBet (arg 0) and updateCustomBet
+// (arg 1) — both take the same CreateCustomBetInput shape.
+type BetPayload = Parameters<typeof createCustomBet>[0];
+type BuildResult =
+  | { ok: true; payload: BetPayload }
+  | { ok: false; error: string };
 
 // Shared bet-author form. Two modes:
 //   create – default; submit hits createCustomBet, redirects to list.
@@ -535,6 +546,18 @@ export function BetForm({
   const [autoFdField, setAutoFdField] = useState<AutoFdField>(
     initialFd?.field ?? "total_goals",
   );
+  // An LLM-authored auto_api_football rule this form has no editor for yet
+  // (first-event-window distribution, comeback): it carries neither `stat`
+  // nor `events`. Editing such a draft's wording must NOT silently rewrite the
+  // grading to a stats config, so we hold the original and re-emit it on save
+  // unless the admin explicitly asks to replace it.
+  const initialAdvancedConfig =
+    initialBet?.gradingConfig?.source === "auto_api_football" &&
+    !("stat" in initialBet.gradingConfig) &&
+    !("events" in initialBet.gradingConfig)
+      ? initialBet.gradingConfig
+      : null;
+  const [replaceAdvanced, setReplaceAdvanced] = useState(false);
 
   // ---- Templates (create-mode only) ----
   //
@@ -620,12 +643,13 @@ export function BetForm({
 
   // ---- Submission ----
   const [error, setError] = useState<string | null>(null);
-  const [pending, startTransition] = useTransition();
 
-  const submit = (e: React.FormEvent) => {
-    e.preventDefault();
-    setError(null);
-
+  // Build + validate the full payload from the current form state. PURE — no
+  // setState — so it's safe to call during render to drive both the explicit
+  // submit and the draft autosave. Returns a typed error string rather than
+  // surfacing it; each caller decides what to do (inline error vs. wait for
+  // the form to become valid).
+  const buildPayload = (): BuildResult => {
     const built = buildAnswerConfig(
       answerType,
       { numberUnit, numberMin, numberMax },
@@ -633,8 +657,10 @@ export function BetForm({
       { freeTextPlaceholderHe, freeTextPlaceholderEn },
     );
     if (built === "invalid") {
-      setError(isHebrew ? "תצורת תשובה לא תקינה" : "Invalid answer config");
-      return;
+      return {
+        ok: false,
+        error: isHebrew ? "תצורת תשובה לא תקינה" : "Invalid answer config",
+      };
     }
 
     // Embed per-choice live pricing derived from the admin's probabilities.
@@ -654,16 +680,17 @@ export function BetForm({
         livePricingConfig,
       );
       if (priced === "incomplete") {
-        setError(
-          pricingMode === "ratio"
-            ? isHebrew
-              ? "מלא יחס לכל האפשרויות (או השאר את כולן ריקות)."
-              : "Fill a ratio for every option (or leave them all empty)."
-            : isHebrew
-              ? "מלא הסתברות לכל האפשרויות (או השאר את כולן ריקות)."
-              : "Fill a probability for every option (or leave them all empty).",
-        );
-        return;
+        return {
+          ok: false,
+          error:
+            pricingMode === "ratio"
+              ? isHebrew
+                ? "מלא יחס לכל האפשרויות (או השאר את כולן ריקות)."
+                : "Fill a ratio for every option (or leave them all empty)."
+              : isHebrew
+                ? "מלא הסתברות לכל האפשרויות (או השאר את כולן ריקות)."
+                : "Fill a probability for every option (or leave them all empty).",
+        };
       }
       if (priced) {
         answerConfig = priced;
@@ -675,6 +702,7 @@ export function BetForm({
     const gradingConfig = buildGradingConfig(
       gradingSource,
       {
+        advancedConfig: replaceAdvanced ? null : initialAdvancedConfig,
         autoAfStat,
         autoAfAgg,
         autoFdField,
@@ -691,8 +719,10 @@ export function BetForm({
       },
     );
     if (gradingConfig === "invalid") {
-      setError(isHebrew ? "תצורת דירוג לא תקינה" : "Invalid grading config");
-      return;
+      return {
+        ok: false,
+        error: isHebrew ? "תצורת דירוג לא תקינה" : "Invalid grading config",
+      };
     }
 
     // Reinterpret the widget value as Asia/Jerusalem wall time. Using
@@ -701,58 +731,152 @@ export function BetForm({
     // for any admin editing from outside IL.
     const lockAtIso = localInputValueToIso(lockAtLocal);
     if (!lockAtIso) {
-      setError(isHebrew ? "זמן סגירה לא תקין" : "Invalid lock time");
-      return;
+      return {
+        ok: false,
+        error: isHebrew ? "זמן סגירה לא תקין" : "Invalid lock time",
+      };
     }
 
-    const payload = {
-      scope,
-      matchId: scope === "match" ? matchId : null,
-      matchdayDate: scope === "day" ? dayDate : null,
-      stage: scope === "stage" ? stage : null,
-      groupId: scope === "group" ? groupId : null,
-      questionHe,
-      questionEn,
-      gradingRuleHe,
-      gradingRuleEn,
-      answerType,
-      answerConfig,
-      stakeSnapshot: stake,
-      payoutSnapshot: payout,
-      // Only live scopes ship a decimal_odds value, and only when pricing
-      // is a single outcome (number/free-text). Per-option/per-side priced
-      // bets carry their odds inside answer_config and null this out. The
-      // server re-asserts the scope gate and rejects a stray value on
-      // free-pick scopes.
-      decimalOdds: betLevelDecimalOdds,
-      gradingSource,
-      gradingConfig,
-      lockAt: lockAtIso,
+    return {
+      ok: true,
+      payload: {
+        scope,
+        matchId: scope === "match" ? matchId : null,
+        matchdayDate: scope === "day" ? dayDate : null,
+        stage: scope === "stage" ? stage : null,
+        groupId: scope === "group" ? groupId : null,
+        questionHe,
+        questionEn,
+        gradingRuleHe,
+        gradingRuleEn,
+        answerType,
+        answerConfig,
+        stakeSnapshot: stake,
+        payoutSnapshot: payout,
+        // Only live scopes ship a decimal_odds value, and only when pricing
+        // is a single outcome (number/free-text). Per-option/per-side priced
+        // bets carry their odds inside answer_config and null this out. The
+        // server re-asserts the scope gate and rejects a stray value on
+        // free-pick scopes.
+        decimalOdds: betLevelDecimalOdds,
+        gradingSource,
+        gradingConfig,
+        lockAt: lockAtIso,
+      },
     };
+  };
 
-    startTransition(async () => {
-      if (mode === "edit") {
-        if (!betId) {
-          setError("Missing bet id");
-          return;
+  // Current build, recomputed each render. Drives the Done button, the
+  // autosave-valid gate, and the inline draft-status hint. draftKey is a
+  // stable string that only changes when the built payload (or its validity)
+  // changes — the trigger for the draft autosave effect below.
+  const draftBuild = buildPayload();
+  const draftKey = draftBuild.ok
+    ? JSON.stringify(draftBuild.payload)
+    : `invalid:${draftBuild.error}`;
+
+  // ---- Draft autosave (create + edit) ----
+  // All writes go through here, single-flight, so the draft can't be created
+  // twice. Edit mode updates the existing draft. Create mode creates the draft
+  // the first time the form is valid, remembers its id, and updates that same
+  // draft thereafter — so authoring a bet is zero clicks. Only valid payloads
+  // reach here (the trigger effect skips invalid mid-edit states), and
+  // create/update enforce draft-only + permissions server-side. Publishing to
+  // users stays a separate, explicit action elsewhere.
+  const createdIdRef = useRef<string | null>(null);
+  const saveDraft = useCallback(
+    async (payload: BetPayload): Promise<boolean> => {
+      const id = betId ?? createdIdRef.current;
+      if (id) {
+        const res = await withTimeout(
+          updateCustomBet(id, payload),
+          SAVE_TIMEOUT_MS,
+        ).catch(() => null);
+        if (!res) {
+          toast.error(
+            isHebrew
+              ? "השמירה האוטומטית נכשלה. נסה שוב."
+              : "Autosave failed. Try again.",
+          );
+          return false;
         }
-        const res = await updateCustomBet(betId, payload);
         if (!res.ok) {
-          setError(translateError(res.error, isHebrew));
-          return;
+          toast.error(translateError(res.error, isHebrew));
+          return false;
         }
-        router.push(localePath(locale, `admin/bets/${betId}`));
-        router.refresh();
-      } else {
-        const res = await createCustomBet(payload);
-        if (!res.ok) {
-          setError(translateError(res.error, isHebrew));
-          return;
-        }
-        router.push(localePath(locale, "admin/bets"));
-        router.refresh();
+        return true;
       }
-    });
+      // No id yet → create the draft once and remember it for later saves.
+      const res = await withTimeout(
+        createCustomBet(payload),
+        SAVE_TIMEOUT_MS,
+      ).catch(() => null);
+      if (!res) {
+        toast.error(
+          isHebrew
+            ? "יצירת הטיוטה נכשלה. נסה שוב."
+            : "Draft creation failed. Try again.",
+        );
+        return false;
+      }
+      if (!res.ok) {
+        toast.error(translateError(res.error, isHebrew));
+        return false;
+      }
+      createdIdRef.current = res.id;
+      return true;
+    },
+    [betId, isHebrew],
+  );
+  const {
+    status: draftStatus,
+    schedule: scheduleDraftSave,
+    retry: retryDraftSave,
+    flush: flushDraftSave,
+  } = useAutosave<BetPayload>({ save: saveDraft });
+
+  // Hold the latest build for the trigger effect without reading it during
+  // that effect's render (refs lint rule). This effect runs before the
+  // trigger effect below, so the ref is current when it fires.
+  const draftBuildRef = useRef(draftBuild);
+  useEffect(() => {
+    draftBuildRef.current = draftBuild;
+  });
+
+  // Fire the autosave whenever the built payload changes — valid only,
+  // skipping the initial render (a loaded draft is already saved; a fresh
+  // create form starts invalid anyway, so nothing fires until it's complete).
+  // Covers create (auto-create once valid) and edit (update). useAutosave
+  // debounces + coalesces, so a run through several fields is one write.
+  const firstDraftRender = useRef(true);
+  useEffect(() => {
+    if (firstDraftRender.current) {
+      firstDraftRender.current = false;
+      return;
+    }
+    const built = draftBuildRef.current;
+    if (!built.ok) return;
+    scheduleDraftSave(built.payload);
+  }, [draftKey, scheduleDraftSave]);
+
+  // The form no longer "saves" on submit — autosave handles every write. The
+  // primary button just flushes any pending debounced save and navigates to
+  // the bet (or the list for a never-yet-valid create). An invalid form stays
+  // put and surfaces the reason instead of navigating away from unsaved work.
+  const finish = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!draftBuild.ok) {
+      setError(draftBuild.error);
+      return;
+    }
+    setError(null);
+    flushDraftSave();
+    const id = betId ?? createdIdRef.current;
+    router.push(
+      id
+        ? localePath(locale, `admin/bets/${id}`)
+        : localePath(locale, "admin/bets"),
+    );
   };
 
   const cancelHref =
@@ -761,7 +885,7 @@ export function BetForm({
       : localePath(locale, "admin/bets");
 
   return (
-    <form onSubmit={submit} className="flex flex-col gap-6 md:gap-8">
+    <form onSubmit={finish} className="flex flex-col gap-6 md:gap-8">
       {/* 0. Template picker (create-mode only). Hidden when editing —
           mutating a draft we came in to fix would silently throw away
           the unsaved tweaks the admin's mid-typing. */}
@@ -1440,6 +1564,22 @@ export function BetForm({
               : undefined
           }
         >
+          {initialAdvancedConfig && !replaceAdvanced ? (
+            <div className="flex flex-col gap-2 text-sm">
+              <p className="text-on-surface-variant">
+                {isHebrew
+                  ? "הימור זה מוגדר עם כלל דירוג אוטומטי מתקדם (חלון אירוע ראשון / מהפך) שנוצר על ידי ה-AI. אפשר לערוך כאן ניסוח ותמחור, וכלל הדירוג יישמר כפי שהוא."
+                  : "This bet uses an advanced auto-grading rule (first-event window / comeback) authored by the AI. Edit the wording and pricing here; the grading rule is preserved as-is."}
+              </p>
+              <button
+                type="button"
+                onClick={() => setReplaceAdvanced(true)}
+                className="self-start text-xs underline text-on-surface-variant"
+              >
+                {isHebrew ? "החלף בכלל דירוג אחר" : "Replace with a different rule"}
+              </button>
+            </div>
+          ) : (
           <div className="flex flex-col gap-3">
             <SegmentedRow
               options={[
@@ -1581,6 +1721,7 @@ export function BetForm({
               </div>
             )}
           </div>
+          )}
         </Section>
       )}
 
@@ -1643,20 +1784,40 @@ export function BetForm({
         </p>
       )}
 
-      <div className="flex flex-col-reverse md:flex-row md:justify-end gap-3 pt-4 border-t border-outline-variant">
+      <div className="flex flex-col-reverse md:flex-row md:items-center md:justify-end gap-3 pt-4 border-t border-outline-variant">
+        {/* Draft autosave status. The draft persists itself as you go — in
+            create mode it auto-creates once the form is valid, then keeps
+            updating that same draft. The button is just "Done" (flush +
+            navigate); publishing to users stays a separate, explicit action. */}
+        <div className="flex items-center md:me-auto min-h-[44px] text-xs">
+          {!draftBuild.ok ? (
+            <span className="inline-flex items-center gap-1.5 text-on-surface-variant">
+              {isHebrew
+                ? "השלם את השדות כדי שהטיוטה תישמר אוטומטית"
+                : "Complete the fields so the draft autosaves"}
+            </span>
+          ) : draftStatus === "idle" ? (
+            <span className="text-on-surface-variant">
+              {isHebrew ? "הטיוטה נשמרת אוטומטית" : "Draft saves automatically"}
+            </span>
+          ) : (
+            <SaveStatus
+              state={draftStatus}
+              locale={locale}
+              savedLabel={isHebrew ? "טיוטה נשמרה" : "Draft saved"}
+              onRetry={retryDraftSave}
+            />
+          )}
+        </div>
         <button
           type="button"
           onClick={() => router.push(cancelHref)}
           className="min-h-[48px] px-6 rounded-full border border-outline bg-surface-container-lowest text-on-surface font-bold hover:bg-surface-container"
         >
-          {isHebrew ? "ביטול" : "Cancel"}
+          {isHebrew ? "חזור" : "Back"}
         </button>
-        <PillButton type="submit" disabled={pending} className="min-h-[48px]">
-          {pending
-            ? isHebrew ? "שומר…" : "Saving…"
-            : mode === "edit"
-              ? isHebrew ? "שמור שינויים" : "Save changes"
-              : isHebrew ? "שמור כטיוטה" : "Save as draft"}
+        <PillButton type="submit" className="min-h-[48px]">
+          {isHebrew ? "סיום" : "Done"}
         </PillButton>
       </div>
     </form>
@@ -2108,6 +2269,10 @@ function embedLivePricing(
 function buildGradingConfig(
   source: GradingSource,
   fields: {
+    // An advanced auto_api_football rule the form can't edit (first-event
+    // window / comeback). When present and the admin hasn't asked to replace
+    // it, re-emit it verbatim so editing wording never corrupts the grading.
+    advancedConfig: GradingConfig;
     autoAfStat: string;
     autoAfAgg: "sum_day" | "per_match" | "first_match";
     autoFdField: AutoFdField;
@@ -2125,6 +2290,7 @@ function buildGradingConfig(
 ): GradingConfig | "invalid" {
   if (source === "manual") return null;
   if (source === "auto_api_football") {
+    if (fields.advancedConfig) return fields.advancedConfig;
     if (fields.autoAfMode === "events") {
       return buildEventGradingConfig(fields.ev);
     }
