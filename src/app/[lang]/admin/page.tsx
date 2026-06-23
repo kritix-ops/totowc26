@@ -18,6 +18,7 @@ import {
   BookOpenText,
   Wrench,
   FlaskConical,
+  ListChecks,
 } from "lucide-react";
 import { hasLocale, type Locale } from "../dictionaries";
 import { Card, LabelCaps } from "@/components/ui";
@@ -197,6 +198,12 @@ export default async function AdminPage({
           path="admin/bets-overview"
           icon={<Grid3x3 className="h-5 w-5" strokeWidth={1.75} />}
           label={isHebrew ? "מצב הימורי כולם" : "Everyone's bets"}
+        />
+        <AdminTile
+          locale={locale}
+          path="admin/my-bets"
+          icon={<ListChecks className="h-5 w-5" strokeWidth={1.75} />}
+          label={isHebrew ? "ההימורים שלי (תיקון בדיעבד)" : "My bets (backdate)"}
         />
         <AdminTile
           locale={locale}

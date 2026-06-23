@@ -18,14 +18,16 @@ import {
   type OverdraftConfig,
 } from "@/lib/bank";
 import type { AnswerConfig, PickAnswer } from "@/lib/bets/types";
-import { resolvePickPayoutAtSubmit } from "@/lib/bets/payout";
+import { gradedPickPoints, resolvePickPayoutAtSubmit } from "@/lib/bets/payout";
 import {
   liveOptionPayout,
   resolvePricingMode,
   resolveYesNoSideOdds,
 } from "@/lib/bets/price-options";
 import { isFreePickScope } from "@/lib/bets/free-pick-scopes";
+import { isPickCorrect } from "@/lib/bets/grade-pick";
 import { validateAnswer } from "@/lib/bets/validate-answer";
+import type { ResolvedValue } from "@/lib/bets/types";
 import { liveStakeCap } from "@/lib/odds-normalize";
 import {
   getDeadlineContext,
@@ -98,7 +100,17 @@ export type WriteOutcome =
 // player still gets a pick after their deadline, while every other guard
 // (bet not graded, match not yet kicked off, never-overwrite, bank) still
 // holds. Defaults to false everywhere else.
-export type WriteOpts = { overwrite: boolean; allowAfterDeadline?: boolean };
+// `backdate` is the admin self-backdate escape hatch (see
+// _plans/2026-06-23-admin-self-backdate-bets.md): it accepts a custom bet in
+// any post-open status (locked / reversed / graded) and skips the lock +
+// existing-locked gates, so a full admin can correct their OWN pick after the
+// match has started. Set ONLY by backdateOwnCustomPick — every other caller
+// leaves it false and plays by the normal status/lock rules.
+export type WriteOpts = {
+  overwrite: boolean;
+  allowAfterDeadline?: boolean;
+  backdate?: boolean;
+};
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -354,11 +366,17 @@ async function writeCustomPickTx(
   if (!bet) return { status: "error", error: "bet_not_found" };
   // Normally only an 'open' bet is pickable. The grace auto-fill also accepts a
   // bet that has formally locked but is not yet graded, so a forgetful player
-  // still gets a pick the grading pass will pick up. A graded/cancelled bet is
-  // never touched.
-  const statusOk =
-    bet.status === "open" ||
-    (opts.allowAfterDeadline && bet.status === "locked");
+  // still gets a pick the grading pass will pick up. The admin self-backdate
+  // (opts.backdate) goes further: it accepts a locked / reversed / graded bet
+  // so the admin can correct their own missed pick after the match. A
+  // draft/cancelled bet is never touched on any path.
+  const statusOk = opts.backdate
+    ? bet.status === "open" ||
+      bet.status === "locked" ||
+      bet.status === "reversed" ||
+      bet.status === "graded"
+    : bet.status === "open" ||
+      (opts.allowAfterDeadline && bet.status === "locked");
   if (!statusOk) return { status: "skipped", reason: "closed" };
 
   const resolved = resolveCustomBetLock({
@@ -366,7 +384,11 @@ async function writeCustomPickTx(
     scope: bet.scope,
     lockAt: bet.lockAt,
   });
-  if (!opts.allowAfterDeadline && resolved.effectiveLockAt.getTime() <= Date.now()) {
+  if (
+    !opts.allowAfterDeadline &&
+    !opts.backdate &&
+    resolved.effectiveLockAt.getTime() <= Date.now()
+  ) {
     return { status: "skipped", reason: "locked" };
   }
   if (!validateAnswer(bet.answerType, bet.answerConfig as unknown, input.answer)) {
@@ -388,7 +410,12 @@ async function writeCustomPickTx(
     )
     .limit(1);
 
-  if (existing?.locked) return { status: "skipped", reason: "locked" };
+  // A locked pick (grading-in-flight, or already graded) is normally
+  // untouchable. The self-backdate path is the one exception — it overwrites
+  // it and re-grades the single pick afterwards.
+  if (existing?.locked && !opts.backdate) {
+    return { status: "skipped", reason: "locked" };
+  }
   if (existing && !opts.overwrite) {
     return { status: "skipped", reason: "already_filled" };
   }
@@ -970,6 +997,368 @@ export async function clearCustomPickAdmin(
     });
   } catch (err) {
     console.error("[write-core clearCustomPickAdmin] failed", err);
+    return { status: "error", error: "db" };
+  }
+}
+
+// ---- admin self-backdate writers ----
+//
+// The deliberate exception to the post-kickoff lock (see
+// _plans/2026-06-23-admin-self-backdate-bets.md): a FULL admin correcting
+// their OWN pick after a match has already started or finished, because the
+// recurring prod DB hang sometimes drops a save before it persists. Two hard
+// guards on top of the normal admin-proxy path:
+//   1. Self-only — principal.adminId must equal principal.userId. The action
+//      layer asserts the session user is the only possible target; this is the
+//      write-core mirror so a future caller can never backdate someone else.
+//   2. The audit row is stamped `backdated: true` (and lockBypassed: true) so
+//      the private self-backdate view singles these out from ordinary
+//      pre-deadline overrides.
+// Callers MUST have passed requireAdmin() (full admin) before building the
+// principal — enforced at source in bet-immutability.test.ts.
+
+function isSelfBackdate(principal: AdminPrincipal): boolean {
+  return principal.adminId === principal.userId;
+}
+
+export async function backdateOwnMatchPick(
+  principal: AdminPrincipal,
+  input: MatchPickInput,
+): Promise<WriteOutcome> {
+  if (!gateAccess(principal)) return { status: "skipped", reason: "not_allowed" };
+  if (!isSelfBackdate(principal)) return { status: "skipped", reason: "not_allowed" };
+  assertAdminReason(principal.reason);
+  if (!Number.isFinite(input.home) || !Number.isFinite(input.away)) {
+    return { status: "error", error: "invalid" };
+  }
+  const h = Math.max(0, Math.min(99, Math.floor(input.home)));
+  const a = Math.max(0, Math.min(99, Math.floor(input.away)));
+
+  // Unlike writeMatchPickAdmin we deliberately do NOT refuse a started /
+  // finished match — that is the whole point of backdating. We only refuse a
+  // match that does not exist. The risk-mode flags drive the stake snapshot
+  // exactly as a normal save would.
+  const r = await execFirstRow<{
+    status: string;
+    risk_enabled: boolean;
+    risk_penalty: number;
+  }>(sql`
+    select
+      m.status::text as "status",
+      s.match_risk_enabled as "risk_enabled",
+      s.match_risk_penalty as "risk_penalty"
+    from public.matches m
+    cross join public.settings s
+    where m.id = ${input.matchId}::uuid and s.id = 1
+    limit 1
+  `);
+  if (!r) return { status: "error", error: "not_found" };
+  const stakeSnapshot = r.risk_enabled ? r.risk_penalty : null;
+
+  try {
+    return await db.transaction(async (tx) => {
+      const [existing] = await tx
+        .select({
+          id: matchBets.id,
+          homeScore: matchBets.homeScore,
+          awayScore: matchBets.awayScore,
+        })
+        .from(matchBets)
+        .where(
+          and(
+            eq(matchBets.userId, principal.userId),
+            eq(matchBets.matchId, input.matchId),
+          ),
+        )
+        .limit(1);
+
+      // Write the score and reset grading to NULL/false so an already-final
+      // match re-scores against the corrected guess. The action layer calls
+      // scoreFinalMatches() right after for a final match so points land
+      // immediately; a live/scheduled match grades on the next sync as usual.
+      await tx
+        .insert(matchBets)
+        .values({
+          userId: principal.userId,
+          matchId: input.matchId,
+          homeScore: h,
+          awayScore: a,
+          stakePaidMain: stakeSnapshot,
+        })
+        .onConflictDoUpdate({
+          target: [matchBets.userId, matchBets.matchId],
+          set: {
+            homeScore: h,
+            awayScore: a,
+            stakePaidMain: stakeSnapshot,
+            pointsEarned: null,
+            wasExact: null,
+            wasCorrectOutcome: null,
+            locked: false,
+            updatedAt: new Date(),
+          },
+        });
+
+      await tx.insert(betAdminAudit).values({
+        adminId: principal.adminId,
+        targetUserId: principal.userId,
+        action: "set",
+        surface: "match",
+        matchId: input.matchId,
+        customBetId: null,
+        before: existing
+          ? { home: existing.homeScore, away: existing.awayScore }
+          : null,
+        after: { home: h, away: a },
+        reason: principal.reason.trim(),
+        lockBypassed: true,
+        backdated: true,
+      });
+      console.info("[admin self-backdate]", {
+        step: "set_match",
+        adminId: principal.adminId,
+        matchId: input.matchId,
+        matchStatus: r.status,
+        before: existing
+          ? { home: existing.homeScore, away: existing.awayScore }
+          : null,
+        after: { home: h, away: a },
+        reason: principal.reason.slice(0, 80),
+      });
+      return { status: "filled", balanceAfter: null };
+    });
+  } catch (err) {
+    console.error("[write-core backdateOwnMatchPick] failed", err);
+    return { status: "error", error: "db" };
+  }
+}
+
+export async function clearOwnMatchPick(
+  principal: AdminPrincipal,
+  matchId: string,
+): Promise<WriteOutcome> {
+  if (!gateAccess(principal)) return { status: "skipped", reason: "not_allowed" };
+  if (!isSelfBackdate(principal)) return { status: "skipped", reason: "not_allowed" };
+  assertAdminReason(principal.reason);
+
+  try {
+    return await db.transaction(async (tx) => {
+      const [existing] = await tx
+        .select({
+          id: matchBets.id,
+          homeScore: matchBets.homeScore,
+          awayScore: matchBets.awayScore,
+        })
+        .from(matchBets)
+        .where(
+          and(
+            eq(matchBets.userId, principal.userId),
+            eq(matchBets.matchId, matchId),
+          ),
+        )
+        .limit(1);
+      if (!existing) return { status: "skipped", reason: "already_filled" };
+      await tx.delete(matchBets).where(eq(matchBets.id, existing.id));
+      await tx.insert(betAdminAudit).values({
+        adminId: principal.adminId,
+        targetUserId: principal.userId,
+        action: "clear",
+        surface: "match",
+        matchId,
+        customBetId: null,
+        before: { home: existing.homeScore, away: existing.awayScore },
+        after: null,
+        reason: principal.reason.trim(),
+        lockBypassed: true,
+        backdated: true,
+      });
+      console.info("[admin self-backdate]", {
+        step: "clear_match",
+        adminId: principal.adminId,
+        matchId,
+        before: { home: existing.homeScore, away: existing.awayScore },
+        reason: principal.reason.slice(0, 80),
+      });
+      return { status: "filled", balanceAfter: null };
+    });
+  } catch (err) {
+    console.error("[write-core clearOwnMatchPick] failed", err);
+    return { status: "error", error: "db" };
+  }
+}
+
+export async function backdateOwnCustomPick(
+  principal: AdminPrincipal,
+  input: CustomPickInput,
+): Promise<WriteOutcome> {
+  if (!gateAccess(principal)) return { status: "skipped", reason: "not_allowed" };
+  if (!isSelfBackdate(principal)) return { status: "skipped", reason: "not_allowed" };
+  assertAdminReason(principal.reason);
+
+  try {
+    const overdraft = await getOverdraftConfig();
+    return await db.transaction(async (tx) => {
+      await lockUserForBetting(tx, principal.userId);
+
+      const [bet] = await tx
+        .select({
+          status: customBets.status,
+          answerType: customBets.answerType,
+          answerConfig: customBets.answerConfig,
+          payoutSnapshot: customBets.payoutSnapshot,
+          resolvedValue: customBets.resolvedValue,
+        })
+        .from(customBets)
+        .where(eq(customBets.id, input.customBetId))
+        .limit(1);
+      if (!bet) return { status: "error", error: "bet_not_found" };
+
+      const [beforePick] = await tx
+        .select({ answer: userCustomBetPicks.answer })
+        .from(userCustomBetPicks)
+        .where(
+          and(
+            eq(userCustomBetPicks.userId, principal.userId),
+            eq(userCustomBetPicks.customBetId, input.customBetId),
+          ),
+        )
+        .limit(1);
+
+      const outcome = await writeCustomPickTx(
+        tx,
+        principal,
+        input,
+        { overwrite: true, backdate: true },
+        overdraft,
+      );
+      if (outcome.status !== "filled") return outcome;
+
+      // An already-graded bet is never revisited by the auto/manual grader,
+      // so grade THIS pick now from the bet's stored resolved value. We touch
+      // only the admin's own pick — every other player's settled pick is left
+      // exactly as it was (no reverse+regrade churn).
+      let regraded = false;
+      if (bet.status === "graded" && bet.resolvedValue) {
+        const [pick] = await tx
+          .select({
+            id: userCustomBetPicks.id,
+            payoutSnapshot: userCustomBetPicks.payoutSnapshot,
+          })
+          .from(userCustomBetPicks)
+          .where(
+            and(
+              eq(userCustomBetPicks.userId, principal.userId),
+              eq(userCustomBetPicks.customBetId, input.customBetId),
+            ),
+          )
+          .limit(1);
+        if (pick) {
+          const correct = isPickCorrect(
+            bet.answerType,
+            input.answer as unknown,
+            bet.resolvedValue as ResolvedValue,
+          );
+          const points = gradedPickPoints({
+            correct,
+            pickPayoutSnapshot: pick.payoutSnapshot,
+            betLevelPayout: bet.payoutSnapshot,
+          });
+          await tx
+            .update(userCustomBetPicks)
+            .set({
+              pointsEarned: points,
+              wasCorrect: correct,
+              locked: true,
+              updatedAt: new Date(),
+            })
+            .where(eq(userCustomBetPicks.id, pick.id));
+          regraded = true;
+        }
+      }
+
+      await tx.insert(betAdminAudit).values({
+        adminId: principal.adminId,
+        targetUserId: principal.userId,
+        action: "set",
+        surface: "custom",
+        matchId: null,
+        customBetId: input.customBetId,
+        before: beforePick?.answer ?? null,
+        after: input.answer,
+        reason: principal.reason.trim(),
+        lockBypassed: true,
+        backdated: true,
+      });
+      console.info("[admin self-backdate]", {
+        step: "set_custom",
+        adminId: principal.adminId,
+        betId: input.customBetId,
+        betStatus: bet.status,
+        regraded,
+        before: beforePick?.answer ?? null,
+        after: input.answer,
+        reason: principal.reason.slice(0, 80),
+      });
+      return outcome;
+    });
+  } catch (err) {
+    console.error("[write-core backdateOwnCustomPick] failed", err);
+    return { status: "error", error: "db" };
+  }
+}
+
+export async function clearOwnCustomPick(
+  principal: AdminPrincipal,
+  customBetId: string,
+): Promise<WriteOutcome> {
+  if (!gateAccess(principal)) return { status: "skipped", reason: "not_allowed" };
+  if (!isSelfBackdate(principal)) return { status: "skipped", reason: "not_allowed" };
+  assertAdminReason(principal.reason);
+
+  try {
+    return await db.transaction(async (tx) => {
+      await lockUserForBetting(tx, principal.userId);
+      const [existing] = await tx
+        .select({
+          id: userCustomBetPicks.id,
+          answer: userCustomBetPicks.answer,
+        })
+        .from(userCustomBetPicks)
+        .where(
+          and(
+            eq(userCustomBetPicks.userId, principal.userId),
+            eq(userCustomBetPicks.customBetId, customBetId),
+          ),
+        )
+        .limit(1);
+      if (!existing) return { status: "skipped", reason: "already_filled" };
+      await tx
+        .delete(userCustomBetPicks)
+        .where(eq(userCustomBetPicks.id, existing.id));
+      await tx.insert(betAdminAudit).values({
+        adminId: principal.adminId,
+        targetUserId: principal.userId,
+        action: "clear",
+        surface: "custom",
+        matchId: null,
+        customBetId,
+        before: existing.answer,
+        after: null,
+        reason: principal.reason.trim(),
+        lockBypassed: true,
+        backdated: true,
+      });
+      console.info("[admin self-backdate]", {
+        step: "clear_custom",
+        adminId: principal.adminId,
+        betId: customBetId,
+        before: existing.answer,
+        reason: principal.reason.slice(0, 80),
+      });
+      return { status: "filled", balanceAfter: null };
+    });
+  } catch (err) {
+    console.error("[write-core clearOwnCustomPick] failed", err);
     return { status: "error", error: "db" };
   }
 }

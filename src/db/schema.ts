@@ -901,6 +901,12 @@ export const betAdminAudit = pgTable(
     after: jsonb("after"),
     reason: text("reason").notNull(),
     lockBypassed: boolean("lock_bypassed").notNull().default(false),
+    // True only for the admin self-backdate path: a full admin correcting
+    // their OWN pick after the match has already started/finished. Lets the
+    // private self-backdate audit view single these out from ordinary
+    // pre-deadline admin overrides (which only set lock_bypassed). See
+    // _plans/2026-06-23-admin-self-backdate-bets.md.
+    backdated: boolean("backdated").notNull().default(false),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

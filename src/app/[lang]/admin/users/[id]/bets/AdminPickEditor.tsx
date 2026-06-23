@@ -25,6 +25,47 @@ import {
   type AdminWriteResult,
 } from "./actions";
 import type { MultiChoiceConfig, PickAnswer } from "@/lib/bets/types";
+
+// The four write entrypoints this dialog drives. Injected so the same UI
+// serves two callers: the per-user admin proxy edit (default) and the admin
+// self-backdate page (which passes its own self-only, audited actions). Both
+// action sets return the identical AdminWriteResult shape.
+export type AdminPickActions = {
+  setCustom: (args: {
+    targetUserId: string;
+    customBetId: string;
+    answer: PickAnswer;
+    reason: string;
+    lockBypassed: boolean;
+  }) => Promise<AdminWriteResult>;
+  clearCustom: (args: {
+    targetUserId: string;
+    customBetId: string;
+    reason: string;
+    lockBypassed: boolean;
+  }) => Promise<AdminWriteResult>;
+  setMatch: (args: {
+    targetUserId: string;
+    matchId: string;
+    homeScore: number;
+    awayScore: number;
+    reason: string;
+    lockBypassed: boolean;
+  }) => Promise<AdminWriteResult>;
+  clearMatch: (args: {
+    targetUserId: string;
+    matchId: string;
+    reason: string;
+    lockBypassed: boolean;
+  }) => Promise<AdminWriteResult>;
+};
+
+const DEFAULT_ADMIN_PICK_ACTIONS: AdminPickActions = {
+  setCustom: adminSetCustomBetPick,
+  clearCustom: adminClearCustomBetPick,
+  setMatch: adminSetMatchPick,
+  clearMatch: adminClearMatchPick,
+};
 import { SearchableChoicePicker } from "@/components/SearchableChoicePicker";
 import { usePickerOptions } from "@/lib/picker-options/client";
 
@@ -66,6 +107,12 @@ type Props = (CustomKind | MatchKind) & {
   // host (e.g. the bets-overview drawer) refetch so its read view reflects the
   // edit. Optional — the per-user page relies on revalidatePath instead.
   onSaved?: () => void;
+  // Override the write actions (default: the per-user admin proxy actions).
+  // The self-backdate page injects its own self-only, audited set.
+  actions?: AdminPickActions;
+  // Override the trigger button label / aria (default: "Edit"). The
+  // self-backdate page uses "Add / fix" wording.
+  triggerLabel?: string;
 };
 
 const ERROR_HE: Record<string, string> = {
@@ -116,7 +163,7 @@ export function AdminPickEditor(props: Props) {
         aria-label={isHebrew ? "ערוך הימור עבור המשתמש" : "Edit bet for user"}
       >
         <Pencil className="h-3.5 w-3.5" strokeWidth={2} />
-        {isHebrew ? "ערוך" : "Edit"}
+        {props.triggerLabel ?? (isHebrew ? "ערוך" : "Edit")}
       </button>
       {open && <Dialog {...props} onClose={() => setOpen(false)} />}
     </>
@@ -131,6 +178,7 @@ function Dialog(props: Props & { onClose: () => void }) {
   const [error, setError] = useState<string | null>(null);
   const [reason, setReason] = useState("");
   const [lockBypassed, setLockBypassed] = useState(false);
+  const actions = props.actions ?? DEFAULT_ADMIN_PICK_ACTIONS;
 
   // The current draft selection. Lifted to the dialog so a single bottom
   // "Save" button can read it after the user has filled the reason field
@@ -190,7 +238,7 @@ function Dialog(props: Props & { onClose: () => void }) {
       lockHasPassed,
     });
     startTransition(async () => {
-      const result = await adminSetCustomBetPick({
+      const result = await actions.setCustom({
         targetUserId: props.targetUserId,
         customBetId: props.customBetId,
         answer,
@@ -221,7 +269,7 @@ function Dialog(props: Props & { onClose: () => void }) {
       lockHasPassed,
     });
     startTransition(async () => {
-      const result = await adminSetMatchPick({
+      const result = await actions.setMatch({
         targetUserId: props.targetUserId,
         matchId: props.matchId,
         homeScore: home,
@@ -293,13 +341,13 @@ function Dialog(props: Props & { onClose: () => void }) {
     startTransition(async () => {
       const result =
         props.surface === "custom"
-          ? await adminClearCustomBetPick({
+          ? await actions.clearCustom({
               targetUserId: props.targetUserId,
               customBetId: props.customBetId,
               reason,
               lockBypassed,
             })
-          : await adminClearMatchPick({
+          : await actions.clearMatch({
               targetUserId: props.targetUserId,
               matchId: props.matchId,
               reason,

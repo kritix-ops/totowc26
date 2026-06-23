@@ -336,6 +336,85 @@ describe("admin proxy path: gated, reasoned, audited", () => {
   });
 });
 
+// Admin self-backdate: a FULL admin correcting their OWN bet after kickoff
+// (_plans/2026-06-23-admin-self-backdate-bets.md). This is the one path that
+// deliberately bypasses the post-kickoff lock, so it gets the strictest source
+// guards: self-only (the actor can only ever target themselves), full-admin
+// gated, reason-required, and every write lands an immutable audit row stamped
+// backdated=true. The general proxy (other-user) path is untouched.
+describe("admin self-backdate path: self-only, full-admin, reasoned, audited", () => {
+  const selfActionsPath = "src/app/[lang]/admin/my-bets/actions.ts";
+  const selfActions = stripComments(read(selfActionsPath));
+  const writeCore = stripComments(read("src/lib/bets/write-core.ts"));
+
+  it("self-backdate actions are gated by a full-admin isAdmin check", () => {
+    expect(selfActions).toMatch(/isAdmin\s*\(/);
+    expect(selfActions).toMatch(
+      /from\s+["']@\/lib\/admin["']/,
+    );
+  });
+
+  it("forces the session user's own id into BOTH adminId and userId (never a body-supplied target)", () => {
+    expect(selfActions).toMatch(/const\s+user\s*=\s*await\s+getUser\s*\(\s*\)/);
+    expect(selfActions).toMatch(/adminId\s*:\s*guard\.userId/);
+    expect(selfActions).toMatch(/userId\s*:\s*guard\.userId/);
+  });
+
+  it("builds an admin_proxy principal — never self or system", () => {
+    expect(selfActions).toMatch(/kind\s*:\s*["']admin_proxy["']/);
+    expect(selfActions).not.toMatch(/kind\s*:\s*["']self["']/);
+    expect(selfActions).not.toMatch(/kind\s*:\s*["']system["']/);
+  });
+
+  it("requires a non-empty reason on every action", () => {
+    expect(selfActions).toMatch(/missing_reason/);
+    expect(selfActions).toMatch(/validateReason|reason\.trim\(\)/);
+    for (const re of [
+      /selfBackdateMatchPick/,
+      /selfClearMatchPick/,
+      /selfBackdateCustomBetPick/,
+      /selfClearCustomBetPick/,
+    ]) {
+      expect(selfActions).toMatch(re);
+    }
+  });
+
+  it("isSelfBackdate compares adminId to userId", () => {
+    expect(writeCore).toMatch(/principal\.adminId\s*===\s*principal\.userId/);
+  });
+
+  it.each([
+    "backdateOwnMatchPick",
+    "clearOwnMatchPick",
+    "backdateOwnCustomPick",
+    "clearOwnCustomPick",
+  ])("write-core %s is self-only, reasoned, audited, and stamps backdated", (fn) => {
+    const start = writeCore.indexOf(`function ${fn}`);
+    expect(start).toBeGreaterThanOrEqual(0);
+    const after = writeCore.indexOf("\nexport ", start + 1);
+    const body = writeCore.slice(start, after > start ? after : writeCore.length);
+    expect(body).toMatch(/isSelfBackdate/);
+    expect(body).toMatch(/assertAdminReason/);
+    expect(body).toMatch(/tx\.insert\s*\(\s*betAdminAudit\s*\)/);
+    expect(body).toMatch(/backdated\s*:\s*true/);
+  });
+});
+
+// The self-backdate page is intentionally full-admin-only: it must NOT be
+// reachable by a scoped operator, so it must be absent from the permission
+// path whitelist. (A scoped operator hitting it is bounced by the admin
+// layout's isPermittedPath gate.)
+describe("admin self-backdate page is not in the scoped-operator whitelist", () => {
+  const adminPaths = read("src/lib/admin-paths.ts");
+
+  it("PERMISSION_PATHS never grants 'my-bets'", () => {
+    const start = adminPaths.indexOf("PERMISSION_PATHS");
+    expect(start).toBeGreaterThanOrEqual(0);
+    const block = adminPaths.slice(start, adminPaths.indexOf("}", start) + 1);
+    expect(block).not.toMatch(/my-bets/);
+  });
+});
+
 describe("sandbox refresh-from-prod: bet tables are excluded", () => {
   const code = read("src/app/[lang]/admin/sandbox/actions.ts");
   const start = code.indexOf("const REFRESH_TABLES");

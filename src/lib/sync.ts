@@ -623,7 +623,10 @@ function outcome(home: number, away: number): "1" | "X" | "2" {
   return "X";
 }
 
-async function scoreFinalMatches(): Promise<{
+// Exported so the admin self-backdate path can grade a just-inserted pick on
+// an already-final match immediately (otherwise it would wait for the next
+// sync). Idempotent: only rows with points_earned IS NULL are touched.
+export async function scoreFinalMatches(): Promise<{
   scoredMatches: number;
   scoredBets: number;
 }> {
