@@ -81,6 +81,29 @@ export type SyncReport = {
   unknownTeams: string[];
 };
 
+// Did this sync change the global fixtures view (scores / status)? Callers
+// bust CACHE_TAG_FIXTURES when true so the cached stage label and tournament
+// start reflect the new match state immediately instead of waiting out their
+// time-based revalidate window. Shared by the cron route and the admin manual
+// sync so the two paths never drift.
+export function syncTouchedFixtures(report: SyncReport): boolean {
+  return report.updated > 0 || report.inserted > 0;
+}
+
+// Did this sync change anyone's points / standings? Callers bust
+// CACHE_TAG_LEADERBOARD when true. Grading bets/matches, auto-grading custom
+// bets, and auto-settling duels all move the board; a sync that only refreshed
+// fixture metadata does not, so we gate on the scoring counters to avoid
+// busting the leaderboard cache on every no-op 5-minute tick.
+export function syncTouchedLeaderboard(report: SyncReport): boolean {
+  return (
+    report.scoredBets > 0 ||
+    report.scoredMatches > 0 ||
+    report.scoredAutoCustomBets > 0 ||
+    report.settledAutoDuels > 0
+  );
+}
+
 // Aliases mapping football-data tla values to our 3-letter codes. The two
 // match for the common World Cup nations, but football-data occasionally
 // uses an alternative (e.g. KOR vs KSA can be confused; or ENG = England,

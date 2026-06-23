@@ -6,8 +6,12 @@ import { db } from "@/db";
 import { teams } from "@/db/schema";
 import { isAdmin } from "@/lib/admin";
 import { getUser } from "@/lib/supabase/auth";
-import { syncFixtures, type SyncReport } from "@/lib/sync";
-import { CACHE_TAG_FIXTURES } from "@/db/queries";
+import {
+  syncFixtures,
+  syncTouchedLeaderboard,
+  type SyncReport,
+} from "@/lib/sync";
+import { CACHE_TAG_FIXTURES, CACHE_TAG_LEADERBOARD } from "@/db/queries";
 import {
   fetchApiFootballStatus,
   type ApiFootballQuota,
@@ -32,6 +36,10 @@ export async function runSyncNow(): Promise<RunSyncResult> {
     // admin's session. revalidatePath still drops the admin's local
     // route cache so the sync panel shows the new state.
     updateTag(CACHE_TAG_FIXTURES);
+    // If the sync also graded bets/matches or auto-settled duels, the
+    // standings moved — bust the leaderboard too so the admin (and every
+    // other user) sees the new board immediately, not after its 60s window.
+    if (syncTouchedLeaderboard(report)) updateTag(CACHE_TAG_LEADERBOARD);
     revalidatePath("/", "layout");
     return { ok: true, report, durationMs: Date.now() - start };
   } catch (err) {

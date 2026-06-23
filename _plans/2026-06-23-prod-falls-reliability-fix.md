@@ -221,6 +221,42 @@ Shipped on the `sandbox` branch:
   files. The wrapped behavior's core logic (value / timeout-fallback /
   error-fallback) is covered by `src/lib/moments/timeout.test.ts`.
 
+## Follow-up — cache staleness audit + fix (2026-06-23)
+
+The user flagged "sync doesn't invalidate the Data Cache." A full census
+(both `revalidateTag` AND `updateTag` — the first pass missed `updateTag`,
+which is how most Server Actions bust tags here) found the codebase already
+invalidates comprehensively: POOL on payment approval, SETTINGS on scoring
+edits, FIXTURES on admin manual sync, LEADERBOARD on duel settle/resolve,
+bank/access on every write. Live match scores are uncached (always fresh).
+
+The ONE real gap: the 5-minute **cron** sync (`/api/cron/sync`) graded bets and
+updated scores but busted NO tags — it is a Route Handler, so it cannot use
+`updateTag` (Server-Action-only, throws), and it called no `revalidateTag`. So
+graded standings sat behind the leaderboard's 60s window and the fixtures
+metadata's 5-60min windows. The admin manual sync had the same leaderboard gap
+(it busted FIXTURES but not LEADERBOARD).
+
+Fix shipped:
+- `src/lib/sync.ts`: two pure predicates `syncTouchedFixtures` /
+  `syncTouchedLeaderboard` (unit-tested, `sync-revalidate.test.ts`) so the cron
+  and admin paths share one definition of "what changed".
+- `src/app/api/cron/sync/route.ts`: `revalidateTag(FIXTURES/LEADERBOARD,
+  { expire: 0 })` driven by those predicates. `{ expire: 0 }` is the form proven
+  to invalidate these `unstable_cache` tags here (matches the bank revalidation);
+  the newer `profile="max"` targets the cacheLife model, not `unstable_cache`.
+- `src/app/[lang]/admin/sync-actions.ts`: `updateTag(LEADERBOARD)` parity when
+  grading moved the board.
+
+Deliberately NOT changed: the bet save/cancel paths. Verified that placing a
+match pick changes neither the pot (that is approved-payments, busted in
+payment-actions) nor the standings (grading does, not placement); and busting
+LEADERBOARD on every placement would re-introduce cache churn during exactly the
+betting bursts T1/T2 just protected. The initial "add POOL revalidation to bet
+save" idea was dropped once the data showed it was a no-op-or-harmful.
+
+QA: vitest 735/735 (10 new), eslint + tsc clean.
+
 ## Verification after deploy (rule 6)
 
 1. During the next matchday peak, re-run the DB + slow-query probes; confirm no
