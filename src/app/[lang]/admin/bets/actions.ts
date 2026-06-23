@@ -537,6 +537,58 @@ export async function cancelCustomBet(
   }
 }
 
+// Hard-delete a bet row entirely — the "remove this suggestion, leave no
+// trace" action. Cancel keeps a 'cancelled' row in the list; this removes it.
+// Restricted to drafts and cancelled bets, and ONLY when no pick was ever
+// placed: a bet with picks is SACRED and must stay on record (use cancel/void
+// to refund instead). Drafts are never visible to players so never carry
+// picks; the pick-count guard is belt-and-suspenders for a cancelled row.
+export async function deleteCustomBet(
+  id: string,
+): Promise<{ ok: true } | { ok: false; error: Err | "has_picks" }> {
+  const user = await getUser();
+  if (!user) return { ok: false, error: "unauth" };
+  if (!(await hasPermission(user.id, "liveBets"))) {
+    console.warn("[bet delete denied]", { userId: user.id, id });
+    return { ok: false, error: "forbidden" };
+  }
+
+  try {
+    const [row] = await db
+      .select({ status: customBets.status })
+      .from(customBets)
+      .where(eq(customBets.id, id))
+      .limit(1);
+    if (!row) return { ok: false, error: "bet_not_found" };
+    if (row.status !== "draft" && row.status !== "cancelled") {
+      return { ok: false, error: "invalid_status" };
+    }
+
+    // Never delete a bet that ever took a pick — those rows are sacred.
+    const [picks] = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(userCustomBetPicks)
+      .where(eq(userCustomBetPicks.customBetId, id));
+    if ((picks?.count ?? 0) > 0) return { ok: false, error: "has_picks" };
+
+    await db.transaction(async (tx) => {
+      // No picks exist (guarded above); clear any audit rows first so the FK
+      // to custom_bets can't block the delete, then drop the bet.
+      await tx.delete(betGradingAudit).where(eq(betGradingAudit.customBetId, id));
+      await tx.delete(customBets).where(eq(customBets.id, id));
+    });
+
+    console.info("[bet delete]", { id, prevStatus: row.status, by: user.id });
+    revalidatePath("/[lang]/admin/bets", "page");
+    revalidatePath("/[lang]/admin/bets/duplicates", "page");
+    revalidatePath("/[lang]/admin", "page");
+    return { ok: true };
+  } catch (err) {
+    console.error("[bet delete] failed:", err);
+    return { ok: false, error: "db" };
+  }
+}
+
 export type VoidCustomBetResult =
   | { ok: true; picksRefunded: number; recipients: number }
   | { ok: false; error: GradeErr };

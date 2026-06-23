@@ -3,12 +3,12 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Send, X, Edit3, AlertCircle, Check } from "lucide-react";
+import { Send, X, Edit3, Trash2, AlertCircle, Check } from "lucide-react";
 import { PillButton } from "@/components/ui";
 import { localePath } from "@/lib/paths";
 import type { Locale } from "../../dictionaries";
 import { usePendingAction } from "@/lib/use-pending-action";
-import { publishCustomBet, cancelCustomBet } from "./actions";
+import { publishCustomBet, cancelCustomBet, deleteCustomBet } from "./actions";
 
 type Status =
   | "draft"
@@ -30,12 +30,12 @@ export function BetsTableActions({
   const isHebrew = locale === "he";
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
-  const [okFlash, setOkFlash] = useState<"published" | "cancelled" | null>(null);
+  const [okFlash, setOkFlash] = useState<"published" | "cancelled" | "deleted" | null>(null);
   const { pending, run } = usePendingAction();
 
   const handle = (
     fn: () => Promise<{ ok: boolean; error?: string }>,
-    success: "published" | "cancelled",
+    success: "published" | "cancelled" | "deleted",
     confirmMsg?: string,
   ) => {
     if (confirmMsg && !window.confirm(confirmMsg)) return;
@@ -51,7 +51,9 @@ export function BetsTableActions({
               ? isHebrew ? "ההימור לא נמצא" : "Bet not found"
               : res.error === "invalid_status"
                 ? isHebrew ? "סטטוס לא תקין למעבר" : "Invalid status transition"
-                : isHebrew ? "שגיאת שמירה" : "Save failed",
+                : res.error === "has_picks"
+                  ? isHebrew ? "יש הימורים על ההצעה, אי אפשר למחוק" : "Has picks; cannot delete"
+                  : isHebrew ? "שגיאת שמירה" : "Save failed",
         );
         return;
       }
@@ -73,7 +75,9 @@ export function BetsTableActions({
           <Check className="h-3 w-3" strokeWidth={2.5} />
           {okFlash === "published"
             ? isHebrew ? "פורסם" : "Published"
-            : isHebrew ? "בוטל" : "Cancelled"}
+            : okFlash === "deleted"
+              ? isHebrew ? "נמחק" : "Deleted"
+              : isHebrew ? "בוטל" : "Cancelled"}
         </span>
       )}
 
@@ -133,6 +137,29 @@ export function BetsTableActions({
         >
           <X className="h-4 w-4" strokeWidth={2.5} />
           {isHebrew ? "בטל" : "Cancel"}
+        </PillButton>
+      )}
+
+      {/* Hard-delete — only where it's safe (draft / cancelled, no picks). The
+          server rejects anything else, so we hide it on open/locked/graded. */}
+      {(status === "draft" || status === "cancelled") && (
+        <PillButton
+          type="button"
+          variant="ghost"
+          disabled={pending}
+          onClick={() =>
+            handle(
+              () => deleteCustomBet(id),
+              "deleted",
+              isHebrew
+                ? "למחוק את ההצעה לצמיתות? אי אפשר לשחזר."
+                : "Delete this suggestion permanently? This cannot be undone.",
+            )
+          }
+          className="min-h-[40px] py-2 px-4 text-sm text-error"
+        >
+          <Trash2 className="h-4 w-4" strokeWidth={2.5} />
+          {isHebrew ? "מחק" : "Delete"}
         </PillButton>
       )}
     </div>
