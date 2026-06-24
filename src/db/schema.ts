@@ -920,6 +920,38 @@ export const betAdminAudit = pgTable(
   }),
 );
 
+// bet_odds_audit: append-only trail of every admin odds-correction on a
+// PUBLISHED live bet. Mirrors the bet_grading_audit / match_status_audit
+// precedent — admin-only RLS read+insert, REVOKE UPDATE/DELETE in the migration
+// so a correction is a NEW row, never a silent rewrite. `before` / `after`
+// snapshot the per-option decimal-odds maps; `affected_picks` is how many
+// already-placed picks were re-priced to the corrected line. `reason` is
+// mandatory and non-empty at the DB level. See
+// _plans/2026-06-24-edit-published-live-bet-odds.md.
+export const betOddsAudit = pgTable(
+  "bet_odds_audit",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    customBetId: uuid("custom_bet_id")
+      .notNull()
+      .references(() => customBets.id, { onDelete: "cascade" }),
+    before: jsonb("before"),
+    after: jsonb("after"),
+    affectedPicks: integer("affected_picks").notNull().default(0),
+    reason: text("reason").notNull(),
+    performedBy: uuid("performed_by")
+      .notNull()
+      .references(() => profiles.id, { onDelete: "restrict" }),
+    performedAt: timestamp("performed_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    betIdx: index("bet_odds_audit_bet_idx").on(t.customBetId, t.performedAt),
+    timeIdx: index("bet_odds_audit_time_idx").on(t.performedAt),
+  }),
+);
+
 // match_status_audit: append-only trail of every MANUAL match status move
 // (postpone / cancel / resolve / reschedule / reopen). Mirrors the
 // bet_grading_audit / bet_admin_audit precedent — admin-only RLS read+insert,
@@ -1534,6 +1566,8 @@ export type UserCustomBetPick = typeof userCustomBetPicks.$inferSelect;
 export type NewUserCustomBetPick = typeof userCustomBetPicks.$inferInsert;
 export type BetGradingAudit = typeof betGradingAudit.$inferSelect;
 export type NewBetGradingAudit = typeof betGradingAudit.$inferInsert;
+export type BetOddsAudit = typeof betOddsAudit.$inferSelect;
+export type NewBetOddsAudit = typeof betOddsAudit.$inferInsert;
 export type Duel = typeof duels.$inferSelect;
 export type NewDuel = typeof duels.$inferInsert;
 export type BetLockDefault = typeof betLockDefaults.$inferSelect;

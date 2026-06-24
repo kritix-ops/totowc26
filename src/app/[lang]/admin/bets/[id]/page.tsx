@@ -1,12 +1,13 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ChevronLeft, ChevronRight, Edit3, Trophy } from "lucide-react";
+import { ChevronLeft, ChevronRight, Edit3, Percent, Trophy } from "lucide-react";
 import { hasLocale, type Locale } from "../../../dictionaries";
 import { Card, Chip, LabelCaps, SectionHeading } from "@/components/ui";
 import { localePath } from "@/lib/paths";
 import { formatDateTime } from "@/lib/format";
 import { getAdminCustomBetDetail } from "@/db/admin-queries";
 import { sanitizeReturnQuery } from "@/lib/bets/admin-bet-filters";
+import { canEditPublishedOdds } from "@/lib/bets/edit-odds";
 import { GradeForm } from "./GradeForm";
 import { ReopenBetCard } from "./ReopenBetCard";
 import { VoidBetForm } from "./VoidBetForm";
@@ -34,9 +35,19 @@ export default async function AdminBetDetailPage({
   const editHref =
     localePath(locale, `admin/bets/${id}/edit`) +
     (returnQs ? `?return=${encodeURIComponent(returnQs)}` : "");
+  const oddsHref =
+    localePath(locale, `admin/bets/${id}/odds`) +
+    (returnQs ? `?return=${encodeURIComponent(returnQs)}` : "");
 
   const bet = await getAdminCustomBetDetail(id);
   if (!bet) notFound();
+
+  const canEditOdds = canEditPublishedOdds({
+    status: bet.status,
+    scope: bet.scope,
+    lockAt: bet.lockAt,
+    answerConfig: bet.answerConfig,
+  });
 
   const question = isHebrew ? bet.questionHe : bet.questionEn;
   const gradingRule = isHebrew ? bet.gradingRuleHe : bet.gradingRuleEn;
@@ -75,6 +86,15 @@ export default async function AdminBetDetailPage({
               >
                 <Edit3 className="h-4 w-4" strokeWidth={2} />
                 {isHebrew ? "ערוך" : "Edit"}
+              </Link>
+            )}
+            {canEditOdds && (
+              <Link
+                href={oddsHref}
+                className="inline-flex items-center justify-center gap-1.5 min-h-[40px] px-4 rounded-full border border-outline bg-surface-container-lowest text-on-surface text-sm font-bold hover:bg-surface-container"
+              >
+                <Percent className="h-4 w-4" strokeWidth={2} />
+                {isHebrew ? "ערוך יחסים" : "Edit odds"}
               </Link>
             )}
           </div>

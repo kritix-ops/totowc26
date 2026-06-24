@@ -112,7 +112,7 @@ export type WriteOpts = {
   backdate?: boolean;
 };
 
-type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+export type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 function gateAccess(principal: WritePrincipal): boolean {
   if (principal.kind === "system") return true;
@@ -452,29 +452,24 @@ async function writeCustomPickTx(
         clampedTo: effectiveStake,
       });
     }
-    const optionOdds = resolveLiveOptionOdds({
+    // Ratio-mode bets pay stake × ratio exactly (no edge, no cap);
+    // probability-mode bets run the historic normalizeOdds. The legacy
+    // (no captured odds) branch linearly scales the snapshot payout. Shared
+    // with the admin odds-reprice path so both price a pick identically.
+    const computed = computeLivePickPayout({
       answerType: bet.answerType,
       answerConfig: bet.answerConfig,
       betLevelDecimalOdds: bet.decimalOdds == null ? null : Number(bet.decimalOdds),
+      betStakeSnapshot: bet.stakeSnapshot,
+      betPayoutSnapshot: bet.payoutSnapshot,
       answer: input.answer,
+      stake: effectiveStake,
+      liveCfg,
     });
-    if (optionOdds != null) {
-      // Ratio-mode bets pay stake × ratio exactly (no edge, no cap);
-      // probability-mode bets run the historic normalizeOdds. The mode is
-      // read off the same answer config the odds came from.
-      const mode = resolvePricingMode(bet.answerConfig as AnswerConfig);
-      pickPayout = liveOptionPayout(optionOdds, effectiveStake, mode, {
-        baseStake: effectiveStake,
-        maxPayout: liveStakeCap(effectiveStake, liveCfg),
-        houseEdgePct: liveCfg.houseEdgePct,
-      });
-    } else {
-      // Legacy or partially-priced live bet (no decimalOdds captured at
-      // publish). Linearly scale the bet's snapshotted payout to the
-      // player's chosen stake and apply the new cap so a stake-30 player
-      // still gets a meaningfully different number than a stake-3 player.
-      // Logged loudly so a publish path that forgot to store odds shows
-      // up in the console without waiting for a player to file a bug.
+    pickPayout = computed.payout;
+    if (!computed.fromOdds) {
+      // Publish path forgot to store odds — logged loudly so it shows up in
+      // the console without waiting for a player to file a bug.
       console.warn("[custom-bet stake] no_odds_fallback", {
         userId: principal.userId,
         betId: input.customBetId,
@@ -482,16 +477,6 @@ async function writeCustomPickTx(
         snapshotStake: bet.stakeSnapshot,
         snapshotPayout: bet.payoutSnapshot,
       });
-      const baseStakeForScale = Math.max(1, bet.stakeSnapshot);
-      const basePayout = resolvePickPayoutAtSubmit({
-        answerType: bet.answerType,
-        answerConfig: bet.answerConfig,
-        answer: input.answer,
-        betLevelPayout: bet.payoutSnapshot,
-      });
-      const cap = liveStakeCap(effectiveStake, liveCfg);
-      const scaled = Math.round((basePayout * effectiveStake) / baseStakeForScale);
-      pickPayout = Math.min(Math.max(scaled, effectiveStake + 1), cap);
     }
   }
 
@@ -1368,7 +1353,7 @@ export async function clearOwnCustomPick(
 // applies to the very next submit. One small extra round trip per live
 // submit; trivial cost relative to the bank-balance recalc that
 // follows.
-type LiveStakeConfig = {
+export type LiveStakeConfig = {
   baseStake: number;
   minStake: number;
   maxStake: number;
@@ -1377,7 +1362,7 @@ type LiveStakeConfig = {
   houseEdgePct: number;
 };
 
-async function loadLiveStakeConfig(tx: Tx): Promise<LiveStakeConfig> {
+export async function loadLiveStakeConfig(tx: Tx): Promise<LiveStakeConfig> {
   const [row] = await tx
     .select({
       baseStake: settings.liveOddsBaseStake,
@@ -1466,6 +1451,53 @@ function resolveLiveOptionOdds(args: {
     return args.betLevelDecimalOdds;
   }
   return null;
+}
+
+// Gross payout for ONE live-bet pick at a given effective stake. This is the
+// single definition both the pick-time submit path and the admin odds-reprice
+// path call, so an existing pick re-priced to corrected odds lands on exactly
+// the number a fresh pick at those odds would — no drift between the two.
+//
+//   - `fromOdds: true`  → priced from the option's captured decimal odds
+//     (ratio mode pays stake × ratio; probability mode runs normalizeOdds).
+//   - `fromOdds: false` → legacy / partially-priced bet with no captured odds:
+//     linear-scale the bet's snapshot payout to the stake, floor at stake+1,
+//     cap at the live stake cap. The caller logs this branch for observability.
+export function computeLivePickPayout(args: {
+  answerType: "yes_no" | "number" | "multi_choice" | "free_text";
+  answerConfig: unknown;
+  betLevelDecimalOdds: number | null;
+  betStakeSnapshot: number;
+  betPayoutSnapshot: number;
+  answer: PickAnswer;
+  stake: number;
+  liveCfg: LiveStakeConfig;
+}): { payout: number; fromOdds: boolean } {
+  const optionOdds = resolveLiveOptionOdds({
+    answerType: args.answerType,
+    answerConfig: args.answerConfig,
+    betLevelDecimalOdds: args.betLevelDecimalOdds,
+    answer: args.answer,
+  });
+  if (optionOdds != null) {
+    const mode = resolvePricingMode(args.answerConfig as AnswerConfig);
+    const payout = liveOptionPayout(optionOdds, args.stake, mode, {
+      baseStake: args.stake,
+      maxPayout: liveStakeCap(args.stake, args.liveCfg),
+      houseEdgePct: args.liveCfg.houseEdgePct,
+    });
+    return { payout, fromOdds: true };
+  }
+  const baseStakeForScale = Math.max(1, args.betStakeSnapshot);
+  const basePayout = resolvePickPayoutAtSubmit({
+    answerType: args.answerType,
+    answerConfig: args.answerConfig,
+    answer: args.answer,
+    betLevelPayout: args.betPayoutSnapshot,
+  });
+  const cap = liveStakeCap(args.stake, args.liveCfg);
+  const scaled = Math.round((basePayout * args.stake) / baseStakeForScale);
+  return { payout: Math.min(Math.max(scaled, args.stake + 1), cap), fromOdds: false };
 }
 
 // Bulk custom-bet fill: ONE advisory-locked transaction for the whole batch,

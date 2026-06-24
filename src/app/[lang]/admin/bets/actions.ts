@@ -1,11 +1,12 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, gt, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { execFirstRow } from "@/db/helpers";
 import {
   betGradingAudit,
+  betOddsAudit,
   customBets,
   matches as matchesTable,
   groups,
@@ -24,15 +25,21 @@ import {
 import type {
   AnswerConfig,
   GradingConfig,
+  PickAnswer,
   ResolvedValue,
 } from "@/lib/bets/types";
 import { gradedPickPoints } from "@/lib/bets/payout";
 import { isPickCorrect, validateResolvedValue } from "@/lib/bets/grade-pick";
 import { reopenBlockedReason } from "@/lib/bets/reopen";
 import {
+  liveDisplayRatios,
   repriceAnswerConfigFromOdds,
   validateLiveOddsConfig,
 } from "@/lib/bets/price-options";
+import {
+  computeLivePickPayout,
+  loadLiveStakeConfig,
+} from "@/lib/bets/write-core";
 import { liveStakeCap, type OddsNormConfig } from "@/lib/odds-normalize";
 
 // Discriminated result so the client can branch on the error string.
@@ -381,6 +388,262 @@ export async function updateCustomBet(
     return { ok: true };
   } catch (err) {
     console.error("[bet update] write failed:", err);
+    return { ok: false, error: "db" };
+  }
+}
+
+// ---------- edit odds on a PUBLISHED live bet ----------
+
+export type RepriceLiveOddsInput = {
+  // New per-option decimal odds for a multi_choice live bet, keyed by the
+  // option `value` (the same ×N the card shows). Only values that already
+  // exist on the bet are honoured; unknown keys are ignored.
+  decimalOddsByValue?: Record<string, number>;
+  // New per-side decimal odds for a yes_no live bet.
+  decimalOddsYes?: number;
+  decimalOddsNo?: number;
+};
+
+export type RepriceLiveOddsResult =
+  | { ok: true; affected: number }
+  | {
+      ok: false;
+      error:
+        | "unauth"
+        | "forbidden"
+        | "bet_not_found"
+        | "wrong_scope"
+        | "wrong_status"
+        | "locked"
+        | "invalid_reason"
+        | "invalid_odds"
+        | "no_odds"
+        | "db";
+    };
+
+// Sentinel: lets the transaction abort on a lost race (the bet locked or
+// changed status between our read and the guarded UPDATE) so the caller maps
+// it to a clean "locked" instead of a generic db failure.
+class RepriceRaceLost extends Error {}
+
+// Correct the odds (יחסים) of a live bet that is already PUBLISHED ("open")
+// and may already carry picks. Unlike the draft-only edit form, this:
+//   • is restricted to open + live (match/day) + before lock,
+//   • requires a reason and writes an append-only bet_odds_audit row,
+//   • RE-PRICES every existing pick to the corrected odds (one fair line for
+//     everyone, not a two-tier snapshot) using the SAME computeLivePickPayout
+//     the submit path uses, and
+//   • notifies every picker that their payout was recomputed.
+// Question / options / scope / answer type are NOT editable here — that is a
+// different contract (cancel + recreate).
+export async function repriceLiveBetOdds(
+  id: string,
+  input: RepriceLiveOddsInput,
+  reason: string,
+): Promise<RepriceLiveOddsResult> {
+  const user = await getUser();
+  if (!user) return { ok: false, error: "unauth" };
+  if (!(await hasPermission(user.id, "liveBets"))) {
+    console.warn("[bet reprice denied]", { userId: user.id, id });
+    return { ok: false, error: "forbidden" };
+  }
+  const trimmedReason = reason.trim();
+  if (trimmedReason.length < 3) return { ok: false, error: "invalid_reason" };
+
+  let bet:
+    | {
+        status: string;
+        scope: string;
+        lockAt: Date;
+        answerType: "yes_no" | "number" | "multi_choice" | "free_text";
+        answerConfig: unknown;
+        decimalOdds: string | null;
+        stakeSnapshot: number;
+        payoutSnapshot: number;
+        questionHe: string;
+      }
+    | undefined;
+  try {
+    [bet] = await db
+      .select({
+        status: customBets.status,
+        scope: customBets.scope,
+        lockAt: customBets.lockAt,
+        answerType: customBets.answerType,
+        answerConfig: customBets.answerConfig,
+        decimalOdds: customBets.decimalOdds,
+        stakeSnapshot: customBets.stakeSnapshot,
+        payoutSnapshot: customBets.payoutSnapshot,
+        questionHe: customBets.questionHe,
+      })
+      .from(customBets)
+      .where(eq(customBets.id, id))
+      .limit(1);
+  } catch (err) {
+    console.error("[bet reprice] read failed:", err);
+    return { ok: false, error: "db" };
+  }
+  if (!bet) return { ok: false, error: "bet_not_found" };
+  // Guards: live family, published, still before lock.
+  if (bet.scope !== "match" && bet.scope !== "day") {
+    return { ok: false, error: "wrong_scope" };
+  }
+  if (bet.status !== "open") return { ok: false, error: "wrong_status" };
+  if (new Date(bet.lockAt).getTime() <= Date.now()) {
+    return { ok: false, error: "locked" };
+  }
+
+  // Overlay the new odds onto the existing config, keeping options / labels /
+  // pricingMode. Only bets that already carry per-option/per-side odds are
+  // editable here (the modern live shape); a legacy flat bet has nothing to
+  // overlay and is rejected with "no_odds".
+  const oldConfig = bet.answerConfig as AnswerConfig | null;
+  let newConfig: AnswerConfig;
+  if (bet.answerType === "multi_choice" && oldConfig?.kind === "multi_choice") {
+    if (!oldConfig.decimalOddsByValue) return { ok: false, error: "no_odds" };
+    if (!input.decimalOddsByValue) return { ok: false, error: "invalid_odds" };
+    const validValues = new Set(oldConfig.options.map((o) => o.value));
+    const merged: Record<string, number> = { ...oldConfig.decimalOddsByValue };
+    for (const [value, odds] of Object.entries(input.decimalOddsByValue)) {
+      if (validValues.has(value)) merged[value] = odds;
+    }
+    newConfig = { ...oldConfig, decimalOddsByValue: merged };
+  } else if (bet.answerType === "yes_no" && oldConfig?.kind === "yes_no") {
+    if (
+      oldConfig.decimalOddsYes === undefined &&
+      oldConfig.decimalOddsNo === undefined
+    ) {
+      return { ok: false, error: "no_odds" };
+    }
+    newConfig = { ...oldConfig };
+    if (input.decimalOddsYes !== undefined) newConfig.decimalOddsYes = input.decimalOddsYes;
+    if (input.decimalOddsNo !== undefined) newConfig.decimalOddsNo = input.decimalOddsNo;
+  } else {
+    return { ok: false, error: "no_odds" };
+  }
+
+  // Validate the merged odds (finite, > 1, ≤ MAX_MANUAL_RATIO in ratio mode)
+  // before any write.
+  if (!validateLiveOddsConfig(newConfig)) {
+    return { ok: false, error: "invalid_odds" };
+  }
+
+  // Recompute the payout maps + bet-level max payout from the new odds,
+  // server-side, from the canonical live pricing config (never a client value).
+  const pricing = await loadLivePricingConfig();
+  const priced = repriceAnswerConfigFromOdds(newConfig, pricing);
+  const newStakeSnapshot =
+    priced.maxPayout != null ? pricing.baseStake : bet.stakeSnapshot;
+  const newPayoutSnapshot = priced.maxPayout ?? bet.payoutSnapshot;
+  // bet-level decimal_odds column is untouched by this odds-only flow.
+  const betLevelOdds = bet.decimalOdds == null ? null : Number(bet.decimalOdds);
+
+  const beforeOdds = liveDisplayRatios(oldConfig);
+  const afterOdds = liveDisplayRatios(priced.config);
+  const questionHe = bet.questionHe;
+  const answerType = bet.answerType;
+
+  try {
+    const result = await db.transaction(async (tx) => {
+      // Guarded update: re-asserts open + before-lock at write time so a bet
+      // that locked between our read and here aborts instead of silently
+      // re-pricing a bet players can no longer react to.
+      const updated = await tx
+        .update(customBets)
+        .set({
+          answerConfig: priced.config,
+          stakeSnapshot: newStakeSnapshot,
+          payoutSnapshot: newPayoutSnapshot,
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(customBets.id, id),
+            eq(customBets.status, "open"),
+            gt(customBets.lockAt, new Date()),
+          ),
+        )
+        .returning({ id: customBets.id });
+      if (updated.length === 0) throw new RepriceRaceLost();
+
+      // Re-price every existing pick to the corrected odds — byte-for-byte the
+      // same math a fresh pick gets (shared computeLivePickPayout).
+      const picks = await tx
+        .select({
+          id: userCustomBetPicks.id,
+          userId: userCustomBetPicks.userId,
+          answer: userCustomBetPicks.answer,
+          stakePaid: userCustomBetPicks.stakePaid,
+        })
+        .from(userCustomBetPicks)
+        .where(eq(userCustomBetPicks.customBetId, id));
+
+      const liveCfg = await loadLiveStakeConfig(tx);
+      for (const pk of picks) {
+        const { payout } = computeLivePickPayout({
+          answerType,
+          answerConfig: priced.config,
+          betLevelDecimalOdds: betLevelOdds,
+          betStakeSnapshot: newStakeSnapshot,
+          betPayoutSnapshot: newPayoutSnapshot,
+          answer: pk.answer as PickAnswer,
+          stake: pk.stakePaid ?? newStakeSnapshot,
+          liveCfg,
+        });
+        await tx
+          .update(userCustomBetPicks)
+          .set({ payoutSnapshot: payout, updatedAt: new Date() })
+          .where(eq(userCustomBetPicks.id, pk.id));
+      }
+
+      await tx.insert(betOddsAudit).values({
+        customBetId: id,
+        before: beforeOdds,
+        after: afterOdds,
+        affectedPicks: picks.length,
+        reason: trimmedReason,
+        performedBy: user.id,
+      });
+
+      return { affected: picks.length, userIds: picks.map((p) => p.userId) };
+    });
+
+    console.info("[bet reprice]", {
+      id,
+      before: beforeOdds,
+      after: afterOdds,
+      affected: result.affected,
+      by: user.id,
+    });
+
+    // Notify every picker their payout was recomputed. Best-effort: the
+    // re-price is the contract, the notice a courtesy — a failure is logged and
+    // swallowed, never rolls the re-price back.
+    if (result.userIds.length > 0) {
+      try {
+        await notifyUsers(
+          { kind: "users", userIds: result.userIds },
+          {
+            kind: "live_bet",
+            title: "היחסים עודכנו",
+            body: `היחסים בהימור "${questionHe}" תוקנו. בדוק את התשלום המעודכן.`,
+            url: "/he/bets/live",
+            push: true,
+            createdBy: user.id,
+          },
+        );
+      } catch (err) {
+        console.error("[bet reprice] notify failed (reprice committed):", err);
+      }
+    }
+
+    revalidatePath("/[lang]/admin/bets", "page");
+    revalidatePath(`/[lang]/admin/bets/${id}`, "page");
+    revalidatePath("/[lang]/bets/live", "page");
+    return { ok: true, affected: result.affected };
+  } catch (err) {
+    if (err instanceof RepriceRaceLost) return { ok: false, error: "locked" };
+    console.error("[bet reprice] write failed:", err);
     return { ok: false, error: "db" };
   }
 }

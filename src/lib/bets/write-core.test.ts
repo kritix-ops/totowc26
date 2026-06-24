@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { resolveLiveStake } from "./write-core";
+import { computeLivePickPayout, resolveLiveStake } from "./write-core";
 
 // Pure-helper tests for the variable-stake clamp. The full
 // writeCustomPickTx flow is integration-tested via the manual QA
@@ -80,5 +80,76 @@ describe("resolveLiveStake", () => {
       stake: 75,
       clamped: false,
     });
+  });
+});
+
+// computeLivePickPayout is the SHARED definition the pick-submit path and the
+// admin odds-reprice path both call — so an existing pick re-priced to new
+// odds lands on exactly the number a fresh pick at those odds would. These pin
+// the contract the reprice relies on.
+describe("computeLivePickPayout", () => {
+  const liveCfg = {
+    baseStake: 3,
+    minStake: 1,
+    maxStake: 30,
+    maxPayoutRatio: 8,
+    maxPayoutCeiling: 100,
+    houseEdgePct: 5,
+  };
+
+  it("ratio-mode multi_choice pays exact round(stake × ratio)", () => {
+    const r = computeLivePickPayout({
+      answerType: "multi_choice",
+      answerConfig: {
+        kind: "multi_choice",
+        pricingMode: "ratio",
+        options: [{ value: "a", labelHe: "א", labelEn: "A" }],
+        decimalOddsByValue: { a: 5 },
+      },
+      betLevelDecimalOdds: null,
+      betStakeSnapshot: 3,
+      betPayoutSnapshot: 15,
+      answer: { type: "multi_choice", value: "a" },
+      stake: 4,
+      liveCfg,
+    });
+    expect(r).toEqual({ payout: 20, fromOdds: true }); // round(4 × 5)
+  });
+
+  it("ratio-mode yes_no reads the side the player actually picked", () => {
+    const r = computeLivePickPayout({
+      answerType: "yes_no",
+      answerConfig: {
+        kind: "yes_no",
+        pricingMode: "ratio",
+        decimalOddsYes: 3,
+        decimalOddsNo: 2,
+      },
+      betLevelDecimalOdds: null,
+      betStakeSnapshot: 3,
+      betPayoutSnapshot: 9,
+      answer: { type: "yes_no", value: false }, // picked "no" → ×2
+      stake: 5,
+      liveCfg,
+    });
+    expect(r).toEqual({ payout: 10, fromOdds: true }); // round(5 × 2)
+  });
+
+  it("flags fromOdds=false and floors at stake+1 when no odds are captured", () => {
+    const r = computeLivePickPayout({
+      answerType: "multi_choice",
+      answerConfig: {
+        kind: "multi_choice",
+        options: [{ value: "a", labelHe: "א", labelEn: "A" }],
+      },
+      betLevelDecimalOdds: null,
+      betStakeSnapshot: 3,
+      betPayoutSnapshot: 9,
+      answer: { type: "multi_choice", value: "a" },
+      stake: 3,
+      liveCfg,
+    });
+    expect(r.fromOdds).toBe(false);
+    expect(r.payout).toBeGreaterThanOrEqual(4); // stake + 1 floor
   });
 });

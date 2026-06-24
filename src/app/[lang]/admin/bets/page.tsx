@@ -37,6 +37,7 @@ import {
 } from "@/db/admin-queries";
 import { liveBetAnchor } from "@/lib/bets/live-bet-push";
 import { parseDayFilter } from "@/lib/bets/admin-bet-filters";
+import { canEditPublishedOdds } from "@/lib/bets/edit-odds";
 import { BetsTableActions } from "./BetsTableActions";
 import { BetsSearchBox } from "./BetsSearchBox";
 import { BetsActiveFilters } from "./BetsActiveFilters";
@@ -989,6 +990,12 @@ function BetCard({
           locale={locale}
           id={bet.id}
           status={bet.status}
+          canEditOdds={canEditPublishedOdds({
+            status: bet.status,
+            scope: bet.scope,
+            lockAt: bet.lockAt,
+            answerConfig: bet.answerConfig,
+          })}
         />
       </div>
     </Card>

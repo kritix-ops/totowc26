@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { Send, X, Edit3, Trash2, AlertCircle, Check } from "lucide-react";
+import { Send, X, Edit3, Trash2, AlertCircle, Check, Percent } from "lucide-react";
 import { PillButton } from "@/components/ui";
 import { localePath } from "@/lib/paths";
 import type { Locale } from "../../dictionaries";
@@ -22,10 +22,14 @@ export function BetsTableActions({
   locale,
   id,
   status,
+  canEditOdds = false,
 }: {
   locale: Locale;
   id: string;
   status: Status;
+  // True only for a published, not-yet-locked live bet that carries odds —
+  // computed server-side so the chip never shows where the action would reject.
+  canEditOdds?: boolean;
 }) {
   const isHebrew = locale === "he";
   const router = useRouter();
@@ -104,6 +108,18 @@ export function BetsTableActions({
           ? isHebrew ? "תקן תוצאה" : "Fix result"
           : isHebrew ? "פרטים" : "Details"}
       </Link>
+
+      {/* Edit odds in place — only for a published, not-yet-locked live bet
+          with captured odds. Re-prices every existing pick (audited). */}
+      {canEditOdds && (
+        <Link
+          href={withReturn(`admin/bets/${id}/odds`)}
+          className="inline-flex items-center justify-center gap-1.5 min-h-[40px] px-4 rounded-full border border-outline bg-surface-container-lowest text-on-surface text-sm font-bold hover:bg-surface-container"
+        >
+          <Percent className="h-4 w-4" strokeWidth={2} />
+          {isHebrew ? "ערוך יחסים" : "Edit odds"}
+        </Link>
+      )}
 
       {status === "draft" && (
         <>

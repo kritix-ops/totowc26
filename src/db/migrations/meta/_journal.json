@@ -470,6 +470,13 @@
       "when": 1782330000000,
       "tag": "0066_bet_admin_audit_backdated",
       "breakpoints": true
+    },
+    {
+      "idx": 67,
+      "version": "7",
+      "when": 1782340000000,
+      "tag": "0067_bet_odds_audit",
+      "breakpoints": true
     }
   ]
 }
