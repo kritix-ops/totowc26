@@ -5,8 +5,9 @@ import { eq } from "drizzle-orm";
 import { hasLocale, type Locale } from "../../../dictionaries";
 import { Card } from "@/components/ui";
 import { localePath } from "@/lib/paths";
+import { eq as drizzleEq } from "drizzle-orm";
 import { db } from "@/db";
-import { settings, groups } from "@/db/schema";
+import { settings, groups, teams } from "@/db/schema";
 import {
   getBetTemplate,
   listAnchorMatches,
@@ -17,6 +18,7 @@ import { getDeadlineContext } from "@/lib/deadlines";
 import { BetForm, type InitialBet } from "../BetForm";
 import type { AnswerConfig, GradingConfig } from "@/lib/bets/types";
 import { adaptTemplateText } from "@/lib/bets/template-adapt";
+import { buildGroupBetTemplate } from "@/lib/bets/group-bet-template";
 
 export default async function NewBetPage({
   params,
@@ -138,6 +140,51 @@ export default async function NewBetPage({
       }
     : undefined;
 
+  // Group-winner prefill: the group-bets admin page deep-links here with
+  // ?scope=group&groupId=X. We seed the form with that group's teams as
+  // multi_choice options + a default "who wins group X" question, so the
+  // admin only reviews and saves a draft. The groupId is matched (case-
+  // insensitively) against the real group list; an unknown value falls back
+  // to the normal empty form. Skipped when a template prefill already won.
+  const wantsGroupScope = typeof sp.scope === "string" && sp.scope === "group";
+  const groupIdParam =
+    wantsGroupScope && typeof sp.groupId === "string"
+      ? sp.groupId.toUpperCase()
+      : null;
+  const matchedGroupId =
+    groupIdParam
+      ? (groupRows.find((g) => g.id.toUpperCase() === groupIdParam)?.id ?? null)
+      : null;
+
+  let groupInitialBet: InitialBet | undefined;
+  if (matchedGroupId && !initialBet) {
+    const groupTeams = await db
+      .select({ code: teams.code, nameHe: teams.nameHe, nameEn: teams.nameEn })
+      .from(teams)
+      .where(drizzleEq(teams.groupId, matchedGroupId))
+      .orderBy(teams.nameEn);
+    const tpl = buildGroupBetTemplate(matchedGroupId, groupTeams);
+    groupInitialBet = {
+      scope: "group",
+      matchId: null,
+      matchdayDate: null,
+      stage: null,
+      groupId: matchedGroupId,
+      questionHe: tpl.questionHe,
+      questionEn: tpl.questionEn,
+      gradingRuleHe: tpl.gradingRuleHe,
+      gradingRuleEn: tpl.gradingRuleEn,
+      answerType: "multi_choice",
+      answerConfig: { kind: "multi_choice", options: tpl.options },
+      stakeSnapshot: 0,
+      payoutSnapshot: 0,
+      decimalOdds: null,
+      gradingSource: "manual",
+      gradingConfig: null,
+      lockAt: "",
+    };
+  }
+
   return (
     <section className="px-4 md:px-16 py-6 md:py-12 flex flex-col gap-6 md:gap-8 max-w-3xl mx-auto w-full pb-24">
       <header className="flex flex-col gap-3">
@@ -166,7 +213,7 @@ export default async function NewBetPage({
           groupIds={groupRows.map((g) => g.id)}
           defaults={defaults}
           templates={templates}
-          initialBet={initialBet}
+          initialBet={initialBet ?? groupInitialBet}
         />
       </Card>
     </section>

@@ -20,7 +20,7 @@ export { ADMIN_PERMISSION_KEYS, type AdminPermissionKey };
 // New permissions: add a key here AND to ADMIN_PERMISSION_KEYS in
 // src/db/schema.ts. Forgetting one half is a type error.
 export const PERMISSION_PATHS: Record<AdminPermissionKey, readonly string[]> = {
-  liveBets: ["bets", "bets-overview", "live-bets", "deadlines"],
+  liveBets: ["bets", "bets-overview", "live-bets", "group-bets", "deadlines"],
   tournamentBets: ["tournament-suggestions"],
   tournamentOdds: ["tournament-odds"],
 };

@@ -19,6 +19,7 @@ import {
   Wrench,
   FlaskConical,
   ListChecks,
+  Flag,
 } from "lucide-react";
 import { hasLocale, type Locale } from "../dictionaries";
 import { Card, LabelCaps } from "@/components/ui";
@@ -97,6 +98,12 @@ export default async function AdminPage({
               path="admin/bets-overview"
               icon={<Grid3x3 className="h-5 w-5" strokeWidth={1.75} />}
               label={isHebrew ? "מצב הימורי כולם" : "Everyone's bets"}
+            />
+            <AdminTile
+              locale={locale}
+              path="admin/group-bets"
+              icon={<Flag className="h-5 w-5" strokeWidth={1.75} />}
+              label={isHebrew ? "הימורי בתים" : "Group bets"}
             />
             <AdminTile
               locale={locale}
@@ -210,6 +217,12 @@ export default async function AdminPage({
           path="admin/bets"
           icon={<Sparkles className="h-5 w-5" strokeWidth={1.75} />}
           label={isHebrew ? "הימורי לייב" : "Live bets"}
+        />
+        <AdminTile
+          locale={locale}
+          path="admin/group-bets"
+          icon={<Flag className="h-5 w-5" strokeWidth={1.75} />}
+          label={isHebrew ? "הימורי בתים" : "Group bets"}
         />
         <AdminTile
           locale={locale}
