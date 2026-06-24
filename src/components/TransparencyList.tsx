@@ -8,8 +8,10 @@ import { Card, Chip, LabelCaps, ScoreLine } from "@/components/ui";
 import { formatDateTime } from "@/lib/format";
 import {
   filterRowsByQuery,
+  groupRowsByContext,
   type TransparencyCategory,
   type TransparencyContext,
+  type TransparencyContextGroup,
   type TransparencyQuestionRow,
 } from "@/lib/transparency-group";
 
@@ -28,6 +30,13 @@ import {
 //
 // Substring, case-insensitive, run on every keystroke over at most ~100
 // questions — no debounce needed. Escape or the clear button empties it.
+//
+// Live tab only: every bet carries a match/matchday context, so the rows
+// fold into collapsible per-match groups (collapsed by default). A reader
+// sees a short list of matches and opens the one they want instead of
+// scrolling every bet on the day. Other tabs have no context and render
+// the flat list unchanged. A search auto-opens every surviving group so
+// results are never hidden behind a closed header.
 
 export function TransparencyList({
   rows,
@@ -48,6 +57,9 @@ export function TransparencyList({
 }) {
   const isHebrew = locale === "he";
   const [query, setQuery] = useState("");
+  const [expandedKeys, setExpandedKeys] = useState<Set<string>>(
+    () => new Set(),
+  );
   const inputRef = useRef<HTMLInputElement | null>(null);
 
   const q = query.trim();
@@ -55,11 +67,23 @@ export function TransparencyList({
     () => filterRowsByQuery(rows, query),
     [rows, query],
   );
+  // Null on tabs whose rows have no match context (match/tournament/group/
+  // duel) — those keep the flat list. Non-null on the live tab.
+  const groups = useMemo(() => groupRowsByContext(filtered), [filtered]);
+  const searchActive = q !== "";
 
   const clear = () => {
     setQuery("");
     inputRef.current?.focus();
   };
+
+  const toggleGroup = (key: string) =>
+    setExpandedKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
 
   return (
     <div className="flex flex-col gap-3">
@@ -116,6 +140,29 @@ export function TransparencyList({
           <span className="font-bold text-on-surface">{searchNoResults}</span>
           <span dir="auto">&ldquo;{query.trim()}&rdquo;</span>
         </div>
+      ) : groups ? (
+        <ul className="flex flex-col gap-3">
+          {groups.map((group) => (
+            <li key={group.key}>
+              <MatchGroup
+                group={group}
+                // A lone match has nothing to disambiguate, and a search is
+                // looking for specific rows — open in both cases so the
+                // reader never has to tap to see what they came for.
+                open={
+                  searchActive ||
+                  groups.length === 1 ||
+                  expandedKeys.has(group.key)
+                }
+                onToggle={() => toggleGroup(group.key)}
+                tab={tab}
+                locale={locale}
+                categoryLabel={categoryLabel}
+                stakeLabel={stakeLabel}
+              />
+            </li>
+          ))}
+        </ul>
       ) : (
         <ul className="flex flex-col gap-3">
           {filtered.map((row) => (
@@ -135,30 +182,29 @@ export function TransparencyList({
   );
 }
 
+// `bare` drops the Card chrome (border/shadow/bg) so the card can sit
+// inside a match group panel, which already provides the container — the
+// group renders a divider between consecutive bare cards. Standalone (flat
+// list) cards keep the full Card.
 function QuestionCard({
   tab,
   row,
   locale,
   categoryLabel,
   stakeLabel,
+  bare = false,
 }: {
   tab: TransparencyCategory;
   row: TransparencyQuestionRow;
   locale: Locale;
   categoryLabel: string;
   stakeLabel: string;
+  bare?: boolean;
 }) {
   const isHebrew = locale === "he";
+  const Wrapper = bare ? "div" : Card;
   return (
-    <Card className="p-3 md:p-4 flex flex-col gap-3">
-      {/* Which game is this? A live bet's question never names the
-          fixture, so when several matches run at once the banner is the
-          only thing that tells the cards apart. It bleeds to the card
-          edges and sits above everything else so it reads first. */}
-      {row.context && (
-        <MatchContextBanner context={row.context} isHebrew={isHebrew} />
-      )}
-
+    <Wrapper className="p-3 md:p-4 flex flex-col gap-3">
       <header className="flex items-start justify-between gap-3">
         <div className="flex flex-col gap-1 min-w-0">
           <Chip tone={categoryTone(tab)} className="self-start shrink-0">
@@ -257,55 +303,141 @@ function QuestionCard({
       <LabelCaps as="div" className="self-end">
         {row.pickers[0]?.status ?? ""}
       </LabelCaps>
-    </Card>
+    </Wrapper>
   );
 }
 
-// The "which game" banner on a live card. Full-bleed across the card top
-// in a warm live-tint so it reads before the question. Two shapes:
-//   * match scope -> the two flagged teams facing off ("🇲🇽 מקסיקו · קוריאה 🇰🇷")
-//   * day scope   -> a calendar row with the matchday label
-// Team names are short country names; on the narrowest viewport the row
-// wraps instead of scrolling. Flags are decorative (aria-hidden) — the
-// team name carries the meaning for screen readers.
-function MatchContextBanner({
+// A collapsible "which game" group: all the live bets that hang off one
+// fixture (or matchday), under one tappable header. Collapsed it is a
+// single warm bar that names the match and counts its bets — so the live
+// tab reads as a short list of matches a reader can scan, then open the
+// one they want instead of scrolling every bet on the day.
+function MatchGroup({
+  group,
+  open,
+  onToggle,
+  tab,
+  locale,
+  categoryLabel,
+  stakeLabel,
+}: {
+  group: TransparencyContextGroup;
+  open: boolean;
+  onToggle: () => void;
+  tab: TransparencyCategory;
+  locale: Locale;
+  categoryLabel: string;
+  stakeLabel: string;
+}) {
+  const isHebrew = locale === "he";
+  const { betCount, bettorCount } = group;
+  const betsLabel = isHebrew
+    ? `${betCount} ${betCount === 1 ? "הימור" : "הימורים"}`
+    : `${betCount} ${betCount === 1 ? "bet" : "bets"}`;
+  const bettorsLabel = isHebrew
+    ? `${bettorCount} ${bettorCount === 1 ? "משתתף" : "משתתפים"}`
+    : `${bettorCount} ${bettorCount === 1 ? "bettor" : "bettors"}`;
+
+  return (
+    <div className="rounded-2xl overflow-hidden border border-outline-variant bg-surface-container-low shadow-[0_8px_24px_rgba(28,20,15,0.06)]">
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={open}
+        className={clsx(
+          "press-down w-full flex items-center gap-3 px-3 md:px-4 py-3 min-h-[3.25rem] text-start bg-primary-fixed/60",
+          open && "border-b border-primary-fixed-dim",
+        )}
+      >
+        <span className="flex-1 min-w-0 flex flex-col gap-0.5">
+          <MatchIdentity context={group.context} isHebrew={isHebrew} />
+          <span className="text-[11px] font-medium text-on-primary-fixed-variant tabular-nums">
+            {betsLabel} · {bettorsLabel}
+          </span>
+        </span>
+        <ChevronDown
+          className={clsx(
+            "h-5 w-5 text-on-primary-fixed-variant transition-transform shrink-0",
+            open && "rotate-180",
+          )}
+          strokeWidth={2.5}
+          aria-hidden
+        />
+      </button>
+
+      {open && (
+        <ul className="flex flex-col">
+          {group.rows.map((row, idx) => (
+            <li
+              key={row.questionId}
+              className={clsx(idx > 0 && "border-t border-outline-variant")}
+            >
+              <QuestionCard
+                bare
+                tab={tab}
+                row={row}
+                locale={locale}
+                categoryLabel={categoryLabel}
+                stakeLabel={stakeLabel}
+              />
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+// The match/day identity shown in a group header. Match scope -> the two
+// flagged teams facing off ("🇲🇽 מקסיקו · קוריאה 🇰🇷"); day scope -> a
+// calendar row with the matchday label; a context-less group (its fixture
+// row was deleted) -> a neutral fallback. Team names are short country
+// names; on the narrowest viewport the row wraps instead of scrolling.
+// Flags are decorative (aria-hidden) — the name carries the meaning.
+function MatchIdentity({
   context,
   isHebrew,
 }: {
-  context: TransparencyContext;
+  context: TransparencyContext | null;
   isHebrew: boolean;
 }) {
+  if (!context) {
+    return (
+      <span className="text-sm font-bold text-on-surface">
+        {isHebrew ? "הימורים נוספים" : "Other bets"}
+      </span>
+    );
+  }
+  if (context.kind === "match") {
+    return (
+      <span className="inline-flex items-center gap-x-2.5 gap-y-0.5 flex-wrap text-sm md:text-base font-bold text-on-surface">
+        <span className="inline-flex items-center gap-1.5">
+          <span aria-hidden className="text-lg leading-none">
+            {context.home.flag}
+          </span>
+          {context.home.name}
+        </span>
+        <span className="text-[11px] font-bold uppercase tracking-wide text-on-primary-fixed-variant">
+          {isHebrew ? "נגד" : "vs"}
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          {context.away.name}
+          <span aria-hidden className="text-lg leading-none">
+            {context.away.flag}
+          </span>
+        </span>
+      </span>
+    );
+  }
   return (
-    <div className="-mx-3 md:-mx-4 -mt-3 md:-mt-4 rounded-t-lg bg-primary-fixed/60 border-b border-primary-fixed-dim px-3 md:px-4 py-2.5">
-      {context.kind === "match" ? (
-        <div className="flex items-center justify-center gap-x-3 gap-y-1 flex-wrap text-sm md:text-base font-bold text-on-surface">
-          <span className="inline-flex items-center gap-1.5">
-            <span aria-hidden className="text-lg leading-none">
-              {context.home.flag}
-            </span>
-            {context.home.name}
-          </span>
-          <span className="text-[11px] font-bold uppercase tracking-wide text-on-primary-fixed-variant">
-            {isHebrew ? "נגד" : "vs"}
-          </span>
-          <span className="inline-flex items-center gap-1.5">
-            {context.away.name}
-            <span aria-hidden className="text-lg leading-none">
-              {context.away.flag}
-            </span>
-          </span>
-        </div>
-      ) : (
-        <div className="flex items-center justify-center gap-1.5 text-sm font-bold text-on-surface">
-          <CalendarDays
-            className="h-4 w-4 text-on-primary-fixed-variant shrink-0"
-            strokeWidth={2}
-            aria-hidden
-          />
-          {context.label}
-        </div>
-      )}
-    </div>
+    <span className="inline-flex items-center gap-1.5 text-sm font-bold text-on-surface">
+      <CalendarDays
+        className="h-4 w-4 text-on-primary-fixed-variant shrink-0"
+        strokeWidth={2}
+        aria-hidden
+      />
+      {context.label}
+    </span>
   );
 }
 

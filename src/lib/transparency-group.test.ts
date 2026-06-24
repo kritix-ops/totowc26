@@ -4,6 +4,8 @@ import {
   filterRowsByQuery,
   filterToUser,
   groupPickerRows,
+  groupRowsByContext,
+  type TransparencyContext,
   type TransparencyPickerRow,
   type TransparencyQuestionRow,
 } from "./transparency-group";
@@ -208,6 +210,91 @@ describe("filterToUser", () => {
       questionWith([{ userId: "u3", label: "No" }]),
     ];
     expect(filterToUser(rows, "u1")).toEqual([]);
+  });
+});
+
+describe("groupRowsByContext", () => {
+  const mexKor: TransparencyContext = {
+    kind: "match",
+    home: { flag: "🇲🇽", name: "מקסיקו" },
+    away: { flag: "🇰🇷", name: "קוריאה" },
+  };
+  const argBra: TransparencyContext = {
+    kind: "match",
+    home: { flag: "🇦🇷", name: "ארגנטינה" },
+    away: { flag: "🇧🇷", name: "ברזיל" },
+  };
+
+  function questionRow(
+    questionId: string,
+    context: TransparencyContext | null,
+    pickerIds: string[],
+  ): TransparencyQuestionRow {
+    return {
+      questionId,
+      question: `Q-${questionId}`,
+      eventTime: "2026-06-13T18:00:00Z",
+      context,
+      pickers: pickerIds.map((id) => ({
+        userId: id,
+        displayName: `User ${id}`,
+        pickLabel: "Yes",
+        stake: 0,
+        pointsEarned: null,
+        status: "open",
+      })),
+      nonBettors: [],
+    };
+  }
+
+  it("returns null when no row carries context (flat tabs stay flat)", () => {
+    const rows = [
+      questionRow("q1", null, ["u1"]),
+      questionRow("q2", null, ["u2"]),
+    ];
+    expect(groupRowsByContext(rows)).toBeNull();
+  });
+
+  it("folds bets on the same fixture into one group, first-seen order", () => {
+    const groups = groupRowsByContext([
+      questionRow("q1", mexKor, ["u1"]),
+      questionRow("q2", argBra, ["u3"]),
+      questionRow("q3", mexKor, ["u2"]),
+    ]);
+    expect(groups).not.toBeNull();
+    expect(groups!.map((g) => g.context)).toEqual([mexKor, argBra]);
+    expect(groups![0].rows.map((r) => r.questionId)).toEqual(["q1", "q3"]);
+    expect(groups![0].betCount).toBe(2);
+    expect(groups![1].betCount).toBe(1);
+  });
+
+  it("counts distinct bettors across a group's bets", () => {
+    const groups = groupRowsByContext([
+      questionRow("q1", mexKor, ["u1", "u2"]),
+      questionRow("q2", mexKor, ["u2", "u3"]), // u2 repeats
+    ]);
+    expect(groups![0].bettorCount).toBe(3);
+  });
+
+  it("buckets context-less rows together even when others have context", () => {
+    const groups = groupRowsByContext([
+      questionRow("q1", mexKor, ["u1"]),
+      questionRow("q2", null, ["u2"]),
+      questionRow("q3", null, ["u3"]),
+    ]);
+    expect(groups).toHaveLength(2);
+    const orphan = groups!.find((g) => g.context === null);
+    expect(orphan?.rows.map((r) => r.questionId)).toEqual(["q2", "q3"]);
+  });
+
+  it("keeps day-scoped bets in their own group, separate from matches", () => {
+    const day: TransparencyContext = { kind: "day", label: "כל משחקי 24 ביוני" };
+    const groups = groupRowsByContext([
+      questionRow("q1", mexKor, ["u1"]),
+      questionRow("q2", day, ["u2"]),
+    ]);
+    expect(groups).toHaveLength(2);
+    expect(groups![1].context).toEqual(day);
   });
 });
 
