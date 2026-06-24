@@ -16,10 +16,12 @@ import {
   filterToUser,
   groupPickerRows,
   type TransparencyCategory,
+  type TransparencyContext,
   type TransparencyPicker,
   type TransparencyPickerRow,
   type TransparencyQuestionRow,
 } from "@/lib/transparency-group";
+import { formatDateTime } from "@/lib/format";
 import {
   computeDuelRecord,
   computeSharedQuestions,
@@ -2597,6 +2599,46 @@ async function loadPaidPool(): Promise<
   `);
 }
 
+// Resolve the raw match/matchday columns pulled alongside a live pick into
+// the structured context the card renders. Match scope -> the two flagged
+// teams; day scope -> the admin's matchday label, or the formatted date as
+// a fallback ("כל משחקי 24 ביוני"). Anything else (tournament/group, or a
+// match scope whose fixture row was deleted) returns null so the card just
+// shows its question as before.
+function buildLiveContext(
+  r: {
+    scope: string;
+    homeFlag: string | null;
+    homeName: string | null;
+    awayFlag: string | null;
+    awayName: string | null;
+    dayLabel: string | null;
+    dayDate: string | null;
+  },
+  locale: "he" | "en",
+): TransparencyContext | null {
+  if (r.scope === "match" && r.homeName && r.awayName) {
+    return {
+      kind: "match",
+      home: { flag: r.homeFlag ?? "", name: r.homeName },
+      away: { flag: r.awayFlag ?? "", name: r.awayName },
+    };
+  }
+  if (r.scope === "day") {
+    const label =
+      r.dayLabel?.trim() ||
+      (r.dayDate
+        ? formatDateTime(r.dayDate, locale, { day: "numeric", month: "long" })
+        : "");
+    if (!label) return null;
+    return {
+      kind: "day",
+      label: locale === "he" ? `כל משחקי ${label}` : `All matches · ${label}`,
+    };
+  }
+  return null;
+}
+
 export async function getTransparencyByQuestion(
   filters: TransparencyByQuestionFilters,
   limit = 100,
@@ -2632,7 +2674,8 @@ export async function getTransparencyByQuestion(
         (mb.home_score || '-' || mb.away_score)         as "pickLabel",
         coalesce(mb.stake_paid_main, 0)::int            as "stake",
         mb.points_earned                                as "pointsEarned",
-        m.status::text                                  as "status"
+        m.status::text                                  as "status",
+        null                                            as "context"
       from public.match_bets mb
       join public.matches m  on m.id  = mb.match_id
       join public.teams ht   on ht.code = m.home_team
@@ -2656,7 +2699,8 @@ export async function getTransparencyByQuestion(
              then case when d.resolved_value = d.opener_answer then d.stake else -d.stake end
              else null
         end                                             as "pointsEarned",
-        d.status::text                                  as "status"
+        d.status::text                                  as "status",
+        null                                            as "context"
       from public.duels d
       join public.profiles po on po.id = d.opener_id
       ${filters.date ? sql`where (d.created_at at time zone 'Asia/Jerusalem')::date = ${filters.date}::date` : sql``}
@@ -2675,7 +2719,8 @@ export async function getTransparencyByQuestion(
              then case when d.resolved_value = d.opener_answer then -d.stake else d.stake end
              else null
         end                                             as "pointsEarned",
-        d.status::text                                  as "status"
+        d.status::text                                  as "status",
+        null                                            as "context"
       from public.duels d
       join public.profiles pj on pj.id = d.joiner_id
       where d.joiner_id is not null
@@ -2704,6 +2749,16 @@ export async function getTransparencyByQuestion(
     // raw answer + config and resolve every row through the same
     // renderPickAnswer used by the admin bet surfaces, so the label can
     // never drift from what bettors saw when they picked.
+    // Match-context columns. A live bet's question ("How many shots…")
+    // never names the fixture, so with several games kicking off at once a
+    // reader can't tell which match a card is about. We pull the fixture's
+    // two teams (match scope) or the matchday label/date (day scope) here
+    // and resolve them into a TransparencyContext below, which the card
+    // renders as a flagged "Home vs Away" banner. Tournament/group bets
+    // have no fixture anchor, so these come back NULL and context stays
+    // null. LEFT JOINs keep a bet visible even if its anchor row is gone.
+    const ctxHomeNameCol = filters.locale === "he" ? sql`cht.name_he` : sql`cht.name_en`;
+    const ctxAwayNameCol = filters.locale === "he" ? sql`cat.name_he` : sql`cat.name_en`;
     type CustomPickRawRow = {
       questionId: string;
       question: string;
@@ -2716,6 +2771,13 @@ export async function getTransparencyByQuestion(
       stake: number;
       pointsEarned: number | null;
       status: string;
+      scope: string;
+      homeFlag: string | null;
+      homeName: string | null;
+      awayFlag: string | null;
+      awayName: string | null;
+      dayLabel: string | null;
+      dayDate: string | null;
     };
     const rawRows = await execRows<CustomPickRawRow>(sql`
       select
@@ -2729,10 +2791,21 @@ export async function getTransparencyByQuestion(
         pk.answer                                       as "answer",
         pk.stake_paid::int                              as "stake",
         pk.points_earned                                as "pointsEarned",
-        cb.status::text                                 as "status"
+        cb.status::text                                 as "status",
+        cb.scope::text                                  as "scope",
+        cht.flag                                        as "homeFlag",
+        ${ctxHomeNameCol}                               as "homeName",
+        cat.flag                                        as "awayFlag",
+        ${ctxAwayNameCol}                               as "awayName",
+        md.label                                        as "dayLabel",
+        md.date::text                                   as "dayDate"
       from public.user_custom_bet_picks pk
       join public.custom_bets cb on cb.id = pk.custom_bet_id
       join public.profiles p     on p.id  = pk.user_id
+      left join public.matches cm   on cm.id   = cb.match_id
+      left join public.teams cht    on cht.code = cm.home_team
+      left join public.teams cat    on cat.code = cm.away_team
+      left join public.matchdays md on md.id   = cb.matchday_id
       where cb.lock_at <= now()
         and ${scopeCond}
         ${filters.date ? sql`and (cb.lock_at at time zone 'Asia/Jerusalem')::date = ${filters.date}::date` : sql``}
@@ -2770,6 +2843,7 @@ export async function getTransparencyByQuestion(
       stake: r.stake,
       pointsEarned: r.pointsEarned,
       status: r.status,
+      context: buildLiveContext(r, filters.locale),
     }));
   }
 

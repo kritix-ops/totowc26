@@ -28,10 +28,27 @@ export type TransparencyPicker = {
   status: string;
 };
 
+// Which fixture (or matchday) a bet hangs off, so a /transparency card can
+// say *which* game it is about. Only live bets carry it: a match-scoped
+// live bet resolves to two named, flagged teams; a day-scoped one rolls up
+// a whole matchday and shows that label instead. Tournament/group/match
+// tabs leave this null (their question text already names the subject).
+export type TransparencyContext =
+  | {
+      kind: "match";
+      home: { flag: string; name: string };
+      away: { flag: string; name: string };
+    }
+  | {
+      kind: "day";
+      label: string;
+    };
+
 export type TransparencyQuestionRow = {
   questionId: string;
   question: string;
   eventTime: string;
+  context: TransparencyContext | null;
   pickers: TransparencyPicker[];
   nonBettors: Array<{ userId: string; displayName: string }>;
 };
@@ -40,6 +57,7 @@ export type TransparencyPickerRow = TransparencyPicker & {
   questionId: string;
   question: string;
   eventTime: string;
+  context: TransparencyContext | null;
 };
 
 // Fold a flat picker-row list into one row per question. Insertion
@@ -56,6 +74,7 @@ export function groupPickerRows(
         questionId: r.questionId,
         question: r.question,
         eventTime: r.eventTime,
+        context: r.context ?? null,
         pickers: [],
         nonBettors: [],
       };
@@ -107,16 +126,28 @@ export function filterToUser(
     }));
 }
 
+// Text from a row's match/day context, lower-cased, so a search for a team
+// name finds the live bet even though the team is not in the question text
+// (the question is "How many shots…", the teams live in the context).
+function contextText(context: TransparencyContext | null): string {
+  if (!context) return "";
+  if (context.kind === "match") {
+    return `${context.home.name} ${context.away.name}`.toLowerCase();
+  }
+  return context.label.toLowerCase();
+}
+
 // Free-text search used by the per-tab search box (TransparencyList).
 // Two intents share one query, resolved per row:
-//   * the query matches the QUESTION text  -> keep the whole card, every
-//     picker (e.g. searching a team/match name).
+//   * the query matches the QUESTION text or the match/day CONTEXT (a team
+//     or matchday name) -> keep the whole card, every picker. "Find the
+//     Mexico game" works even when "Mexico" is only in the context banner.
 //   * otherwise it matches PICKER names    -> keep the card but only the
 //     matching people's rows, and drop nonBettors (the "didn't bet" list
 //     is a pool-wide answer that does not apply once narrowed to a name).
 // Case-insensitive substring; an empty/whitespace query returns the rows
-// unchanged. Rows that match neither the question nor any picker are
-// dropped entirely.
+// unchanged. Rows that match neither the question/context nor any picker
+// are dropped entirely.
 export function filterRowsByQuery(
   rows: ReadonlyArray<TransparencyQuestionRow>,
   query: string,
@@ -125,7 +156,10 @@ export function filterRowsByQuery(
   if (!q) return rows as TransparencyQuestionRow[];
   const out: TransparencyQuestionRow[] = [];
   for (const row of rows) {
-    if (row.question.toLowerCase().includes(q)) {
+    if (
+      row.question.toLowerCase().includes(q) ||
+      contextText(row.context).includes(q)
+    ) {
       out.push(row);
       continue;
     }

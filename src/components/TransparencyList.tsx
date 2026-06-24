@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
-import { Search, X, ChevronDown } from "lucide-react";
+import { Search, X, ChevronDown, CalendarDays } from "lucide-react";
 import { clsx } from "clsx";
 import type { Locale } from "@/app/[lang]/dictionaries";
 import { Card, Chip, LabelCaps, ScoreLine } from "@/components/ui";
@@ -9,6 +9,7 @@ import { formatDateTime } from "@/lib/format";
 import {
   filterRowsByQuery,
   type TransparencyCategory,
+  type TransparencyContext,
   type TransparencyQuestionRow,
 } from "@/lib/transparency-group";
 
@@ -150,6 +151,14 @@ function QuestionCard({
   const isHebrew = locale === "he";
   return (
     <Card className="p-3 md:p-4 flex flex-col gap-3">
+      {/* Which game is this? A live bet's question never names the
+          fixture, so when several matches run at once the banner is the
+          only thing that tells the cards apart. It bleeds to the card
+          edges and sits above everything else so it reads first. */}
+      {row.context && (
+        <MatchContextBanner context={row.context} isHebrew={isHebrew} />
+      )}
+
       <header className="flex items-start justify-between gap-3">
         <div className="flex flex-col gap-1 min-w-0">
           <Chip tone={categoryTone(tab)} className="self-start shrink-0">
@@ -249,6 +258,54 @@ function QuestionCard({
         {row.pickers[0]?.status ?? ""}
       </LabelCaps>
     </Card>
+  );
+}
+
+// The "which game" banner on a live card. Full-bleed across the card top
+// in a warm live-tint so it reads before the question. Two shapes:
+//   * match scope -> the two flagged teams facing off ("🇲🇽 מקסיקו · קוריאה 🇰🇷")
+//   * day scope   -> a calendar row with the matchday label
+// Team names are short country names; on the narrowest viewport the row
+// wraps instead of scrolling. Flags are decorative (aria-hidden) — the
+// team name carries the meaning for screen readers.
+function MatchContextBanner({
+  context,
+  isHebrew,
+}: {
+  context: TransparencyContext;
+  isHebrew: boolean;
+}) {
+  return (
+    <div className="-mx-3 md:-mx-4 -mt-3 md:-mt-4 rounded-t-lg bg-primary-fixed/60 border-b border-primary-fixed-dim px-3 md:px-4 py-2.5">
+      {context.kind === "match" ? (
+        <div className="flex items-center justify-center gap-x-3 gap-y-1 flex-wrap text-sm md:text-base font-bold text-on-surface">
+          <span className="inline-flex items-center gap-1.5">
+            <span aria-hidden className="text-lg leading-none">
+              {context.home.flag}
+            </span>
+            {context.home.name}
+          </span>
+          <span className="text-[11px] font-bold uppercase tracking-wide text-on-primary-fixed-variant">
+            {isHebrew ? "נגד" : "vs"}
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            {context.away.name}
+            <span aria-hidden className="text-lg leading-none">
+              {context.away.flag}
+            </span>
+          </span>
+        </div>
+      ) : (
+        <div className="flex items-center justify-center gap-1.5 text-sm font-bold text-on-surface">
+          <CalendarDays
+            className="h-4 w-4 text-on-primary-fixed-variant shrink-0"
+            strokeWidth={2}
+            aria-hidden
+          />
+          {context.label}
+        </div>
+      )}
+    </div>
   );
 }
 

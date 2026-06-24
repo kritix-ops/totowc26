@@ -20,6 +20,7 @@ function row(
     questionId,
     question: `Q-${questionId}`,
     eventTime: "2026-06-13T18:00:00Z",
+    context: null,
     userId,
     displayName: `User ${userId}`,
     pickLabel: "Yes",
@@ -69,6 +70,26 @@ describe("groupPickerRows", () => {
     expect(out[0].pickers).toHaveLength(1);
     expect(out[1].pickers).toHaveLength(1);
   });
+
+  it("carries the match context from the first picker onto the question row", () => {
+    // The live-bet card reads its "which game" banner off the question
+    // row, so the per-pick context must survive the fold.
+    const ctx = {
+      kind: "match" as const,
+      home: { flag: "🇲🇽", name: "מקסיקו" },
+      away: { flag: "🇰🇷", name: "קוריאה" },
+    };
+    const out = groupPickerRows([
+      row("q1", "u1", { context: ctx }),
+      row("q1", "u2", { context: ctx }),
+    ]);
+    expect(out[0].context).toEqual(ctx);
+  });
+
+  it("defaults context to null when a pick has none", () => {
+    const out = groupPickerRows([row("q1", "u1")]);
+    expect(out[0].context).toBeNull();
+  });
 });
 
 describe("attachNonBettors", () => {
@@ -85,6 +106,7 @@ describe("attachNonBettors", () => {
         questionId: "q1",
         question: "Q1",
         eventTime: "2026-06-13T18:00:00Z",
+        context: null,
         pickers: [
           { userId: "u1", displayName: "Alice", pickLabel: "Yes", stake: 0, pointsEarned: null, status: "open" },
           { userId: "u2", displayName: "Bob",   pickLabel: "No",  stake: 0, pointsEarned: null, status: "open" },
@@ -102,6 +124,7 @@ describe("attachNonBettors", () => {
         questionId: "q1",
         question: "Q1",
         eventTime: "2026-06-13T18:00:00Z",
+        context: null,
         pickers: pool.map((u) => ({
           userId: u.userId,
           displayName: u.displayName,
@@ -126,6 +149,7 @@ describe("attachNonBettors", () => {
         questionId: "q1",
         question: "Q1",
         eventTime: "2026-06-13T18:00:00Z",
+        context: null,
         pickers: [],
         nonBettors: [],
       },
@@ -141,6 +165,7 @@ describe("filterToUser", () => {
       questionId: `q-${picks.map((p) => p.userId).join("-")}`,
       question: "Q",
       eventTime: "2026-06-13T18:00:00Z",
+      context: null,
       pickers: picks.map((p) => ({
         userId: p.userId,
         displayName: `User ${p.userId}`,
@@ -190,11 +215,13 @@ describe("filterRowsByQuery", () => {
   function q(
     question: string,
     pickerNames: string[],
+    context: TransparencyQuestionRow["context"] = null,
   ): TransparencyQuestionRow {
     return {
       questionId: `q-${question}`,
       question,
       eventTime: "2026-06-13T18:00:00Z",
+      context,
       pickers: pickerNames.map((name, i) => ({
         userId: `u-${name}-${i}`,
         displayName: name,
@@ -250,5 +277,38 @@ describe("filterRowsByQuery", () => {
 
   it("drops rows that match neither the question nor any picker", () => {
     expect(filterRowsByQuery(rows, "zzzznope")).toEqual([]);
+  });
+
+  it("finds a live bet by a team name held only in its match context", () => {
+    // The live-bet question ("how many shots…") never names the teams, so
+    // a team search has to reach into the context banner. Matching the
+    // context keeps the whole card, like a question match.
+    const liveRows = [
+      q("כמה בעיטות למסגרת?", ["אוהד ניסן", "אילן מזרחי"], {
+        kind: "match",
+        home: { flag: "🇲🇽", name: "מקסיקו" },
+        away: { flag: "🇰🇷", name: "קוריאה" },
+      }),
+      q("כמה צהובים?", ["יואב מזרחי"], {
+        kind: "match",
+        home: { flag: "🇦🇷", name: "ארגנטינה" },
+        away: { flag: "🇧🇷", name: "ברזיל" },
+      }),
+    ];
+    const out = filterRowsByQuery(liveRows, "קוריאה");
+    expect(out).toHaveLength(1);
+    expect(out[0].pickers).toHaveLength(2);
+    expect(out[0].nonBettors).toHaveLength(1);
+  });
+
+  it("finds a day-scoped live bet by its matchday context label", () => {
+    const dayRows = [
+      q("כמה גולים היום?", ["אוהד ניסן"], {
+        kind: "day",
+        label: "כל משחקי 24 ביוני",
+      }),
+    ];
+    expect(filterRowsByQuery(dayRows, "24 ביוני")).toHaveLength(1);
+    expect(filterRowsByQuery(dayRows, "אין כזה")).toEqual([]);
   });
 });
