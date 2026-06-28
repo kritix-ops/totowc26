@@ -1,0 +1,473 @@
+<!doctype html><html lang="he" dir="rtl"><head><meta charset="utf-8">
+<style>
+  :root{ --ink:#16241d; --muted:#6b7a72; --line:#e3e6e2; --green:#1a7a4c; --greenbg:#eef6f0; --down:#b3261e; --up:#1a7a4c; --paper:#ffffff; }
+  *{box-sizing:border-box;}
+  body{ font-family:"Segoe UI","Arial",sans-serif; color:var(--ink); margin:0; background:var(--paper); font-size:13px; line-height:1.55; }
+  .page{ padding:38px 44px; }
+  header{ border-bottom:3px solid var(--green); padding-bottom:16px; margin-bottom:22px; }
+  .kicker{ color:var(--green); font-weight:700; letter-spacing:.04em; font-size:12px; }
+  h1{ font-size:25px; margin:6px 0 4px; }
+  .sub{ color:var(--muted); font-size:13px; }
+  h2{ font-size:16px; margin:26px 0 10px; padding-right:11px; border-right:4px solid var(--green); }
+  h3{ font-size:14px; margin:0 0 8px; }
+  .tldr{ background:var(--greenbg); border:1px solid #cfe6d8; border-radius:10px; padding:16px 18px; }
+  .tldr .big{ font-size:30px; font-weight:800; color:var(--down); }
+  .tldr ul{ margin:8px 0 0; padding-inline-start:18px; }
+  .tldr li{ margin:3px 0; }
+  table{ width:100%; border-collapse:collapse; margin-top:6px; }
+  th,td{ padding:7px 9px; border-bottom:1px solid var(--line); text-align:right; vertical-align:middle; }
+  th{ color:var(--muted); font-weight:600; font-size:11.5px; text-transform:none; border-bottom:1.5px solid var(--line); }
+  td.c,th.c{ text-align:center; }
+  .num{ font-variant-numeric:tabular-nums; direction:ltr; }
+  .strong{ font-weight:700; }
+  .down{ color:var(--down); font-weight:700; }
+  .up{ color:var(--up); font-weight:700; }
+  .muted{ color:var(--muted); }
+  tfoot td{ font-weight:700; border-top:1.5px solid var(--ink); border-bottom:none; background:#fafbfa; }
+  .winchip{ display:inline-block; background:var(--green); color:#fff; border-radius:20px; padding:1px 10px; font-size:11px; font-weight:700; }
+  .winchip.sm{ font-size:10px; padding:1px 8px; font-weight:600; vertical-align:middle; }
+  .bot{ background:#eceff0; color:#6b7a72; border-radius:6px; padding:0 5px; font-size:10px; }
+  .bet{ break-inside:avoid; margin:14px 0; }
+  .grid td,.grid th{ padding:5px 9px; }
+  .two{ display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+  .card{ border:1px solid var(--line); border-radius:9px; padding:12px 14px; }
+  .card h3{ color:var(--green); }
+  .foot{ margin-top:26px; padding-top:12px; border-top:1px solid var(--line); color:var(--muted); font-size:11px; }
+  .q{ font-weight:600; }
+</style></head><body><div class="page">
+
+<header>
+  <div class="kicker">טוטו מונדיאל · נירמול הימורי לייב</div>
+  <h1>מקסיקו 2 : 0 דרום אפריקה</h1>
+  <div class="sub">משחק מ־11 ביוני 2026 · דו״ח תיקון תוצאות · הופק 12 ביוני 2026</div>
+</header>
+
+<div class="tldr">
+  <div class="big">ירידה של <span dir="ltr">387</span> נק׳</div>
+  <div>סך הנקודות שחולקו על ההימורים החיים של המשחק ירד מ־737 ל־350 (לא כולל הבוט).</div>
+  <ul>
+    <li><b>הבעיה:</b> כל הימור כן/לא קיבל יחס אחד משותף לשני הצדדים, והייתה תקרת זכייה של 100 נק׳.</li>
+    <li><b>התוצאה אתמול:</b> הצד ה״בטוח״ (למשל ״לא VAR״) שולם פי 3.5–6 על אירוע שקורה ב~85–90% מהמקרים, ומי שהימר סכום גדול נחתך ל־100 וזכה כמו מי שהימר פחות.</li>
+    <li><b>התיקון להיום:</b> כל צד מתומחר לפי ההסתברות שלו, והתקרה המוחלטת הוסרה (היחס ×8 נשאר כגבול ביטחון).</li>
+    <li><b>הוחלט יחד עם כל המשתתפים</b> והוחל רטרואקטיבית על תוצאות אתמול. השינוי הפיך (נשמר גיבוי מלא).</li>
+  </ul>
+</div>
+
+<h2>מה תוקן בכל הימור — היחס</h2>
+<table>
+  <thead><tr><th class="q">הימור</th><th class="c">זכה</th><th class="c">יחס אתמול<br>(משותף)</th><th class="c">יחס היום<br>כן / לא</th><th class="c">יחס הצד הזוכה</th></tr></thead>
+  <tbody><tr>
+        <td class="q">שתי הקבוצות יבקיעו</td>
+        <td class="c"><span class="winchip">לא</span></td>
+        <td class="c num">×2.10</td>
+        <td class="c num">×3 / ×2</td>
+        <td class="c num strong down">×2</td>
+      </tr><tr>
+        <td class="q">האם יהיו 3 שערים או יותר במשחק?</td>
+        <td class="c"><span class="winchip">לא</span></td>
+        <td class="c num">×2.05</td>
+        <td class="c num">×2 / ×2</td>
+        <td class="c num strong down">×2</td>
+      </tr><tr>
+        <td class="q">אובר 9.5 קרנות במשחק</td>
+        <td class="c"><span class="winchip">לא</span></td>
+        <td class="c num">×2</td>
+        <td class="c num">×2 / ×2</td>
+        <td class="c num strong ">×2</td>
+      </tr><tr>
+        <td class="q">שער מוקדם - רבע שעה ראשונה</td>
+        <td class="c"><span class="winchip">כן</span></td>
+        <td class="c num">×3.50</td>
+        <td class="c num">×5 / ×2</td>
+        <td class="c num strong up">×5</td>
+      </tr><tr>
+        <td class="q">האם ה-VAR יתערב במחצית הראשונה בהחלטה על כרטיס אדום?</td>
+        <td class="c"><span class="winchip">לא</span></td>
+        <td class="c num">×6</td>
+        <td class="c num">×6 / ×2</td>
+        <td class="c num strong down">×2</td>
+      </tr><tr>
+        <td class="q">האם ה-VAR יתערב במחצית השנייה בהחלטה על פנדל?</td>
+        <td class="c"><span class="winchip">לא</span></td>
+        <td class="c num">×4</td>
+        <td class="c num">×6 / ×2</td>
+        <td class="c num strong down">×2</td>
+      </tr><tr>
+        <td class="q">האם שחקן מחליף יבקיע שער במשחק?</td>
+        <td class="c"><span class="winchip">לא</span></td>
+        <td class="c num">×3.50</td>
+        <td class="c num">×6 / ×2</td>
+        <td class="c num strong down">×2</td>
+      </tr></tbody>
+</table>
+<p class="muted" style="margin-top:8px">היחס מוצג כמכפיל. התשלום בפועל = סיכון × יחס × 0.95 (ניכוי בית 5%, כמו בכל הימור לייב), עד גבול של פי 8 מהסיכון.</p>
+
+<h2>הפירוט — מי זכה וכמה (אתמול מול היום)</h2>
+<div class="bet"><h3>שתי הקבוצות יבקיעו</h3>
+          <p class="muted">הזוכים (1) — היחס לא השתנה מהותית, התשלום נשאר זהה.</p></div><div class="bet"><h3>האם יהיו 3 שערים או יותר במשחק?</h3>
+          <p class="muted">הזוכים (5) — היחס לא השתנה מהותית, התשלום נשאר זהה.</p></div><div class="bet"><h3>אובר 9.5 קרנות במשחק</h3>
+          <p class="muted">הזוכים (3) — היחס לא השתנה מהותית, התשלום נשאר זהה.</p></div><div class="bet">
+        <h3>שער מוקדם - רבע שעה ראשונה <span class="winchip sm">זכה: כן</span></h3>
+        <table class="grid">
+          <thead><tr><th>שחקן</th><th class="c">בחירה</th><th class="c">סיכון</th><th class="c">אתמול</th><th class="c">היום</th><th class="c">שינוי</th></tr></thead>
+          <tbody><tr>
+            <td>הקוף <span class="bot">בוט</span></td>
+            <td class="c">כן</td>
+            <td class="c num">3</td>
+            <td class="c num">10</td>
+            <td class="c num strong">14</td>
+            <td class="c num up">+4</td>
+          </tr><tr>
+            <td>דן לבני</td>
+            <td class="c">כן</td>
+            <td class="c num">1</td>
+            <td class="c num">3</td>
+            <td class="c num strong">5</td>
+            <td class="c num up">+2</td>
+          </tr></tbody>
+          <tfoot><tr><td colspan="3">סה״כ להימור (2 זוכים)</td><td class="c num">13</td><td class="c num strong">19</td><td class="c num down">6</td></tr></tfoot>
+        </table>
+      </div><div class="bet">
+        <h3>האם ה-VAR יתערב במחצית הראשונה בהחלטה על כרטיס אדום? <span class="winchip sm">זכה: לא</span></h3>
+        <table class="grid">
+          <thead><tr><th>שחקן</th><th class="c">בחירה</th><th class="c">סיכון</th><th class="c">אתמול</th><th class="c">היום</th><th class="c">שינוי</th></tr></thead>
+          <tbody><tr>
+            <td>הרן</td>
+            <td class="c">לא</td>
+            <td class="c num">30</td>
+            <td class="c num">100</td>
+            <td class="c num strong">57</td>
+            <td class="c num down">-43</td>
+          </tr><tr>
+            <td>מתן נבון</td>
+            <td class="c">לא</td>
+            <td class="c num">20</td>
+            <td class="c num">100</td>
+            <td class="c num strong">38</td>
+            <td class="c num down">-62</td>
+          </tr><tr>
+            <td>Or Lederman</td>
+            <td class="c">לא</td>
+            <td class="c num">20</td>
+            <td class="c num">100</td>
+            <td class="c num strong">38</td>
+            <td class="c num down">-62</td>
+          </tr><tr>
+            <td>דן לבני</td>
+            <td class="c">לא</td>
+            <td class="c num">10</td>
+            <td class="c num">57</td>
+            <td class="c num strong">19</td>
+            <td class="c num down">-38</td>
+          </tr><tr>
+            <td>אור קורן</td>
+            <td class="c">לא</td>
+            <td class="c num">5</td>
+            <td class="c num">29</td>
+            <td class="c num strong">10</td>
+            <td class="c num down">-19</td>
+          </tr><tr>
+            <td>אלרן לב</td>
+            <td class="c">לא</td>
+            <td class="c num">5</td>
+            <td class="c num">29</td>
+            <td class="c num strong">10</td>
+            <td class="c num down">-19</td>
+          </tr><tr>
+            <td>ערן פלגי</td>
+            <td class="c">לא</td>
+            <td class="c num">3</td>
+            <td class="c num">17</td>
+            <td class="c num strong">6</td>
+            <td class="c num down">-11</td>
+          </tr><tr>
+            <td>הקוף <span class="bot">בוט</span></td>
+            <td class="c">לא</td>
+            <td class="c num">3</td>
+            <td class="c num">17</td>
+            <td class="c num strong">6</td>
+            <td class="c num down">-11</td>
+          </tr><tr>
+            <td>עומר נוריאל</td>
+            <td class="c">לא</td>
+            <td class="c num">3</td>
+            <td class="c num">17</td>
+            <td class="c num strong">6</td>
+            <td class="c num down">-11</td>
+          </tr><tr>
+            <td>ג'ניה!</td>
+            <td class="c">לא</td>
+            <td class="c num">3</td>
+            <td class="c num">17</td>
+            <td class="c num strong">6</td>
+            <td class="c num down">-11</td>
+          </tr><tr>
+            <td>עמית גולן</td>
+            <td class="c">לא</td>
+            <td class="c num">3</td>
+            <td class="c num">17</td>
+            <td class="c num strong">6</td>
+            <td class="c num down">-11</td>
+          </tr><tr>
+            <td>לנדאו</td>
+            <td class="c">לא</td>
+            <td class="c num">3</td>
+            <td class="c num">17</td>
+            <td class="c num strong">6</td>
+            <td class="c num down">-11</td>
+          </tr><tr>
+            <td>tombello1234</td>
+            <td class="c">לא</td>
+            <td class="c num">1</td>
+            <td class="c num">6</td>
+            <td class="c num strong">2</td>
+            <td class="c num down">-4</td>
+          </tr><tr>
+            <td>מרדכאי שפיגלר</td>
+            <td class="c">לא</td>
+            <td class="c num">1</td>
+            <td class="c num">6</td>
+            <td class="c num strong">2</td>
+            <td class="c num down">-4</td>
+          </tr><tr>
+            <td>אור אקשטיין</td>
+            <td class="c">לא</td>
+            <td class="c num">1</td>
+            <td class="c num">6</td>
+            <td class="c num strong">2</td>
+            <td class="c num down">-4</td>
+          </tr><tr>
+            <td>Yakir bst</td>
+            <td class="c">לא</td>
+            <td class="c num">1</td>
+            <td class="c num">6</td>
+            <td class="c num strong">2</td>
+            <td class="c num down">-4</td>
+          </tr></tbody>
+          <tfoot><tr><td colspan="3">סה״כ להימור (16 זוכים)</td><td class="c num">541</td><td class="c num strong">216</td><td class="c num down">-325</td></tr></tfoot>
+        </table>
+      </div><div class="bet">
+        <h3>האם ה-VAR יתערב במחצית השנייה בהחלטה על פנדל? <span class="winchip sm">זכה: לא</span></h3>
+        <table class="grid">
+          <thead><tr><th>שחקן</th><th class="c">בחירה</th><th class="c">סיכון</th><th class="c">אתמול</th><th class="c">היום</th><th class="c">שינוי</th></tr></thead>
+          <tbody><tr>
+            <td>אור קורן</td>
+            <td class="c">לא</td>
+            <td class="c num">5</td>
+            <td class="c num">19</td>
+            <td class="c num strong">10</td>
+            <td class="c num down">-9</td>
+          </tr><tr>
+            <td>מתן נבון</td>
+            <td class="c">לא</td>
+            <td class="c num">5</td>
+            <td class="c num">19</td>
+            <td class="c num strong">10</td>
+            <td class="c num down">-9</td>
+          </tr><tr>
+            <td>דן לבני</td>
+            <td class="c">לא</td>
+            <td class="c num">3</td>
+            <td class="c num">11</td>
+            <td class="c num strong">6</td>
+            <td class="c num down">-5</td>
+          </tr><tr>
+            <td>עמית גולן</td>
+            <td class="c">לא</td>
+            <td class="c num">3</td>
+            <td class="c num">11</td>
+            <td class="c num strong">6</td>
+            <td class="c num down">-5</td>
+          </tr><tr>
+            <td>עומר נוריאל</td>
+            <td class="c">לא</td>
+            <td class="c num">3</td>
+            <td class="c num">11</td>
+            <td class="c num strong">6</td>
+            <td class="c num down">-5</td>
+          </tr><tr>
+            <td>ג'ניה!</td>
+            <td class="c">לא</td>
+            <td class="c num">3</td>
+            <td class="c num">11</td>
+            <td class="c num strong">6</td>
+            <td class="c num down">-5</td>
+          </tr><tr>
+            <td>tombello1234</td>
+            <td class="c">לא</td>
+            <td class="c num">1</td>
+            <td class="c num">4</td>
+            <td class="c num strong">2</td>
+            <td class="c num down">-2</td>
+          </tr><tr>
+            <td>מרדכאי שפיגלר</td>
+            <td class="c">לא</td>
+            <td class="c num">1</td>
+            <td class="c num">4</td>
+            <td class="c num strong">2</td>
+            <td class="c num down">-2</td>
+          </tr><tr>
+            <td>אור אקשטיין</td>
+            <td class="c">לא</td>
+            <td class="c num">1</td>
+            <td class="c num">4</td>
+            <td class="c num strong">2</td>
+            <td class="c num down">-2</td>
+          </tr></tbody>
+          <tfoot><tr><td colspan="3">סה״כ להימור (9 זוכים)</td><td class="c num">94</td><td class="c num strong">50</td><td class="c num down">-44</td></tr></tfoot>
+        </table>
+      </div><div class="bet">
+        <h3>האם שחקן מחליף יבקיע שער במשחק? <span class="winchip sm">זכה: לא</span></h3>
+        <table class="grid">
+          <thead><tr><th>שחקן</th><th class="c">בחירה</th><th class="c">סיכון</th><th class="c">אתמול</th><th class="c">היום</th><th class="c">שינוי</th></tr></thead>
+          <tbody><tr>
+            <td>שרון</td>
+            <td class="c">לא</td>
+            <td class="c num">10</td>
+            <td class="c num">33</td>
+            <td class="c num strong">19</td>
+            <td class="c num down">-14</td>
+          </tr><tr>
+            <td>אור קורן</td>
+            <td class="c">לא</td>
+            <td class="c num">5</td>
+            <td class="c num">17</td>
+            <td class="c num strong">10</td>
+            <td class="c num down">-7</td>
+          </tr><tr>
+            <td>ג'ניה!</td>
+            <td class="c">לא</td>
+            <td class="c num">3</td>
+            <td class="c num">10</td>
+            <td class="c num strong">6</td>
+            <td class="c num down">-4</td>
+          </tr><tr>
+            <td>הקוף <span class="bot">בוט</span></td>
+            <td class="c">לא</td>
+            <td class="c num">3</td>
+            <td class="c num">10</td>
+            <td class="c num strong">6</td>
+            <td class="c num down">-4</td>
+          </tr><tr>
+            <td>מרדכאי שפיגלר</td>
+            <td class="c">לא</td>
+            <td class="c num">3</td>
+            <td class="c num">10</td>
+            <td class="c num strong">6</td>
+            <td class="c num down">-4</td>
+          </tr><tr>
+            <td>ערן פלגי</td>
+            <td class="c">לא</td>
+            <td class="c num">1</td>
+            <td class="c num">3</td>
+            <td class="c num strong">2</td>
+            <td class="c num down">-1</td>
+          </tr><tr>
+            <td>tombello1234</td>
+            <td class="c">לא</td>
+            <td class="c num">1</td>
+            <td class="c num">3</td>
+            <td class="c num strong">2</td>
+            <td class="c num down">-1</td>
+          </tr></tbody>
+          <tfoot><tr><td colspan="3">סה״כ להימור (7 זוכים)</td><td class="c num">86</td><td class="c num strong">51</td><td class="c num down">-35</td></tr></tfoot>
+        </table>
+      </div>
+
+<h2>השפעה לכל שחקן</h2>
+<table>
+  <thead><tr><th>שחקן</th><th class="c">סה״כ אתמול</th><th class="c">סה״כ היום</th><th class="c">שינוי</th></tr></thead>
+  <tbody><tr>
+      <td>מתן נבון</td>
+      <td class="c num">119</td>
+      <td class="c num strong">48</td>
+      <td class="c num down">-71</td>
+    </tr><tr>
+      <td>Or Lederman</td>
+      <td class="c num">100</td>
+      <td class="c num strong">38</td>
+      <td class="c num down">-62</td>
+    </tr><tr>
+      <td>הרן</td>
+      <td class="c num">100</td>
+      <td class="c num strong">57</td>
+      <td class="c num down">-43</td>
+    </tr><tr>
+      <td>דן לבני</td>
+      <td class="c num">73</td>
+      <td class="c num strong">32</td>
+      <td class="c num down">-41</td>
+    </tr><tr>
+      <td>אור קורן</td>
+      <td class="c num">81</td>
+      <td class="c num strong">46</td>
+      <td class="c num down">-35</td>
+    </tr><tr>
+      <td>ג'ניה!</td>
+      <td class="c num">44</td>
+      <td class="c num strong">24</td>
+      <td class="c num down">-20</td>
+    </tr><tr>
+      <td>אלרן לב</td>
+      <td class="c num">29</td>
+      <td class="c num strong">10</td>
+      <td class="c num down">-19</td>
+    </tr><tr>
+      <td>עומר נוריאל</td>
+      <td class="c num">28</td>
+      <td class="c num strong">12</td>
+      <td class="c num down">-16</td>
+    </tr><tr>
+      <td>עמית גולן</td>
+      <td class="c num">28</td>
+      <td class="c num strong">12</td>
+      <td class="c num down">-16</td>
+    </tr><tr>
+      <td>שרון</td>
+      <td class="c num">33</td>
+      <td class="c num strong">19</td>
+      <td class="c num down">-14</td>
+    </tr><tr>
+      <td>ערן פלגי</td>
+      <td class="c num">22</td>
+      <td class="c num strong">10</td>
+      <td class="c num down">-12</td>
+    </tr><tr>
+      <td>לנדאו</td>
+      <td class="c num">17</td>
+      <td class="c num strong">6</td>
+      <td class="c num down">-11</td>
+    </tr><tr>
+      <td>מרדכאי שפיגלר</td>
+      <td class="c num">20</td>
+      <td class="c num strong">10</td>
+      <td class="c num down">-10</td>
+    </tr><tr>
+      <td>tombello1234</td>
+      <td class="c num">21</td>
+      <td class="c num strong">14</td>
+      <td class="c num down">-7</td>
+    </tr><tr>
+      <td>אור אקשטיין</td>
+      <td class="c num">10</td>
+      <td class="c num strong">4</td>
+      <td class="c num down">-6</td>
+    </tr><tr>
+      <td>Yakir bst</td>
+      <td class="c num">12</td>
+      <td class="c num strong">8</td>
+      <td class="c num down">-4</td>
+    </tr><tr>
+      <td>יואב מזרחי</td>
+      <td class="c num">0</td>
+      <td class="c num strong">0</td>
+      <td class="c num muted">0</td>
+    </tr></tbody>
+  <tfoot><tr><td>סה״כ בריכה (שחקנים)</td><td class="c num">737</td><td class="c num">350</td><td class="c num down">-387</td></tr></tfoot>
+</table>
+
+<div class="foot">
+  הנקודות חושבו מחדש באותו מנוע התמחור של המערכת. ״אתמול״ = היחס המשותף הישן עם תקרת 100; ״היום״ = יחס נפרד לכל צד ללא תקרה. ניכוי בית 5% והגבול פי 8 מהסיכון זהים בשתי העמודות. כל ההימורים שכבר הוכרעו עודכנו עם רישום ביקורת (audit) וגיבוי מלא הניתן לשחזור.
+</div>
+
+</div></body></html>

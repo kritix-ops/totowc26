@@ -1,0 +1,718 @@
+{
+  "betUpdates": [
+    {
+      "id": "4793c4a1-50e1-4d24-8354-e47cf2dfcbe5",
+      "oldBetPayout": 10
+    },
+    {
+      "id": "ac7774f0-aa5d-4f5c-982b-4d0c8f83783c",
+      "oldBetPayout": 6
+    },
+    {
+      "id": "afdc73d2-b5b1-4f3a-b357-37f094ce90f6",
+      "oldBetPayout": 6
+    },
+    {
+      "id": "626077a8-110b-4df0-9a36-a563e6be56ff",
+      "oldBetPayout": 6
+    },
+    {
+      "id": "a838874e-7799-47e4-9b43-046d3796b39f",
+      "oldBetPayout": 10
+    },
+    {
+      "id": "2f3cdf49-77b4-4bf4-a42d-50c898c72319",
+      "oldBetPayout": 17
+    },
+    {
+      "id": "5d6b53f1-c18a-4b36-a198-11936c4b8e24",
+      "oldBetPayout": 11
+    }
+  ],
+  "pickChanges": [
+    {
+      "pickId": "f68b2b0b-dc1f-4bde-ab3a-f52e56fd5fea",
+      "userId": "489c6716-ec67-4dfc-ab62-695676f9b426",
+      "before": {
+        "payout_snapshot": 10,
+        "points_earned": 10
+      },
+      "after": {
+        "payout_snapshot": 6,
+        "points_earned": 6
+      }
+    },
+    {
+      "pickId": "274e1d41-8052-44a0-bdce-c59f967a647e",
+      "userId": "ba233cde-aa8e-407b-868f-3e08b628b974",
+      "before": {
+        "payout_snapshot": 3,
+        "points_earned": 3
+      },
+      "after": {
+        "payout_snapshot": 2,
+        "points_earned": 2
+      }
+    },
+    {
+      "pickId": "128fedec-1d99-465e-98b4-057eee09fc8e",
+      "userId": "1415343d-9931-429d-8b3d-388ae4c7df6f",
+      "before": {
+        "payout_snapshot": 10,
+        "points_earned": 10
+      },
+      "after": {
+        "payout_snapshot": 6,
+        "points_earned": 6
+      }
+    },
+    {
+      "pickId": "9f8f456a-58c7-40ef-95d6-0cbb271be7fe",
+      "userId": "a901eb4f-53a1-4bd4-be29-6087c14cbd2d",
+      "before": {
+        "payout_snapshot": 3,
+        "points_earned": 3
+      },
+      "after": {
+        "payout_snapshot": 2,
+        "points_earned": 2
+      }
+    },
+    {
+      "pickId": "64be8ee5-ba52-4609-9541-7ae2e2d6a19e",
+      "userId": "cbab886e-2dad-45e3-8c5d-258c307a4dc6",
+      "before": {
+        "payout_snapshot": 10,
+        "points_earned": 0
+      },
+      "after": {
+        "payout_snapshot": 17,
+        "points_earned": 0
+      }
+    },
+    {
+      "pickId": "98506729-1fb4-493b-bd26-ef07c2a26c91",
+      "userId": "3b4c12c6-de4e-4b2b-a2e8-bc0b77244a61",
+      "before": {
+        "payout_snapshot": 3,
+        "points_earned": 0
+      },
+      "after": {
+        "payout_snapshot": 6,
+        "points_earned": 0
+      }
+    },
+    {
+      "pickId": "517a7db3-5127-4fa9-9dca-6475f25185cd",
+      "userId": "58b1a4dd-72fa-4d52-b184-3b20f037b521",
+      "before": {
+        "payout_snapshot": 10,
+        "points_earned": 10
+      },
+      "after": {
+        "payout_snapshot": 6,
+        "points_earned": 6
+      }
+    },
+    {
+      "pickId": "1d173632-4723-4b18-92f0-cb8cdfac4a19",
+      "userId": "27c2ed62-428d-4362-b498-e763b3f8c253",
+      "before": {
+        "payout_snapshot": 33,
+        "points_earned": 33
+      },
+      "after": {
+        "payout_snapshot": 19,
+        "points_earned": 19
+      }
+    },
+    {
+      "pickId": "cb035cbe-14d3-4b50-9d32-2c59a0650a4f",
+      "userId": "bf61c27d-ddbd-455d-adb5-2ae28de7ce9d",
+      "before": {
+        "payout_snapshot": 17,
+        "points_earned": 17
+      },
+      "after": {
+        "payout_snapshot": 10,
+        "points_earned": 10
+      }
+    },
+    {
+      "pickId": "3ccd7dca-fb50-43dd-a5af-dd6f37fdc5bc",
+      "userId": "ba233cde-aa8e-407b-868f-3e08b628b974",
+      "before": {
+        "payout_snapshot": 2,
+        "points_earned": 0
+      },
+      "after": {
+        "payout_snapshot": 3,
+        "points_earned": 0
+      }
+    },
+    {
+      "pickId": "028a5ba8-20fb-43d5-86ae-c451b13a8129",
+      "userId": "1415343d-9931-429d-8b3d-388ae4c7df6f",
+      "before": {
+        "payout_snapshot": 6,
+        "points_earned": 0
+      },
+      "after": {
+        "payout_snapshot": 9,
+        "points_earned": 0
+      }
+    },
+    {
+      "pickId": "d6945e4b-cca5-4ad1-aea7-0608505e2a31",
+      "userId": "cbab886e-2dad-45e3-8c5d-258c307a4dc6",
+      "before": {
+        "payout_snapshot": 6,
+        "points_earned": 0
+      },
+      "after": {
+        "payout_snapshot": 9,
+        "points_earned": 0
+      }
+    },
+    {
+      "pickId": "6980aba9-281b-47ea-aab7-d7b3059a7907",
+      "userId": "a901eb4f-53a1-4bd4-be29-6087c14cbd2d",
+      "before": {
+        "payout_snapshot": 6,
+        "points_earned": 0
+      },
+      "after": {
+        "payout_snapshot": 9,
+        "points_earned": 0
+      }
+    },
+    {
+      "pickId": "17ee2af7-ea9a-4405-8507-7ee0ae8a461c",
+      "userId": "7b6ff987-73de-4604-9390-1cb35fc9812b",
+      "before": {
+        "payout_snapshot": 6,
+        "points_earned": 0
+      },
+      "after": {
+        "payout_snapshot": 9,
+        "points_earned": 0
+      }
+    },
+    {
+      "pickId": "bfe3a1c5-b71f-4b2a-ad26-87c173cef357",
+      "userId": "489c6716-ec67-4dfc-ab62-695676f9b426",
+      "before": {
+        "payout_snapshot": 6,
+        "points_earned": 0
+      },
+      "after": {
+        "payout_snapshot": 9,
+        "points_earned": 0
+      }
+    },
+    {
+      "pickId": "8649c338-28f8-4066-a3aa-cb9257502073",
+      "userId": "58b1a4dd-72fa-4d52-b184-3b20f037b521",
+      "before": {
+        "payout_snapshot": 2,
+        "points_earned": 0
+      },
+      "after": {
+        "payout_snapshot": 3,
+        "points_earned": 0
+      }
+    },
+    {
+      "pickId": "caaab5b6-2fab-4acb-9996-a1dcb0fc7394",
+      "userId": "bf61c27d-ddbd-455d-adb5-2ae28de7ce9d",
+      "before": {
+        "payout_snapshot": 10,
+        "points_earned": 0
+      },
+      "after": {
+        "payout_snapshot": 6,
+        "points_earned": 0
+      }
+    },
+    {
+      "pickId": "f22e50ac-4537-4374-a071-9b39916e4a19",
+      "userId": "489c6716-ec67-4dfc-ab62-695676f9b426",
+      "before": {
+        "payout_snapshot": 10,
+        "points_earned": 0
+      },
+      "after": {
+        "payout_snapshot": 6,
+        "points_earned": 0
+      }
+    },
+    {
+      "pickId": "001b6f19-955a-42e3-9e92-fd6e1550487a",
+      "userId": "d762bb7c-3286-4a26-9bf6-3374978fd88c",
+      "before": {
+        "payout_snapshot": 17,
+        "points_earned": 0
+      },
+      "after": {
+        "payout_snapshot": 10,
+        "points_earned": 0
+      }
+    },
+    {
+      "pickId": "d1689079-6c52-4a32-902d-10e5bfc79d92",
+      "userId": "d9e29cc9-cb28-4392-a899-051ed9b0a934",
+      "before": {
+        "payout_snapshot": 3,
+        "points_earned": 3
+      },
+      "after": {
+        "payout_snapshot": 5,
+        "points_earned": 5
+      }
+    },
+    {
+      "pickId": "e7d69e90-beea-45d6-80e0-858802028de1",
+      "userId": "ba233cde-aa8e-407b-868f-3e08b628b974",
+      "before": {
+        "payout_snapshot": 10,
+        "points_earned": 0
+      },
+      "after": {
+        "payout_snapshot": 6,
+        "points_earned": 0
+      }
+    },
+    {
+      "pickId": "76a55d50-c19c-436c-853b-c8e82e7c125d",
+      "userId": "1415343d-9931-429d-8b3d-388ae4c7df6f",
+      "before": {
+        "payout_snapshot": 10,
+        "points_earned": 10
+      },
+      "after": {
+        "payout_snapshot": 14,
+        "points_earned": 14
+      }
+    },
+    {
+      "pickId": "90888e76-330f-4d35-9505-efa3490275d5",
+      "userId": "a901eb4f-53a1-4bd4-be29-6087c14cbd2d",
+      "before": {
+        "payout_snapshot": 3,
+        "points_earned": 0
+      },
+      "after": {
+        "payout_snapshot": 2,
+        "points_earned": 0
+      }
+    },
+    {
+      "pickId": "655e65b4-737e-47af-8f2d-97d2c598ecce",
+      "userId": "b529e649-2101-479b-9a55-a990f967f98d",
+      "before": {
+        "payout_snapshot": 17,
+        "points_earned": 0
+      },
+      "after": {
+        "payout_snapshot": 10,
+        "points_earned": 0
+      }
+    },
+    {
+      "pickId": "2449f1cc-e646-4eeb-a719-af9fb7092007",
+      "userId": "c2a0a6a2-06b3-413d-ac89-9f698d7e42a6",
+      "before": {
+        "payout_snapshot": 100,
+        "points_earned": 0
+      },
+      "after": {
+        "payout_snapshot": 57,
+        "points_earned": 0
+      }
+    },
+    {
+      "pickId": "9c3c89a7-bcf5-4982-8920-cd413ff0717c",
+      "userId": "3b4c12c6-de4e-4b2b-a2e8-bc0b77244a61",
+      "before": {
+        "payout_snapshot": 17,
+        "points_earned": 0
+      },
+      "after": {
+        "payout_snapshot": 10,
+        "points_earned": 0
+      }
+    },
+    {
+      "pickId": "9f043c63-1ee9-4b2c-b874-3bfeca34cddf",
+      "userId": "27c2ed62-428d-4362-b498-e763b3f8c253",
+      "before": {
+        "payout_snapshot": 100,
+        "points_earned": 0
+      },
+      "after": {
+        "payout_snapshot": 57,
+        "points_earned": 0
+      }
+    },
+    {
+      "pickId": "6a770f70-a67e-48d2-bc9b-eb840d153eea",
+      "userId": "cbab886e-2dad-45e3-8c5d-258c307a4dc6",
+      "before": {
+        "payout_snapshot": 10,
+        "points_earned": 0
+      },
+      "after": {
+        "payout_snapshot": 6,
+        "points_earned": 0
+      }
+    },
+    {
+      "pickId": "8fd76010-b24e-440c-b3b9-5066e8841fc3",
+      "userId": "bf61c27d-ddbd-455d-adb5-2ae28de7ce9d",
+      "before": {
+        "payout_snapshot": 29,
+        "points_earned": 29
+      },
+      "after": {
+        "payout_snapshot": 10,
+        "points_earned": 10
+      }
+    },
+    {
+      "pickId": "ac49b5bd-b9a9-4695-a87c-ede04c97bbfa",
+      "userId": "97a29bef-1b84-4806-a6d0-7fca47a07d9b",
+      "before": {
+        "payout_snapshot": 171,
+        "points_earned": 171
+      },
+      "after": {
+        "payout_snapshot": 57,
+        "points_earned": 57
+      }
+    },
+    {
+      "pickId": "280e1e01-d1f0-4d97-9c94-1ff223531dc6",
+      "userId": "d762bb7c-3286-4a26-9bf6-3374978fd88c",
+      "before": {
+        "payout_snapshot": 114,
+        "points_earned": 114
+      },
+      "after": {
+        "payout_snapshot": 38,
+        "points_earned": 38
+      }
+    },
+    {
+      "pickId": "27f3137e-ec43-44bc-94ad-f8d32a868f50",
+      "userId": "d9e29cc9-cb28-4392-a899-051ed9b0a934",
+      "before": {
+        "payout_snapshot": 57,
+        "points_earned": 57
+      },
+      "after": {
+        "payout_snapshot": 19,
+        "points_earned": 19
+      }
+    },
+    {
+      "pickId": "da8e7691-4ae5-4c77-91fd-6dbb7ed5f002",
+      "userId": "ba233cde-aa8e-407b-868f-3e08b628b974",
+      "before": {
+        "payout_snapshot": 17,
+        "points_earned": 17
+      },
+      "after": {
+        "payout_snapshot": 6,
+        "points_earned": 6
+      }
+    },
+    {
+      "pickId": "94fe95d1-57cc-4879-8224-afb104030d83",
+      "userId": "1415343d-9931-429d-8b3d-388ae4c7df6f",
+      "before": {
+        "payout_snapshot": 17,
+        "points_earned": 17
+      },
+      "after": {
+        "payout_snapshot": 6,
+        "points_earned": 6
+      }
+    },
+    {
+      "pickId": "64047bb9-14cd-43f3-a37c-8f21384c5de8",
+      "userId": "a901eb4f-53a1-4bd4-be29-6087c14cbd2d",
+      "before": {
+        "payout_snapshot": 6,
+        "points_earned": 6
+      },
+      "after": {
+        "payout_snapshot": 2,
+        "points_earned": 2
+      }
+    },
+    {
+      "pickId": "24263835-958f-49a6-979b-eba9a0b8fefb",
+      "userId": "79bc9650-1abe-4f81-ae18-8c6f234ff7e8",
+      "before": {
+        "payout_snapshot": 17,
+        "points_earned": 17
+      },
+      "after": {
+        "payout_snapshot": 6,
+        "points_earned": 6
+      }
+    },
+    {
+      "pickId": "a28f45e0-1cde-4cd7-ac2f-51041db62d3c",
+      "userId": "489c6716-ec67-4dfc-ab62-695676f9b426",
+      "before": {
+        "payout_snapshot": 17,
+        "points_earned": 17
+      },
+      "after": {
+        "payout_snapshot": 6,
+        "points_earned": 6
+      }
+    },
+    {
+      "pickId": "730ac80d-77c7-4e57-8b2d-f7e8ecf74235",
+      "userId": "5242c450-8de3-4a57-9643-94515ef28f50",
+      "before": {
+        "payout_snapshot": 17,
+        "points_earned": 17
+      },
+      "after": {
+        "payout_snapshot": 6,
+        "points_earned": 6
+      }
+    },
+    {
+      "pickId": "b545348b-e06e-4a3f-8fab-5ca8e12750ce",
+      "userId": "58b1a4dd-72fa-4d52-b184-3b20f037b521",
+      "before": {
+        "payout_snapshot": 6,
+        "points_earned": 6
+      },
+      "after": {
+        "payout_snapshot": 2,
+        "points_earned": 2
+      }
+    },
+    {
+      "pickId": "ce408972-f0cf-4e47-a3a8-84bc3dac0b67",
+      "userId": "691eea08-9a7d-4b85-838a-f05222a9fc64",
+      "before": {
+        "payout_snapshot": 6,
+        "points_earned": 6
+      },
+      "after": {
+        "payout_snapshot": 2,
+        "points_earned": 2
+      }
+    },
+    {
+      "pickId": "3aa9bce7-c00b-4405-9c62-00e9442a8dae",
+      "userId": "b529e649-2101-479b-9a55-a990f967f98d",
+      "before": {
+        "payout_snapshot": 29,
+        "points_earned": 29
+      },
+      "after": {
+        "payout_snapshot": 10,
+        "points_earned": 10
+      }
+    },
+    {
+      "pickId": "abf7c525-ec3f-427d-9458-703a7a454f78",
+      "userId": "cbab886e-2dad-45e3-8c5d-258c307a4dc6",
+      "before": {
+        "payout_snapshot": 17,
+        "points_earned": 17
+      },
+      "after": {
+        "payout_snapshot": 6,
+        "points_earned": 6
+      }
+    },
+    {
+      "pickId": "85833671-fc74-45a1-813c-0da2083e2286",
+      "userId": "c2a0a6a2-06b3-413d-ac89-9f698d7e42a6",
+      "before": {
+        "payout_snapshot": 114,
+        "points_earned": 114
+      },
+      "after": {
+        "payout_snapshot": 38,
+        "points_earned": 38
+      }
+    },
+    {
+      "pickId": "0472a765-9da4-4eb0-8cf4-dc5d10a1079f",
+      "userId": "3b4c12c6-de4e-4b2b-a2e8-bc0b77244a61",
+      "before": {
+        "payout_snapshot": 6,
+        "points_earned": 6
+      },
+      "after": {
+        "payout_snapshot": 2,
+        "points_earned": 2
+      }
+    },
+    {
+      "pickId": "2e0f47c5-d47b-4c2c-8a33-0f3bb2936a7c",
+      "userId": "bf61c27d-ddbd-455d-adb5-2ae28de7ce9d",
+      "before": {
+        "payout_snapshot": 19,
+        "points_earned": 19
+      },
+      "after": {
+        "payout_snapshot": 10,
+        "points_earned": 10
+      }
+    },
+    {
+      "pickId": "bce61743-2857-4c7f-82a3-6b90462434c9",
+      "userId": "d762bb7c-3286-4a26-9bf6-3374978fd88c",
+      "before": {
+        "payout_snapshot": 19,
+        "points_earned": 19
+      },
+      "after": {
+        "payout_snapshot": 10,
+        "points_earned": 10
+      }
+    },
+    {
+      "pickId": "a469dc4b-42aa-4fed-bccb-e0f3b6720511",
+      "userId": "d9e29cc9-cb28-4392-a899-051ed9b0a934",
+      "before": {
+        "payout_snapshot": 11,
+        "points_earned": 11
+      },
+      "after": {
+        "payout_snapshot": 6,
+        "points_earned": 6
+      }
+    },
+    {
+      "pickId": "09a94bd1-4624-46e5-931a-992a602c0ec5",
+      "userId": "ba233cde-aa8e-407b-868f-3e08b628b974",
+      "before": {
+        "payout_snapshot": 4,
+        "points_earned": 0
+      },
+      "after": {
+        "payout_snapshot": 6,
+        "points_earned": 0
+      }
+    },
+    {
+      "pickId": "bfe7fe60-63cd-4c20-aa98-e6a83d12d1ca",
+      "userId": "1415343d-9931-429d-8b3d-388ae4c7df6f",
+      "before": {
+        "payout_snapshot": 11,
+        "points_earned": 0
+      },
+      "after": {
+        "payout_snapshot": 17,
+        "points_earned": 0
+      }
+    },
+    {
+      "pickId": "c3eafaba-cc6a-40e4-9681-466f9812d343",
+      "userId": "a901eb4f-53a1-4bd4-be29-6087c14cbd2d",
+      "before": {
+        "payout_snapshot": 4,
+        "points_earned": 4
+      },
+      "after": {
+        "payout_snapshot": 2,
+        "points_earned": 2
+      }
+    },
+    {
+      "pickId": "4371725a-733d-402a-a2f8-2fdb1dd8e9b0",
+      "userId": "5242c450-8de3-4a57-9643-94515ef28f50",
+      "before": {
+        "payout_snapshot": 11,
+        "points_earned": 11
+      },
+      "after": {
+        "payout_snapshot": 6,
+        "points_earned": 6
+      }
+    },
+    {
+      "pickId": "3fd8b709-8f29-4bcf-ae7d-9584cb8ccf80",
+      "userId": "3b4c12c6-de4e-4b2b-a2e8-bc0b77244a61",
+      "before": {
+        "payout_snapshot": 4,
+        "points_earned": 0
+      },
+      "after": {
+        "payout_snapshot": 6,
+        "points_earned": 0
+      }
+    },
+    {
+      "pickId": "e2fb6fbc-0888-43e4-82d4-eb7a278f4916",
+      "userId": "58b1a4dd-72fa-4d52-b184-3b20f037b521",
+      "before": {
+        "payout_snapshot": 4,
+        "points_earned": 4
+      },
+      "after": {
+        "payout_snapshot": 2,
+        "points_earned": 2
+      }
+    },
+    {
+      "pickId": "7417355a-d771-411f-9242-fa1926b96d2f",
+      "userId": "79bc9650-1abe-4f81-ae18-8c6f234ff7e8",
+      "before": {
+        "payout_snapshot": 11,
+        "points_earned": 11
+      },
+      "after": {
+        "payout_snapshot": 6,
+        "points_earned": 6
+      }
+    },
+    {
+      "pickId": "ad7f8574-b511-4533-ab07-19abaf00325d",
+      "userId": "489c6716-ec67-4dfc-ab62-695676f9b426",
+      "before": {
+        "payout_snapshot": 11,
+        "points_earned": 11
+      },
+      "after": {
+        "payout_snapshot": 6,
+        "points_earned": 6
+      }
+    },
+    {
+      "pickId": "d3b7adb0-2cd8-4f4f-ad9c-b08835567888",
+      "userId": "cbab886e-2dad-45e3-8c5d-258c307a4dc6",
+      "before": {
+        "payout_snapshot": 11,
+        "points_earned": 0
+      },
+      "after": {
+        "payout_snapshot": 17,
+        "points_earned": 0
+      }
+    },
+    {
+      "pickId": "9414f9ae-b556-4c48-8bdc-308f33db3f60",
+      "userId": "691eea08-9a7d-4b85-838a-f05222a9fc64",
+      "before": {
+        "payout_snapshot": 4,
+        "points_earned": 4
+      },
+      "after": {
+        "payout_snapshot": 2,
+        "points_earned": 2
+      }
+    }
+  ]
+}

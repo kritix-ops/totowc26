@@ -1,0 +1,41 @@
+[
+  {
+    "pickId": "ac49b5bd-b9a9-4695-a87c-ede04c97bbfa",
+    "userId": "97a29bef-1b84-4806-a6d0-7fca47a07d9b",
+    "betId": "2f3cdf49-77b4-4bf4-a42d-50c898c72319",
+    "before": {
+      "payout_snapshot": 100,
+      "points_earned": 100
+    },
+    "after": {
+      "payout_snapshot": 171,
+      "points_earned": 171
+    }
+  },
+  {
+    "pickId": "280e1e01-d1f0-4d97-9c94-1ff223531dc6",
+    "userId": "d762bb7c-3286-4a26-9bf6-3374978fd88c",
+    "betId": "2f3cdf49-77b4-4bf4-a42d-50c898c72319",
+    "before": {
+      "payout_snapshot": 100,
+      "points_earned": 100
+    },
+    "after": {
+      "payout_snapshot": 114,
+      "points_earned": 114
+    }
+  },
+  {
+    "pickId": "85833671-fc74-45a1-813c-0da2083e2286",
+    "userId": "c2a0a6a2-06b3-413d-ac89-9f698d7e42a6",
+    "betId": "2f3cdf49-77b4-4bf4-a42d-50c898c72319",
+    "before": {
+      "payout_snapshot": 100,
+      "points_earned": 100
+    },
+    "after": {
+      "payout_snapshot": 114,
+      "points_earned": 114
+    }
+  }
+]
