@@ -498,6 +498,7 @@ function EventRow({
 function kindToLabel(kind: LeaderboardEvent["kind"], isHebrew: boolean): string {
   switch (kind) {
     case "match":      return isHebrew ? "משחק" : "Match";
+    case "advance":    return isHebrew ? "מי עולה" : "Advances";
     case "live":       return isHebrew ? "לייב" : "Live";
     case "tournament": return isHebrew ? "טורניר" : "Tournament";
     case "duel":       return isHebrew ? "דו-קרב" : "Duel";

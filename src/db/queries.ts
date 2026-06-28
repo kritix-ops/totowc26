@@ -604,6 +604,7 @@ export const LEADERBOARD_BREAKDOWN_LIMIT = 8;
 
 export type LeaderboardEventKind =
   | "match"
+  | "advance"
   | "live"
   | "tournament"
   | "duel"
@@ -700,6 +701,30 @@ async function loadLeaderboardBreakdownsFromDb(
       join public.matches m on m.id = mb.match_id
       join target t on t.user_id = mb.user_id
       where m.status = 'final' and mb.points_earned is not null
+
+      union all
+
+      -- "who advances?" (מי עולה?) knockout picks: graded when the match is
+      -- final, scored independently of the 1/X/2 bet. Same shape as the match
+      -- branch so it slots into the same per-day feed.
+      select
+        ab.user_id                                  as user_id,
+        'advance'::text                             as kind,
+        coalesce(m.finalized_at, m.kickoff_at)      as event_at,
+        coalesce(ab.points_earned, 0)::int          as delta,
+        (m.home_team || ' ' || m.away_team)         as title_he,
+        (m.home_team || ' ' || m.away_team)         as title_en,
+        ('בחירה: ' || ab.team || ' · עלתה: ' || coalesce(m.advancing_team, '?')) as detail_he,
+        ('Pick: ' || ab.team || ' · advanced: ' || coalesce(m.advancing_team, '?')) as detail_en,
+        null::text                                  as match_label,
+        m.kickoff_at                                as match_at,
+        null::text                                  as answer_type,
+        null::jsonb                                 as answer_config,
+        null::jsonb                                 as pick_answer
+      from public.match_advance_bets ab
+      join public.matches m on m.id = ab.match_id
+      join target t on t.user_id = ab.user_id
+      where m.status = 'final' and ab.points_earned is not null
 
       union all
 
@@ -2664,6 +2689,8 @@ export async function getTransparencyByQuestion(
   const duelQuestionCol = filters.locale === "he" ? sql`d.question_he` : sql`d.question_en`;
   const yesLabel = filters.locale === "he" ? sql`'כן'` : sql`'Yes'`;
   const noLabel = filters.locale === "he" ? sql`'לא'` : sql`'No'`;
+  const advanceLabel = filters.locale === "he" ? sql`'מי עולה?'` : sql`'Who advances?'`;
+  const advTeamNameCol = filters.locale === "he" ? sql`pt.name_he` : sql`pt.name_en`;
 
   // Each branch returns the SAME picker-row shape so the page layer
   // never has to special-case a tab. The `question_id` is whatever
@@ -2671,6 +2698,11 @@ export async function getTransparencyByQuestion(
   // id for live/tournament/group, duel id for duels.
   let pickerRows: TransparencyPickerRow[];
   if (filters.tab === "match") {
+    // The match tab carries two question types per fixture: the 1/X/2 score
+    // prediction (match_bets) and, on knockout fixtures, the "who advances?"
+    // pick (match_advance_bets). They get DISTINCT question_ids (the advance
+    // one suffixed ':advance') so each renders as its own card rather than
+    // mixing a "1-0" pick and a team name under one question.
     pickerRows = await execRows<TransparencyPickerRow>(sql`
       select
         m.id::text                                      as "questionId",
@@ -2690,7 +2722,30 @@ export async function getTransparencyByQuestion(
       join public.profiles p on p.id  = mb.user_id
       where m.status in ('live', 'final')
         ${filters.date ? sql`and (m.kickoff_at at time zone 'Asia/Jerusalem')::date = ${filters.date}::date` : sql``}
-      order by m.kickoff_at desc, p.display_name asc
+
+      union all
+
+      select
+        (m.id::text || ':advance')                      as "questionId",
+        (${homeNameCol} || ' vs ' || ${awayNameCol} || ' · ' || ${advanceLabel}) as "question",
+        m.kickoff_at::text                              as "eventTime",
+        ab.user_id::text                                as "userId",
+        p.display_name                                  as "displayName",
+        ${advTeamNameCol}                               as "pickLabel",
+        0::int                                          as "stake",
+        ab.points_earned                                as "pointsEarned",
+        m.status::text                                  as "status",
+        null                                            as "context"
+      from public.match_advance_bets ab
+      join public.matches m  on m.id  = ab.match_id
+      join public.teams ht   on ht.code = m.home_team
+      join public.teams at   on at.code = m.away_team
+      join public.teams pt   on pt.code = ab.team
+      join public.profiles p on p.id  = ab.user_id
+      where m.status in ('live', 'final')
+        ${filters.date ? sql`and (m.kickoff_at at time zone 'Asia/Jerusalem')::date = ${filters.date}::date` : sql``}
+
+      order by "eventTime" desc, "displayName" asc
     `);
   } else if (filters.tab === "duel") {
     pickerRows = await execRows<TransparencyPickerRow>(sql`
