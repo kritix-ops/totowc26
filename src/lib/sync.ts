@@ -6,6 +6,7 @@ import { execFirstRow, execRows } from "@/db/helpers";
 import {
   matches,
   matchBets,
+  matchAdvanceBets,
   settings,
   teams,
   syncRuns,
@@ -73,6 +74,7 @@ export type SyncReport = {
   skipped: number;
   scoredBets: number;
   scoredMatches: number;
+  scoredAdvanceBets: number;
   scoredAutoCustomBets: number;
   cancelledDuels: number;
   settledAutoDuels: number;
@@ -99,6 +101,7 @@ export function syncTouchedLeaderboard(report: SyncReport): boolean {
   return (
     report.scoredBets > 0 ||
     report.scoredMatches > 0 ||
+    report.scoredAdvanceBets > 0 ||
     report.scoredAutoCustomBets > 0 ||
     report.settledAutoDuels > 0
   );
@@ -237,6 +240,13 @@ async function _runSync(
   report.scoredBets = scoring.scoredBets;
   report.scoredMatches = scoring.scoredMatches;
 
+  // Auto-score "who advances?" picks on knockout matches now decided.
+  const advanceScoring = await scoreAdvanceBets();
+  report.scoredAdvanceBets = advanceScoring.scoredBets;
+  if (advanceScoring.scoredBets > 0) {
+    console.info("[sync advance scored]", advanceScoring);
+  }
+
   // Safety net for canceled+resolved matches: if a resolve action graded the
   // 1/X/2 guesses inline but was interrupted, finish the leftovers here. Pure
   // no-op when there is nothing pending. Idempotent (points_earned IS NULL).
@@ -287,6 +297,7 @@ function blankReport(): SyncReport {
     skipped: 0,
     scoredBets: 0,
     scoredMatches: 0,
+    scoredAdvanceBets: 0,
     scoredAutoCustomBets: 0,
     cancelledDuels: 0,
     settledAutoDuels: 0,
@@ -371,6 +382,19 @@ async function _ingestFromApiFootball(
     const status = mapApiFootballStatus(f.statusShort);
     const wentToPen = f.statusShort.toUpperCase() === "PEN";
 
+    // The advancing/winning team — only meaningful for knockout fixtures.
+    // Derived from API-Football's authoritative `teams.*.winner` flag, which
+    // already accounts for extra time and penalties. Null for group matches,
+    // unfinished matches, or when the feed reports no winner yet. This is the
+    // raw signal the "who advances?" grader reads; a graded pick is never
+    // re-graded, so an admin regrade stays the source of truth afterwards.
+    const advancingTeam =
+      mapped.stage !== "group" && f.winnerSide === "home"
+        ? homeCode
+        : mapped.stage !== "group" && f.winnerSide === "away"
+          ? awayCode
+          : null;
+
     // `no_change` only applies when an existing row says final and
     // the upstream flips to CANC/ABD/SUSP/INT. For brand-new rows
     // we still need a non-null status — default to scheduled and
@@ -387,17 +411,31 @@ async function _ingestFromApiFootball(
       nextStatus = status;
     }
 
+    if (nextStatus === "final") {
+      console.info("[sync score-source]", {
+        fixtureId: f.fixtureId,
+        stage: mapped.stage,
+        final: `${f.homeScoreFt}-${f.awayScoreFt}`,
+        regulation90: `${f.homeScoreReg}-${f.awayScoreReg}`,
+        penalties: wentToPen ? `${f.homeScorePen}-${f.awayScorePen}` : null,
+        advancingTeam,
+      });
+    }
+
     const rows = await execRows<{ inserted: boolean }>(drizzleSql`
       insert into public.matches
         (home_team, away_team, kickoff_at, stage, group_id, venue, status,
-         home_score, away_score, ht_home_score, ht_away_score,
-         went_to_penalties, finalized_at, api_football_fixture_id)
+         home_score, away_score, reg_home_score, reg_away_score,
+         ht_home_score, ht_away_score,
+         went_to_penalties, pen_home_score, pen_away_score, advancing_team,
+         finalized_at, api_football_fixture_id)
       values
         (${homeCode}, ${awayCode}, ${f.kickoffAt}, ${mapped.stage}, ${mapped.groupId},
          ${f.venue ?? null}, ${nextStatus},
          ${f.homeScoreFt}, ${f.awayScoreFt},
+         ${f.homeScoreReg}, ${f.awayScoreReg},
          ${f.homeScoreHt}, ${f.awayScoreHt},
-         ${wentToPen},
+         ${wentToPen}, ${f.homeScorePen}, ${f.awayScorePen}, ${advancingTeam},
          ${nextStatus === "final" ? f.kickoffAt : null},
          ${f.fixtureId})
       on conflict (api_football_fixture_id) where api_football_fixture_id is not null do update set
@@ -413,9 +451,14 @@ async function _ingestFromApiFootball(
         end,
         home_score = excluded.home_score,
         away_score = excluded.away_score,
+        reg_home_score = excluded.reg_home_score,
+        reg_away_score = excluded.reg_away_score,
         ht_home_score = excluded.ht_home_score,
         ht_away_score = excluded.ht_away_score,
         went_to_penalties = excluded.went_to_penalties,
+        pen_home_score = excluded.pen_home_score,
+        pen_away_score = excluded.pen_away_score,
+        advancing_team = excluded.advancing_team,
         finalized_at = case when excluded.status = 'final' and matches.finalized_at is null then now() else matches.finalized_at end
       where matches.status not in ('postponed', 'canceled')
       returning (xmax = 0) as inserted
@@ -478,16 +521,25 @@ async function _ingestFromFootballData(
     const htHome = f.score.halfTime?.home ?? null;
     const htAway = f.score.halfTime?.away ?? null;
     const wentToPen = (f.status as string) === "PEN";
+    // football-data (the emergency fallback) does not expose a 90' split, the
+    // penalty score, or a winner flag. Best-effort: treat full_time as the
+    // regulation score (preserves the pre-existing 1/X/2 grading behavior),
+    // leave penalties + advancing_team null so "who advances?" picks wait for
+    // manual grading rather than auto-resolving on incomplete data.
 
     const rows = await execRows<{ inserted: boolean }>(drizzleSql`
       insert into public.matches
         (home_team, away_team, kickoff_at, stage, group_id, venue, status,
-         home_score, away_score, ht_home_score, ht_away_score,
-         went_to_penalties, finalized_at, api_fixture_id)
+         home_score, away_score, reg_home_score, reg_away_score,
+         ht_home_score, ht_away_score,
+         went_to_penalties, pen_home_score, pen_away_score, advancing_team,
+         finalized_at, api_fixture_id)
       values
         (${homeCode}, ${awayCode}, ${f.utcDate}, ${stage}, ${groupId},
-         ${f.venue ?? null}, ${status}, ${home}, ${away}, ${htHome}, ${htAway},
-         ${wentToPen}, ${status === "final" ? f.utcDate : null}, ${f.id})
+         ${f.venue ?? null}, ${status}, ${home}, ${away}, ${home}, ${away},
+         ${htHome}, ${htAway},
+         ${wentToPen}, ${null}, ${null}, ${null},
+         ${status === "final" ? f.utcDate : null}, ${f.id})
       on conflict (api_fixture_id) do update set
         home_team = excluded.home_team,
         away_team = excluded.away_team,
@@ -498,6 +550,8 @@ async function _ingestFromFootballData(
         status = excluded.status,
         home_score = excluded.home_score,
         away_score = excluded.away_score,
+        reg_home_score = excluded.reg_home_score,
+        reg_away_score = excluded.reg_away_score,
         ht_home_score = excluded.ht_home_score,
         ht_away_score = excluded.ht_away_score,
         went_to_penalties = excluded.went_to_penalties,
@@ -646,10 +700,17 @@ export async function scoreFinalMatches(): Promise<{
     .where(eq(settings.id, 1));
   if (!s) return { scoredMatches: 0, scoredBets: 0 };
 
+  // The 1/X/2 + exact-score grade runs against the 90-minute regulation score
+  // (reg_*), NOT the final result, so a knockout level after 90' grades as a
+  // draw. reg_* falls back to home/away_score for group matches and for the
+  // football-data fallback path (where the two are identical). The final score
+  // is still pulled for the player-facing notification title.
   const matchesList = await execRows<{
     id: string;
-    home_score: number;
-    away_score: number;
+    reg_home: number;
+    reg_away: number;
+    final_home: number;
+    final_away: number;
     home_name_he: string;
     away_name_he: string;
     home_name_en: string;
@@ -657,8 +718,10 @@ export async function scoreFinalMatches(): Promise<{
   }>(drizzleSql`
     select
       m.id::text     as id,
-      m.home_score,
-      m.away_score,
+      coalesce(m.reg_home_score, m.home_score) as reg_home,
+      coalesce(m.reg_away_score, m.away_score) as reg_away,
+      m.home_score   as final_home,
+      m.away_score   as final_away,
       ht.name_he     as home_name_he,
       at.name_he     as away_name_he,
       ht.name_en     as home_name_en,
@@ -677,7 +740,11 @@ export async function scoreFinalMatches(): Promise<{
 
   let scoredBets = 0;
   for (const m of matchesList) {
-    const actual = outcome(m.home_score, m.away_score);
+    const actual = outcome(m.reg_home, m.reg_away);
+    // True if the match was decided beyond 90' (different final scoreline),
+    // so the notification can clarify the pick was judged on regulation time.
+    const beyond90 =
+      m.reg_home !== m.final_home || m.reg_away !== m.final_away;
 
     const bets = await db
       .select({
@@ -690,7 +757,7 @@ export async function scoreFinalMatches(): Promise<{
       .where(and(eq(matchBets.matchId, m.id), isNull(matchBets.pointsEarned)));
 
     for (const b of bets) {
-      const exact = b.homeScore === m.home_score && b.awayScore === m.away_score;
+      const exact = b.homeScore === m.reg_home && b.awayScore === m.reg_away;
       const correctOutcome = outcome(b.homeScore, b.awayScore) === actual;
       const points = exact
         ? s.scoringExact
@@ -725,15 +792,18 @@ export async function scoreFinalMatches(): Promise<{
       // match ends, and we don't want a push storm when several
       // matches finalize in the same cron pass.
       try {
-        const title = `${m.home_name_he} ${m.home_score}–${m.away_score} ${m.away_name_he}`;
+        const title = `${m.home_name_he} ${m.final_home}–${m.final_away} ${m.away_name_he}`;
         const yourPick = `${b.homeScore}–${b.awayScore}`;
+        // When the match went past 90', spell out that the score guess was
+        // judged on the 90-minute result so the feed doesn't look "wrong".
+        const basis = beyond90 ? ` (נוחש על 90 דקות: ${m.reg_home}–${m.reg_away})` : "";
         const body = exact
-          ? `ניחשת בדיוק (${yourPick}) - קיבלת ${points} נקודות.`
+          ? `ניחשת בדיוק (${yourPick}) - קיבלת ${points} נקודות.${basis}`
           : correctOutcome
-            ? `ניחשת את הכיוון (${yourPick}) - קיבלת ${points} נקודות.`
+            ? `ניחשת את הכיוון (${yourPick}) - קיבלת ${points} נקודות.${basis}`
             : points < 0
-              ? `הניחוש שלך (${yourPick}) לא היה נכון - הופחתו ${-points} נקודות.`
-              : `הניחוש שלך (${yourPick}) לא היה נכון.`;
+              ? `הניחוש שלך (${yourPick}) לא היה נכון - הופחתו ${-points} נקודות.${basis}`
+              : `הניחוש שלך (${yourPick}) לא היה נכון.${basis}`;
         await notifyUsers(
           { kind: "user", userId: b.userId },
           {
@@ -747,6 +817,107 @@ export async function scoreFinalMatches(): Promise<{
       } catch (err) {
         // Notification failure must NOT block grading. Log and move on.
         console.warn("[match score notify failed]", {
+          userId: b.userId,
+          matchId: m.id,
+          err: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+  }
+
+  return { scoredMatches: matchesList.length, scoredBets };
+}
+
+// Grade the "who advances?" (מי עולה?) picks on knockout matches. Runs as a
+// sister pass to scoreFinalMatches: a pick is correct iff it names the team in
+// matches.advancing_team (the winner incl. extra time + penalties). A hit earns
+// settings.scoring_advance; a miss earns 0 (no risk penalty on this market).
+// Idempotent: only ungraded picks (points_earned IS NULL) are touched, so an
+// admin regrade is never overwritten. Group matches and matches without a
+// resolved advancing_team are skipped → those picks wait for manual grading.
+export async function scoreAdvanceBets(): Promise<{
+  scoredMatches: number;
+  scoredBets: number;
+}> {
+  const [s] = await db
+    .select({ scoringAdvance: settings.scoringAdvance })
+    .from(settings)
+    .where(eq(settings.id, 1));
+  if (!s) return { scoredMatches: 0, scoredBets: 0 };
+
+  const matchesList = await execRows<{
+    id: string;
+    advancing_team: string;
+    advancing_name_he: string;
+  }>(drizzleSql`
+    select
+      m.id::text       as id,
+      m.advancing_team as advancing_team,
+      adv.name_he      as advancing_name_he
+    from public.matches m
+    join public.teams adv on adv.code = m.advancing_team
+    where m.status = 'final'
+      and m.stage <> 'group'
+      and m.advancing_team is not null
+      and exists (
+        select 1 from public.match_advance_bets ab
+        where ab.match_id = m.id and ab.points_earned is null
+      )
+  `);
+
+  let scoredBets = 0;
+  for (const m of matchesList) {
+    const bets = await db
+      .select({
+        id: matchAdvanceBets.id,
+        userId: matchAdvanceBets.userId,
+        team: matchAdvanceBets.team,
+      })
+      .from(matchAdvanceBets)
+      .where(
+        and(
+          eq(matchAdvanceBets.matchId, m.id),
+          isNull(matchAdvanceBets.pointsEarned),
+        ),
+      );
+
+    for (const b of bets) {
+      const correct = b.team === m.advancing_team;
+      const points = correct ? s.scoringAdvance : 0;
+
+      await db
+        .update(matchAdvanceBets)
+        .set({ pointsEarned: points, wasCorrect: correct, locked: true })
+        .where(eq(matchAdvanceBets.id, b.id));
+      scoredBets += 1;
+
+      console.info("[match advance score]", {
+        userId: b.userId,
+        matchId: m.id,
+        pick: b.team,
+        advancingTeam: m.advancing_team,
+        correct,
+        pointsEarned: points,
+      });
+
+      // Feed-only notification per scored pick (no push, same rationale as
+      // scoreFinalMatches: avoid a push storm when many matches finalize).
+      try {
+        const body = correct
+          ? `ניחשת ש${m.advancing_name_he} תעלה - צדקת! קיבלת ${points} נקודות.`
+          : `ניחשת לא נכון - ${m.advancing_name_he} עלתה לשלב הבא.`;
+        await notifyUsers(
+          { kind: "user", userId: b.userId },
+          {
+            kind: "match_final",
+            title: "מי עולה? - התוצאה",
+            body,
+            url: `/he/match/${m.id}`,
+            push: false,
+          },
+        );
+      } catch (err) {
+        console.warn("[match advance notify failed]", {
           userId: b.userId,
           matchId: m.id,
           err: err instanceof Error ? err.message : String(err),
@@ -795,6 +966,8 @@ export type AutoFootballField =
   | "total_goals"
   | "ht_total"
   | "went_to_penalties"
+  | "went_to_extra_time"
+  | "advancing_team"
   | "group_winner"
   // Derived yes/no fields — computed from home/away + ht_*.
   | "btts"
@@ -1117,9 +1290,14 @@ async function resolveMatchScope(
       status: matches.status,
       homeScore: matches.homeScore,
       awayScore: matches.awayScore,
+      regHomeScore: matches.regHomeScore,
+      regAwayScore: matches.regAwayScore,
       htHomeScore: matches.htHomeScore,
       htAwayScore: matches.htAwayScore,
       wentToPenalties: matches.wentToPenalties,
+      homeTeam: matches.homeTeam,
+      awayTeam: matches.awayTeam,
+      advancingTeam: matches.advancingTeam,
     })
     .from(matches)
     .where(eq(matches.id, bet.matchId))
@@ -1136,9 +1314,14 @@ async function resolveMatchScope(
     {
       homeScore: m.homeScore,
       awayScore: m.awayScore,
+      regHomeScore: m.regHomeScore,
+      regAwayScore: m.regAwayScore,
       htHomeScore: m.htHomeScore,
       htAwayScore: m.htAwayScore,
       wentToPenalties: m.wentToPenalties,
+      homeTeam: m.homeTeam,
+      awayTeam: m.awayTeam,
+      advancingTeam: m.advancingTeam,
     },
     candidateOptions(bet),
   );
@@ -1527,6 +1710,15 @@ export function coerceMatchField(
     htHomeScore: number | null;
     htAwayScore: number | null;
     wentToPenalties: boolean | null;
+    // Knockout-only context for the went_to_extra_time / advancing_team fields.
+    // Optional so existing callers and tests that only grade score-based fields
+    // are unaffected. regHomeScore/regAwayScore are the 90' result; homeTeam/
+    // awayTeam are the team codes; advancingTeam is the team that progressed.
+    regHomeScore?: number | null;
+    regAwayScore?: number | null;
+    homeTeam?: string | null;
+    awayTeam?: string | null;
+    advancingTeam?: string | null;
   },
   // Multi_choice range options. Supplied for range bets so a numeric field
   // (total_goals -> 5) maps onto the matching option (4+). Defaults to [] so
@@ -1562,6 +1754,33 @@ export function coerceMatchField(
       return answerType === "yes_no"
         ? { type: "yes_no", value: m.wentToPenalties === true }
         : "skip";
+    case "went_to_extra_time": {
+      // A knockout went to extra time iff it was level after 90' regulation and
+      // a winner was ultimately decided (advancing_team set). reg_* is required;
+      // without it (e.g. the football-data fallback) we cannot tell → skip.
+      if (answerType !== "yes_no") return "skip";
+      if (
+        m.regHomeScore === null ||
+        m.regHomeScore === undefined ||
+        m.regAwayScore === null ||
+        m.regAwayScore === undefined
+      ) {
+        return "skip";
+      }
+      const wentToEt =
+        m.regHomeScore === m.regAwayScore && (m.advancingTeam ?? null) !== null;
+      return { type: "yes_no", value: wentToEt };
+    }
+    case "advancing_team": {
+      // Which side progresses (incl. extra time + penalties), expressed with the
+      // same 1/2 convention as the `winner` field. No draw — a knockout always
+      // has a winner. Requires the resolved advancing_team + both team codes.
+      if (answerType !== "multi_choice") return "skip";
+      const adv = m.advancingTeam ?? null;
+      if (!adv || !m.homeTeam || !m.awayTeam) return "skip";
+      const side = adv === m.homeTeam ? "1" : adv === m.awayTeam ? "2" : null;
+      return side ? { type: "multi_choice", value: side } : "skip";
+    }
     case "group_winner":
       // group_winner is a group-scope concept; it's routed to
       // resolveGroupScope upstream and never reaches this match-scope

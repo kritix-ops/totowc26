@@ -2,7 +2,12 @@ import "server-only";
 import { revalidatePath, revalidateTag } from "next/cache";
 import { getUserAccess } from "@/lib/access";
 import { bankCacheTag } from "@/lib/bank";
-import { writeMatchPick, type WriteOutcome } from "@/lib/bets/write-core";
+import {
+  cancelAdvancePickSelf,
+  writeAdvancePick,
+  writeMatchPick,
+  type WriteOutcome,
+} from "@/lib/bets/write-core";
 
 // Shared core for the match-score 1/X/2 save. Two transports call it
 // with identical semantics — the legacy server action at
@@ -60,6 +65,55 @@ export async function performSaveMatchPick(input: {
     revalidatePath("/[lang]", "page");
     revalidatePath("/[lang]/bets", "page");
     revalidatePath("/[lang]/bets/[matchId]", "page");
+    return { ok: true };
+  }
+  return { ok: false, error: mapError(res) };
+}
+
+// Shared core for the "who advances?" (מי עולה?) pick. Same transport rationale
+// as performSaveMatchPick — called from the /api/bets/advance route handler so
+// the tap saves in parallel with score saves rather than queueing behind a
+// 200-row revalidation. No bank cache bust (the pick carries no stake).
+export async function performSaveAdvancePick(input: {
+  userId: string;
+  matchId: string;
+  team: string;
+}): Promise<SaveBetResult> {
+  const access = await getUserAccess(input.userId);
+  const res = await writeAdvancePick(
+    { kind: "self", userId: input.userId, access },
+    { matchId: input.matchId, team: input.team },
+  );
+  if (res.status === "filled") {
+    console.info("[advance-bet save]", {
+      userId: input.userId,
+      matchId: input.matchId,
+      team: input.team,
+    });
+    revalidatePath("/[lang]", "page");
+    revalidatePath("/[lang]/bets", "page");
+    return { ok: true };
+  }
+  return { ok: false, error: mapError(res) };
+}
+
+export async function performClearAdvancePick(input: {
+  userId: string;
+  matchId: string;
+}): Promise<SaveBetResult> {
+  const access = await getUserAccess(input.userId);
+  const res = await cancelAdvancePickSelf(
+    { kind: "self", userId: input.userId, access },
+    { matchId: input.matchId },
+  );
+  if (res.status === "filled" || (res.status === "skipped" && res.reason === "already_filled")) {
+    console.info("[advance-bet clear]", {
+      userId: input.userId,
+      matchId: input.matchId,
+      removed: res.status === "filled",
+    });
+    revalidatePath("/[lang]", "page");
+    revalidatePath("/[lang]/bets", "page");
     return { ok: true };
   }
   return { ok: false, error: mapError(res) };

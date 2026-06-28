@@ -39,10 +39,11 @@ import type { BetTypeKey } from "@/db/schema";
 import { useAutoTranslate } from "@/lib/use-auto-translate";
 import { AutoTranslateHint } from "@/components/AutoTranslateHint";
 import { useAutosave } from "@/lib/use-autosave";
+import { usePendingAction } from "@/lib/use-pending-action";
 import { withTimeout, SAVE_TIMEOUT_MS } from "@/lib/with-timeout";
 import { toast } from "@/lib/toast";
 import { SaveStatus } from "@/components/SaveStatus";
-import { createCustomBet, updateCustomBet } from "./actions";
+import { createCustomBet, publishCustomBet, updateCustomBet } from "./actions";
 
 // Build payload type, shared by createCustomBet (arg 0) and updateCustomBet
 // (arg 1) — both take the same CreateCustomBetInput shape.
@@ -70,6 +71,8 @@ type AutoFdField =
   | "total_goals"
   | "ht_total"
   | "went_to_penalties"
+  | "went_to_extra_time"
+  | "advancing_team"
   | "btts"
   | "home_scored"
   | "away_scored"
@@ -144,6 +147,7 @@ export function BetForm({
   betId,
   initialBet,
   templates,
+  returnQs,
 }: {
   locale: Locale;
   anchorMatches: AdminAnchorMatch[];
@@ -153,6 +157,11 @@ export function BetForm({
   mode?: "create" | "edit";
   betId?: string;
   initialBet?: InitialBet;
+  // Sanitized bets-list filter query (e.g. "status=draft&matchday=...") carried
+  // in via the edit page's `?return=`. After save/publish the form returns to
+  // the filtered list so the admin lands back where they were — no hunting for
+  // the bet they just edited. Undefined → plain list.
+  returnQs?: string;
   // Past custom_bets the admin can clone into this new draft. Server
   // pre-fetches them; the picker swaps the form's text/grading state on
   // selection. Edit mode hides the picker (mutating a draft we're
@@ -833,6 +842,7 @@ export function BetForm({
     schedule: scheduleDraftSave,
     retry: retryDraftSave,
     flush: flushDraftSave,
+    cancel: cancelDraftSave,
   } = useAutosave<BetPayload>({ save: saveDraft });
 
   // Hold the latest build for the trigger effect without reading it during
@@ -859,10 +869,17 @@ export function BetForm({
     scheduleDraftSave(built.payload);
   }, [draftKey, scheduleDraftSave]);
 
+  // Where save/publish/back return to. In edit mode that's the bets LIST with
+  // the admin's filters restored (carried in via returnQs), so they land back
+  // exactly where they were instead of hunting for the bet they just touched.
+  const listHref =
+    localePath(locale, "admin/bets") + (returnQs ? `?${returnQs}` : "");
+
   // The form no longer "saves" on submit — autosave handles every write. The
-  // primary button just flushes any pending debounced save and navigates to
-  // the bet (or the list for a never-yet-valid create). An invalid form stays
-  // put and surfaces the reason instead of navigating away from unsaved work.
+  // submit button flushes any pending debounced save and navigates. In edit
+  // mode it returns to the filtered list (the previous screen); in create mode
+  // it goes to the new bet's detail (or the list if it was never valid). An
+  // invalid form stays put and surfaces the reason instead of navigating away.
   const finish = (e: React.FormEvent) => {
     e.preventDefault();
     if (!draftBuild.ok) {
@@ -871,6 +888,10 @@ export function BetForm({
     }
     setError(null);
     flushDraftSave();
+    if (mode === "edit") {
+      router.push(listHref);
+      return;
+    }
     const id = betId ?? createdIdRef.current;
     router.push(
       id
@@ -879,10 +900,58 @@ export function BetForm({
     );
   };
 
-  const cancelHref =
-    mode === "edit" && betId
-      ? localePath(locale, `admin/bets/${betId}`)
-      : localePath(locale, "admin/bets");
+  // Publish straight from the edit form: persist the latest edits, flip the
+  // draft to open, then return to the filtered list. This removes the old
+  // round trip (save → back to list → find the bet → publish). Save-first
+  // guarantees the published bet reflects what's on screen; cancelDraftSave
+  // drops any pending debounced autosave so it can't fire (and fail draft-only)
+  // after the bet is already open.
+  const { pending: publishing, run: runPublish } = usePendingAction();
+  const publish = () => {
+    if (!draftBuild.ok) {
+      setError(draftBuild.error);
+      return;
+    }
+    const id = betId ?? createdIdRef.current;
+    if (!id) return;
+    setError(null);
+    cancelDraftSave();
+    const payload = draftBuild.payload;
+    void runPublish(async () => {
+      const saveRes = await withTimeout(
+        updateCustomBet(id, payload),
+        SAVE_TIMEOUT_MS,
+      ).catch(() => null);
+      if (!saveRes || !saveRes.ok) {
+        toast.error(
+          saveRes
+            ? translateError(saveRes.error, isHebrew)
+            : isHebrew
+              ? "השמירה נכשלה. נסה שוב."
+              : "Save failed. Try again.",
+        );
+        return;
+      }
+      const pubRes = await withTimeout(
+        publishCustomBet(id),
+        SAVE_TIMEOUT_MS,
+      ).catch(() => null);
+      if (!pubRes || !pubRes.ok) {
+        toast.error(
+          pubRes
+            ? translateError(pubRes.error, isHebrew)
+            : isHebrew
+              ? "הפרסום נכשל. נסה שוב."
+              : "Publish failed. Try again.",
+        );
+        return;
+      }
+      toast.success(isHebrew ? "ההימור פורסם" : "Bet published");
+      router.push(listHref);
+    });
+  };
+
+  const cancelHref = mode === "edit" ? listHref : localePath(locale, "admin/bets");
 
   return (
     <form onSubmit={finish} className="flex flex-col gap-6 md:gap-8">
@@ -1522,6 +1591,10 @@ export function BetForm({
               <option value="ht_score">          {isHebrew ? "תוצאת מחצית מדויקת — בחירה" : "Exact halftime score — multi-choice"}</option>
               <option value="went_to_penalties"> {isHebrew ? "האם הוכרע בפנדלים — כן/לא" : "Went to penalties — yes/no"}</option>
             </optgroup>
+            <optgroup label={isHebrew ? "נוקאאוט (כולל הארכות)" : "Knockout (incl. extra time)"}>
+              <option value="went_to_extra_time"> {isHebrew ? "האם היו הארכות — כן/לא" : "Went to extra time — yes/no"}</option>
+              <option value="advancing_team">     {isHebrew ? "מי עולה / מנצח בתיקו (1/2) — בחירה" : "Who advances (1/2) — multi-choice"}</option>
+            </optgroup>
             <optgroup label={isHebrew ? "ספירת שערים" : "Goal counts"}>
               <option value="total_goals">       {isHebrew ? "סך השערים במשחק — מספר" : "Total goals in match — number"}</option>
               <option value="ht_total">          {isHebrew ? "סך השערים במחצית 1 — מספר" : "First-half total goals — number"}</option>
@@ -1787,8 +1860,9 @@ export function BetForm({
       <div className="flex flex-col-reverse md:flex-row md:items-center md:justify-end gap-3 pt-4 border-t border-outline-variant">
         {/* Draft autosave status. The draft persists itself as you go — in
             create mode it auto-creates once the form is valid, then keeps
-            updating that same draft. The button is just "Done" (flush +
-            navigate); publishing to users stays a separate, explicit action. */}
+            updating that same draft. In edit mode the admin can either just
+            save & close, or publish straight from here (save + flip to open +
+            back to the list). */}
         <div className="flex items-center md:me-auto min-h-[44px] text-xs">
           {!draftBuild.ok ? (
             <span className="inline-flex items-center gap-1.5 text-on-surface-variant">
@@ -1812,13 +1886,39 @@ export function BetForm({
         <button
           type="button"
           onClick={() => router.push(cancelHref)}
-          className="min-h-[48px] px-6 rounded-full border border-outline bg-surface-container-lowest text-on-surface font-bold hover:bg-surface-container"
+          disabled={publishing}
+          className="min-h-[48px] px-6 rounded-full border border-outline bg-surface-container-lowest text-on-surface font-bold hover:bg-surface-container disabled:opacity-50"
         >
           {isHebrew ? "חזור" : "Back"}
         </button>
-        <PillButton type="submit" className="min-h-[48px]">
-          {isHebrew ? "סיום" : "Done"}
-        </PillButton>
+        {/* Edit mode: "save & close" is the secondary action; publishing is the
+            primary one the admin usually wants next. Create mode keeps a single
+            "Done". */}
+        {mode === "edit" ? (
+          <>
+            <button
+              type="submit"
+              disabled={publishing}
+              className="min-h-[48px] px-6 rounded-full border border-outline bg-surface-container-lowest text-on-surface font-bold hover:bg-surface-container disabled:opacity-50"
+            >
+              {isHebrew ? "שמור וסגור" : "Save & close"}
+            </button>
+            <PillButton
+              type="button"
+              onClick={publish}
+              disabled={publishing || !draftBuild.ok}
+              className="min-h-[48px]"
+            >
+              {publishing
+                ? isHebrew ? "מפרסם…" : "Publishing…"
+                : isHebrew ? "פרסם" : "Publish"}
+            </PillButton>
+          </>
+        ) : (
+          <PillButton type="submit" className="min-h-[48px]">
+            {isHebrew ? "סיום" : "Done"}
+          </PillButton>
+        )}
       </div>
     </form>
   );

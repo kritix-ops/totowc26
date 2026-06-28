@@ -48,9 +48,26 @@ export type FixtureContext = {
   kickoffLabel: string;
 };
 
+// Diagnostics for one generation run, surfaced in the admin log (live_gen_runs)
+// and the [live-gen ok] console line. Partially filled on the error paths
+// where the values aren't known yet (e.g. the model never returned a batch).
+export type GenStats = {
+  returned: number;
+  valid: number;
+  dropped: number;
+  demotedToManual: number;
+  searchRequests: number;
+  inputTokens?: number;
+  outputTokens?: number;
+};
+
 export type GenerateResult =
-  | { ok: true; suggestions: LiveBetSuggestion[] }
-  | { ok: false; error: "no_key" | "api_error" | "no_tool_use" | "empty" };
+  | { ok: true; suggestions: LiveBetSuggestion[]; stats: GenStats }
+  | {
+      ok: false;
+      error: "no_key" | "api_error" | "no_tool_use" | "empty";
+      stats?: GenStats;
+    };
 
 const DEFAULT_COUNT = 8;
 const MIN_COUNT = 2;
@@ -82,7 +99,7 @@ export async function generateSuggestions(
   const shared = {
     key,
     model,
-    system: buildSystemPrompt(context.scope),
+    system: buildSystemPrompt(context.scope, opts?.guidance),
     userContent: buildUserPrompt(context, count, opts),
     // A rich bilingual bet (a 5-7 bucket distribution with He+En labels, a
     // bilingual question + grading rule, grading config and rationale) runs
@@ -108,7 +125,21 @@ export async function generateSuggestions(
     console.warn("[live-gen] search path failed; retrying without web search");
     call = await callForcedEmit(shared);
   }
-  if (!call.ok) return { ok: false, error: call.error };
+  if (!call.ok) {
+    // The API/transport never produced a batch — return what little we know
+    // (search count) so the run log can still record the failure shape.
+    return {
+      ok: false,
+      error: call.error,
+      stats: {
+        returned: 0,
+        valid: 0,
+        dropped: 0,
+        demotedToManual: 0,
+        searchRequests: 0,
+      },
+    };
+  }
 
   const batch = call.toolInput as SuggestionBatch;
   const rawList = Array.isArray(batch.suggestions) ? batch.suggestions : [];
@@ -129,20 +160,26 @@ export async function generateSuggestions(
     valid.push(s);
   }
 
-  console.info("[live-gen ok]", {
-    subject: context.label,
-    scope: context.scope,
-    model,
-    searchRequests: call.searchRequests,
+  const stats: GenStats = {
     returned: rawList.length,
     valid: valid.length,
     dropped,
     demotedToManual,
+    searchRequests: call.searchRequests,
+    inputTokens: call.usage?.input_tokens,
+    outputTokens: call.usage?.output_tokens,
+  };
+
+  console.info("[live-gen ok]", {
+    subject: context.label,
+    scope: context.scope,
+    model,
+    ...stats,
     usage: call.usage,
   });
 
-  if (valid.length === 0) return { ok: false, error: "empty" };
-  return { ok: true, suggestions: valid };
+  if (valid.length === 0) return { ok: false, error: "empty", stats };
+  return { ok: true, suggestions: valid, stats };
 }
 
 // Clamp the admin/caller's requested web-search budget into a sane band.

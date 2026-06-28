@@ -6,6 +6,7 @@ import {
   matchPickPointsDisplay,
   matchPickOutcome,
 } from "@/lib/bets/past-view";
+import { stageLabel, isKnockoutStage } from "@/lib/stage-label";
 import type { Locale, Dictionary } from "@/app/[lang]/dictionaries";
 import type { PastMatchPickRow as PastMatchPickRowData } from "@/db/queries";
 
@@ -33,6 +34,17 @@ export function PastMatchPickRow({
     match.myHomeScore !== null && match.myAwayScore !== null;
   const hasActualScore =
     match.homeScore !== null && match.awayScore !== null;
+  const isKnockout = isKnockoutStage(match.stage);
+  // The 1/X/2 grade is judged on the 90-minute score. When a knockout went past
+  // 90' the final scoreboard differs from that, so spell out the basis to keep
+  // an "exact" badge from looking wrong next to a 2-1 AET scoreline.
+  const regDiffers =
+    match.regHomeScore !== null &&
+    match.regAwayScore !== null &&
+    (match.regHomeScore !== match.homeScore ||
+      match.regAwayScore !== match.awayScore);
+  const teamName = (code: string | null) =>
+    code === match.homeCode ? homeName : code === match.awayCode ? awayName : null;
   const statusBadge =
     match.status === "final" ? t.finalBadge : t.liveBadge;
   const statusTone =
@@ -43,14 +55,19 @@ export function PastMatchPickRow({
   return (
     <Card className="p-4 md:p-5 flex flex-col gap-3">
       <div className="flex items-center justify-between gap-3">
-        <span
-          className={clsx(
-            "inline-flex items-center gap-1.5 px-2 h-6 rounded-full text-[11px] font-bold tabular-nums",
-            statusTone,
-          )}
-        >
-          {statusBadge}
-        </span>
+        <div className="flex items-center gap-1.5 min-w-0">
+          <span
+            className={clsx(
+              "inline-flex items-center gap-1.5 px-2 h-6 rounded-full text-[11px] font-bold tabular-nums",
+              statusTone,
+            )}
+          >
+            {statusBadge}
+          </span>
+          <span className="inline-flex items-center px-2 h-6 rounded-full text-[11px] font-bold bg-secondary-container text-on-secondary-container truncate">
+            {stageLabel(match.stage, match.groupId, isHebrew ? "he" : "en")}
+          </span>
+        </div>
         <span className="text-[11px] text-outline tabular-nums">
           {formatDateTime(match.kickoffAt, locale, {
             day: "numeric",
@@ -92,6 +109,16 @@ export function PastMatchPickRow({
         </div>
       </div>
 
+      {/* The score guess is graded on 90 minutes — when a knockout went past
+          90' the scoreboard above differs, so name the basis explicitly. */}
+      {regDiffers && (
+        <p className="text-center text-[10px] text-on-surface-variant -mt-1">
+          {isHebrew
+            ? `ניחוש התוצאה נספר לפי 90 דקות: ${match.regHomeScore}–${match.regAwayScore}`
+            : `Score judged on 90 min: ${match.regHomeScore}–${match.regAwayScore}`}
+        </p>
+      )}
+
       {/* Footer: the user's own pick and what it earned. Two roomy cells
           rather than three narrow ones — the result lives in the
           scoreboard above. */}
@@ -119,6 +146,43 @@ export function PastMatchPickRow({
           />
         </Cell>
       </div>
+
+      {/* Knockout-only "who advances?" result: the user's pick, whether it was
+          right, and (once decided) who actually went through. */}
+      {isKnockout && (
+        <div className="flex items-center justify-between gap-2 pt-2 border-t border-outline-variant">
+          <span className="font-[family-name:var(--font-label)] text-[10px] font-bold tracking-[0.05em] uppercase text-on-surface-variant">
+            {isHebrew ? "מי עולה" : "Who advances"}
+          </span>
+          <div className="flex items-center gap-2 min-w-0">
+            {match.myAdvanceTeam ? (
+              <span className="inline-flex items-center gap-1.5 text-sm font-bold text-on-surface min-w-0">
+                <Flag code={match.myAdvanceTeam} size={18} />
+                <span className="truncate">{teamName(match.myAdvanceTeam)}</span>
+              </span>
+            ) : (
+              <span className="text-on-surface-variant text-sm">
+                {t.noPickInline}
+              </span>
+            )}
+            {match.myAdvancePoints !== null && match.myAdvanceTeam && (
+              <span
+                className={clsx(
+                  "inline-flex items-center justify-center px-2 h-6 rounded-full font-[family-name:var(--font-score)] text-sm font-bold tabular-nums shrink-0",
+                  match.myAdvanceWasCorrect
+                    ? "bg-success-container text-on-success-container"
+                    : "bg-surface-container-high text-on-surface-variant",
+                )}
+              >
+                <bdi>
+                  {match.myAdvancePoints > 0 ? "+" : ""}
+                  {match.myAdvancePoints}
+                </bdi>
+              </span>
+            )}
+          </div>
+        </div>
+      )}
     </Card>
   );
 }

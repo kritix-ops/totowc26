@@ -19,7 +19,13 @@ import { formatDateTime } from "@/lib/format";
 import { GenerateAiButton } from "./GenerateAiButton";
 import { GenerateDayAiButton } from "./GenerateDayAiButton";
 import { AiModelCard } from "./AiModelCard";
-import { countRemainingMatches } from "./actions";
+import { GenerationLog } from "./GenerationLog";
+import { PromptEditor } from "./PromptEditor";
+import {
+  countRemainingMatches,
+  getPromptInfo,
+  listRecentGenRuns,
+} from "./actions";
 import { DEFAULT_SUGGEST_MODEL } from "@/lib/bets/suggest/models";
 
 // The AI generate actions schedule the heavy work via `after()`, so it keeps
@@ -53,14 +59,23 @@ export default async function LiveBetSuggestionsPage({
   const sp = await searchParams;
   const date = resolveDate(sp.date);
 
-  const [fixtures, availableDates, templates, aiSettings, remainingMatches] =
-    await Promise.all([
-      listFixturesForDate(date),
-      listLiveBetsDates(),
-      listBetTemplates(50),
-      loadAiSettings(),
-      countRemainingMatches(),
-    ]);
+  const [
+    fixtures,
+    availableDates,
+    templates,
+    aiSettings,
+    remainingMatches,
+    recentRuns,
+    promptInfo,
+  ] = await Promise.all([
+    listFixturesForDate(date),
+    listLiveBetsDates(),
+    listBetTemplates(50),
+    loadAiSettings(),
+    countRemainingMatches(),
+    listRecentGenRuns(12),
+    getPromptInfo(),
+  ]);
   // Split templates by scope so the per-fixture row only shows match
   // templates and the per-day row only shows day templates. Limited to
   // 8 each to keep the chip strip short on mobile.
@@ -97,6 +112,12 @@ export default async function LiveBetSuggestionsPage({
         autogenLeadHours={aiSettings.autogenLeadHours}
         locale={locale}
       />
+
+      <GenerationLog initialRuns={recentRuns} locale={locale} />
+
+      {promptInfo.ok && (
+        <PromptEditor scopes={promptInfo.scopes} locale={locale} />
+      )}
 
       <DatePicker locale={locale} date={date} availableDates={availableDates} />
 

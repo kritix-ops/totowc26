@@ -408,12 +408,21 @@ export type ApiFootballMatch = {
   homeTeamName: string;
   awayTeamApiId: number;
   awayTeamName: string;
+  // Final result including extra time, excluding penalties (API-Football
+  // `goals`, falling back to `score.fulltime`). Stored in matches.home/away_score.
   homeScoreFt: number | null;
   awayScoreFt: number | null;
+  // 90-minute regulation score (API-Football `score.fulltime`). Stored in
+  // matches.reg_home/away_score and used by the 1/X/2 grader. Null until final.
+  homeScoreReg: number | null;
+  awayScoreReg: number | null;
   homeScoreHt: number | null;
   awayScoreHt: number | null;
   homeScorePen: number | null;
   awayScorePen: number | null;
+  // Authoritative overall winner from API-Football `teams.*.winner`, reflecting
+  // extra time and penalties. null = draw / not finished / not provided.
+  winnerSide: "home" | "away" | null;
   venue: string | null;
   round: string;
 };
@@ -589,8 +598,8 @@ type ApiFootballFullFixturesResponse = {
     };
     league: { round: string };
     teams: {
-      home: { id: number; name: string };
-      away: { id: number; name: string };
+      home: { id: number; name: string; winner: boolean | null };
+      away: { id: number; name: string; winner: boolean | null };
     };
     goals: { home: number | null; away: number | null };
     score: {
@@ -605,11 +614,19 @@ type ApiFootballFullFixturesResponse = {
 function parseFullFixtureRow(
   row: NonNullable<ApiFootballFullFixturesResponse["response"]>[number],
 ): ApiFootballMatch {
-  // Use `score.fulltime` when present (it carries the final scoreline
-  // for finished matches), otherwise fall back to `goals` which is the
-  // live counter API-Football updates during play.
-  const ftHome = row.score?.fulltime?.home ?? row.goals?.home ?? null;
-  const ftAway = row.score?.fulltime?.away ?? row.goals?.away ?? null;
+  // Final result = `goals` (the running/final total, which includes extra-time
+  // goals and excludes the penalty shootout), falling back to `score.fulltime`.
+  // Regulation = `score.fulltime` (the 90-minute scoreline), only meaningful
+  // once the match is final. For matches without extra time the two are equal.
+  const ftHome = row.goals?.home ?? row.score?.fulltime?.home ?? null;
+  const ftAway = row.goals?.away ?? row.score?.fulltime?.away ?? null;
+  const regHome = row.score?.fulltime?.home ?? null;
+  const regAway = row.score?.fulltime?.away ?? null;
+  const winnerSide = row.teams.home.winner
+    ? "home"
+    : row.teams.away.winner
+      ? "away"
+      : null;
   return {
     fixtureId: row.fixture.id,
     kickoffAt: row.fixture.date,
@@ -621,10 +638,13 @@ function parseFullFixtureRow(
     awayTeamName: row.teams.away.name,
     homeScoreFt: ftHome,
     awayScoreFt: ftAway,
+    homeScoreReg: regHome,
+    awayScoreReg: regAway,
     homeScoreHt: row.score?.halftime?.home ?? null,
     awayScoreHt: row.score?.halftime?.away ?? null,
     homeScorePen: row.score?.penalty?.home ?? null,
     awayScorePen: row.score?.penalty?.away ?? null,
+    winnerSide,
     venue: row.fixture.venue?.name ?? null,
     round: row.league.round,
   };

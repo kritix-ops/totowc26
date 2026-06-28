@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest";
-import { demotePlayerIdIfInvalid } from "./generate";
-import type { LiveBetSuggestion } from "./schema";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { demotePlayerIdIfInvalid, generateSuggestions } from "./generate";
+import { SUGGESTION_TOOL_NAME, type LiveBetSuggestion } from "./schema";
 
 // Fail-closed guard: a player-prop whose api id isn't on either squad must
 // have its auto grading stripped so the grader never trusts a hallucinated
@@ -71,5 +71,63 @@ describe("demotePlayerIdIfInvalid", () => {
     const changed = demotePlayerIdIfInvalid(s, new Set([1]));
     expect(changed).toBe(false);
     expect(s.grading).toBeNull();
+  });
+});
+
+// The run log (live_gen_runs) and the [live-gen ok] line read their counts +
+// token usage from GenerateResult.stats. These cover that the diagnostics flow
+// out of generateSuggestions on both the "empty" and "ok" paths.
+describe("generateSuggestions stats", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    delete process.env.ANTHROPIC_API_KEY;
+  });
+
+  function stubEmit(suggestions: unknown[]) {
+    process.env.ANTHROPIC_API_KEY = "test-key";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: true,
+        json: async () => ({
+          stop_reason: "tool_use",
+          usage: { input_tokens: 1234, output_tokens: 567 },
+          content: [
+            { type: "tool_use", name: SUGGESTION_TOOL_NAME, input: { suggestions } },
+          ],
+        }),
+      })),
+    );
+  }
+
+  it("reports returned/valid + token usage when nothing validates (empty)", async () => {
+    // Two suggestions with the right shape but empty copy: they count as
+    // 'returned' but drop in validation, so the result is the 'empty' error
+    // WITH stats attached.
+    const blank = {
+      questionHe: "",
+      questionEn: "",
+      gradingRuleHe: "",
+      gradingRuleEn: "",
+      answerType: "yes_no" as const,
+      rationale: "",
+    };
+    stubEmit([{ ...blank }, { ...blank }]);
+    const res = await generateSuggestions({ scope: "match", label: "X vs Y" });
+    expect(res.ok).toBe(false);
+    if (!res.ok) {
+      expect(res.error).toBe("empty");
+      expect(res.stats?.returned).toBe(2);
+      expect(res.stats?.valid).toBe(0);
+      expect(res.stats?.inputTokens).toBe(1234);
+      expect(res.stats?.outputTokens).toBe(567);
+      expect(res.stats?.searchRequests).toBe(0);
+    }
+  });
+
+  it("returns no_key (and no call) when the API key is unset", async () => {
+    const res = await generateSuggestions({ scope: "day", label: "the day" });
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.error).toBe("no_key");
   });
 });

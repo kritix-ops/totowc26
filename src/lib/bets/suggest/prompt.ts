@@ -45,6 +45,10 @@ export type GenerateOptions = {
   // How many web searches the model may run before emitting (0 = off, the
   // forced-tool single shot). Clamped to 0..3. The user chose focused search.
   webSearchMaxUses?: number;
+  // Admin "house guidance" appended (fenced) to the system prompt. Steers
+  // selection/wording only; never overrides the hard rules. See
+  // buildSystemPrompt + settings.suggest_guidance_match/_day.
+  guidance?: string;
 };
 
 // The settlement vocabulary the model may target. Anything outside this set
@@ -52,7 +56,8 @@ export type GenerateOptions = {
 // system can actually evaluate today (src/lib/bets/types.ts + the grader).
 const AUTO_FOOTBALL_DATA_FIELDS = [
   "winner", "total_goals", "ht_total", "second_half_total", "home_score",
-  "away_score", "winning_margin", "went_to_penalties", "btts", "home_scored",
+  "away_score", "winning_margin", "went_to_penalties", "went_to_extra_time",
+  "advancing_team", "btts", "home_scored",
   "away_scored", "clean_sheet_home", "clean_sheet_away", "first_half_goal",
   "second_half_goal", "both_halves_scored", "over_0_5_goals", "over_1_5_goals",
   "over_2_5_goals", "over_3_5_goals", "over_4_5_goals",
@@ -63,9 +68,16 @@ const AUTO_API_FOOTBALL_STATS = [
   "saves", "total_passes", "pass_accuracy",
 ];
 
-export function buildSystemPrompt(scope: GenerationScope): string {
+// Hard cap on the admin guidance block. Long enough for real house rules,
+// short enough that it can't blow the token budget or bury the hard rules.
+export const MAX_GUIDANCE_CHARS = 2000;
+
+export function buildSystemPrompt(
+  scope: GenerationScope,
+  guidance?: string,
+): string {
   const subject = scope === "match" ? "this exact fixture" : "these fixtures";
-  return [
+  const lines = [
     "You design live in-play betting markets for a private World Cup pool played between friends.",
     scope === "match"
       ? "You are generating markets for ONE fixture."
@@ -82,6 +94,7 @@ export function buildSystemPrompt(scope: GenerationScope): string {
     "- A multi_choice market whose options are NUMERIC RANGES of a derivable quantity (total goals 0-1 / 2-3 / 4+, total corners, total cards, winning margin) MUST set grading to the matching auto source so it self-grades — the system maps the measured number to the option whose range contains it. Keep each option's `value` a plain range token ('0-1', '2-3', '4+') so the mapping is unambiguous; never sign-prefix it ('+4'). Make the ranges a clean partition with no gaps or overlaps.",
     "- Set grading to an auto source ONLY when the outcome is fully derivable from the feeds below; otherwise grading must be null (manual).",
     `  auto_football_data fields (final score / halves): ${AUTO_FOOTBALL_DATA_FIELDS.join(", ")}.`,
+    "  KNOCKOUT-ONLY fields (use ONLY when the dossier's stage is a knockout round — round of 32/16, quarter-final, semi-final, third place, or final; NEVER on a group fixture): 'went_to_extra_time' (yes_no — will the tie be level after 90' and need extra time), 'went_to_penalties' (yes_no — decided on penalties), 'advancing_team' (multi_choice — which side goes through, INCLUDING extra time and penalties). These read the real final result, NOT the 90-minute score (the score/winner of regulation lives in the match-prediction game). For 'advancing_team' the options MUST be exactly two, with value '1' = the home team and value '2' = the away team (same 1/2 convention as 'winner'); put the actual team name in the label, never in the value. There is no draw option — a knockout always has a winner.",
     scope === "match"
       ? `  auto_api_football stats (per-match team totals — corners/cards/shots/offsides/fouls counts): { source:'auto_api_football', stat, aggregate:'per_match' }. stat ∈ ${AUTO_API_FOOTBALL_STATS.join(", ")}.`
       : `  auto_api_football stats SUMMED ACROSS THE DAY: { source:'auto_api_football', stat, aggregate:'sum_day' }. stat ∈ ${AUTO_API_FOOTBALL_STATS.join(", ")}. Use sum_day for every day-wide count market (total corners on the day, total yellows on the day, total offsides on the day).`,
@@ -97,7 +110,22 @@ export function buildSystemPrompt(scope: GenerationScope): string {
     "- rationale: one short sentence on why the probabilities are calibrated that way, citing the dossier where relevant.",
     "",
     hebrewRegisterBlock(),
-  ].join("\n");
+  ];
+
+  // Admin "house guidance" — a SAFE, fenced steer. It is appended last and
+  // explicitly subordinated to every hard rule above, so the admin can shape
+  // the selection/style without ever being able to break the format, schema,
+  // grading sources, or the bilingual requirement.
+  const g = guidance?.trim();
+  if (g) {
+    lines.push(
+      "",
+      "House guidance from the pool admin (apply this WITHIN all the hard rules above; it can steer the selection and wording but must NEVER override the format, the schema, the grading sources, or the Hebrew+English requirement):",
+      g.slice(0, MAX_GUIDANCE_CHARS),
+    );
+  }
+
+  return lines.join("\n");
 }
 
 // Match-scope capability menu. Distribution markets lead — they are the
@@ -111,6 +139,7 @@ function matchCapabilities(): string {
     "- FIRST-EVENT-WINDOW DISTRIBUTIONS (multi_choice) — use these often: which 15-minute window the FIRST substitution / first card / first goal falls in (+ a 'no event' bucket). High-engagement, auto-graded (see firstEventWindow below).",
     "- SUBSTITUTION & TIMING markets: a substitution before the hour (events, metric substitution, window {1,60}); a card in the opening 20; a goal in first-half stoppage ({45,50}); a penalty in the match. Use the substitution metric freely — it is a fresh angle the pool has not seen.",
     "- COMEBACK (yes_no): 'will a team come back from behind to win?' (or a specific side). High drama, auto-graded (see comeback below).",
+    "- KNOCKOUT DRAMA (only when the dossier stage is a knockout round): 'will it go to extra time?' / 'will it go to penalties?' (yes_no, went_to_extra_time / went_to_penalties), and 'who advances?' (multi_choice, advancing_team, options value '1'=home and '2'=away with the team names in the labels). These settle on the real result including extra time and penalties — a perfect knockout-night headline. Feature one or two on knockout fixtures; never emit them for a group fixture.",
     "- Player markets keyed to a real dossier player (to score, to be booked) — sparingly, only when a standout genuinely fits.",
     "- Team angles: clean sheet, both-teams-to-score, winning-margin distribution.",
     "- The CLASSICS (total goals / total cards / total corners): fine as ONE or TWO supporting bets, never the headline, never the whole batch.",

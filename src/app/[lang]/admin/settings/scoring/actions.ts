@@ -28,6 +28,7 @@ export type ScoringPayload = {
   startingBank: number;
   scoringExact: number;
   scoringOutcome: number;
+  scoringAdvance: number;
   matchRiskEnabled: boolean;
   matchRiskPenalty: number;
   dailyRenewalEnabled: boolean;
@@ -78,6 +79,7 @@ const INTEGER_KEYS = [
   "startingBank",
   "scoringExact",
   "scoringOutcome",
+  "scoringAdvance",
   "matchRiskPenalty",
   "dailyRenewalAmount",
   "duelMaxStake",
@@ -229,6 +231,7 @@ export async function saveScoringSettings(
         startingBank: payload.startingBank,
         scoringExact: payload.scoringExact,
         scoringOutcome: payload.scoringOutcome,
+        scoringAdvance: payload.scoringAdvance,
         matchRiskEnabled: payload.matchRiskEnabled,
         matchRiskPenalty: payload.matchRiskPenalty,
         dailyRenewalEnabled: payload.dailyRenewalEnabled,

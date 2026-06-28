@@ -3,12 +3,18 @@
 import { revalidatePath } from "next/cache";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { customBets, matches, matchStatusAudit } from "@/db/schema";
+import {
+  customBets,
+  matches,
+  matchAdvanceBets,
+  matchStatusAudit,
+} from "@/db/schema";
 import { getUser } from "@/lib/supabase/auth";
 import { isAdmin } from "@/lib/admin";
 import { notifyUsers } from "@/lib/notifications";
 import { cascadeVoidMatchLiveBets } from "@/lib/matches/cascade-live-bets";
 import { scoreCanceledMatch } from "@/lib/matches/score-canceled";
+import { scoreAdvanceBets } from "@/lib/sync";
 import {
   validateCancelResolution,
   type CancelResolution,
@@ -439,6 +445,84 @@ export async function reopenMatch(
     return { ok: true };
   } catch (err) {
     console.error("[match reopen] failed:", err);
+    return { ok: false, error: "db" };
+  }
+}
+
+// Manual override for the "who advances?" (מי עולה?) result on a knockout match.
+// The auto-grader sets matches.advancing_team from API-Football's winner flag;
+// this lets a full admin correct it (or set it when the feed couldn't, e.g. the
+// football-data fallback). Honors the manual-override-always-wins rule: it
+// resets any already-graded advance picks for this match to ungraded, then
+// re-runs scoreAdvanceBets so the corrected team grades immediately. A later
+// sync may rewrite advancing_team, but the freshly graded picks are never
+// re-graded, so the admin's correction stands. team = null clears the result.
+export async function setAdvancingTeam(
+  matchId: string,
+  team: string | null,
+  reason: string,
+): Promise<Result<{ regraded: number }>> {
+  const auth = await requireFullAdmin();
+  if (!auth.ok) return auth;
+  const trimmed = reason.trim();
+  if (trimmed.length < 3) return { ok: false, error: "invalid_reason" };
+
+  try {
+    const [m] = await db
+      .select({
+        status: matches.status,
+        stage: matches.stage,
+        homeTeam: matches.homeTeam,
+        awayTeam: matches.awayTeam,
+        advancingTeam: matches.advancingTeam,
+      })
+      .from(matches)
+      .where(eq(matches.id, matchId))
+      .limit(1);
+    if (!m) return { ok: false, error: "match_not_found" };
+    // "Who advances?" is a knockout-only concept.
+    if (m.stage === "group") return { ok: false, error: "invalid_status" };
+    if (team !== null && team !== m.homeTeam && team !== m.awayTeam) {
+      return { ok: false, error: "invalid_resolution" };
+    }
+
+    await db.transaction(async (tx) => {
+      await tx
+        .update(matches)
+        .set({ advancingTeam: team })
+        .where(eq(matches.id, matchId));
+      // Reset any already-graded advance picks so the corrected team regrades.
+      await tx
+        .update(matchAdvanceBets)
+        .set({ pointsEarned: null, wasCorrect: null, locked: false })
+        .where(eq(matchAdvanceBets.matchId, matchId));
+      await tx.insert(matchStatusAudit).values({
+        matchId,
+        action: "set_advancing_team",
+        previousStatus: m.status,
+        newStatus: m.status,
+        payload: { advancingTeam: team, previous: m.advancingTeam },
+        reason: trimmed,
+        performedBy: auth.userId,
+      });
+    });
+
+    // Regrade immediately. scoreAdvanceBets only touches ungraded picks on final
+    // knockout matches with a resolved advancing_team, so this is a no-op when
+    // the match isn't final or the team was cleared.
+    const res = await scoreAdvanceBets();
+    revalidateMatchSurfaces(matchId);
+    revalidatePath("/[lang]/bets", "page");
+    console.info("[admin set-advancing-team]", {
+      matchId,
+      team,
+      previous: m.advancingTeam,
+      by: auth.userId,
+      regraded: res.scoredBets,
+    });
+    return { ok: true, regraded: res.scoredBets };
+  } catch (err) {
+    console.error("[admin set-advancing-team] failed:", err);
     return { ok: false, error: "db" };
   }
 }

@@ -79,6 +79,7 @@ export default async function QuickBetsPage({
       .select({
         scoringExact: settingsTable.scoringExact,
         scoringOutcome: settingsTable.scoringOutcome,
+        scoringAdvance: settingsTable.scoringAdvance,
         matchRiskEnabled: settingsTable.matchRiskEnabled,
         matchRiskPenalty: settingsTable.matchRiskPenalty,
       })
@@ -89,6 +90,7 @@ export default async function QuickBetsPage({
   const scoring = {
     exact: scoringRow?.scoringExact ?? 15,
     outcome: scoringRow?.scoringOutcome ?? 5,
+    advance: scoringRow?.scoringAdvance ?? 10,
     riskEnabled: scoringRow?.matchRiskEnabled ?? false,
     penalty: scoringRow?.matchRiskPenalty ?? 5,
   };
@@ -148,6 +150,12 @@ export default async function QuickBetsPage({
             </span>
             <bdi className="font-bold">+{scoring.outcome}</bdi>
           </span>
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-success-container text-on-success-container tabular-nums">
+            <span>
+              {isHebrew ? "מי עולה" : "Who advances"}
+            </span>
+            <bdi className="font-bold">+{scoring.advance}</bdi>
+          </span>
           {scoring.riskEnabled ? (
             <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-error-container text-on-error-container tabular-nums">
               <span>
@@ -194,6 +202,7 @@ export default async function QuickBetsPage({
                       match={m}
                       lockMinutes={lockMinutes}
                       canEdit={access.canEdit}
+                      advancePoints={scoring.advance}
                     />
                   </li>
                 ))}
@@ -231,14 +240,17 @@ async function loadEditableMatches(userId: string): Promise<QuickPickRowData[]> 
       at.name_en                                                        as "awayNameEn",
       m.kickoff_at::text                                                as "kickoffAt",
       m.stage::text                                                     as "stage",
+      m.group_id                                                        as "groupId",
       to_char((m.kickoff_at at time zone 'Asia/Jerusalem')::date,
               'YYYY-MM-DD')                                             as "matchDate",
       mb.home_score                                                     as "myHomeScore",
-      mb.away_score                                                     as "myAwayScore"
+      mb.away_score                                                     as "myAwayScore",
+      ab.team                                                           as "myAdvanceTeam"
     from public.matches m
     join public.teams ht on ht.code = m.home_team
     join public.teams at on at.code = m.away_team
     left join public.match_bets mb on mb.match_id = m.id and mb.user_id = ${userId}
+    left join public.match_advance_bets ab on ab.match_id = m.id and ab.user_id = ${userId}
     where m.status = 'scheduled'
       and m.kickoff_at > now() + interval '5 minutes'
     order by m.kickoff_at asc

@@ -12,6 +12,7 @@ import { usePendingAction } from "@/lib/use-pending-action";
 import { useAutosave } from "@/lib/use-autosave";
 import { toast } from "@/lib/toast";
 import { withTimeout, SAVE_TIMEOUT_MS } from "@/lib/with-timeout";
+import { stageLabel, isKnockoutStage } from "@/lib/stage-label";
 import { suggestMatchScore } from "./random-actions";
 import type { SaveBetResult } from "./[matchId]/actions";
 
@@ -42,9 +43,12 @@ export type QuickPickRowData = {
   awayNameEn: string;
   kickoffAt: string;
   stage: string;
+  groupId: string | null;
   matchDate: string;
   myHomeScore: number | null;
   myAwayScore: number | null;
+  // The team this user picked to advance (knockout matches only). Null = no pick.
+  myAdvanceTeam: string | null;
 };
 
 export function QuickPickRow({
@@ -53,15 +57,18 @@ export function QuickPickRow({
   match,
   lockMinutes,
   canEdit,
+  advancePoints,
 }: {
   locale: Locale;
   dict: Dictionary;
   match: QuickPickRowData;
   lockMinutes: number;
   canEdit: boolean;
+  advancePoints: number;
 }) {
   const isHebrew = locale === "he";
   const hadPick = match.myHomeScore !== null && match.myAwayScore !== null;
+  const isKnockout = isKnockoutStage(match.stage);
 
   const [home, setHome] = useState<number>(match.myHomeScore ?? 0);
   const [away, setAway] = useState<number>(match.myAwayScore ?? 0);
@@ -87,6 +94,15 @@ export function QuickPickRow({
     home: number;
     away: number;
   } | null>(null);
+
+  // "Who advances?" pick (knockout matches only). Optimistic local state: the
+  // tap paints immediately and reverts on a failed save. No prop-sync effect —
+  // a fresh navigation re-mounts with the server value, and skipping it avoids
+  // the post-save flicker the score row has to guard against.
+  const [advanceTeam, setAdvanceTeam] = useState<string | null>(
+    match.myAdvanceTeam,
+  );
+  const { pending: savingAdvance, run: runAdvance } = usePendingAction();
 
   // Persist one scoreline through the /api/bets/save Route Handler (parallel
   // via fetch — Server Functions dispatch one-at-a-time per tab and queued
@@ -256,6 +272,46 @@ export function QuickPickRow({
   const pickDirection: "1" | "X" | "2" =
     home === away ? "X" : home > away ? "1" : "2";
 
+  // Toggle the advancing-team pick: tapping the selected team clears it.
+  // Saves through the parallel /api/bets/advance route (not a server action,
+  // same lost-pick rationale as the score save).
+  const onPickAdvance = (team: string) => {
+    if (disabled || savingAdvance) return;
+    const next = advanceTeam === team ? null : team;
+    const prev = advanceTeam;
+    setAdvanceTeam(next);
+    void runAdvance(async () => {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), SAVE_TIMEOUT_MS);
+      try {
+        const r = await fetch("/api/bets/advance", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ matchId: match.id, team: next }),
+          signal: controller.signal,
+        });
+        const res = (await r.json().catch(() => null)) as SaveBetResult | null;
+        if (!r.ok || !res || !res.ok) {
+          setAdvanceTeam(prev);
+          console.error("[advance-bet save]", {
+            matchId: match.id,
+            status: r.status,
+            error: res && !res.ok ? res.error : "http",
+          });
+          toast.error(
+            translateError(res && !res.ok ? res.error : "db", dict),
+          );
+        }
+      } catch (err) {
+        setAdvanceTeam(prev);
+        console.error("[advance-bet save fetch]", { matchId: match.id, err });
+        toast.error(translateError("db", dict));
+      } finally {
+        clearTimeout(timeoutId);
+      }
+    });
+  };
+
   return (
     <Card
       className={clsx(
@@ -263,6 +319,14 @@ export function QuickPickRow({
         disabled && "opacity-70",
       )}
     >
+      {/* Stage chip — which round this fixture belongs to. Shown on every
+          card so the list reads clearly once knockouts unlock. */}
+      <div className="flex items-center justify-between gap-2">
+        <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-secondary-container text-on-secondary-container text-[11px] font-bold">
+          {stageLabel(match.stage, match.groupId, isHebrew ? "he" : "en")}
+        </span>
+      </div>
+
       {/* Top row: flags + names + kickoff. On md+ this row stays a
           flex container; on mobile it splits into a fixture header. */}
       <div className="flex items-center gap-2 md:gap-3">
@@ -354,6 +418,60 @@ export function QuickPickRow({
           />
         </div>
       </div>
+
+      {/* Knockout-only: the "who advances?" (מי עולה?) pick + the note that the
+          score guess above is judged on 90 minutes (extra time lives in live
+          bets). Two finger-sized team buttons; tapping the selected one clears. */}
+      {isKnockout && (
+        <div className="flex flex-col gap-2 border-t border-outline-variant pt-2.5">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-xs font-bold text-on-surface inline-flex items-center gap-1.5">
+              {isHebrew ? "מי עולה?" : "Who advances?"}
+              <span className="inline-flex items-center px-1.5 py-0.5 rounded-full bg-success-container text-on-success-container text-[10px] font-bold tabular-nums">
+                +{advancePoints}
+              </span>
+            </span>
+            <span className="text-[10px] text-on-surface-variant">
+              {isHebrew ? "כולל הארכות ופנדלים" : "incl. extra time & penalties"}
+            </span>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            {[
+              { code: match.homeCode, name: homeName },
+              { code: match.awayCode, name: awayName },
+            ].map((t) => {
+              const selected = advanceTeam === t.code;
+              return (
+                <button
+                  key={t.code}
+                  type="button"
+                  onClick={() => onPickAdvance(t.code)}
+                  disabled={disabled || savingAdvance}
+                  aria-pressed={selected}
+                  aria-label={
+                    isHebrew ? `${t.name} עולה` : `${t.name} advances`
+                  }
+                  className={clsx(
+                    "press-down min-h-[44px] inline-flex items-center justify-center gap-2 rounded-lg border px-2 py-1.5 text-sm font-bold transition-colors min-w-0",
+                    selected
+                      ? "bg-primary text-on-primary border-primary"
+                      : "bg-surface-container-lowest text-on-surface border-outline",
+                    (disabled || savingAdvance) && "opacity-60",
+                  )}
+                >
+                  <Flag code={t.code} size={20} />
+                  <span className="truncate">{t.name}</span>
+                </button>
+              );
+            })}
+          </div>
+          <p className="text-[10px] text-on-surface-variant">
+            {isHebrew
+              ? "ניחוש התוצאה למעלה נספר לפי 90 דקות בלבד."
+              : "The score guess above is judged on 90 minutes only."}
+          </p>
+        </div>
+      )}
     </Card>
   );
 }

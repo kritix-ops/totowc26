@@ -1188,6 +1188,9 @@ function validateGradingConfig(
         "total_goals",
         "ht_total",
         "went_to_penalties",
+        // Knockout-only (incl. extra time + penalties).
+        "went_to_extra_time",
+        "advancing_team",
         // Derived yes/no fields.
         "btts",
         "home_scored",

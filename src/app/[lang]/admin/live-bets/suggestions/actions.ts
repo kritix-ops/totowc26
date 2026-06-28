@@ -2,15 +2,17 @@
 
 import { revalidatePath } from "next/cache";
 import { after } from "next/server";
-import { eq, sql } from "drizzle-orm";
+import { desc, eq, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { execFirstRow, execRows } from "@/db/helpers";
-import { settings } from "@/db/schema";
+import { liveGenRuns, settings } from "@/db/schema";
 import { getUser } from "@/lib/supabase/auth";
 import { hasPermission } from "@/lib/admin";
 import { getDeadlineContext } from "@/lib/deadlines";
 import { liveStakeCap } from "@/lib/odds-normalize";
 import { generateSuggestions, type FixtureContext } from "@/lib/bets/suggest/generate";
+import { buildUserPrompt, MAX_GUIDANCE_CHARS } from "@/lib/bets/suggest/prompt";
+import { DEFAULT_SUGGESTION_COUNT } from "@/lib/bets/suggest/count";
 import {
   buildMatchDossier,
   renderDossier,
@@ -60,6 +62,132 @@ export type GenerateAiResult =
   | { ok: true; started: true }
   | { ok: false; error: Err | "no_key" | "match_started" };
 
+// ─── Generation run log (live_gen_runs) ───────────────────────────
+//
+// One row per generation, surfaced inline on the suggestions page so the admin
+// sees progress, errors, and exactly how many bets were produced — no digging
+// through server logs. A 'running' row is inserted synchronously when a run is
+// scheduled (so it shows up immediately), then finalized by the background
+// task to 'done'/'failed' with the model + counts + token usage.
+
+// Open a run row and return its id (best-effort — a logging failure must never
+// block generation, so this swallows errors and the run just goes untracked).
+async function startGenRun(input: {
+  scope: "match" | "day";
+  subjectHe: string;
+  requested?: number;
+  startedBy: string;
+}): Promise<string | null> {
+  try {
+    const [row] = await db
+      .insert(liveGenRuns)
+      .values({
+        scope: input.scope,
+        subjectHe: input.subjectHe,
+        requested: input.requested ?? null,
+        startedBy: input.startedBy,
+        status: "running",
+      })
+      .returning({ id: liveGenRuns.id });
+    return row?.id ?? null;
+  } catch (err) {
+    console.error("[live-gen run start failed]", { err });
+    return null;
+  }
+}
+
+type FinishGenRunInput = {
+  status: "done" | "failed";
+  model?: string;
+  returned?: number;
+  valid?: number;
+  created?: number;
+  failed?: number;
+  searchRequests?: number;
+  inputTokens?: number;
+  outputTokens?: number;
+  error?: string;
+};
+
+// Finalize a run row. No-op when the row was never opened.
+async function finishGenRun(
+  runId: string | null,
+  p: FinishGenRunInput,
+): Promise<void> {
+  if (!runId) return;
+  try {
+    await db
+      .update(liveGenRuns)
+      .set({
+        status: p.status,
+        model: p.model ?? null,
+        returned: p.returned ?? null,
+        valid: p.valid ?? null,
+        created: p.created ?? null,
+        failed: p.failed ?? null,
+        searchRequests: p.searchRequests ?? null,
+        inputTokens: p.inputTokens ?? null,
+        outputTokens: p.outputTokens ?? null,
+        error: p.error ?? null,
+        finishedAt: new Date(),
+      })
+      .where(eq(liveGenRuns.id, runId));
+  } catch (err) {
+    console.error("[live-gen run finish failed]", { runId, err });
+  }
+}
+
+export type GenRunRow = {
+  id: string;
+  scope: string;
+  subjectHe: string;
+  model: string | null;
+  requested: number | null;
+  status: string;
+  returned: number | null;
+  valid: number | null;
+  created: number | null;
+  failed: number | null;
+  searchRequests: number | null;
+  inputTokens: number | null;
+  outputTokens: number | null;
+  error: string | null;
+  startedAt: string;
+  finishedAt: string | null;
+};
+
+// Recent generation runs for the inline log panel. Admin-gated; returns [] for
+// anyone without the liveBets permission so the panel simply stays empty.
+export async function listRecentGenRuns(limit = 12): Promise<GenRunRow[]> {
+  const user = await getUser();
+  if (!user) return [];
+  if (!(await hasPermission(user.id, "liveBets"))) return [];
+  const take = Math.min(50, Math.max(1, Math.round(limit)));
+  const rows = await db
+    .select()
+    .from(liveGenRuns)
+    .orderBy(desc(liveGenRuns.startedAt))
+    .limit(take);
+  return rows.map((r) => ({
+    id: r.id,
+    scope: r.scope,
+    subjectHe: r.subjectHe,
+    model: r.model,
+    requested: r.requested,
+    status: r.status,
+    returned: r.returned,
+    valid: r.valid,
+    created: r.created,
+    failed: r.failed,
+    searchRequests: r.searchRequests,
+    inputTokens: r.inputTokens,
+    outputTokens: r.outputTokens,
+    error: r.error,
+    startedAt: r.startedAt.toISOString(),
+    finishedAt: r.finishedAt ? r.finishedAt.toISOString() : null,
+  }));
+}
+
 export async function generateAiSuggestions(
   matchId: string,
   opts?: { count?: number; instructions?: string },
@@ -87,17 +215,25 @@ export async function generateAiSuggestions(
 
   const adminId = user.id;
   const lockAtIso = lockAt.toISOString();
+  // Open the run row up front so the inline log shows "running" immediately.
+  const runId = await startGenRun({
+    scope: "match",
+    subjectHe: `${fx.context.homeNameHe} נגד ${fx.context.awayNameHe}`,
+    requested: opts?.count,
+    startedBy: adminId,
+  });
   after(() =>
     runMatchGeneration({
       matchId,
       fx,
       adminId,
       lockAtIso,
+      runId,
       count: opts?.count,
       instructions: opts?.instructions,
     }),
   );
-  console.info("[live-gen started]", { adminId, matchId });
+  console.info("[live-gen started]", { adminId, matchId, runId });
   return { ok: true, started: true };
 }
 
@@ -110,19 +246,25 @@ type MatchGenArgs = {
   fx: NonNullable<Awaited<ReturnType<typeof loadFixtureContext>>>;
   adminId: string;
   lockAtIso: string;
+  runId: string | null;
   count?: number;
   instructions?: string;
 };
 
 async function runMatchGeneration(args: MatchGenArgs): Promise<void> {
-  const { matchId, fx, adminId, lockAtIso } = args;
+  const { matchId, fx, adminId, lockAtIso, runId } = args;
   const subjectHe = `${fx.context.homeNameHe} נגד ${fx.context.awayNameHe}`;
+  let model: string | undefined;
   try {
     const [modelRow] = await db
-      .select({ suggestModel: settings.suggestModel })
+      .select({
+        suggestModel: settings.suggestModel,
+        guidance: settings.suggestGuidanceMatch,
+      })
       .from(settings)
       .where(eq(settings.id, 1))
       .limit(1);
+    model = modelRow?.suggestModel;
 
     // Assemble the match dossier (real API-Football data) + the questions
     // already live for this fixture (anti-repetition). Both feed the prompt;
@@ -152,6 +294,7 @@ async function runMatchGeneration(args: MatchGenArgs): Promise<void> {
     const gen = await generateSuggestions({ scope: "match", label }, modelRow?.suggestModel, {
       count: args.count,
       instructions: args.instructions,
+      guidance: modelRow?.guidance ?? undefined,
       dossierText: dossierResult ? renderDossier(dossierResult.dossier) : undefined,
       validPlayerIds: dossierResult?.validPlayerIds,
       existingQuestions,
@@ -161,6 +304,16 @@ async function runMatchGeneration(args: MatchGenArgs): Promise<void> {
     });
     if (!gen.ok) {
       console.warn("[live-gen bg gen failed]", { matchId, error: gen.error });
+      await finishGenRun(runId, {
+        status: "failed",
+        model,
+        returned: gen.stats?.returned,
+        valid: gen.stats?.valid,
+        searchRequests: gen.stats?.searchRequests,
+        inputTokens: gen.stats?.inputTokens,
+        outputTokens: gen.stats?.outputTokens,
+        error: gen.error,
+      });
       await notifyGenerationDone(adminId, { subjectHe, created: 0, failed: 0, failedGen: true });
       return;
     }
@@ -200,11 +353,23 @@ async function runMatchGeneration(args: MatchGenArgs): Promise<void> {
     }
 
     console.info("[live-gen persisted]", { adminId, matchId, created, failed, total: gen.suggestions.length });
+    await finishGenRun(runId, {
+      status: "done",
+      model,
+      returned: gen.stats.returned,
+      valid: gen.stats.valid,
+      created,
+      failed,
+      searchRequests: gen.stats.searchRequests,
+      inputTokens: gen.stats.inputTokens,
+      outputTokens: gen.stats.outputTokens,
+    });
     revalidatePath("/[lang]/admin/bets", "page");
     revalidatePath("/[lang]/admin/live-bets/suggestions", "page");
     await notifyGenerationDone(adminId, { subjectHe, created, failed, failedGen: false });
   } catch (err) {
     console.error("[live-gen bg crashed]", { matchId, err });
+    await finishGenRun(runId, { status: "failed", model, error: "crashed" });
     await notifyGenerationDone(adminId, { subjectHe, created: 0, failed: 0, failedGen: true });
   }
 }
@@ -285,17 +450,24 @@ export async function generateDaySuggestions(
     awayNameHe: f.awayNameHe,
     awayNameEn: f.awayNameEn,
   }));
+  const runId = await startGenRun({
+    scope: "day",
+    subjectHe: `יום המשחקים ${date}`,
+    requested: opts?.count,
+    startedBy: adminId,
+  });
   after(() =>
     runDayGeneration({
       date,
       fixtures: fixturesSnapshot,
       adminId,
       lockAtIso,
+      runId,
       count: opts?.count,
       instructions: opts?.instructions,
     }),
   );
-  console.info("[live-gen-day started]", { adminId, date, fixtures: schedulable.length });
+  console.info("[live-gen-day started]", { adminId, date, fixtures: schedulable.length, runId });
   return { ok: true, started: true };
 }
 
@@ -314,6 +486,7 @@ type DayGenArgs = {
   fixtures: DayGenFixture[];
   adminId: string;
   lockAtIso: string;
+  runId: string | null;
   count?: number;
   instructions?: string;
 };
@@ -347,14 +520,19 @@ function dayScopeGrading(grading: GradingConfig): {
 
 // The heavy half of generateDaySuggestions, run after the response is sent.
 async function runDayGeneration(args: DayGenArgs): Promise<void> {
-  const { date, fixtures, adminId, lockAtIso } = args;
+  const { date, fixtures, adminId, lockAtIso, runId } = args;
   const subjectHe = `יום המשחקים ${date}`;
+  let model: string | undefined;
   try {
     const [modelRow] = await db
-      .select({ suggestModel: settings.suggestModel })
+      .select({
+        suggestModel: settings.suggestModel,
+        guidance: settings.suggestGuidanceDay,
+      })
       .from(settings)
       .where(eq(settings.id, 1))
       .limit(1);
+    model = modelRow?.suggestModel;
 
     const dossierInputs: DossierInput[] = fixtures.map((f) => ({
       matchId: f.id,
@@ -381,6 +559,7 @@ async function runDayGeneration(args: DayGenArgs): Promise<void> {
     const gen = await generateSuggestions({ scope: "day", label }, modelRow?.suggestModel, {
       count: args.count,
       instructions: args.instructions,
+      guidance: modelRow?.guidance ?? undefined,
       dossierText: dayDossier ? renderDayDossier(dayDossier.fixtures) : undefined,
       validPlayerIds: dayDossier?.validPlayerIds,
       existingQuestions,
@@ -388,6 +567,16 @@ async function runDayGeneration(args: DayGenArgs): Promise<void> {
     });
     if (!gen.ok) {
       console.warn("[live-gen-day bg gen failed]", { date, error: gen.error });
+      await finishGenRun(runId, {
+        status: "failed",
+        model,
+        returned: gen.stats?.returned,
+        valid: gen.stats?.valid,
+        searchRequests: gen.stats?.searchRequests,
+        inputTokens: gen.stats?.inputTokens,
+        outputTokens: gen.stats?.outputTokens,
+        error: gen.error,
+      });
       await notifyGenerationDone(adminId, { subjectHe, created: 0, failed: 0, failedGen: true });
       return;
     }
@@ -438,11 +627,23 @@ async function runDayGeneration(args: DayGenArgs): Promise<void> {
       failed,
       total: gen.suggestions.length,
     });
+    await finishGenRun(runId, {
+      status: "done",
+      model,
+      returned: gen.stats.returned,
+      valid: gen.stats.valid,
+      created,
+      failed,
+      searchRequests: gen.stats.searchRequests,
+      inputTokens: gen.stats.inputTokens,
+      outputTokens: gen.stats.outputTokens,
+    });
     revalidatePath("/[lang]/admin/bets", "page");
     revalidatePath("/[lang]/admin/live-bets/suggestions", "page");
     await notifyGenerationDone(adminId, { subjectHe, created, failed, failedGen: false });
   } catch (err) {
     console.error("[live-gen-day bg crashed]", { date, err });
+    await finishGenRun(runId, { status: "failed", model, error: "crashed" });
     await notifyGenerationDone(adminId, { subjectHe, created: 0, failed: 0, failedGen: true });
   }
 }
@@ -503,6 +704,109 @@ export async function setAutogenConfig(input: {
     return { ok: true };
   } catch (err) {
     console.error("[autogen-config set] failed:", err);
+    return { ok: false, error: "db" };
+  }
+}
+
+// ─── Prompt transparency + guidance ───────────────────────────────
+//
+// The admin can SEE the full prompt the LLM receives and tune a SAFE guidance
+// block (separate for match and day scope). The guidance is fenced inside the
+// system prompt and explicitly subordinated to the hard rules (see
+// buildSystemPrompt) so it can never break the format/schema/grading contract.
+
+export type PromptScopeInfo = {
+  scope: "match" | "day";
+  // The current saved guidance ("" when none). The client recomputes the full
+  // system prompt live from this via the same buildSystemPrompt the generator
+  // uses, so the read-only preview always reflects unsaved edits too.
+  guidance: string;
+  // A faithful sample of the user prompt, with placeholders where the real
+  // run injects the dossier / anti-repetition list / admin request.
+  userPromptSample: string;
+};
+
+// Assemble the read-only prompt view for one scope. The sample user prompt
+// uses placeholders for the parts that are filled in per run (the dossier, the
+// already-live questions, the free-text request) so the admin sees the real
+// shape without needing a live fixture.
+function buildScopeInfo(scope: "match" | "day", guidance: string): PromptScopeInfo {
+  const label =
+    scope === "match"
+      ? "<דוגמה: Argentina (HE: ארגנטינה) vs Mexico (HE: מקסיקו). Stage: Group Stage. Kickoff: ...>"
+      : "<דוגמה: All matches today (Asia/Jerusalem): ...>";
+  const userPromptSample = buildUserPrompt({ scope, label }, DEFAULT_SUGGESTION_COUNT, {
+    dossierText:
+      "<כאן נדחס דוסייה אמיתי לכל ריצה: כוח אדם, פציעות, שחקני מפתח עם מזהים, הסתברויות הניצחון, תוצאות אחרונות>",
+    existingQuestions: [
+      "<ההימורים שכבר קיימים למשחק/ליום מוזרקים כאן כדי שה-AI לא יחזור עליהם>",
+    ],
+    instructions: "<הבקשה החופשית מכפתור 'אפשרויות' תופיע כאן, אם תמלא אותה>",
+  });
+  return { scope, guidance, userPromptSample };
+}
+
+// Full prompt + current guidance for both scopes, for the inline prompt panel.
+export async function getPromptInfo(): Promise<
+  { ok: true; scopes: PromptScopeInfo[] } | { ok: false; error: Err }
+> {
+  const user = await getUser();
+  if (!user) return { ok: false, error: "unauth" };
+  if (!(await hasPermission(user.id, "liveBets"))) {
+    return { ok: false, error: "forbidden" };
+  }
+  const [s] = await db
+    .select({
+      match: settings.suggestGuidanceMatch,
+      day: settings.suggestGuidanceDay,
+    })
+    .from(settings)
+    .where(eq(settings.id, 1))
+    .limit(1);
+  return {
+    ok: true,
+    scopes: [
+      buildScopeInfo("match", s?.match ?? ""),
+      buildScopeInfo("day", s?.day ?? ""),
+    ],
+  };
+}
+
+// Save the admin guidance for one scope. Empty/whitespace clears it (null).
+// Length-capped to MAX_GUIDANCE_CHARS so it can't blow the token budget.
+export async function setSuggestGuidance(
+  scope: "match" | "day",
+  text: string,
+): Promise<{ ok: true } | { ok: false; error: Err }> {
+  const user = await getUser();
+  if (!user) return { ok: false, error: "unauth" };
+  if (!(await hasPermission(user.id, "liveBets"))) {
+    console.warn("[suggest-guidance denied]", { userId: user.id, scope });
+    return { ok: false, error: "forbidden" };
+  }
+  if (scope !== "match" && scope !== "day") {
+    return { ok: false, error: "invalid_input" };
+  }
+  const trimmed = (text ?? "").slice(0, MAX_GUIDANCE_CHARS);
+  const value = trimmed.trim().length === 0 ? null : trimmed;
+  try {
+    await db
+      .update(settings)
+      .set(
+        scope === "match"
+          ? { suggestGuidanceMatch: value }
+          : { suggestGuidanceDay: value },
+      )
+      .where(eq(settings.id, 1));
+    console.info("[suggest-guidance set]", {
+      adminId: user.id,
+      scope,
+      chars: value?.length ?? 0,
+    });
+    revalidatePath("/[lang]/admin/live-bets/suggestions", "page");
+    return { ok: true };
+  } catch (err) {
+    console.error("[suggest-guidance set] failed:", err);
     return { ok: false, error: "db" };
   }
 }

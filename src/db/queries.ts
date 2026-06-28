@@ -445,10 +445,16 @@ async function loadLeaderboardFromDb(
   return execRows<LeaderboardEntry>(sql`
     with match_points as (
       select p.id as user_id,
-        coalesce((
+        -- The "matches" score = 1/X/2 score-prediction points + "who advances?"
+        -- (מי עולה?) points. Both grade into the matches tab and the overall bank.
+        (coalesce((
           select sum(coalesce(mb.points_earned, 0))::int
           from public.match_bets mb where mb.user_id = p.id
-        ), 0) as score,
+        ), 0)
+        + coalesce((
+          select sum(coalesce(ab.points_earned, 0))::int
+          from public.match_advance_bets ab where ab.user_id = p.id
+        ), 0)) as score,
         coalesce((
           select count(*)::int from public.match_bets mb
           where mb.user_id = p.id and mb.was_exact = true
@@ -498,6 +504,7 @@ async function loadLeaderboardFromDb(
       select p.id as user_id,
         (
           (select count(*)::int from public.match_bets mb where mb.user_id = p.id)
+          + (select count(*)::int from public.match_advance_bets ab where ab.user_id = p.id)
           + (select count(*)::int from public.user_custom_bet_picks pk where pk.user_id = p.id)
           + (select count(*)::int from public.duels d
                where d.opener_id = p.id or d.joiner_id = p.id)
@@ -3634,8 +3641,14 @@ export type PastMatchPickRow = {
   // bucketed as 'live' from the player's POV — the match is effectively
   // locked even if API-Football hasn't promoted the status yet.
   status: MatchStatus;
+  groupId: string | null;
   homeScore: number | null;
   awayScore: number | null;
+  // 90-minute regulation score the 1/X/2 grade was judged on. Equals
+  // home/away_score for group matches and knockouts decided in regulation;
+  // differs when a knockout went to extra time. Null until final.
+  regHomeScore: number | null;
+  regAwayScore: number | null;
   myHomeScore: number | null;
   myAwayScore: number | null;
   // Net points written by scoreFinalMatches() on grading. Null when the
@@ -3644,6 +3657,12 @@ export type PastMatchPickRow = {
   myPointsEarned: number | null;
   myWasExact: boolean | null;
   myWasCorrectOutcome: boolean | null;
+  // "Who advances?" (מי עולה?): the team that actually advanced, this user's
+  // pick, and the graded result. All null on group matches / no pick.
+  advancingTeam: string | null;
+  myAdvanceTeam: string | null;
+  myAdvancePoints: number | null;
+  myAdvanceWasCorrect: boolean | null;
 };
 
 // Every match that has kicked off or finished, regardless of whether
@@ -3667,17 +3686,25 @@ export async function getPastMatchPicks(
               'YYYY-MM-DD')                               as "matchDate",
       m.stage::text                                       as "stage",
       m.status::text                                      as "status",
+      m.group_id                                          as "groupId",
       m.home_score                                        as "homeScore",
       m.away_score                                        as "awayScore",
+      m.reg_home_score                                    as "regHomeScore",
+      m.reg_away_score                                    as "regAwayScore",
       mb.home_score                                       as "myHomeScore",
       mb.away_score                                       as "myAwayScore",
       mb.points_earned                                    as "myPointsEarned",
       mb.was_exact                                        as "myWasExact",
-      mb.was_correct_outcome                              as "myWasCorrectOutcome"
+      mb.was_correct_outcome                              as "myWasCorrectOutcome",
+      m.advancing_team                                    as "advancingTeam",
+      ab.team                                             as "myAdvanceTeam",
+      ab.points_earned                                    as "myAdvancePoints",
+      ab.was_correct                                      as "myAdvanceWasCorrect"
     from public.matches m
     join public.teams ht on ht.code = m.home_team
     join public.teams at on at.code = m.away_team
     left join public.match_bets mb on mb.match_id = m.id and mb.user_id = ${userId}
+    left join public.match_advance_bets ab on ab.match_id = m.id and ab.user_id = ${userId}
     where m.status in ('live', 'final')
        or (m.status = 'scheduled' and m.kickoff_at <= now() + interval '5 minutes')
     order by m.kickoff_at desc

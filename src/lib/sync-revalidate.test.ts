@@ -19,6 +19,7 @@ function report(overrides: Partial<SyncReport> = {}): SyncReport {
     skipped: 0,
     scoredBets: 0,
     scoredMatches: 0,
+    scoredAdvanceBets: 0,
     scoredAutoCustomBets: 0,
     cancelledDuels: 0,
     settledAutoDuels: 0,
@@ -61,6 +62,7 @@ describe("syncTouchedLeaderboard", () => {
   it.each([
     ["scoredBets", { scoredBets: 1 }],
     ["scoredMatches", { scoredMatches: 1 }],
+    ["scoredAdvanceBets", { scoredAdvanceBets: 1 }],
     ["scoredAutoCustomBets", { scoredAutoCustomBets: 1 }],
     ["settledAutoDuels", { settledAutoDuels: 1 }],
   ])("is true when %s moved the standings", (_label, overrides) => {

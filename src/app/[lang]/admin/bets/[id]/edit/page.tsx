@@ -130,6 +130,9 @@ export default async function EditBetPage({
           // Edit mode hides the template picker; pass an empty array so
           // the prop is satisfied without an extra DB roundtrip.
           templates={[]}
+          // Carry the list filters through so save/publish return the admin to
+          // the exact filtered list they came from.
+          returnQs={returnQs || undefined}
         />
       </Card>
     </section>

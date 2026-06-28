@@ -286,6 +286,105 @@ describe("coerceMatchField — multi_choice range options", () => {
   });
 });
 
+describe("coerceMatchField — knockout fields (extra time / advancing team)", () => {
+  // A knockout level after 90' that was won in extra time. reg = 1-1, the
+  // stored final (homeScore/awayScore) carries the post-ET 2-1, the winner is
+  // the home team.
+  const ET_WIN = {
+    homeScore: 2,
+    awayScore: 1,
+    regHomeScore: 1 as number | null,
+    regAwayScore: 1 as number | null,
+    htHomeScore: 0 as number | null,
+    htAwayScore: 1 as number | null,
+    wentToPenalties: false as boolean | null,
+    homeTeam: "BRA" as string | null,
+    awayTeam: "ARG" as string | null,
+    advancingTeam: "BRA" as string | null,
+  };
+  // A knockout decided in regulation (2-1 at 90'), no extra time.
+  const REG_WIN = {
+    homeScore: 2,
+    awayScore: 1,
+    regHomeScore: 2 as number | null,
+    regAwayScore: 1 as number | null,
+    htHomeScore: 1 as number | null,
+    htAwayScore: 0 as number | null,
+    wentToPenalties: false as boolean | null,
+    homeTeam: "BRA" as string | null,
+    awayTeam: "ARG" as string | null,
+    advancingTeam: "BRA" as string | null,
+  };
+  // A knockout level after 90' AND after ET, decided on penalties — the away
+  // team advances. reg = final = 0-0.
+  const PEN_WIN = {
+    homeScore: 0,
+    awayScore: 0,
+    regHomeScore: 0 as number | null,
+    regAwayScore: 0 as number | null,
+    htHomeScore: 0 as number | null,
+    htAwayScore: 0 as number | null,
+    wentToPenalties: true as boolean | null,
+    homeTeam: "BRA" as string | null,
+    awayTeam: "ARG" as string | null,
+    advancingTeam: "ARG" as string | null,
+  };
+
+  it("went_to_extra_time: true when level at 90' and a winner was decided", () => {
+    expect(coerceMatchField("yes_no", "went_to_extra_time", ET_WIN)).toEqual({
+      type: "yes_no",
+      value: true,
+    });
+    // 0-0 to penalties also went through extra time first.
+    expect(coerceMatchField("yes_no", "went_to_extra_time", PEN_WIN)).toEqual({
+      type: "yes_no",
+      value: true,
+    });
+  });
+
+  it("went_to_extra_time: false when decided in regulation", () => {
+    expect(coerceMatchField("yes_no", "went_to_extra_time", REG_WIN)).toEqual({
+      type: "yes_no",
+      value: false,
+    });
+  });
+
+  it("went_to_extra_time: skips without a regulation score (FD fallback)", () => {
+    expect(
+      coerceMatchField("yes_no", "went_to_extra_time", {
+        ...ET_WIN,
+        regHomeScore: null,
+        regAwayScore: null,
+      }),
+    ).toBe("skip");
+  });
+
+  it("advancing_team: home → '1', away → '2' (incl. ET + penalties)", () => {
+    expect(coerceMatchField("multi_choice", "advancing_team", ET_WIN)).toEqual({
+      type: "multi_choice",
+      value: "1",
+    });
+    expect(coerceMatchField("multi_choice", "advancing_team", PEN_WIN)).toEqual({
+      type: "multi_choice",
+      value: "2",
+    });
+  });
+
+  it("advancing_team: skips when no advancing team is resolved", () => {
+    expect(
+      coerceMatchField("multi_choice", "advancing_team", {
+        ...ET_WIN,
+        advancingTeam: null,
+      }),
+    ).toBe("skip");
+  });
+
+  it("rejects the wrong answer type for the new fields", () => {
+    expect(coerceMatchField("multi_choice", "went_to_extra_time", ET_WIN)).toBe("skip");
+    expect(coerceMatchField("yes_no", "advancing_team", ET_WIN)).toBe("skip");
+  });
+});
+
 describe("coerceMatchField — missing halftime score", () => {
   // Halves-dependent fields need both htHomeScore and htAwayScore. If
   // either is null the resolver returns "skip" instead of guessing —

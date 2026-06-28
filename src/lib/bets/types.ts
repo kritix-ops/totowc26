@@ -237,6 +237,8 @@ export type AutoFootballDataConfig = {
     | "total_goals"
     | "ht_total"
     | "went_to_penalties"
+    | "went_to_extra_time"
+    | "advancing_team"
     | "btts"
     | "home_scored"
     | "away_scored"

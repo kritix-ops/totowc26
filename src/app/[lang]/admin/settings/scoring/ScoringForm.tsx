@@ -91,6 +91,14 @@ const GROUPS: Group[] = [
         label: { he: "כיוון נכון", en: "Correct direction" },
       },
       {
+        key: "scoringAdvance",
+        label: { he: "מי עולה (נוקאאוט)", en: "Who advances (knockout)" },
+        hint: {
+          he: "ניקוד על ניחוש נכון של הקבוצה שעולה לשלב הבא. נספר בנפרד מניחוש התוצאה. ברירת מחדל: 10.",
+          en: "Points for correctly picking the team that advances. Graded separately from the score guess. Default: 10.",
+        },
+      },
+      {
         kind: "toggle",
         key: "matchRiskEnabled",
         label: { he: "מצב סיכון פעיל", en: "Risk mode enabled" },

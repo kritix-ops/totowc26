@@ -273,11 +273,34 @@ export const matches = pgTable(
     groupId: varchar("group_id", { length: 2 }).references(() => groups.id),
     venue: text("venue"),
     status: matchStatusEnum("status").notNull().default("scheduled"),
+    // home_score / away_score hold the FINAL result of the match, including
+    // extra time but excluding the penalty shootout (API-Football `goals`).
+    // This is the score the app displays as "the result" and the score the
+    // live-bet auto-grader resolves against (winner / total goals / over-under).
     homeScore: smallint("home_score"),
     awayScore: smallint("away_score"),
+    // 90-minute regulation score (API-Football `score.fulltime`). The 1/X/2
+    // match-prediction grader scores against THIS, not the final, so a knockout
+    // that is level after 90' grades as a draw for direction/exact. For group
+    // matches reg_* equals home/away_score. Null until the match is final.
+    regHomeScore: smallint("reg_home_score"),
+    regAwayScore: smallint("reg_away_score"),
     htHomeScore: smallint("ht_home_score"),
     htAwayScore: smallint("ht_away_score"),
     wentToPenalties: boolean("went_to_penalties"),
+    // Penalty shootout score (API-Football `score.penalty`). Non-null only when
+    // a knockout went to penalties. Used by the "who wins incl. penalties" /
+    // "who advances" live markets and for display.
+    penHomeScore: smallint("pen_home_score"),
+    penAwayScore: smallint("pen_away_score"),
+    // The team that advances / wins this knockout, including extra time and
+    // penalties (from API-Football `teams.*.winner`, or set manually by an
+    // admin). References teams.code. Null for group matches, unfinished
+    // matches, or matches the auto-grader could not resolve (→ manual). This is
+    // the source of truth the "מי עולה?" grader compares each pick against.
+    advancingTeam: varchar("advancing_team", { length: 3 }).references(
+      () => teams.code,
+    ),
     finalizedAt: timestamp("finalized_at", { withTimezone: true }),
     apiFixtureId: integer("api_fixture_id"),
     // API-Football v3 fixture ID. Populated by a one-shot mapping
@@ -350,6 +373,46 @@ export const matchBets = pgTable(
     ),
     userIdx: index("match_bets_user_idx").on(t.userId),
     matchIdx: index("match_bets_match_idx").on(t.matchId),
+  }),
+);
+
+// match_advance_bets: a user's "who advances?" (מי עולה?) pick for a knockout
+// match. Kept in its own table — separate from match_bets — so the score
+// columns there stay NOT NULL and the existing 1/X/2 path is untouched. A
+// player may pick the score, the advancing team, both, or neither. Graded by
+// scoreAdvanceBets() against matches.advancing_team, worth settings.scoring_advance
+// on a hit. See _plans/2026-06-28-knockout-stage-90min-who-advances.md.
+export const matchAdvanceBets = pgTable(
+  "match_advance_bets",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => profiles.id, { onDelete: "cascade" }),
+    matchId: uuid("match_id")
+      .notNull()
+      .references(() => matches.id, { onDelete: "cascade" }),
+    // The team the player thinks advances. References teams.code.
+    team: varchar("team", { length: 3 })
+      .notNull()
+      .references(() => teams.code),
+    locked: boolean("locked").notNull().default(false),
+    pointsEarned: smallint("points_earned"),
+    wasCorrect: boolean("was_correct"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    uniqUserMatch: uniqueIndex("match_advance_bets_user_match_uniq").on(
+      t.userId,
+      t.matchId,
+    ),
+    userIdx: index("match_advance_bets_user_idx").on(t.userId),
+    matchIdx: index("match_advance_bets_match_idx").on(t.matchId),
   }),
 );
 
@@ -467,6 +530,10 @@ export const settings = pgTable("settings", {
   // (default 5) instead of 0. See _plans/2026-05-27-betting-overhaul.md §5.
   scoringExact: smallint("scoring_exact").notNull().default(15),
   scoringOutcome: smallint("scoring_outcome").notNull().default(5),
+  // Points for a correct "who advances?" (מי עולה?) pick on a knockout match.
+  // Graded independently of the 1/X/2 score bet. Admin-editable on the scoring
+  // settings page. See _plans/2026-06-28-knockout-stage-90min-who-advances.md.
+  scoringAdvance: smallint("scoring_advance").notNull().default(10),
   stakeMain: smallint("stake_main").notNull().default(0),
   matchRiskEnabled: boolean("match_risk_enabled").notNull().default(false),
   matchRiskPenalty: smallint("match_risk_penalty").notNull().default(5),
@@ -523,6 +590,15 @@ export const settings = pgTable("settings", {
   // Off by default — opt-in, and still admin-approved before publish.
   liveAutogenEnabled: boolean("live_autogen_enabled").notNull().default(false),
   liveAutogenLeadHours: smallint("live_autogen_lead_hours").notNull().default(30),
+  // Admin "house guidance" appended to the AI suggestion system prompt, kept
+  // separately per scope (the match and day prompts have different rules).
+  // This is a SAFE steer fenced inside the prompt — it can shape wording and
+  // selection but can never override the hard format / schema / grading /
+  // bilingual rules. Null/empty = no extra guidance. Edited from
+  // /admin/live-bets/suggestions. See
+  // _plans/2026-06-28-live-bet-suggestions-log-prompt-publish.md.
+  suggestGuidanceMatch: text("suggest_guidance_match"),
+  suggestGuidanceDay: text("suggest_guidance_day"),
   // 7-way prize split (king 1/2/3, matches/live/duels winner, reserve).
   // Sum MUST be 100 - DB CHECK constraint enforces this. The legacy
   // prizePct1-4 columns below are kept for backwards compatibility until
@@ -949,6 +1025,55 @@ export const betOddsAudit = pgTable(
   (t) => ({
     betIdx: index("bet_odds_audit_bet_idx").on(t.customBetId, t.performedAt),
     timeIdx: index("bet_odds_audit_time_idx").on(t.performedAt),
+  }),
+);
+
+// live_gen_runs: one row per AI live-bet generation run, so the admin can see
+// what the LLM did right on the suggestions page — progress, errors, and
+// exactly how many bets it produced — instead of digging through server logs.
+// A row is inserted 'running' when generation is scheduled and finalized to
+// 'done'/'failed' by the background task with the model + counts + usage. The
+// generation diagnostics that used to live only in console.info('[live-gen
+// ok]') now persist here. See
+// _plans/2026-06-28-live-bet-suggestions-log-prompt-publish.md.
+export const liveGenRuns = pgTable(
+  "live_gen_runs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    // 'match' | 'day' — which generator produced this run.
+    scope: text("scope").notNull(),
+    // Hebrew subject for display, e.g. "ארגנטינה נגד מקסיקו" or
+    // "יום המשחקים 2026-06-28".
+    subjectHe: text("subject_he").notNull(),
+    // Claude model id used (known once the background task reads settings).
+    model: text("model"),
+    // How many bets the admin asked for.
+    requested: smallint("requested"),
+    // 'running' | 'done' | 'failed'.
+    status: text("status").notNull().default("running"),
+    // Counts, filled in when the run finishes: raw bets the model returned,
+    // how many passed shape validation, how many became drafts, how many
+    // failed to persist.
+    returned: smallint("returned"),
+    valid: smallint("valid"),
+    created: smallint("created"),
+    failed: smallint("failed"),
+    // Web searches the model ran, and token usage (cost visibility).
+    searchRequests: smallint("search_requests"),
+    inputTokens: integer("input_tokens"),
+    outputTokens: integer("output_tokens"),
+    // Tagged error code/short message when status = 'failed'.
+    error: text("error"),
+    startedBy: uuid("started_by")
+      .notNull()
+      .references(() => profiles.id, { onDelete: "cascade" }),
+    startedAt: timestamp("started_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+  },
+  (t) => ({
+    timeIdx: index("live_gen_runs_time_idx").on(t.startedAt),
   }),
 );
 

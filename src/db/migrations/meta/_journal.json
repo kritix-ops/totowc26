@@ -477,6 +477,20 @@
       "when": 1782340000000,
       "tag": "0067_bet_odds_audit",
       "breakpoints": true
+    },
+    {
+      "idx": 68,
+      "version": "7",
+      "when": 1782350000000,
+      "tag": "0068_knockout_advance_and_90min",
+      "breakpoints": true
+    },
+    {
+      "idx": 69,
+      "version": "7",
+      "when": 1782360000000,
+      "tag": "0069_live_gen_log_and_prompt_guidance",
+      "breakpoints": true
     }
   ]
 }

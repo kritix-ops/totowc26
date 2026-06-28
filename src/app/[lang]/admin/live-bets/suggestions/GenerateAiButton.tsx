@@ -8,15 +8,18 @@ import type { Locale } from "../../../dictionaries";
 import { localePath } from "@/lib/paths";
 import { LabelCaps } from "@/components/ui";
 import { usePendingAction } from "@/lib/use-pending-action";
+import {
+  clampSuggestionCount,
+  DEFAULT_SUGGESTION_COUNT,
+} from "@/lib/bets/suggest/count";
 import { generateAiSuggestions, type GenerateAiResult } from "./actions";
+import { LIVE_GEN_STARTED_EVENT } from "./GenerationLog";
 
 // "Generate with AI" affordance per fixture. Asks the LLM for a batch of
 // live bets, which land as DRAFTS in /admin/bets for the admin to review
 // and publish — nothing goes live without a deliberate tap. An optional
 // panel lets the admin steer the request (free-text context) and pick how
 // many bets to ask for. The result line links straight to the review list.
-
-const DEFAULT_COUNT = 6;
 
 export function GenerateAiButton({
   matchId,
@@ -29,7 +32,10 @@ export function GenerateAiButton({
   const { pending, run } = usePendingAction();
   const [result, setResult] = useState<GenerateAiResult | null>(null);
   const [showOptions, setShowOptions] = useState(false);
-  const [count, setCount] = useState(DEFAULT_COUNT);
+  // Hold the RAW text and derive the clamped count, so the field can be blank
+  // mid-edit (see clampSuggestionCount). Normalized back to a number on blur.
+  const [countText, setCountText] = useState(String(DEFAULT_SUGGESTION_COUNT));
+  const count = clampSuggestionCount(countText);
   const [instructions, setInstructions] = useState("");
 
   const click = () => {
@@ -40,6 +46,8 @@ export function GenerateAiButton({
         instructions: instructions.trim() || undefined,
       });
       setResult(res);
+      // Nudge the inline log to show the new run immediately.
+      if (res.ok) window.dispatchEvent(new Event(LIVE_GEN_STARTED_EVENT));
     });
   };
 
@@ -84,15 +92,15 @@ export function GenerateAiButton({
           <label className="flex items-center gap-3 flex-wrap">
             <LabelCaps>{isHebrew ? "כמה הצעות" : "How many"}</LabelCaps>
             <input
-              type="number"
-              min={2}
-              max={10}
-              value={count}
+              type="text"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              value={countText}
               disabled={pending}
-              onChange={(e) => {
-                const n = parseInt(e.target.value || "6", 10);
-                setCount(Number.isFinite(n) ? Math.max(2, Math.min(10, n)) : DEFAULT_COUNT);
-              }}
+              onChange={(e) =>
+                setCountText(e.target.value.replace(/[^0-9]/g, "").slice(0, 2))
+              }
+              onBlur={() => setCountText(String(count))}
               className="h-11 w-20 px-3 rounded border border-outline bg-surface-container-lowest text-base font-bold tabular-nums text-center focus:outline-none focus:border-primary"
               dir="ltr"
             />

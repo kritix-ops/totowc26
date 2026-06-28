@@ -6,6 +6,7 @@ import {
   betAdminAudit,
   customBets,
   matchBets,
+  matchAdvanceBets,
   settings,
   userCustomBetPicks,
   type StageKey,
@@ -313,6 +314,150 @@ export async function cancelMatchPickSelf(
     return { status: "filled", balanceAfter: null };
   } catch (err) {
     console.error("[write-core cancelMatchPickSelf] failed", err);
+    return { status: "error", error: "db" };
+  }
+}
+
+// ---- who advances (מי עולה?) ----
+
+// The knockout-only progression pick. Shares writeMatchPick's gates (match
+// scheduled, score-lock window open) so the "who advances?" deadline is exactly
+// the 1/X/2 deadline. No bank/stake — it is a flat-scoring side prediction.
+export type AdvancePickInput = { matchId: string; team: string };
+
+export async function writeAdvancePick(
+  principal: WritePrincipal,
+  input: AdvancePickInput,
+): Promise<WriteOutcome> {
+  if (!gateAccess(principal)) return { status: "skipped", reason: "not_allowed" };
+
+  const r = await execFirstRow<{
+    status: string;
+    kickoff_at: string;
+    stage: string;
+    home_team: string;
+    away_team: string;
+    lock_at_override: string | null;
+    matchday_offset: number | null;
+  }>(sql`
+    select
+      m.status::text as "status",
+      m.kickoff_at as "kickoff_at",
+      m.stage::text as "stage",
+      m.home_team as "home_team",
+      m.away_team as "away_team",
+      m.lock_at_override as "lock_at_override",
+      md.lock_offset_override_minutes as "matchday_offset"
+    from public.matches m
+    left join public.matchdays md
+      on md.date = (m.kickoff_at at time zone 'Asia/Jerusalem')::date
+    where m.id = ${input.matchId}::uuid
+    limit 1
+  `);
+  if (!r) return { status: "error", error: "not_found" };
+  // "Who advances?" exists only on knockout matches and must name one of the
+  // two teams actually in the fixture.
+  if (r.stage === "group") return { status: "error", error: "invalid" };
+  if (input.team !== r.home_team && input.team !== r.away_team) {
+    return { status: "error", error: "invalid" };
+  }
+  if (r.status !== "scheduled") return { status: "skipped", reason: "closed" };
+
+  const context = await getDeadlineContext();
+  const resolved = resolveMatchScoreLock(
+    {
+      matchId: input.matchId,
+      kickoffAt: new Date(r.kickoff_at),
+      stage: r.stage as StageKey,
+      lockAtOverride: r.lock_at_override ? new Date(r.lock_at_override) : null,
+      matchdayLockOffsetMinutes: r.matchday_offset,
+    },
+    context,
+  );
+  if (resolved.effectiveLockAt.getTime() <= Date.now()) {
+    return { status: "skipped", reason: "locked" };
+  }
+
+  try {
+    await db
+      .insert(matchAdvanceBets)
+      .values({
+        userId: principal.userId,
+        matchId: input.matchId,
+        team: input.team,
+      })
+      .onConflictDoUpdate({
+        target: [matchAdvanceBets.userId, matchAdvanceBets.matchId],
+        set: { team: input.team, updatedAt: new Date() },
+      });
+    return { status: "filled", balanceAfter: null };
+  } catch (err) {
+    console.error("[write-core advancePick] failed", err);
+    return { status: "error", error: "db" };
+  }
+}
+
+// Owner-explicit deselect of a "who advances?" pick while the window is open.
+// Mirrors cancelMatchPickSelf: only the owner, only before lock.
+export async function cancelAdvancePickSelf(
+  principal: WritePrincipal,
+  input: { matchId: string },
+): Promise<WriteOutcome> {
+  if (principal.kind !== "self") return { status: "skipped", reason: "not_allowed" };
+  if (!gateAccess(principal)) return { status: "skipped", reason: "not_allowed" };
+
+  const r = await execFirstRow<{
+    status: string;
+    kickoff_at: string;
+    stage: string;
+    lock_at_override: string | null;
+    matchday_offset: number | null;
+  }>(sql`
+    select
+      m.status::text as "status",
+      m.kickoff_at as "kickoff_at",
+      m.stage::text as "stage",
+      m.lock_at_override as "lock_at_override",
+      md.lock_offset_override_minutes as "matchday_offset"
+    from public.matches m
+    left join public.matchdays md
+      on md.date = (m.kickoff_at at time zone 'Asia/Jerusalem')::date
+    where m.id = ${input.matchId}::uuid
+    limit 1
+  `);
+  if (!r) return { status: "error", error: "not_found" };
+  if (r.status !== "scheduled") return { status: "skipped", reason: "closed" };
+
+  const context = await getDeadlineContext();
+  const resolved = resolveMatchScoreLock(
+    {
+      matchId: input.matchId,
+      kickoffAt: new Date(r.kickoff_at),
+      stage: r.stage as StageKey,
+      lockAtOverride: r.lock_at_override ? new Date(r.lock_at_override) : null,
+      matchdayLockOffsetMinutes: r.matchday_offset,
+    },
+    context,
+  );
+  if (resolved.effectiveLockAt.getTime() <= Date.now()) {
+    return { status: "skipped", reason: "locked" };
+  }
+
+  try {
+    const deleted = await db
+      .delete(matchAdvanceBets)
+      .where(
+        and(
+          eq(matchAdvanceBets.userId, principal.userId),
+          eq(matchAdvanceBets.matchId, input.matchId),
+        ),
+      )
+      .returning({ id: matchAdvanceBets.id });
+    return deleted.length === 0
+      ? { status: "skipped", reason: "already_filled" }
+      : { status: "filled", balanceAfter: null };
+  } catch (err) {
+    console.error("[write-core cancelAdvancePickSelf] failed", err);
     return { status: "error", error: "db" };
   }
 }

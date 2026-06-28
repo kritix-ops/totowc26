@@ -12,6 +12,7 @@ import { formatDateTime } from "@/lib/format";
 import { requireAdmin } from "@/lib/admin";
 import type { CancelResolutionConfig } from "@/lib/matches/cancel";
 import { MatchStatusCard, type AdminMatchRow } from "./MatchStatusCard";
+import { AdvanceTeamCard, type AdvanceMatchRow } from "./AdvanceTeamCard";
 
 // Admin surface for handling a match that is called off. FULL-admin only
 // (gated again here on top of the action-level check) because canceling a
@@ -29,7 +30,7 @@ export default async function AdminMatchesPage({
   const isHebrew = locale === "he";
   const ChevronBack = isHebrew ? ChevronRight : ChevronLeft;
 
-  const [settingsRow, rows] = await Promise.all([
+  const [settingsRow, rows, advanceRows] = await Promise.all([
     db
       .select({ cancelSplitDefaultPoints: settings.cancelSplitDefaultPoints })
       .from(settings)
@@ -72,6 +73,41 @@ export default async function AdminMatchesPage({
       where m.status <> 'final'
       order by m.kickoff_at asc
     `),
+    // Final knockout matches: surfaced so an admin can correct the "who
+    // advances?" result the auto-grader recorded (or set it when the feed
+    // couldn't). Group matches have no advancement, so they're excluded.
+    execRows<{
+      id: string;
+      stage: string;
+      kickoffAt: string;
+      homeCode: string;
+      awayCode: string;
+      homeHe: string;
+      homeEn: string;
+      awayHe: string;
+      awayEn: string;
+      advancingTeam: string | null;
+      advancePickCount: number;
+    }>(sql`
+      select
+        m.id::text                  as "id",
+        m.stage::text               as "stage",
+        m.kickoff_at::text          as "kickoffAt",
+        m.home_team                 as "homeCode",
+        m.away_team                 as "awayCode",
+        ht.name_he                  as "homeHe",
+        ht.name_en                  as "homeEn",
+        at.name_he                  as "awayHe",
+        at.name_en                  as "awayEn",
+        m.advancing_team            as "advancingTeam",
+        (select count(*) from public.match_advance_bets ab
+          where ab.match_id = m.id)::int as "advancePickCount"
+      from public.matches m
+      join public.teams ht on ht.code = m.home_team
+      join public.teams at on at.code = m.away_team
+      where m.status = 'final' and m.stage <> 'group'
+      order by m.kickoff_at desc
+    `),
   ]);
 
   const splitDefault = settingsRow[0]?.cancelSplitDefaultPoints ?? 0;
@@ -94,6 +130,21 @@ export default async function AdminMatchesPage({
     cancelResolutionConfig: m.cancelResolutionConfig,
     guessCount: m.guessCount,
     liveBetCount: m.liveBetCount,
+  }));
+
+  const advanceMatches: AdvanceMatchRow[] = advanceRows.map((m) => ({
+    id: m.id,
+    homeName: isHebrew ? m.homeHe : m.homeEn,
+    awayName: isHebrew ? m.awayHe : m.awayEn,
+    homeCode: m.homeCode,
+    awayCode: m.awayCode,
+    stage: m.stage,
+    kickoffLabel: formatDateTime(m.kickoffAt, locale, {
+      day: "2-digit",
+      month: "2-digit",
+    }),
+    advancingTeam: m.advancingTeam,
+    advancePickCount: m.advancePickCount,
   }));
 
   return (
@@ -146,6 +197,26 @@ export default async function AdminMatchesPage({
             </li>
           ))}
         </ul>
+      )}
+
+      {advanceMatches.length > 0 && (
+        <section className="flex flex-col gap-3">
+          <h2 className="font-[family-name:var(--font-display)] text-lg md:text-xl font-bold text-on-surface mt-2">
+            {isHebrew ? "תוצאות 'מי עולה' (נוקאאוט)" : "\"Who advances\" results (knockout)"}
+          </h2>
+          <p className="text-sm text-on-surface-variant">
+            {isHebrew
+              ? "התוצאה נקבעת אוטומטית מהמנצח בפועל (כולל הארכות ופנדלים). כאן אפשר לתקן ידנית — תיקון מאפס ומדרג מחדש את ניחושי 'מי עולה' של המשחק."
+              : "Set automatically from the actual winner (incl. extra time & penalties). Correct it here — a correction resets and re-grades this match's \"who advances\" picks."}
+          </p>
+          <ul className="flex flex-col gap-3">
+            {advanceMatches.map((m) => (
+              <li key={m.id}>
+                <AdvanceTeamCard locale={locale} match={m} />
+              </li>
+            ))}
+          </ul>
+        </section>
       )}
     </section>
   );
