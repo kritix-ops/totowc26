@@ -334,3 +334,22 @@ Phase 1 panel.
   Steers the LLM, keeps the admin in control, no mechanical blend.
 - Strengthen the Phase 1 reference (e.g. per-option EV for multi_choice, where
   offside's drain actually lives) so the human signal is sharper.
+
+### Option 1 — BUILT (2026-06-30, commit `84d7f8e`)
+
+Yoav picked the AI-prompt-steer alternative. Shipped to `sandbox`:
+- `buildCategoryEvGuidance(history)` (category-history.ts, + tests): pure,
+  English, gated (sample) + drain-thresholded (EV ≤ −15%), EV rounded to 5%,
+  returns "" when nothing qualifies. **Selection-only by design** — it never
+  instructs a probability shift (that path failed the backtest), so it cannot
+  smuggle the rejected mechanical blend back in.
+- `buildSystemPrompt` gains a `dataGuidance` block: a second fenced section
+  beside the admin's house guidance, both subordinate to the hard rules.
+- Match + day generation fetch `getLiveBetCategoryHistory`, compute the steer,
+  pass it, and log `[live-gen data steer] { drainCategories, applied }`.
+- `PromptEditor` shows the active steer read-only (transparency) and folds it
+  into the live prompt preview.
+- 427 tests green, tsc + eslint clean. With current data the steer surfaces
+  offside (≈ −35% over 250 picks). Note: like Phase 1, the prod EV comes from
+  the real DB regardless of the sandbox-only migration, so the steer is live
+  on any environment that runs generation.
