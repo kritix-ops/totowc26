@@ -257,3 +257,44 @@ draft bet looks sane. Rollback = flip the flag (no deploy, no data loss).
    taxonomy above).
 3. **Flight-to-safe-picks / boldness-bonus track: PARKED.** Finish the
    data-driven odds first; plan the scoring change separately afterward.
+
+## Build status — Phase 1 (2026-06-30)
+
+Shipped to branch `sandbox` (commit `72a00c4`, Vercel Preview only — `master`
+untouched, no prod DB change):
+
+- `src/lib/bets/live-bet-category.ts` (+ test): 9-category taxonomy +
+  grading-aware/keyword classifier. 16 tests.
+- `src/lib/bets/category-history.ts` (+ test) + `getLiveBetCategoryHistory`
+  in `db/admin-queries.ts`: per-category EV / hit-rate / sample, bucketed on
+  read (legacy bets count). 7 tests. Validated end-to-end against prod data
+  (offside −34.5% reproduced).
+- Migration `0070_live_bet_category.sql`: nullable `category` column +
+  enum. **Applied to SANDBOX (`vuuhmm`) only. PROD (`wyceqb`) still lacks the
+  column** — legacy classification on read covers it until prod migrates
+  through the normal pipeline.
+- `LiveBetCategoryPanel.tsx` wired into the **new-bet** and **draft-edit**
+  forms (read-only reference, EV colour-coded, sample-gate warning,
+  mobile-first/RTL).
+- `category` persisted server-side on create + update (`resolveLiveBetCategory`:
+  admin choice or auto-classify), with `[bet create]`/`[bet update]` logs.
+- Full suite green (420 tests), tsc + eslint clean.
+
+**AI suggestions flow:** no separate work needed — suggestions persist via
+`createCustomBet` (suggestions/actions.ts), so they are auto-categorized on
+the server, and they land as drafts the admin opens in the edit form (which
+shows the reference). An inline reference *inside the suggestions review
+queue* is optional polish, deferred.
+
+**Settings audit outcome (rule 15):** the meaningful knobs (blend on/off,
+shrinkage `k`, min-sample gate) bite only in Phase 2 and ship with it. The
+sole Phase-1 candidate was a "hide reference line" toggle — low value for a
+harmless read-only panel — so it is intentionally deferred, not built now.
+
+**Outstanding before Phase 1 is fully done:**
+- Visual breakpoint QA (360/414/768/1024/1440) on the preview deploy — NOT
+  yet done (needs admin auth against the preview).
+- Prod migration of `0070` through the normal pipeline when ready.
+
+**Phase 2 entry point:** build the backtest harness (Brier: blend vs raw LLM
+on the 358 graded bets) — the gate that must pass before the blend ships.
