@@ -3,6 +3,12 @@ import { sql } from "drizzle-orm";
 import { execFirstRow, execRows } from "./helpers";
 import { approvedPotIlsSql } from "./pot";
 import type { DuelOption } from "@/lib/duels/options";
+import type { GradingConfig } from "@/lib/bets/types";
+import { LIVE_BET_CATEGORIES, type LiveBetCategory } from "@/lib/bets/live-bet-category";
+import {
+  aggregateCategoryHistory,
+  type CategoryStat,
+} from "@/lib/bets/category-history";
 
 // ---------- sync_runs ----------
 
@@ -1061,6 +1067,54 @@ export async function listLiveBetsDates(): Promise<LiveBetsDateRow[]> {
     group by (m.kickoff_at at time zone 'Asia/Jerusalem')::date
     order by 1 asc
   `);
+}
+
+// ---------- live-bet category history (data-driven odds, Phase 1) ----------
+//
+// Per-category realized stats over every GRADED live (match/day) bet, used for
+// the read-only reference the admin sees when opening a new live bet. The SQL
+// only projects one row per bet with its pick tallies; the category bucketing
+// + EV/hit-rate math happen in the pure aggregator (src/lib/bets/
+// category-history.ts) so they stay unit-tested and identical to the values
+// the Phase 2 prior will use. Legacy bets have a null `category` column and
+// are classified on read. See _plans/2026-06-30-data-driven-live-bet-odds.md.
+
+// Raw per-bet projection. Internal to this module — callers get CategoryStat[].
+type CategoryBetSqlRow = {
+  category: LiveBetCategory | null;
+  questionHe: string;
+  questionEn: string;
+  grading: GradingConfig | null;
+  picks: number;
+  correct: number;
+  staked: number;
+  returned: number;
+};
+
+export async function getLiveBetCategoryHistory(
+  minSampleBets?: number,
+): Promise<CategoryStat[]> {
+  const rows = await execRows<CategoryBetSqlRow>(sql`
+    select
+      b.category                                          as "category",
+      b.question_he                                       as "questionHe",
+      b.question_en                                       as "questionEn",
+      b.grading_config                                    as "grading",
+      count(p.id)::int                                    as "picks",
+      count(p.id) filter (where p.was_correct)::int       as "correct",
+      coalesce(sum(p.stake_paid), 0)::int                 as "staked",
+      coalesce(sum(p.points_earned), 0)::int              as "returned"
+    from public.custom_bets b
+    left join public.user_custom_bet_picks p on p.custom_bet_id = b.id
+    where b.scope in ('match', 'day') and b.status = 'graded'
+    group by b.id
+  `);
+
+  const history = aggregateCategoryHistory(rows, minSampleBets);
+  // Stable display order = the canonical category list.
+  return LIVE_BET_CATEGORIES.map((c) => history.get(c)).filter(
+    (s): s is CategoryStat => s != null,
+  );
 }
 
 // ---------- player translation review queue ----------

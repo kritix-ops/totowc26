@@ -41,6 +41,11 @@ import {
   loadLiveStakeConfig,
 } from "@/lib/bets/write-core";
 import { liveStakeCap, type OddsNormConfig } from "@/lib/odds-normalize";
+import {
+  classifyLiveBetCategory,
+  isLiveBetCategory,
+  type LiveBetCategory,
+} from "@/lib/bets/live-bet-category";
 
 // Discriminated result so the client can branch on the error string.
 type Err =
@@ -76,6 +81,13 @@ export type CreateCustomBetInput = {
 
   answerType: "yes_no" | "number" | "multi_choice" | "free_text";
   answerConfig: AnswerConfig;
+
+  // Semantic live-bet category (offside / red / corner / ...) for the
+  // data-driven-odds history. Only meaningful for live (match/day) scope;
+  // the server forces null for free-pick scopes and falls back to
+  // classifyLiveBetCategory when the client omits it. See
+  // _plans/2026-06-30-data-driven-live-bet-odds.md.
+  category?: LiveBetCategory | null;
 
   stakeSnapshot: number;
   payoutSnapshot: number;
@@ -196,6 +208,12 @@ export async function createCustomBet(
     return { ok: false, error: "db" };
   }
 
+  // 7b) Resolve the live-bet category. Only live (match/day) scopes carry
+  // one; everything else stays null. Trust the admin's dropdown choice when
+  // it's a valid enum, otherwise classify from the question + grading so a
+  // new live bet always gets bucketed for the odds-history reference.
+  const category = resolveLiveBetCategory(input);
+
   // 8) Insert.
   try {
     const [row] = await db
@@ -212,6 +230,7 @@ export async function createCustomBet(
         gradingRuleEn: input.gradingRuleEn.trim(),
         answerType: input.answerType,
         answerConfig: priced.answerConfig,
+        category,
         stakeSnapshot: priced.stakeSnapshot,
         payoutSnapshot: priced.payoutSnapshot,
         // drizzle's `numeric` maps to JS string; store with 2dp to match
@@ -231,6 +250,7 @@ export async function createCustomBet(
       id: row.id,
       scope: input.scope,
       answerType: input.answerType,
+      category,
       stake: input.stakeSnapshot,
       payout: input.payoutSnapshot,
       gradingSource: input.gradingSource,
@@ -362,6 +382,7 @@ export async function updateCustomBet(
         gradingRuleEn: input.gradingRuleEn.trim(),
         answerType: input.answerType,
         answerConfig: priced.answerConfig,
+        category: resolveLiveBetCategory(input),
         stakeSnapshot: priced.stakeSnapshot,
         payoutSnapshot: priced.payoutSnapshot,
         decimalOdds:
@@ -377,6 +398,7 @@ export async function updateCustomBet(
       id,
       scope: input.scope,
       answerType: input.answerType,
+      category: resolveLiveBetCategory(input),
       stake: input.stakeSnapshot,
       payout: input.payoutSnapshot,
       gradingSource: input.gradingSource,
@@ -1088,6 +1110,22 @@ export async function sendLiveBetPush(
 }
 
 // ---------- helpers ----------
+
+// Decide the stored category for a create/update. Live (match/day) scopes
+// always get one — the admin's valid dropdown choice, or a classification
+// from the question + grading when the client omits/garbles it. Free-pick
+// scopes (tournament/stage/group) never carry a category.
+function resolveLiveBetCategory(
+  input: CreateCustomBetInput,
+): LiveBetCategory | null {
+  if (input.scope !== "match" && input.scope !== "day") return null;
+  if (input.category && isLiveBetCategory(input.category)) return input.category;
+  return classifyLiveBetCategory({
+    questionHe: input.questionHe,
+    questionEn: input.questionEn,
+    grading: input.gradingConfig,
+  });
+}
 
 function validateScopeAnchors(input: CreateCustomBetInput): "ok" | Err {
   const has = {

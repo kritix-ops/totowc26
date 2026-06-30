@@ -10,6 +10,7 @@ import { db } from "@/db";
 import { settings, groups, teams } from "@/db/schema";
 import {
   getBetTemplate,
+  getLiveBetCategoryHistory,
   listAnchorMatches,
   listAnchorDays,
   listBetTemplates,
@@ -40,7 +41,7 @@ export default async function NewBetPage({
   const targetMatchdayDate =
     typeof sp.matchdayDate === "string" ? sp.matchdayDate : null;
 
-  const [anchorMatches, anchorDays, groupRows, [defaultsRow], deadlineCtx, templates, template] =
+  const [anchorMatches, anchorDays, groupRows, [defaultsRow], deadlineCtx, templates, template, categoryHistory] =
     await Promise.all([
       listAnchorMatches(),
       listAnchorDays(),
@@ -70,6 +71,9 @@ export default async function NewBetPage({
       getDeadlineContext(),
       listBetTemplates(50),
       templateId ? getBetTemplate(templateId) : Promise.resolve(null),
+      // Per-category realized history for the read-only odds reference the
+      // form shows when the admin opens a live (match/day) bet.
+      getLiveBetCategoryHistory(),
     ]);
   const defaults = defaultsRow
     ? {
@@ -214,6 +218,7 @@ export default async function NewBetPage({
           defaults={defaults}
           templates={templates}
           initialBet={initialBet ?? groupInitialBet}
+          categoryHistory={categoryHistory}
         />
       </Card>
     </section>

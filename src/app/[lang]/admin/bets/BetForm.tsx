@@ -34,6 +34,12 @@ import {
   priceYesNo,
   resolvePricingMode,
 } from "@/lib/bets/price-options";
+import {
+  classifyLiveBetCategory,
+  type LiveBetCategory,
+} from "@/lib/bets/live-bet-category";
+import type { CategoryStat } from "@/lib/bets/category-history";
+import { LiveBetCategoryPanel } from "./LiveBetCategoryPanel";
 import type { AdminAnchorMatch, AdminAnchorDay, BetTemplate } from "@/db/admin-queries";
 import type { BetTypeKey } from "@/db/schema";
 import { useAutoTranslate } from "@/lib/use-auto-translate";
@@ -148,6 +154,7 @@ export function BetForm({
   initialBet,
   templates,
   returnQs,
+  categoryHistory,
 }: {
   locale: Locale;
   anchorMatches: AdminAnchorMatch[];
@@ -157,6 +164,10 @@ export function BetForm({
   mode?: "create" | "edit";
   betId?: string;
   initialBet?: InitialBet;
+  // Per-category realized history (EV / hit-rate / sample) for the read-only
+  // odds reference shown on live (match/day) bets. Server-supplied; undefined
+  // on surfaces that don't load it (the reference simply doesn't render).
+  categoryHistory?: CategoryStat[];
   // Sanitized bets-list filter query (e.g. "status=draft&matchday=...") carried
   // in via the edit page's `?return=`. After save/publish the form returns to
   // the filtered list so the admin lands back where they were — no hunting for
@@ -201,6 +212,16 @@ export function BetForm({
     isEnglishEmpty: () => gradingRuleEn.trim().length === 0,
     onTranslate: setGradingRuleEn,
   });
+
+  // ---- Category (live-bet odds history) ----
+  // The effective category is DERIVED, not stored: it auto-classifies from the
+  // question text and is only replaced once the admin picks from the dropdown
+  // (manualCategory). Deriving in render (instead of an effect that setStates)
+  // keeps the suggestion in step with the question without cascading renders.
+  // Only persisted for live (match/day) scope — the payload nulls it elsewhere.
+  const [manualCategory, setManualCategory] = useState<LiveBetCategory | null>(
+    null,
+  );
 
   // ---- Answer ----
   const [answerType, setAnswerType] = useState<AnswerType>(
@@ -285,6 +306,15 @@ export function BetForm({
   //     bets without per-option pricing.
   const isLiveScope = scope === "match" || scope === "day";
   const isFreePickFormScope = isFreePickScope(scope);
+
+  // Auto-classification from the current question (text only — grading is still
+  // being authored; the server re-resolves with the final grading on save).
+  // The manual dropdown choice wins once made.
+  const autoCategory = useMemo(
+    () => classifyLiveBetCategory({ questionHe, questionEn }),
+    [questionHe, questionEn],
+  );
+  const category = manualCategory ?? autoCategory;
 
   const defaultStakePayout = useMemo(() => {
     if (!defaults) return { stake: 1, payout: 3 };
@@ -760,6 +790,9 @@ export function BetForm({
         gradingRuleEn,
         answerType,
         answerConfig,
+        // Only live scopes carry a category; the server re-asserts this and
+        // re-resolves from the question + grading if omitted.
+        category: isLiveScope ? category : null,
         stakeSnapshot: stake,
         payoutSnapshot: payout,
         // Only live scopes ship a decimal_odds value, and only when pricing
@@ -1155,6 +1188,18 @@ export function BetForm({
           onChange={(v) => setAnswerType(v as AnswerType)}
         />
       </Section>
+
+      {/* 5b. Category + odds-history reference (live scope only) */}
+      {isLiveScope && categoryHistory && (
+        <Section title={isHebrew ? "קטגוריה והיסטוריית יחס" : "Category & odds history"}>
+          <LiveBetCategoryPanel
+            locale={isHebrew ? "he" : "en"}
+            category={category}
+            onCategoryChange={setManualCategory}
+            history={categoryHistory}
+          />
+        </Section>
+      )}
 
       {/* 6. Answer config (dynamic) */}
       {answerType === "number" && (

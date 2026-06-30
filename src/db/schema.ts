@@ -110,6 +110,21 @@ export const gradingSourceEnum = pgEnum("grading_source", [
   "auto_football_data",
   "manual",
 ]);
+// live_bet_category - semantic "what kind of live bet is this" tag used to
+// group history for data-driven odds on new live bets. Yellow and red are
+// separate on purpose. Mirror of LIVE_BET_CATEGORIES in
+// src/lib/bets/live-bet-category.ts (that module is the source of truth).
+export const liveBetCategoryEnum = pgEnum("live_bet_category", [
+  "offside",
+  "yellow",
+  "red",
+  "corner",
+  "penalty",
+  "goals",
+  "btts",
+  "var",
+  "other",
+]);
 // duel_status - 1v1 binary bet lifecycle. open is awaiting a joiner;
 // matched has both sides locked in (stakes deducted); settled is graded
 // and the winner credited; cancelled is no-joiner-by-deadline or admin
@@ -819,6 +834,12 @@ export const customBets = pgTable(
     // Answer shape
     answerType: answerTypeEnum("answer_type").notNull(),
     answerConfig: jsonb("answer_config").notNull().default({}),
+
+    // Categorisation. Semantic live-bet type for data-driven odds history
+    // (offside / red / corner / ...). Nullable: only new live bets store it;
+    // legacy rows are bucketed on read by classifyLiveBetCategory. See
+    // _plans/2026-06-30-data-driven-live-bet-odds.md + migration 0070.
+    category: liveBetCategoryEnum("category"),
 
     // Pricing snapshot
     stakeSnapshot: smallint("stake_snapshot").notNull(),

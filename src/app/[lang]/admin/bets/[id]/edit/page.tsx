@@ -9,6 +9,7 @@ import { db } from "@/db";
 import { settings, groups } from "@/db/schema";
 import {
   getAdminCustomBetDetail,
+  getLiveBetCategoryHistory,
   listAnchorMatches,
   listAnchorDays,
 } from "@/db/admin-queries";
@@ -41,7 +42,7 @@ export default async function EditBetPage({
     redirect(detailHref);
   }
 
-  const [anchorMatches, anchorDays, groupRows, [defaultsRow], deadlineCtx] =
+  const [anchorMatches, anchorDays, groupRows, [defaultsRow], deadlineCtx, categoryHistory] =
     await Promise.all([
       listAnchorMatches(),
       listAnchorDays(),
@@ -66,6 +67,7 @@ export default async function EditBetPage({
         .where(eq(settings.id, 1))
         .limit(1),
       getDeadlineContext(),
+      getLiveBetCategoryHistory(),
     ]);
   const defaults = defaultsRow
     ? {
@@ -133,6 +135,7 @@ export default async function EditBetPage({
           // Carry the list filters through so save/publish return the admin to
           // the exact filtered list they came from.
           returnQs={returnQs || undefined}
+          categoryHistory={categoryHistory}
         />
       </Card>
     </section>
