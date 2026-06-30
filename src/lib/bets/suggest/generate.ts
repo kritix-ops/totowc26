@@ -99,7 +99,7 @@ export async function generateSuggestions(
   const shared = {
     key,
     model,
-    system: buildSystemPrompt(context.scope, opts?.guidance),
+    system: buildSystemPrompt(context.scope, opts?.guidance, opts?.dataGuidance),
     userContent: buildUserPrompt(context, count, opts),
     // A rich bilingual bet (a 5-7 bucket distribution with He+En labels, a
     // bilingual question + grading rule, grading config and rationale) runs

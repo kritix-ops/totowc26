@@ -61,11 +61,15 @@ export function PromptEditor({
   const text = texts[active];
   const dirty = text !== saved[active];
 
+  // The auto-computed data steer for the active scope (pool-wide, so it's the
+  // same for match and day). Read-only — the admin sees it but can't edit it.
+  const dataGuidance = info?.dataGuidance ?? "";
+
   // Live preview: same assembly the generator uses, with the current (possibly
-  // unsaved) guidance applied.
+  // unsaved) house guidance AND the data steer applied.
   const livePrompt = useMemo(
-    () => buildSystemPrompt(active, text),
-    [active, text],
+    () => buildSystemPrompt(active, text, dataGuidance),
+    [active, text, dataGuidance],
   );
 
   const save = () => {
@@ -114,6 +118,24 @@ export function PromptEditor({
           </button>
         ))}
       </div>
+
+      {/* Data steer (read-only) — auto-computed from the pool's own history. */}
+      {dataGuidance && (
+        <div className="flex flex-col gap-1.5 rounded-lg border border-outline-variant bg-surface-container p-3">
+          <LabelCaps>{isHebrew ? "סטיר מהדאטה (אוטומטי)" : "Data steer (automatic)"}</LabelCaps>
+          <p
+            className="text-sm text-on-surface-variant whitespace-pre-wrap"
+            dir={isHebrew ? "rtl" : "ltr"}
+          >
+            {dataGuidance}
+          </p>
+          <p className="text-[11px] text-on-surface-variant">
+            {isHebrew
+              ? "מחושב אוטומטית מההיסטוריה של הפול (קטגוריות שהחזירו לשחקנים גרוע). מכוון בחירת שווקים בלבד, לא הסתברויות. לא ניתן לעריכה."
+              : "Auto-computed from the pool's history (categories that paid players poorly). Steers market selection only, not probabilities. Not editable."}
+          </p>
+        </div>
+      )}
 
       {/* Editable house guidance. */}
       <div className="flex flex-col gap-1.5">

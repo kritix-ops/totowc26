@@ -49,6 +49,12 @@ export type GenerateOptions = {
   // selection/wording only; never overrides the hard rules. See
   // buildSystemPrompt + settings.suggest_guidance_match/_day.
   guidance?: string;
+  // Auto-computed steer derived from the pool's OWN settled history
+  // (buildCategoryEvGuidance): market types players have consistently lost on,
+  // so the model offers them sparingly. Selection-only, like `guidance`, and
+  // fenced separately so its data provenance is clear. Never shifts
+  // probabilities (the Phase 2 backtest rejected that). "" = nothing to add.
+  dataGuidance?: string;
 };
 
 // The settlement vocabulary the model may target. Anything outside this set
@@ -75,6 +81,7 @@ export const MAX_GUIDANCE_CHARS = 2000;
 export function buildSystemPrompt(
   scope: GenerationScope,
   guidance?: string,
+  dataGuidance?: string,
 ): string {
   const subject = scope === "match" ? "this exact fixture" : "these fixtures";
   const lines = [
@@ -111,6 +118,19 @@ export function buildSystemPrompt(
     "",
     hebrewRegisterBlock(),
   ];
+
+  // Data-derived steer from the pool's own settled history. Fenced and
+  // subordinate to the hard rules, exactly like the admin guidance. Selection
+  // only (it never asks for a probability shift), so it slots in beside the
+  // calibration rules without conflict.
+  const dg = dataGuidance?.trim();
+  if (dg) {
+    lines.push(
+      "",
+      "Data steer from this pool's own history (apply WITHIN all the hard rules above; it steers SELECTION only and must never change a calibrated probability or break the format/schema/grading/bilingual rules):",
+      dg.slice(0, MAX_GUIDANCE_CHARS),
+    );
+  }
 
   // Admin "house guidance" — a SAFE, fenced steer. It is appended last and
   // explicitly subordinated to every hard rule above, so the admin can shape

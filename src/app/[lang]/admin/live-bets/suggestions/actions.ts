@@ -21,8 +21,9 @@ import {
   type DossierInput,
 } from "@/lib/bets/suggest/dossier";
 import { suggestionToDraft } from "@/lib/bets/suggest/transform";
+import { buildCategoryEvGuidance } from "@/lib/bets/category-history";
 import type { GradingConfig } from "@/lib/bets/types";
-import { listFixturesForDate } from "@/db/admin-queries";
+import { getLiveBetCategoryHistory, listFixturesForDate } from "@/db/admin-queries";
 import { SUGGEST_MODELS } from "@/lib/bets/suggest/models";
 import { notifyUsers } from "@/lib/notifications";
 import { createCustomBet } from "../../bets/actions";
@@ -270,7 +271,7 @@ async function runMatchGeneration(args: MatchGenArgs): Promise<void> {
     // already live for this fixture (anti-repetition). Both feed the prompt;
     // a dossier failure is non-fatal — the generator falls back to a thin
     // prompt rather than blocking generation.
-    const [dossierResult, existingQuestions] = await Promise.all([
+    const [dossierResult, existingQuestions, categoryHistory] = await Promise.all([
       buildMatchDossier({
         matchId,
         homeCode: fx.homeCode,
@@ -284,7 +285,19 @@ async function runMatchGeneration(args: MatchGenArgs): Promise<void> {
         return null;
       }),
       loadExistingQuestions(matchId),
+      // Selection steer from the pool's own settled history (poor-value
+      // categories). Non-fatal — an empty steer just adds nothing.
+      getLiveBetCategoryHistory().catch((err) => {
+        console.error("[live-gen category history failed]", { matchId, err });
+        return [];
+      }),
     ]);
+    const dataGuidance = buildCategoryEvGuidance(categoryHistory);
+    console.info("[live-gen data steer]", {
+      matchId,
+      drainCategories: categoryHistory.filter((s) => s.meetsSampleGate && (s.evPct ?? 0) <= -15).map((s) => s.category),
+      applied: dataGuidance.length > 0,
+    });
 
     const label =
       `${fx.context.homeNameEn} (HE: ${fx.context.homeNameHe}) vs ` +
@@ -295,6 +308,7 @@ async function runMatchGeneration(args: MatchGenArgs): Promise<void> {
       count: args.count,
       instructions: args.instructions,
       guidance: modelRow?.guidance ?? undefined,
+      dataGuidance,
       dossierText: dossierResult ? renderDossier(dossierResult.dossier) : undefined,
       validPlayerIds: dossierResult?.validPlayerIds,
       existingQuestions,
@@ -544,13 +558,23 @@ async function runDayGeneration(args: DayGenArgs): Promise<void> {
       awayNameEn: f.awayNameEn,
     }));
 
-    const [dayDossier, existingQuestions] = await Promise.all([
+    const [dayDossier, existingQuestions, categoryHistory] = await Promise.all([
       buildDayDossier(dossierInputs).catch((err) => {
         console.error("[live-gen day dossier failed]", { date, err });
         return null;
       }),
       loadExistingDayQuestions(date),
+      getLiveBetCategoryHistory().catch((err) => {
+        console.error("[live-gen day category history failed]", { date, err });
+        return [];
+      }),
     ]);
+    const dataGuidance = buildCategoryEvGuidance(categoryHistory);
+    console.info("[live-gen-day data steer]", {
+      date,
+      drainCategories: categoryHistory.filter((s) => s.meetsSampleGate && (s.evPct ?? 0) <= -15).map((s) => s.category),
+      applied: dataGuidance.length > 0,
+    });
 
     const fixtureList = fixtures.map((f) => `${f.homeNameEn} vs ${f.awayNameEn}`).join(", ");
     const label =
@@ -560,6 +584,7 @@ async function runDayGeneration(args: DayGenArgs): Promise<void> {
       count: args.count,
       instructions: args.instructions,
       guidance: modelRow?.guidance ?? undefined,
+      dataGuidance,
       dossierText: dayDossier ? renderDayDossier(dayDossier.fixtures) : undefined,
       validPlayerIds: dayDossier?.validPlayerIds,
       existingQuestions,
@@ -721,6 +746,11 @@ export type PromptScopeInfo = {
   // system prompt live from this via the same buildSystemPrompt the generator
   // uses, so the read-only preview always reflects unsaved edits too.
   guidance: string;
+  // The auto-computed data steer (poor-value categories from the pool's own
+  // history) the generator injects this run, or "" when no category clears the
+  // drain bar. Read-only — shown so the admin sees exactly what data-derived
+  // selection nudge the model receives. Same for both scopes.
+  dataGuidance: string;
   // A faithful sample of the user prompt, with placeholders where the real
   // run injects the dossier / anti-repetition list / admin request.
   userPromptSample: string;
@@ -730,7 +760,11 @@ export type PromptScopeInfo = {
 // uses placeholders for the parts that are filled in per run (the dossier, the
 // already-live questions, the free-text request) so the admin sees the real
 // shape without needing a live fixture.
-function buildScopeInfo(scope: "match" | "day", guidance: string): PromptScopeInfo {
+function buildScopeInfo(
+  scope: "match" | "day",
+  guidance: string,
+  dataGuidance: string,
+): PromptScopeInfo {
   const label =
     scope === "match"
       ? "<דוגמה: Argentina (HE: ארגנטינה) vs Mexico (HE: מקסיקו). Stage: Group Stage. Kickoff: ...>"
@@ -743,7 +777,7 @@ function buildScopeInfo(scope: "match" | "day", guidance: string): PromptScopeIn
     ],
     instructions: "<הבקשה החופשית מכפתור 'אפשרויות' תופיע כאן, אם תמלא אותה>",
   });
-  return { scope, guidance, userPromptSample };
+  return { scope, guidance, dataGuidance, userPromptSample };
 }
 
 // Full prompt + current guidance for both scopes, for the inline prompt panel.
@@ -755,19 +789,25 @@ export async function getPromptInfo(): Promise<
   if (!(await hasPermission(user.id, "liveBets"))) {
     return { ok: false, error: "forbidden" };
   }
-  const [s] = await db
-    .select({
-      match: settings.suggestGuidanceMatch,
-      day: settings.suggestGuidanceDay,
-    })
-    .from(settings)
-    .where(eq(settings.id, 1))
-    .limit(1);
+  const [[s], categoryHistory] = await Promise.all([
+    db
+      .select({
+        match: settings.suggestGuidanceMatch,
+        day: settings.suggestGuidanceDay,
+      })
+      .from(settings)
+      .where(eq(settings.id, 1))
+      .limit(1),
+    getLiveBetCategoryHistory().catch(() => []),
+  ]);
+  // Same data steer the generator computes — scope-independent (the history is
+  // pool-wide), so both scopes show the identical block.
+  const dataGuidance = buildCategoryEvGuidance(categoryHistory);
   return {
     ok: true,
     scopes: [
-      buildScopeInfo("match", s?.match ?? ""),
-      buildScopeInfo("day", s?.day ?? ""),
+      buildScopeInfo("match", s?.match ?? "", dataGuidance),
+      buildScopeInfo("day", s?.day ?? "", dataGuidance),
     ],
   };
 }

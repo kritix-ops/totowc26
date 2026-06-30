@@ -37,3 +37,32 @@ describe("buildSystemPrompt guidance", () => {
     expect(prompt).toContain("Lead with total goals today.");
   });
 });
+
+// The data steer is a SECOND fenced block, independent of the admin guidance:
+// auto-computed from history, selection-only, never a probability instruction.
+describe("buildSystemPrompt data steer", () => {
+  const steer = "Offer offside markets sparingly.";
+
+  it("adds no data block when none is given", () => {
+    expect(buildSystemPrompt("match")).not.toContain("Data steer from this pool's own history");
+    expect(buildSystemPrompt("match", "house", "  ")).not.toContain("Data steer from this pool's own history");
+  });
+
+  it("appends the data steer after the hard rules, fenced as selection-only", () => {
+    const prompt = buildSystemPrompt("match", undefined, steer);
+    expect(prompt).toContain("Data steer from this pool's own history");
+    expect(prompt).toContain(steer);
+    expect(prompt).toContain("steers SELECTION only");
+    expect(prompt.indexOf("Hard rules:")).toBeLessThan(
+      prompt.indexOf("Data steer from this pool's own history"),
+    );
+  });
+
+  it("keeps the data steer and the admin guidance as separate blocks", () => {
+    const prompt = buildSystemPrompt("match", "House rule X.", steer);
+    expect(prompt).toContain("Data steer from this pool's own history");
+    expect(prompt).toContain("House guidance from the pool admin");
+    expect(prompt).toContain("House rule X.");
+    expect(prompt).toContain(steer);
+  });
+});

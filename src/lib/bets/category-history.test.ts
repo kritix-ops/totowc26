@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   aggregateCategoryHistory,
+  buildCategoryEvGuidance,
   categoryStat,
   MIN_CATEGORY_SAMPLE_BETS,
   type CategoryBetRow,
+  type CategoryStat,
 } from "./category-history";
 
 // Minimal row helper — only the fields the aggregator reads.
@@ -85,5 +87,55 @@ describe("aggregateCategoryHistory", () => {
     const tenBets = Array.from({ length: 10 }, () => row({ category: "corner", picks: 1 }));
     expect(categoryStat(aggregateCategoryHistory(tenBets, 5), "corner").meetsSampleGate).toBe(true);
     expect(categoryStat(aggregateCategoryHistory(tenBets, 20), "corner").meetsSampleGate).toBe(false);
+  });
+});
+
+describe("buildCategoryEvGuidance", () => {
+  // Minimal CategoryStat helper.
+  function stat(p: Partial<CategoryStat> & { category: CategoryStat["category"] }): CategoryStat {
+    return {
+      bets: 25,
+      picks: 250,
+      correct: 60,
+      staked: 1000,
+      returned: 600,
+      hitRate: 0.24,
+      evPct: -40,
+      meetsSampleGate: true,
+      ...p,
+    };
+  }
+
+  it("flags a gated drain category with rounded EV and steers selection", () => {
+    const g = buildCategoryEvGuidance([
+      stat({ category: "offside", evPct: -34.5, picks: 250 }),
+    ]);
+    expect(g).toContain("Offside");
+    expect(g).toContain("-35%"); // rounded to nearest 5
+    expect(g).toContain("250 picks");
+    expect(g.toLowerCase()).toContain("sparingly");
+    // Must NOT instruct probability shifts — that path failed the backtest.
+    expect(g.toLowerCase()).toContain("calibrated to the dossier");
+  });
+
+  it("returns empty when no category clears the drain bar", () => {
+    expect(buildCategoryEvGuidance([stat({ category: "goals", evPct: 12 })])).toBe("");
+    expect(buildCategoryEvGuidance([stat({ category: "corner", evPct: -8 })])).toBe("");
+    expect(buildCategoryEvGuidance([])).toBe("");
+  });
+
+  it("ignores drains that fail the sample gate or are 'other'", () => {
+    expect(
+      buildCategoryEvGuidance([stat({ category: "var", evPct: -50, meetsSampleGate: false })]),
+    ).toBe("");
+    expect(buildCategoryEvGuidance([stat({ category: "other", evPct: -50 })])).toBe("");
+  });
+
+  it("lists multiple drains worst-first", () => {
+    const g = buildCategoryEvGuidance([
+      stat({ category: "corner", evPct: -18 }),
+      stat({ category: "offside", evPct: -34 }),
+    ]);
+    expect(g.indexOf("Offside")).toBeLessThan(g.indexOf("Corner"));
   });
 });

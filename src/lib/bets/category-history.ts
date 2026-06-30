@@ -14,6 +14,7 @@
 import type { GradingConfig } from "@/lib/bets/types";
 import {
   classifyLiveBetCategory,
+  liveBetCategoryLabel,
   type LiveBetCategory,
 } from "@/lib/bets/live-bet-category";
 
@@ -101,6 +102,45 @@ export function aggregateCategoryHistory(
     });
   }
   return out;
+}
+
+// Categories whose realized EV is at least this far below break-even (percent)
+// are flagged to the suggestion model as poor value. Deliberately strict so
+// only a real, sample-backed drain (offside at -34.5%) surfaces — not noise.
+export const GUIDANCE_DRAIN_PCT = -15;
+
+// Build a SELECTION steer for the AI suggestion prompt from realized history.
+// Important boundary: the Phase 2 backtest proved a category-level PROBABILITY
+// adjustment does NOT improve calibration, so this never tells the model to
+// shift probabilities. It only steers WHICH markets to offer — categories
+// where players have consistently lost get offered sparingly. Returns "" when
+// no gated category clears the drain bar, so nothing is injected. Pure +
+// English (the prompt's language). See
+// _plans/2026-06-30-data-driven-live-bet-odds.md "Phase 2 ... constructive
+// alternatives".
+export function buildCategoryEvGuidance(history: CategoryStat[]): string {
+  const drains = history
+    .filter(
+      (s) =>
+        s.category !== "other" &&
+        s.meetsSampleGate &&
+        s.evPct != null &&
+        s.evPct <= GUIDANCE_DRAIN_PCT,
+    )
+    .sort((a, b) => (a.evPct ?? 0) - (b.evPct ?? 0));
+  if (drains.length === 0) return "";
+
+  const items = drains.map((s) => {
+    // Round EV to the nearest 5% — the sample doesn't justify finer precision.
+    const ev = Math.round((s.evPct ?? 0) / 5) * 5;
+    return `- ${liveBetCategoryLabel(s.category, "en")} markets (about ${ev}% player return over ${s.picks} picks)`;
+  });
+
+  return [
+    "From this pool's own settled history, these market types have paid players poorly — they have consistently lost on them:",
+    items.join("\n"),
+    "Steer SELECTION accordingly: offer these market types SPARINGLY, never let them lead or dominate a batch, and keep their wording and grading rule especially clear. This is only about WHICH markets to choose — keep every probability calibrated to the dossier exactly as the hard rules require; do not inflate or flatten any probability because of this note.",
+  ].join("\n");
 }
 
 // Look up one category's stat, or a zeroed stat when the category has no
