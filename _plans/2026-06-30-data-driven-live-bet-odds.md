@@ -298,3 +298,39 @@ harmless read-only panel — so it is intentionally deferred, not built now.
 
 **Phase 2 entry point:** build the backtest harness (Brier: blend vs raw LLM
 on the 358 graded bets) — the gate that must pass before the blend ships.
+
+## Phase 2 backtest — GATE FAILED, blend NOT built (2026-06-30)
+
+Ran `_scripts/_phase2-backtest.mjs` (read-only, prod): 185 graded yes_no bets,
+priced-probability Brier baseline vs a category-prior shrinkage blend
+(leave-one-out, gate, several `k`). Result:
+
+| approach | Brier | vs baseline |
+| --- | --- | --- |
+| priced probability (baseline) | 0.20010 | — |
+| k=0 (pure category average — the literal "price from averages" idea) | 0.21024 | **+5.06% worse** |
+| k=5..50 (meaningful prior weight) | 0.203–0.208 | worse |
+| k=100 (prior barely contributes) | 0.19944 | −0.33% (within noise on n=185) |
+
+**Conditioning on category does NOT improve outcome prediction — it degrades
+it.** Cause is exactly the council's warning: categories are too
+heterogeneous. The "goals" yes_no bucket mixes "over 0.5 goals" (~near-certain)
+with "over 4.5 goals" (longshot) under one P(yes)=28%; pulling an individual
+bet toward that mean moves it away from its correct, threshold-specific value.
+The team's original instinct ("price from the averages so far") is the single
+worst variant (+5%).
+
+**Decision: do NOT build the automatic blend.** Shipping it would make odds
+worse, which the gate exists to prevent. This vindicates Phase 1's altitude:
+the read-only, human-in-the-loop reference is the right data-driven tool — the
+admin sees "offside −34%" and adjusts, which is where human judgement beats a
+coarse auto-prior. The real pain (offside) is already surfaced red in the
+Phase 1 panel.
+
+**Constructive alternatives that do NOT fail the gate (for a later decision):**
+- Feed the per-category EV findings into the EXISTING safe AI-prompt guidance
+  block ([[suggest-prompt-guidance-safe-only]]) — e.g. "offside markets paid
+  players −34% historically; lean to higher odds / fewer offside markets."
+  Steers the LLM, keeps the admin in control, no mechanical blend.
+- Strengthen the Phase 1 reference (e.g. per-option EV for multi_choice, where
+  offside's drain actually lives) so the human signal is sharper.
