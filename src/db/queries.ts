@@ -681,13 +681,35 @@ async function loadLeaderboardBreakdownsFromDb(
         coalesce(mb.points_earned, 0)::int          as delta,
         (m.home_team || ' ' || m.away_team)         as title_he,
         (m.home_team || ' ' || m.away_team)         as title_en,
+        -- The 1/X/2 + exact-score pick is graded on the 90-minute regulation
+        -- score (reg_*, falling back to the final for group matches), never the
+        -- after-extra-time result — so the detail line must show that same
+        -- figure, or a 2:1 pick on a match that ended 3:2 in ET but 2:2 at 90'
+        -- looks wrongly graded. When ET changed the scoreline we tag it "(90
+        -- דקות)" so the shown result reconciles with the awarded points.
         (
           'תחזית ' || coalesce(mb.home_score::text, '?') || ':' || coalesce(mb.away_score::text, '?')
-          || ' · תוצאה ' || coalesce(m.home_score::text, '?') || ':' || coalesce(m.away_score::text, '?')
+          || ' · תוצאה '
+          || coalesce(coalesce(m.reg_home_score, m.home_score)::text, '?')
+          || ':' || coalesce(coalesce(m.reg_away_score, m.away_score)::text, '?')
+          || case
+               when coalesce(m.reg_home_score, m.home_score) <> m.home_score
+                 or coalesce(m.reg_away_score, m.away_score) <> m.away_score
+               then ' (90 דקות)'
+               else ''
+             end
         )                                           as detail_he,
         (
           'Pick ' || coalesce(mb.home_score::text, '?') || ':' || coalesce(mb.away_score::text, '?')
-          || ' · result ' || coalesce(m.home_score::text, '?') || ':' || coalesce(m.away_score::text, '?')
+          || ' · result '
+          || coalesce(coalesce(m.reg_home_score, m.home_score)::text, '?')
+          || ':' || coalesce(coalesce(m.reg_away_score, m.away_score)::text, '?')
+          || case
+               when coalesce(m.reg_home_score, m.home_score) <> m.home_score
+                 or coalesce(m.reg_away_score, m.away_score) <> m.away_score
+               then ' (90 min)'
+               else ''
+             end
         )                                           as detail_en,
         -- Teams sit in the title for match bets, so only the date is new
         -- here. kickoff_at is the scheduled match time the row anchors to.
