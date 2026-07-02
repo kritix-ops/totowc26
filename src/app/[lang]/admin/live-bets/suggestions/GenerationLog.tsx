@@ -7,6 +7,7 @@ import {
   AlertCircle,
   RefreshCw,
   ScrollText,
+  ChevronDown,
 } from "lucide-react";
 import { clsx } from "clsx";
 import type { Locale } from "../../../dictionaries";
@@ -26,6 +27,11 @@ export const LIVE_GEN_STARTED_EVENT = "live-gen-started";
 // Polling cadence adapts: fast (4s) while any run is still 'running', slow
 // (15s) once everything has settled, so it stays responsive during a run
 // without hammering the DB when idle.
+//
+// The list is an accordion, collapsed by default, so the (up to 12) run rows
+// don't push the rest of the page down. A live run surfaces a "רץ" badge on
+// the collapsed header — polling keeps refreshing underneath — but never
+// auto-opens the panel, which would reintroduce the long-scroll it avoids.
 
 const FAST_MS = 4_000;
 const SLOW_MS = 15_000;
@@ -40,6 +46,7 @@ export function GenerationLog({
   const isHebrew = locale === "he";
   const [runs, setRuns] = useState<GenRunRow[]>(initialRuns);
   const [refreshing, setRefreshing] = useState(false);
+  const [open, setOpen] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const refresh = useCallback(async () => {
@@ -87,18 +94,46 @@ export function GenerationLog({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Drives the collapsed-header live indicator. Polling runs regardless of
+  // whether the panel is open, so this stays accurate while collapsed.
+  const anyRunning = runs.some((r) => r.status === "running");
+
   return (
     <section className="flex flex-col gap-3 rounded-2xl border border-outline-variant bg-surface-container-lowest p-4">
       <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          aria-expanded={open}
+          aria-controls="ai-gen-log-body"
+          className="press-down inline-flex flex-1 min-w-0 items-center gap-2 min-h-11 -mx-1 px-1 rounded-lg text-start hover:bg-surface-container"
+        >
           <ScrollText className="h-4 w-4 text-primary shrink-0" strokeWidth={1.75} />
           <LabelCaps>{isHebrew ? "יומן ייצור AI" : "AI generation log"}</LabelCaps>
-        </div>
+          {anyRunning ? (
+            <span className="inline-flex items-center gap-1 text-xs font-bold text-primary shrink-0">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2.25} />
+              {isHebrew ? "רץ" : "Running"}
+            </span>
+          ) : runs.length > 0 ? (
+            <span className="text-[11px] font-bold text-on-surface-variant tabular-nums shrink-0">
+              {runs.length}
+            </span>
+          ) : null}
+          <ChevronDown
+            className={clsx(
+              "h-4 w-4 text-outline shrink-0 transition-transform ms-auto",
+              open && "rotate-180",
+            )}
+            strokeWidth={2}
+            aria-hidden
+          />
+        </button>
         <button
           type="button"
           onClick={refresh}
           disabled={refreshing}
-          className="press-down inline-flex items-center gap-1.5 min-h-11 px-3 rounded-full border border-outline text-xs font-bold text-on-surface-variant hover:bg-surface-container disabled:opacity-60"
+          className="press-down inline-flex items-center gap-1.5 min-h-11 px-3 rounded-full border border-outline text-xs font-bold text-on-surface-variant hover:bg-surface-container disabled:opacity-60 shrink-0"
         >
           <RefreshCw
             className={clsx("h-3.5 w-3.5 shrink-0", refreshing && "animate-spin")}
@@ -108,18 +143,22 @@ export function GenerationLog({
         </button>
       </div>
 
-      {runs.length === 0 ? (
-        <p className="text-xs text-on-surface-variant">
-          {isHebrew
-            ? "עדיין לא הופעל ייצור. אחרי שתבקש הצעות, ההתקדמות תופיע כאן בזמן אמת."
-            : "No runs yet. After you request suggestions, progress shows here in real time."}
-        </p>
-      ) : (
-        <ul className="flex flex-col gap-2">
-          {runs.map((run) => (
-            <RunRow key={run.id} run={run} isHebrew={isHebrew} locale={locale} />
-          ))}
-        </ul>
+      {open && (
+        <div id="ai-gen-log-body">
+          {runs.length === 0 ? (
+            <p className="text-xs text-on-surface-variant">
+              {isHebrew
+                ? "עדיין לא הופעל ייצור. אחרי שתבקש הצעות, ההתקדמות תופיע כאן בזמן אמת."
+                : "No runs yet. After you request suggestions, progress shows here in real time."}
+            </p>
+          ) : (
+            <ul className="flex flex-col gap-2">
+              {runs.map((run) => (
+                <RunRow key={run.id} run={run} isHebrew={isHebrew} locale={locale} />
+              ))}
+            </ul>
+          )}
+        </div>
       )}
     </section>
   );
