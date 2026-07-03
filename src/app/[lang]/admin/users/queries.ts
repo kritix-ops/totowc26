@@ -2,6 +2,7 @@ import "server-only";
 import { sql } from "drizzle-orm";
 import { execFirstRow, execRows } from "@/db/helpers";
 import { approvedPotIlsSql } from "@/db/pot";
+import { duelDeltaSql } from "@/lib/bank";
 
 export type AdminUserRow = {
   id: string;
@@ -31,7 +32,10 @@ export type AdminUserStats = {
 
 export async function fetchAdminUsers(): Promise<AdminUserRow[]> {
   // totalPoints is the user's live bank balance, computed the same way as
-  // the leaderboard (starting_bank + payouts − stakes + adjustments).
+  // the leaderboard: starting_bank + match points (1/X/2 + "who advances?")
+  // + live-bet net (payouts − stakes) + duel delta + adjustments. Keep every
+  // term here in lockstep with loadLeaderboardFromDb or the admin roster
+  // total drifts from the score players actually see.
   return execRows<AdminUserRow>(sql`
     select
       p.id::text                     as "id",
@@ -54,9 +58,14 @@ export async function fetchAdminUsers(): Promise<AdminUserRow[]> {
             from public.match_bets mb where mb.user_id = p.id
           ), 0)
         + coalesce((
+            select sum(coalesce(ab.points_earned, 0))::int
+            from public.match_advance_bets ab where ab.user_id = p.id
+          ), 0)
+        + coalesce((
             select sum(coalesce(pk.points_earned, 0) - pk.stake_paid)::int
             from public.user_custom_bet_picks pk where pk.user_id = p.id
           ), 0)
+        + ${duelDeltaSql(sql`p.id`)}
         + coalesce((select sum(pa.delta)::int
             from public.point_adjustments pa where pa.user_id = p.id), 0)
       )::int                         as "totalPoints"

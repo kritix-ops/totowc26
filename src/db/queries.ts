@@ -976,8 +976,10 @@ export async function getMonkeyBenchmark(
   // Per-tab score, mirroring loadLeaderboardFromDb's `scored` CASE for one id.
   const scoreExpr =
     tab === "matches"
-      ? sql`(select coalesce(sum(coalesce(mb.points_earned, 0)), 0)::int
-             from public.match_bets mb where mb.user_id = ${id})`
+      ? sql`((select coalesce(sum(coalesce(mb.points_earned, 0)), 0)::int
+              from public.match_bets mb where mb.user_id = ${id})
+             + (select coalesce(sum(coalesce(ab.points_earned, 0)), 0)::int
+                from public.match_advance_bets ab where ab.user_id = ${id}))`
       : tab === "live"
         ? sql`(select coalesce(sum(coalesce(pk.points_earned, 0) - pk.stake_paid), 0)::int
                from public.user_custom_bet_picks pk where pk.user_id = ${id})`
@@ -995,6 +997,8 @@ export async function getMonkeyBenchmark(
       (
         coalesce((select sum(coalesce(mb.points_earned, 0))::int
           from public.match_bets mb where mb.user_id = ${id}), 0)
+        + coalesce((select sum(coalesce(ab.points_earned, 0))::int
+          from public.match_advance_bets ab where ab.user_id = ${id}), 0)
         + coalesce((select sum(coalesce(pk.points_earned, 0))::int
           from public.user_custom_bet_picks pk where pk.user_id = ${id}), 0)
       )::int as "gross",
@@ -1196,10 +1200,17 @@ export async function getProfileStats(userId: string): Promise<ProfileStats> {
     select
       (select starting_bank from public.settings where id = 1)::int as starting_bank,
 
-      coalesce((
+      -- Matches surface = 1/X/2 score points + "who advances?" (מי עולה)
+      -- advance-bet points. Mirrors loadLeaderboardFromDb's match_score so
+      -- this total never drifts below the leaderboard score.
+      (coalesce((
         select sum(coalesce(mb.points_earned, 0))::int
         from public.match_bets mb where mb.user_id = ${userId}
-      ), 0) as points_from_matches,
+      ), 0)
+      + coalesce((
+        select sum(coalesce(ab.points_earned, 0))::int
+        from public.match_advance_bets ab where ab.user_id = ${userId}
+      ), 0)) as points_from_matches,
 
       coalesce((
         select sum(coalesce(pk.points_earned, 0) - pk.stake_paid)::int
@@ -3520,7 +3531,7 @@ export async function getUserHeadToHead(
 // reflect the same balance the leaderboard uses.
 
 export type BankStats = {
-  matchPoints: number;        // Σ match_bets.points_earned (can be negative under risk mode)
+  matchPoints: number;        // Σ match_bets.points_earned + Σ match_advance_bets.points_earned (can be negative under risk mode)
   livePoints: number;         // Σ (payouts − stake_paid) for live bets (net)
   duelDelta: number;          // duel delta from the bank.ts formula
   matchHits: number;          // count of match bets that were direction or exact
@@ -3544,10 +3555,16 @@ export async function getBankStats(userId: string): Promise<BankStats> {
     duels_participated: number;
   }>(sql`
     select
-      coalesce((
+      -- Matches surface = 1/X/2 score points + "who advances?" (מי עולה)
+      -- advance-bet points, matching the leaderboard's match_score.
+      (coalesce((
         select sum(coalesce(mb.points_earned, 0))::int
         from public.match_bets mb where mb.user_id = ${userId}
-      ), 0)                                                       as match_points,
+      ), 0)
+      + coalesce((
+        select sum(coalesce(ab.points_earned, 0))::int
+        from public.match_advance_bets ab where ab.user_id = ${userId}
+      ), 0))                                                      as match_points,
 
       coalesce((
         select sum(coalesce(pk.points_earned, 0) - pk.stake_paid)::int

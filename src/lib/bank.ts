@@ -20,9 +20,16 @@ export function bankCacheTag(userId: string): string {
 //
 // balance = settings.starting_bank
 //         + Σ match_bets.points_earned                 (1/X/2 scoring)
+//         + Σ match_advance_bets.points_earned         ("who advances?" / מי עולה)
 //         + Σ user_custom_bet_picks(payout − stake)    (live-bet net)
 //         + duelDelta                                  (see §7.3)
 //         + Σ point_adjustments.delta
+//
+// The match_advance_bets term MUST stay in lockstep with the leaderboard's
+// match_score (see loadLeaderboardFromDb in db/queries.ts) - it folds the
+// same "who advances?" payouts into the matches surface. When it was first
+// omitted here the header pill and profile total drifted *below* the
+// leaderboard score for anyone who earned advance points.
 //
 // duelDelta sums every duel the user is on either side of:
 //   open + opener=me                    →  -stake (in-flight debit)
@@ -61,6 +68,10 @@ export function bankBalanceSql(userId: string): SQL {
     + coalesce((
         select sum(coalesce(mb.points_earned, 0))::int
         from public.match_bets mb where mb.user_id = ${userId}
+      ), 0)
+    + coalesce((
+        select sum(coalesce(ab.points_earned, 0))::int
+        from public.match_advance_bets ab where ab.user_id = ${userId}
       ), 0)
     + coalesce((
         select sum(coalesce(pk.points_earned, 0) - pk.stake_paid)::int
@@ -166,6 +177,10 @@ async function loadBankBreakdownFromDb(userId: string): Promise<BankBreakdown> {
         select sum(coalesce(mb.points_earned, 0))::int
         from public.match_bets mb where mb.user_id = ${userId}
       ), 0)
+      + coalesce((
+          select sum(coalesce(ab.points_earned, 0))::int
+          from public.match_advance_bets ab where ab.user_id = ${userId}
+        ), 0)
       + coalesce((
           select sum(coalesce(pk.points_earned, 0))::int
           from public.user_custom_bet_picks pk where pk.user_id = ${userId}
