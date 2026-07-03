@@ -498,6 +498,13 @@
       "when": 1782370000000,
       "tag": "0070_live_bet_category",
       "breakpoints": true
+    },
+    {
+      "idx": 71,
+      "version": "7",
+      "when": 1782380000000,
+      "tag": "0071_matches_manual_result",
+      "breakpoints": true
     }
   ]
 }

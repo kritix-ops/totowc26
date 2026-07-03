@@ -461,11 +461,13 @@ async function _ingestFromApiFootball(
         advancing_team = excluded.advancing_team,
         finalized_at = case when excluded.status = 'final' and matches.finalized_at is null then now() else matches.finalized_at end
       where matches.status not in ('postponed', 'canceled')
+        and matches.manual_result is not true
       returning (xmax = 0) as inserted
     `);
     if (rows.length === 0) {
-      // Conflict hit a row the admin has manually parked in postponed/canceled.
-      // The DO UPDATE WHERE skipped it, so upstream never stomps the hold.
+      // Conflict hit a row the admin parked in postponed/canceled OR one whose
+      // result they entered by hand (manual_result). The DO UPDATE WHERE
+      // skipped it, so upstream never stomps the hold or the manual entry.
       report.skipped += 1;
       console.info("[sync upsert]", {
         fixtureId: f.fixtureId,
@@ -557,10 +559,12 @@ async function _ingestFromFootballData(
         went_to_penalties = excluded.went_to_penalties,
         finalized_at = case when excluded.status = 'final' and matches.finalized_at is null then now() else matches.finalized_at end
       where matches.status not in ('postponed', 'canceled')
+        and matches.manual_result is not true
       returning (xmax = 0) as inserted
     `);
     if (rows.length === 0) {
-      // Admin-parked row (postponed/canceled): the DO UPDATE WHERE skipped it.
+      // Admin-parked row (postponed/canceled) or a manual result entry: the DO
+      // UPDATE WHERE skipped it, so upstream never stomps the hold/entry.
       report.skipped += 1;
       console.info("[sync upsert]", {
         fixtureId: f.id,
@@ -1022,7 +1026,10 @@ type CandidateBet = {
   } | null;
 };
 
-async function scoreAutoCustomBets(): Promise<number> {
+// Exported so the admin manual-result path can grade the match's auto live bets
+// immediately after entering a score (otherwise they'd wait for the next sync).
+// Idempotent: only open/locked auto-graded bets whose data is ready are touched.
+export async function scoreAutoCustomBets(): Promise<number> {
   // 1) Candidate set. Both auto sources share the same shape.
   const candidates = await execRows<CandidateBet>(drizzleSql`
     select

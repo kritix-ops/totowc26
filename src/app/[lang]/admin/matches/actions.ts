@@ -7,6 +7,7 @@ import {
   customBets,
   matches,
   matchAdvanceBets,
+  matchBets,
   matchStatusAudit,
 } from "@/db/schema";
 import { getUser } from "@/lib/supabase/auth";
@@ -14,7 +15,15 @@ import { isAdmin } from "@/lib/admin";
 import { notifyUsers } from "@/lib/notifications";
 import { cascadeVoidMatchLiveBets } from "@/lib/matches/cascade-live-bets";
 import { scoreCanceledMatch } from "@/lib/matches/score-canceled";
-import { scoreAdvanceBets } from "@/lib/sync";
+import {
+  scoreAdvanceBets,
+  scoreAutoCustomBets,
+  scoreFinalMatches,
+} from "@/lib/sync";
+import {
+  validateMatchResult,
+  type MatchResultInput,
+} from "@/lib/matches/result";
 import {
   validateCancelResolution,
   type CancelResolution,
@@ -36,6 +45,10 @@ type Err =
   | "invalid_awarded_score"
   | "invalid_split_points"
   | "invalid_kickoff"
+  | "match_not_started"
+  | "invalid_score"
+  | "invalid_penalties"
+  | "invalid_advancing_team"
   | "already_resolved"
   | "db";
 
@@ -523,6 +536,161 @@ export async function setAdvancingTeam(
     return { ok: true, regraded: res.scoredBets };
   } catch (err) {
     console.error("[admin set-advancing-team] failed:", err);
+    return { ok: false, error: "db" };
+  }
+}
+
+// Manual match result entry (מי שם תוצאה ידנית כשה-API מתעכב). Full admin only.
+// Flips the match to final, records the 90' + final scoreline (plus penalties /
+// advancing team for a knockout), and flags manual_result so the fixture sync
+// can never overwrite it ("manual override always wins" — see the sync upsert
+// guard). Honors the same reset-and-regrade semantics as setAdvancingTeam: any
+// already-graded 1/X/2 and "who advances" picks on the match are reset to
+// ungraded, then the graders re-run so a correction takes effect immediately.
+//
+// Boundary: already-graded LIVE bets are NOT auto-reversed here (a graded live
+// bet has already moved points in the bank; reversal is the audited per-bet
+// flow). Ungraded auto live bets on the match are graded forward.
+export async function setMatchResult(
+  matchId: string,
+  input: MatchResultInput,
+  reason: string,
+): Promise<
+  Result<{ scored1x2: number; scoredAdvance: number; scoredLive: number }>
+> {
+  const auth = await requireFullAdmin();
+  if (!auth.ok) return auth;
+  const trimmed = reason.trim();
+  if (trimmed.length < 3) return { ok: false, error: "invalid_reason" };
+
+  try {
+    const [m] = await db
+      .select({
+        status: matches.status,
+        stage: matches.stage,
+        homeTeam: matches.homeTeam,
+        awayTeam: matches.awayTeam,
+        kickoffAt: matches.kickoffAt,
+        finalizedAt: matches.finalizedAt,
+        regHomeScore: matches.regHomeScore,
+        regAwayScore: matches.regAwayScore,
+        homeScore: matches.homeScore,
+        awayScore: matches.awayScore,
+        advancingTeam: matches.advancingTeam,
+      })
+      .from(matches)
+      .where(eq(matches.id, matchId))
+      .limit(1);
+    if (!m) return { ok: false, error: "match_not_found" };
+
+    // Pure, DB-free validation (bounds, final >= 90', penalty + advancing-team
+    // invariants, kickoff has passed, status is enterable). Fail-closed.
+    const invalid = validateMatchResult(input, {
+      stage: m.stage,
+      status: m.status,
+      homeTeam: m.homeTeam,
+      awayTeam: m.awayTeam,
+      kickoffAt: m.kickoffAt,
+      now: new Date(),
+    });
+    if (invalid) return { ok: false, error: invalid };
+
+    await db.transaction(async (tx) => {
+      await tx
+        .update(matches)
+        .set({
+          status: "final",
+          manualResult: true,
+          regHomeScore: input.regHome,
+          regAwayScore: input.regAway,
+          homeScore: input.finalHome,
+          awayScore: input.finalAway,
+          wentToPenalties: input.wentToPenalties,
+          penHomeScore: input.wentToPenalties ? input.penHome : null,
+          penAwayScore: input.wentToPenalties ? input.penAway : null,
+          advancingTeam: input.advancingTeam,
+          finalizedAt: m.finalizedAt ?? new Date(),
+          statusChangedAt: new Date(),
+        })
+        .where(eq(matches.id, matchId));
+
+      // Reset this match's 1/X/2 picks so a correction re-grades. Safe: touches
+      // only scoring columns, no points bank. (Live bets are excluded — see the
+      // boundary note above.)
+      await tx
+        .update(matchBets)
+        .set({
+          pointsEarned: null,
+          wasExact: null,
+          wasCorrectOutcome: null,
+          locked: false,
+        })
+        .where(eq(matchBets.matchId, matchId));
+
+      // Reset "who advances" picks likewise (knockout only; a no-op otherwise).
+      await tx
+        .update(matchAdvanceBets)
+        .set({ pointsEarned: null, wasCorrect: null, locked: false })
+        .where(eq(matchAdvanceBets.matchId, matchId));
+
+      await tx.insert(matchStatusAudit).values({
+        matchId,
+        action: "set_result",
+        previousStatus: m.status,
+        newStatus: "final",
+        payload: {
+          reg: { home: input.regHome, away: input.regAway },
+          final: { home: input.finalHome, away: input.finalAway },
+          penalties: input.wentToPenalties
+            ? { home: input.penHome, away: input.penAway }
+            : null,
+          advancingTeam: input.advancingTeam,
+          previous: {
+            status: m.status,
+            reg: { home: m.regHomeScore, away: m.regAwayScore },
+            final: { home: m.homeScore, away: m.awayScore },
+            advancingTeam: m.advancingTeam,
+          },
+        },
+        reason: trimmed,
+        performedBy: auth.userId,
+      });
+    });
+
+    // Grade forward. All three are idempotent global sweeps that only touch
+    // ungraded picks on final matches (the same paths the sync cron runs), so
+    // the just-reset picks on this match grade against the manual scoreline.
+    const [final, advance, live] = await Promise.all([
+      scoreFinalMatches(),
+      scoreAdvanceBets(),
+      scoreAutoCustomBets(),
+    ]);
+
+    revalidateMatchSurfaces(matchId);
+    revalidatePath("/[lang]/bets", "page");
+    console.info("[match set-result]", {
+      matchId,
+      stage: m.stage,
+      reg: `${input.regHome}-${input.regAway}`,
+      final: `${input.finalHome}-${input.finalAway}`,
+      penalties: input.wentToPenalties
+        ? `${input.penHome}-${input.penAway}`
+        : null,
+      advancingTeam: input.advancingTeam,
+      manual: true,
+      by: auth.userId,
+      scored1x2: final.scoredBets,
+      scoredAdvance: advance.scoredBets,
+      scoredLive: live,
+    });
+    return {
+      ok: true,
+      scored1x2: final.scoredBets,
+      scoredAdvance: advance.scoredBets,
+      scoredLive: live,
+    };
+  } catch (err) {
+    console.error("[match set-result] failed:", err);
     return { ok: false, error: "db" };
   }
 }

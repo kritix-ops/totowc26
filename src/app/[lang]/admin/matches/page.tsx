@@ -13,6 +13,7 @@ import { requireAdmin } from "@/lib/admin";
 import type { CancelResolutionConfig } from "@/lib/matches/cancel";
 import { MatchStatusCard, type AdminMatchRow } from "./MatchStatusCard";
 import { AdvanceTeamCard, type AdvanceMatchRow } from "./AdvanceTeamCard";
+import { MatchResultCard, type MatchResultRow } from "./MatchResultCard";
 
 // Admin surface for handling a match that is called off. FULL-admin only
 // (gated again here on top of the action-level check) because canceling a
@@ -30,7 +31,7 @@ export default async function AdminMatchesPage({
   const isHebrew = locale === "he";
   const ChevronBack = isHebrew ? ChevronRight : ChevronLeft;
 
-  const [settingsRow, rows, advanceRows] = await Promise.all([
+  const [settingsRow, rows, resultRows, advanceRows] = await Promise.all([
     db
       .select({ cancelSplitDefaultPoints: settings.cancelSplitDefaultPoints })
       .from(settings)
@@ -72,6 +73,63 @@ export default async function AdminMatchesPage({
       join public.teams at on at.code = m.away_team
       where m.status <> 'final'
       order by m.kickoff_at asc
+    `),
+    // Manual result entry: matches that have kicked off and are either not yet
+    // final (the API-is-delayed case — punch the result in by hand) or recently
+    // finalized (correct a wrong API score). Postponed/canceled have their own
+    // flow, so they're excluded. Non-final rows sort first — those need action.
+    execRows<{
+      id: string;
+      stage: string;
+      status: string;
+      kickoffAt: string;
+      homeCode: string;
+      awayCode: string;
+      homeHe: string;
+      homeEn: string;
+      awayHe: string;
+      awayEn: string;
+      manualResult: boolean;
+      regHome: number | null;
+      regAway: number | null;
+      finalHome: number | null;
+      finalAway: number | null;
+      wentToPenalties: boolean | null;
+      penHome: number | null;
+      penAway: number | null;
+      guessCount: number;
+      advancePickCount: number;
+    }>(sql`
+      select
+        m.id::text                  as "id",
+        m.stage::text               as "stage",
+        m.status::text              as "status",
+        m.kickoff_at::text          as "kickoffAt",
+        m.home_team                 as "homeCode",
+        m.away_team                 as "awayCode",
+        ht.name_he                  as "homeHe",
+        ht.name_en                  as "homeEn",
+        at.name_he                  as "awayHe",
+        at.name_en                  as "awayEn",
+        m.manual_result             as "manualResult",
+        m.reg_home_score            as "regHome",
+        m.reg_away_score            as "regAway",
+        m.home_score                as "finalHome",
+        m.away_score                as "finalAway",
+        m.went_to_penalties         as "wentToPenalties",
+        m.pen_home_score            as "penHome",
+        m.pen_away_score            as "penAway",
+        (select count(*) from public.match_bets mb where mb.match_id = m.id)::int as "guessCount",
+        (select count(*) from public.match_advance_bets ab where ab.match_id = m.id)::int as "advancePickCount"
+      from public.matches m
+      join public.teams ht on ht.code = m.home_team
+      join public.teams at on at.code = m.away_team
+      where m.kickoff_at <= now()
+        and (
+          m.status in ('scheduled', 'live')
+          or (m.status = 'final' and m.finalized_at >= now() - interval '3 days')
+        )
+      order by (m.status = 'final')::int asc, m.kickoff_at desc
     `),
     // Final knockout matches: surfaced so an admin can correct the "who
     // advances?" result the auto-grader recorded (or set it when the feed
@@ -132,6 +190,32 @@ export default async function AdminMatchesPage({
     liveBetCount: m.liveBetCount,
   }));
 
+  const resultMatches: MatchResultRow[] = resultRows.map((m) => ({
+    id: m.id,
+    homeName: isHebrew ? m.homeHe : m.homeEn,
+    awayName: isHebrew ? m.awayHe : m.awayEn,
+    homeCode: m.homeCode,
+    awayCode: m.awayCode,
+    stage: m.stage,
+    status: m.status as MatchResultRow["status"],
+    kickoffLabel: formatDateTime(m.kickoffAt, locale, {
+      day: "2-digit",
+      month: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    }),
+    manualResult: m.manualResult,
+    guessCount: m.guessCount,
+    advancePickCount: m.advancePickCount,
+    regHome: m.regHome,
+    regAway: m.regAway,
+    finalHome: m.finalHome,
+    finalAway: m.finalAway,
+    wentToPenalties: m.wentToPenalties,
+    penHome: m.penHome,
+    penAway: m.penAway,
+  }));
+
   const advanceMatches: AdvanceMatchRow[] = advanceRows.map((m) => ({
     id: m.id,
     homeName: isHebrew ? m.homeHe : m.homeEn,
@@ -163,8 +247,8 @@ export default async function AdminMatchesPage({
         </h1>
         <p className="text-base text-on-surface-variant">
           {isHebrew
-            ? "טיפול במשחק שנדחה או בוטל. דחייה מקפיאה הכל עד שתקבע מועד חדש. ביטול מחזיר מיד את כל הלייבים על המשחק, ומחכה להחלטה שלך איך לסגור את ניחושי התוצאה — בלי ניקוד עד אז."
-            : "Handle a postponed or canceled match. Postpone freezes everything until you set a new kickoff. Cancel immediately refunds the match's live bets and waits for your decision on how the 1/X/2 guesses settle — no scoring until then."}
+            ? "טיפול במשחק שנדחה, בוטל, או שהתוצאה שלו לא עודכנה. דחייה מקפיאה הכל עד שתקבע מועד חדש. ביטול מחזיר מיד את כל הלייבים על המשחק. אם ה-API מתעכב — אפשר להזין תוצאה ידנית בהמשך העמוד."
+            : "Handle a postponed, canceled, or not-yet-updated match. Postpone freezes everything until you set a new kickoff. Cancel immediately refunds the match's live bets. If the API is delayed, enter a result manually further down the page."}
         </p>
       </header>
 
@@ -197,6 +281,26 @@ export default async function AdminMatchesPage({
             </li>
           ))}
         </ul>
+      )}
+
+      {resultMatches.length > 0 && (
+        <section className="flex flex-col gap-3">
+          <h2 className="font-[family-name:var(--font-display)] text-lg md:text-xl font-bold text-on-surface mt-2">
+            {isHebrew ? "הזנת תוצאה ידנית" : "Manual result entry"}
+          </h2>
+          <p className="text-sm text-on-surface-variant">
+            {isHebrew
+              ? "כשה-API מתעכב או טועה — הזן כאן את התוצאה בעצמך. השמירה מסמנת את המשחק כגמור, מנקדת את הניחושים, וחוסמת את הסנכרון האוטומטי מלדרוס אותה. תיקון לייב שכבר נוקד נעשה במסך הדירוג של אותו לייב."
+              : "When the API is delayed or wrong, type the result in yourself. Saving marks the match final, grades the picks, and blocks the auto-sync from overwriting it. Fixing an already-graded live bet is done in that bet's grading screen."}
+          </p>
+          <ul className="flex flex-col gap-3">
+            {resultMatches.map((m) => (
+              <li key={m.id}>
+                <MatchResultCard locale={locale} match={m} />
+              </li>
+            ))}
+          </ul>
+        </section>
       )}
 
       {advanceMatches.length > 0 && (

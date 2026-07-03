@@ -339,6 +339,11 @@ export const matches = pgTable(
     cancelResolutionConfig: jsonb("cancel_resolution_config")
       .$type<CancelResolutionConfig>(),
     statusChangedAt: timestamp("status_changed_at", { withTimezone: true }),
+    // True once an admin entered this match's result by hand (API sync delayed
+    // or wrong). The fixture-sync upsert skips manual_result rows so a late
+    // upstream update never overwrites the manual entry — "manual override
+    // always wins." See _plans/2026-07-03-manual-match-result-entry.md.
+    manualResult: boolean("manual_result").notNull().default(false),
   },
   (t) => ({
     kickoffIdx: index("matches_kickoff_idx").on(t.kickoffAt),
