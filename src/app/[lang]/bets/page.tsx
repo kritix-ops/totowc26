@@ -230,6 +230,30 @@ export default async function QuickBetsPage({
 
 async function loadEditableMatches(userId: string): Promise<QuickPickRowData[]> {
   return execRows<QuickPickRowData>(sql`
+    -- A single real fixture can exist as two public.matches rows: a duplicate
+    -- created when a knockout fixture was ingested via both the legacy
+    -- football-data path (api_fixture_id) and the API-Football path
+    -- (api_football_fixture_id). Left unguarded, the same match renders as two
+    -- identical cards. Collapse to one row per fixture, preferring the row
+    -- where THIS user already has a pick (never hide someone's bet) and then
+    -- the canonical API-Football row (where results and grading land).
+    -- Root cause + data cleanup: _plans/2026-07-04-duplicate-knockout-fixtures.md
+    with deduped as (
+      select distinct on (m.home_team, m.away_team, m.kickoff_at)
+        m.id, m.home_team, m.away_team, m.kickoff_at, m.stage, m.group_id,
+        mb.home_score as my_home_score,
+        mb.away_score as my_away_score,
+        ab.team       as my_advance_team
+      from public.matches m
+      left join public.match_bets mb on mb.match_id = m.id and mb.user_id = ${userId}
+      left join public.match_advance_bets ab on ab.match_id = m.id and ab.user_id = ${userId}
+      where m.status = 'scheduled'
+        and m.kickoff_at > now() + interval '5 minutes'
+      order by m.home_team, m.away_team, m.kickoff_at,
+        (mb.match_id is null and ab.match_id is null),
+        (m.api_football_fixture_id is null),
+        m.id
+    )
     select
       m.id::text                                                        as "id",
       m.home_team                                                       as "homeCode",
@@ -243,16 +267,12 @@ async function loadEditableMatches(userId: string): Promise<QuickPickRowData[]> 
       m.group_id                                                        as "groupId",
       to_char((m.kickoff_at at time zone 'Asia/Jerusalem')::date,
               'YYYY-MM-DD')                                             as "matchDate",
-      mb.home_score                                                     as "myHomeScore",
-      mb.away_score                                                     as "myAwayScore",
-      ab.team                                                           as "myAdvanceTeam"
-    from public.matches m
+      m.my_home_score                                                   as "myHomeScore",
+      m.my_away_score                                                   as "myAwayScore",
+      m.my_advance_team                                                 as "myAdvanceTeam"
+    from deduped m
     join public.teams ht on ht.code = m.home_team
     join public.teams at on at.code = m.away_team
-    left join public.match_bets mb on mb.match_id = m.id and mb.user_id = ${userId}
-    left join public.match_advance_bets ab on ab.match_id = m.id and ab.user_id = ${userId}
-    where m.status = 'scheduled'
-      and m.kickoff_at > now() + interval '5 minutes'
     order by m.kickoff_at asc
     limit 200
   `);

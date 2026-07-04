@@ -3767,6 +3767,38 @@ export async function getPastMatchPicks(
   userId: string,
 ): Promise<PastMatchPickRow[]> {
   return execRows<PastMatchPickRow>(sql`
+    -- A single real fixture can exist as two public.matches rows: a duplicate
+    -- created when a knockout fixture was ingested via both the legacy
+    -- football-data path (api_fixture_id) and the API-Football path
+    -- (api_football_fixture_id). The result + advancing_team + grading land on
+    -- the API-Football row; the legacy twin carries no pick, so left unguarded
+    -- it renders as a phantom card reading "לא ניחשת". Collapse to one row per
+    -- fixture, preferring the row where THIS user has a pick and then the
+    -- canonical API-Football row (which holds the result and grading).
+    -- Root cause + data cleanup: _plans/2026-07-04-duplicate-knockout-fixtures.md
+    with deduped as (
+      select distinct on (m.home_team, m.away_team, m.kickoff_at)
+        m.id, m.home_team, m.away_team, m.kickoff_at, m.stage, m.status,
+        m.group_id, m.home_score, m.away_score, m.reg_home_score,
+        m.reg_away_score, m.advancing_team,
+        mb.home_score          as my_home_score,
+        mb.away_score          as my_away_score,
+        mb.points_earned       as my_points_earned,
+        mb.was_exact           as my_was_exact,
+        mb.was_correct_outcome as my_was_correct_outcome,
+        ab.team                as my_advance_team,
+        ab.points_earned       as my_advance_points,
+        ab.was_correct         as my_advance_was_correct
+      from public.matches m
+      left join public.match_bets mb on mb.match_id = m.id and mb.user_id = ${userId}
+      left join public.match_advance_bets ab on ab.match_id = m.id and ab.user_id = ${userId}
+      where m.status in ('live', 'final')
+         or (m.status = 'scheduled' and m.kickoff_at <= now() + interval '5 minutes')
+      order by m.home_team, m.away_team, m.kickoff_at,
+        (mb.match_id is null and ab.match_id is null),
+        (m.api_football_fixture_id is null),
+        m.id
+    )
     select
       m.id::text                                          as "id",
       m.home_team                                         as "homeCode",
@@ -3785,22 +3817,18 @@ export async function getPastMatchPicks(
       m.away_score                                        as "awayScore",
       m.reg_home_score                                    as "regHomeScore",
       m.reg_away_score                                    as "regAwayScore",
-      mb.home_score                                       as "myHomeScore",
-      mb.away_score                                       as "myAwayScore",
-      mb.points_earned                                    as "myPointsEarned",
-      mb.was_exact                                        as "myWasExact",
-      mb.was_correct_outcome                              as "myWasCorrectOutcome",
+      m.my_home_score                                     as "myHomeScore",
+      m.my_away_score                                     as "myAwayScore",
+      m.my_points_earned                                  as "myPointsEarned",
+      m.my_was_exact                                      as "myWasExact",
+      m.my_was_correct_outcome                            as "myWasCorrectOutcome",
       m.advancing_team                                    as "advancingTeam",
-      ab.team                                             as "myAdvanceTeam",
-      ab.points_earned                                    as "myAdvancePoints",
-      ab.was_correct                                      as "myAdvanceWasCorrect"
-    from public.matches m
+      m.my_advance_team                                   as "myAdvanceTeam",
+      m.my_advance_points                                 as "myAdvancePoints",
+      m.my_advance_was_correct                            as "myAdvanceWasCorrect"
+    from deduped m
     join public.teams ht on ht.code = m.home_team
     join public.teams at on at.code = m.away_team
-    left join public.match_bets mb on mb.match_id = m.id and mb.user_id = ${userId}
-    left join public.match_advance_bets ab on ab.match_id = m.id and ab.user_id = ${userId}
-    where m.status in ('live', 'final')
-       or (m.status = 'scheduled' and m.kickoff_at <= now() + interval '5 minutes')
     order by m.kickoff_at desc
     limit 500
   `);

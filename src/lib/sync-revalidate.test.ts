@@ -26,6 +26,7 @@ function report(overrides: Partial<SyncReport> = {}): SyncReport {
     lockedExpiredCustomBets: 0,
     remindersSent: 0,
     unknownTeams: [],
+    duplicateFixtures: 0,
     ...overrides,
   };
 }

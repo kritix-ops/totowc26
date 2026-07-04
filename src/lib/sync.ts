@@ -81,6 +81,11 @@ export type SyncReport = {
   lockedExpiredCustomBets: number;
   remindersSent: number;
   unknownTeams: string[];
+  // Count of real fixtures that resolved to more than one `matches` row after a
+  // sync pass. Should always be 0 once the adopt-by-natural-key guard is in
+  // place; a non-zero value means a duplicate slipped through and needs a look.
+  // See _plans/2026-07-04-duplicate-knockout-fixtures.md.
+  duplicateFixtures: number;
 };
 
 // Did this sync change the global fixtures view (scores / status)? Callers
@@ -235,6 +240,13 @@ async function _runSync(
   // what we just wrote.
   await syncTeamGroups();
 
+  // Non-fatal duplicate-fixtures watchdog. The adopt-by-natural-key guards in
+  // both ingest paths should keep this at 0; if a duplicate ever slips through
+  // (e.g. a mid-tournament kickoff shift), surface it loudly in the report
+  // instead of letting it silently split bets again. Never throws — a warning
+  // must not take the sync down.
+  report.duplicateFixtures = await countDuplicateFixtures();
+
   // Auto-score newly finalised match-bets (the main 1/X/2 prediction).
   const scoring = await scoreFinalMatches();
   report.scoredBets = scoring.scoredBets;
@@ -304,6 +316,7 @@ function blankReport(): SyncReport {
     lockedExpiredCustomBets: 0,
     remindersSent: 0,
     unknownTeams: [],
+    duplicateFixtures: 0,
   };
 }
 
@@ -422,6 +435,28 @@ async function _ingestFromApiFootball(
       });
     }
 
+    // Adopt-by-natural-key guard. A fixture seeded or ingested by the legacy
+    // football-data path carries no api_football_fixture_id, so the upsert below
+    // (which conflicts on api_football_fixture_id) would INSERT a second row for
+    // the same real fixture instead of updating it — the duplicate-knockout bug.
+    // Claim that existing row first by stamping our fixture id onto it, so the
+    // ON CONFLICT then updates it. Guarded so we never stamp a fixture id that
+    // already lives on another row (which would break the partial unique index).
+    // Reschedules are unaffected: they still match on api_football_fixture_id.
+    // See _plans/2026-07-04-duplicate-knockout-fixtures.md.
+    await execRows(drizzleSql`
+      update public.matches
+      set api_football_fixture_id = ${f.fixtureId}
+      where home_team = ${homeCode}
+        and away_team = ${awayCode}
+        and kickoff_at = ${f.kickoffAt}
+        and api_football_fixture_id is null
+        and not exists (
+          select 1 from public.matches m2
+          where m2.api_football_fixture_id = ${f.fixtureId}
+        )
+    `);
+
     const rows = await execRows<{ inserted: boolean }>(drizzleSql`
       insert into public.matches
         (home_team, away_team, kickoff_at, stage, group_id, venue, status,
@@ -529,6 +564,23 @@ async function _ingestFromFootballData(
     // leave penalties + advancing_team null so "who advances?" picks wait for
     // manual grading rather than auto-resolving on incomplete data.
 
+    // Adopt-by-natural-key guard, mirror of the API-Football path. A fixture
+    // already ingested by API-Football carries no api_fixture_id, so this
+    // fallback upsert (conflicting on api_fixture_id) would otherwise INSERT a
+    // duplicate row. Claim the existing row first.
+    // See _plans/2026-07-04-duplicate-knockout-fixtures.md.
+    await execRows(drizzleSql`
+      update public.matches
+      set api_fixture_id = ${f.id}
+      where home_team = ${homeCode}
+        and away_team = ${awayCode}
+        and kickoff_at = ${f.utcDate}
+        and api_fixture_id is null
+        and not exists (
+          select 1 from public.matches m2 where m2.api_fixture_id = ${f.id}
+        )
+    `);
+
     const rows = await execRows<{ inserted: boolean }>(drizzleSql`
       insert into public.matches
         (home_team, away_team, kickoff_at, stage, group_id, venue, status,
@@ -634,6 +686,33 @@ async function cancelExpiredOpenDuels(): Promise<number> {
     });
   }
   return rows.length;
+}
+
+// Count real fixtures that resolved to more than one `matches` row (same
+// home/away/kickoff). Read-only and defensive: any failure logs and returns 0
+// so the watchdog can never take the sync down. See
+// _plans/2026-07-04-duplicate-knockout-fixtures.md.
+async function countDuplicateFixtures(): Promise<number> {
+  try {
+    const rows = await execRows<{ home_team: string; away_team: string; kickoff_at: string; n: number }>(drizzleSql`
+      select home_team, away_team, kickoff_at::text as kickoff_at, count(*)::int as n
+      from public.matches
+      group by home_team, away_team, kickoff_at
+      having count(*) > 1
+    `);
+    if (rows.length > 0) {
+      console.warn("[sync duplicate-fixtures]", {
+        count: rows.length,
+        fixtures: rows.map((r) => `${r.home_team}-${r.away_team}@${r.kickoff_at}`),
+      });
+    }
+    return rows.length;
+  } catch (err) {
+    console.warn("[sync duplicate-fixtures] watchdog query failed", {
+      reason: err instanceof Error ? err.message : String(err),
+    });
+    return 0;
+  }
 }
 
 async function syncTeamGroups() {
