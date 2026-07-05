@@ -62,6 +62,22 @@ export type AdminPickActions = {
     reason: string;
     lockBypassed: boolean;
   }) => Promise<AdminWriteResult>;
+  // "Who advances?" (מי עולה) knockout pick. Optional: only the backdate
+  // screen renders the "advance" surface, so the per-user proxy actions omit
+  // these. The advance branch guards on their presence.
+  setAdvance?: (args: {
+    targetUserId: string;
+    matchId: string;
+    team: string;
+    reason: string;
+    lockBypassed: boolean;
+  }) => Promise<AdminWriteResult>;
+  clearAdvance?: (args: {
+    targetUserId: string;
+    matchId: string;
+    reason: string;
+    lockBypassed: boolean;
+  }) => Promise<AdminWriteResult>;
 };
 
 const DEFAULT_ADMIN_PICK_ACTIONS: AdminPickActions = {
@@ -74,11 +90,12 @@ import { SearchableChoicePicker } from "@/components/SearchableChoicePicker";
 import { usePickerOptions } from "@/lib/picker-options/client";
 
 // AdminPickEditor: a small dialog that lets an admin set or clear a
-// target user's pick on one specific bet. Surfaces are two:
-//   - "custom" — a custom_bets row with an answer_type/config-driven
-//                input (yes_no / number / multi_choice / free_text)
-//   - "match"  — a 1/X/2 score pick (two number inputs)
-// In both cases the dialog requires a non-empty reason and, when the
+// target user's pick on one specific bet. Surfaces are three:
+//   - "custom"  — a custom_bets row with an answer_type/config-driven
+//                 input (yes_no / number / multi_choice / free_text)
+//   - "match"   — a 1/X/2 score pick (two number inputs)
+//   - "advance" — a knockout "who advances?" pick (home team / away team)
+// In every case the dialog requires a non-empty reason and, when the
 // bet's lock has already passed, an explicit "bypass lock" checkbox.
 
 type CustomKind = {
@@ -110,7 +127,23 @@ type MatchKind = {
   currentAwayScore: number | null;
 };
 
-type Props = (CustomKind | MatchKind) & {
+type AdvanceKind = {
+  surface: "advance";
+  matchId: string;
+  matchupHe: string;
+  matchupEn: string;
+  // The two teams in the fixture — the only valid picks. Codes are what the
+  // server stores; names are shown on the buttons.
+  homeCode: string;
+  awayCode: string;
+  homeTeamHe: string;
+  homeTeamEn: string;
+  awayTeamHe: string;
+  awayTeamEn: string;
+  currentTeam: string | null;
+};
+
+type Props = (CustomKind | MatchKind | AdvanceKind) & {
   targetUserId: string;
   targetUserName: string;
   locale: Locale;
@@ -211,6 +244,9 @@ function Dialog(props: Props & { onClose: () => void }) {
     props.surface === "match" && props.currentAwayScore != null
       ? String(props.currentAwayScore)
       : "",
+  );
+  const [advanceTeam, setAdvanceTeam] = useState<string | null>(
+    props.surface === "advance" ? props.currentTeam : null,
   );
 
   // Live-stake picker state. Only meaningful for a live-scope custom bet with
@@ -315,6 +351,41 @@ function Dialog(props: Props & { onClose: () => void }) {
     });
   }
 
+  function handleSaveAdvance(team: string) {
+    if (props.surface !== "advance") return;
+    if (!actions.setAdvance) {
+      console.error("[admin pick editor] save_advance missing setAdvance action");
+      setError(isHebrew ? "פעולה לא זמינה" : "Action unavailable");
+      return;
+    }
+    setError(null);
+    console.info("[admin pick editor] save_advance", {
+      targetUserId: props.targetUserId,
+      matchId: props.matchId,
+      team,
+      reasonLen: reason.trim().length,
+      lockBypassed,
+      lockHasPassed,
+    });
+    startTransition(async () => {
+      const result = await actions.setAdvance!({
+        targetUserId: props.targetUserId,
+        matchId: props.matchId,
+        team,
+        reason,
+        lockBypassed,
+      });
+      const msg = translateResult(result);
+      if (msg) {
+        console.info("[admin pick editor] save_advance_failed", { msg });
+        setError(msg);
+        return;
+      }
+      props.onSaved?.();
+      props.onClose();
+    });
+  }
+
   // Validation for the bottom Save button. Mirrors the server gates so
   // a click never fires a request that's destined to fail with a clear
   // client-side cause (empty reason, no draft, lock passed without
@@ -330,7 +401,13 @@ function Dialog(props: Props & { onClose: () => void }) {
     );
   })();
   const customDraftValid = props.surface === "custom" && customDraft != null;
-  const hasDraft = props.surface === "custom" ? customDraftValid : matchScoreValid;
+  const advanceDraftValid = props.surface === "advance" && advanceTeam != null;
+  const hasDraft =
+    props.surface === "custom"
+      ? customDraftValid
+      : props.surface === "advance"
+        ? advanceDraftValid
+        : matchScoreValid;
   const reasonValid = reason.trim().length > 0;
   const lockOk = !lockHasPassed || lockBypassed;
   const canSave = hasDraft && reasonValid && lockOk && !pending;
@@ -343,7 +420,9 @@ function Dialog(props: Props & { onClose: () => void }) {
         setError(
           props.surface === "custom"
             ? isHebrew ? "בחר תשובה" : "Pick an answer"
-            : isHebrew ? "הזן תוצאה" : "Enter a score",
+            : props.surface === "advance"
+              ? isHebrew ? "בחר נבחרת" : "Pick a team"
+              : isHebrew ? "הזן תוצאה" : "Enter a score",
         );
       } else if (!reasonValid) {
         setError(isHebrew ? "חובה לכתוב סיבה" : "Reason is required");
@@ -360,11 +439,18 @@ function Dialog(props: Props & { onClose: () => void }) {
       handleSaveCustom(customDraft);
     } else if (props.surface === "match") {
       handleSaveMatch(Number(matchHome), Number(matchAway));
+    } else if (props.surface === "advance" && advanceTeam) {
+      handleSaveAdvance(advanceTeam);
     }
   }
 
   function handleClear() {
     setError(null);
+    if (props.surface === "advance" && !actions.clearAdvance) {
+      console.error("[admin pick editor] clear_advance missing clearAdvance action");
+      setError(isHebrew ? "פעולה לא זמינה" : "Action unavailable");
+      return;
+    }
     startTransition(async () => {
       const result =
         props.surface === "custom"
@@ -374,12 +460,19 @@ function Dialog(props: Props & { onClose: () => void }) {
               reason,
               lockBypassed,
             })
-          : await actions.clearMatch({
-              targetUserId: props.targetUserId,
-              matchId: props.matchId,
-              reason,
-              lockBypassed,
-            });
+          : props.surface === "advance"
+            ? await actions.clearAdvance!({
+                targetUserId: props.targetUserId,
+                matchId: props.matchId,
+                reason,
+                lockBypassed,
+              })
+            : await actions.clearMatch({
+                targetUserId: props.targetUserId,
+                matchId: props.matchId,
+                reason,
+                lockBypassed,
+              });
       const msg = translateResult(result);
       if (msg) {
         setError(msg);
@@ -424,15 +517,22 @@ function Dialog(props: Props & { onClose: () => void }) {
 
         <div className="px-5 py-4 flex flex-col gap-4">
           {/* Question / matchup */}
-          <p className="text-sm text-on-surface leading-snug font-medium">
-            {props.surface === "custom"
-              ? isHebrew
-                ? props.questionHe
-                : props.questionEn
-              : isHebrew
-                ? props.matchupHe
-                : props.matchupEn}
-          </p>
+          <div className="flex flex-col gap-1">
+            {props.surface === "advance" && (
+              <span className="font-[family-name:var(--font-label)] text-[11px] font-bold uppercase tracking-[0.05em] text-primary">
+                {isHebrew ? "מי עולה?" : "Who advances?"}
+              </span>
+            )}
+            <p className="text-sm text-on-surface leading-snug font-medium">
+              {props.surface === "custom"
+                ? isHebrew
+                  ? props.questionHe
+                  : props.questionEn
+                : isHebrew
+                  ? props.matchupHe
+                  : props.matchupEn}
+            </p>
+          </div>
 
           {/* Answer input — draft only, never fires a save itself. The
               single bottom Save button is the only submit path so the
@@ -445,6 +545,16 @@ function Dialog(props: Props & { onClose: () => void }) {
               locale={props.locale}
               pending={pending}
               onChange={setCustomDraft}
+            />
+          ) : props.surface === "advance" ? (
+            <AdvanceTeamInput
+              homeCode={props.homeCode}
+              awayCode={props.awayCode}
+              homeName={isHebrew ? props.homeTeamHe : props.homeTeamEn}
+              awayName={isHebrew ? props.awayTeamHe : props.awayTeamEn}
+              value={advanceTeam}
+              pending={pending}
+              onChange={setAdvanceTeam}
             />
           ) : (
             <MatchScoreInput
@@ -869,6 +979,57 @@ function StakePicker({
           );
         })}
       </div>
+    </div>
+  );
+}
+
+// Two-team choice for the "who advances?" pick. Full-width stacked buttons so
+// the (sometimes long, RTL) team names never truncate on the smallest viewport.
+function AdvanceTeamInput({
+  homeCode,
+  awayCode,
+  homeName,
+  awayName,
+  value,
+  pending,
+  onChange,
+}: {
+  homeCode: string;
+  awayCode: string;
+  homeName: string;
+  awayName: string;
+  value: string | null;
+  pending: boolean;
+  onChange: (team: string | null) => void;
+}) {
+  const teams = [
+    { code: homeCode, name: homeName },
+    { code: awayCode, name: awayName },
+  ];
+  return (
+    <div className="flex flex-col gap-2">
+      {teams.map((t) => {
+        const active = value === t.code;
+        return (
+          <button
+            key={t.code}
+            type="button"
+            onClick={() => onChange(active ? null : t.code)}
+            disabled={pending}
+            aria-pressed={active}
+            className={clsx(
+              "min-h-[48px] px-4 rounded-full border text-base font-bold transition-colors text-start inline-flex items-center gap-2",
+              active
+                ? "bg-primary text-on-primary border-primary"
+                : "bg-surface text-on-surface border-outline-variant hover:bg-surface-container-low",
+              "disabled:opacity-40 disabled:cursor-not-allowed",
+            )}
+          >
+            {active && <Check className="h-4 w-4 shrink-0" strokeWidth={2.5} />}
+            <span className="min-w-0 truncate">{t.name}</span>
+          </button>
+        );
+      })}
     </div>
   );
 }

@@ -13,9 +13,11 @@ import {
   CircleHelp,
   Search,
   FilterX,
+  Swords,
 } from "lucide-react";
 import type { Locale } from "../../dictionaries";
 import type {
+  AdminUserAdvancePickRow,
   AdminUserBetRow,
   AdminUserMatchPickRow,
 } from "../users/queries";
@@ -34,6 +36,7 @@ import { MyBetsEditor } from "./MyBetsEditor";
 type TypeFilter =
   | "all"
   | "score"
+  | "advance"
   | "match"
   | "day"
   | "group"
@@ -42,7 +45,7 @@ type TypeFilter =
 type StatusFilter = "all" | "open" | "locked" | "settled";
 
 const SCOPE_OF_TYPE: Record<
-  Exclude<TypeFilter, "all" | "score">,
+  Exclude<TypeFilter, "all" | "score" | "advance">,
   AdminUserBetRow["scope"]
 > = {
   match: "match",
@@ -83,18 +86,20 @@ function customDayKey(row: AdminUserBetRow): string | null {
 
 export function MyBetsBrowser({
   locale,
-  selfUserId,
-  selfName,
+  targetUserId,
+  targetName,
   matchRows,
   customRows,
+  advanceRows,
   playerNames,
   stakeBounds,
 }: {
   locale: Locale;
-  selfUserId: string;
-  selfName: string;
+  targetUserId: string;
+  targetName: string;
   matchRows: AdminUserMatchPickRow[];
   customRows: AdminUserBetRow[];
+  advanceRows: AdminUserAdvancePickRow[];
   playerNames: PlayerNameMap;
   stakeBounds: { minStake: number; maxStake: number };
 }) {
@@ -155,7 +160,7 @@ export function MyBetsBrowser({
   }, [matchRows, type, matchday, matchId, status, onlyUnfilled, q]);
 
   const filteredCustomRows = useMemo(() => {
-    if (type === "score") return [];
+    if (type === "score" || type === "advance") return [];
     return customRows.filter((c) => {
       if (type !== "all" && c.scope !== SCOPE_OF_TYPE[type]) return false;
       if (matchday !== "all" && customDayKey(c) !== matchday) return false;
@@ -170,8 +175,28 @@ export function MyBetsBrowser({
     });
   }, [customRows, type, matchday, matchId, status, onlyUnfilled, q]);
 
+  // "Who advances?" rows share the score surface's status buckets (they lock on
+  // the same 1/X/2 deadline and settle when the knockout is final).
+  const filteredAdvanceRows = useMemo(() => {
+    if (type !== "all" && type !== "advance") return [];
+    return advanceRows.filter((a) => {
+      if (matchday !== "all" && dayKeyFromTs(a.kickoffAt) !== matchday) return false;
+      if (matchId !== "all" && a.matchId !== matchId) return false;
+      if (status !== "all" && scoreStatusBucket(a.matchStatus) !== status) return false;
+      if (onlyUnfilled && a.pickId != null) return false;
+      if (q) {
+        const hay = `${a.homeNameHe} ${a.awayNameHe} ${a.homeNameEn} ${a.awayNameEn}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [advanceRows, type, matchday, matchId, status, onlyUnfilled, q]);
+
   const buckets = groupByScope(filteredCustomRows);
-  const totalShown = filteredMatchRows.length + filteredCustomRows.length;
+  const totalShown =
+    filteredMatchRows.length +
+    filteredAdvanceRows.length +
+    filteredCustomRows.length;
 
   function clearFilters() {
     setSearch("");
@@ -218,6 +243,7 @@ export function MyBetsBrowser({
             >
               <option value="all">{isHebrew ? "הכל" : "All"}</option>
               <option value="score">{isHebrew ? "תוצאה (1/X/2)" : "Score (1/X/2)"}</option>
+              <option value="advance">{isHebrew ? "מי עולה" : "Who advances"}</option>
               <option value="match">{isHebrew ? "לייב" : "Live"}</option>
               <option value="day">{isHebrew ? "יום" : "Day"}</option>
               <option value="group">{isHebrew ? "בית" : "Group"}</option>
@@ -320,8 +346,16 @@ export function MyBetsBrowser({
             <MatchPicksSection
               rows={filteredMatchRows}
               locale={locale}
-              selfUserId={selfUserId}
-              selfName={selfName}
+              targetUserId={targetUserId}
+              targetName={targetName}
+            />
+          )}
+          {filteredAdvanceRows.length > 0 && (
+            <AdvancePicksSection
+              rows={filteredAdvanceRows}
+              locale={locale}
+              targetUserId={targetUserId}
+              targetName={targetName}
             />
           )}
           {buckets.match.length > 0 && (
@@ -330,8 +364,8 @@ export function MyBetsBrowser({
               title={isHebrew ? "הימורי לייב" : "Live bets"}
               rows={buckets.match}
               locale={locale}
-              selfUserId={selfUserId}
-              selfName={selfName}
+              targetUserId={targetUserId}
+              targetName={targetName}
               playerNames={playerNames}
               stakeBounds={stakeBounds}
             />
@@ -342,8 +376,8 @@ export function MyBetsBrowser({
               title={isHebrew ? "הימורי יום" : "Day bets"}
               rows={buckets.day}
               locale={locale}
-              selfUserId={selfUserId}
-              selfName={selfName}
+              targetUserId={targetUserId}
+              targetName={targetName}
               playerNames={playerNames}
               stakeBounds={stakeBounds}
             />
@@ -354,8 +388,8 @@ export function MyBetsBrowser({
               title={isHebrew ? "הימורי בית" : "Group bets"}
               rows={buckets.group}
               locale={locale}
-              selfUserId={selfUserId}
-              selfName={selfName}
+              targetUserId={targetUserId}
+              targetName={targetName}
               playerNames={playerNames}
               stakeBounds={stakeBounds}
             />
@@ -366,8 +400,8 @@ export function MyBetsBrowser({
               title={isHebrew ? "הימורי שלב" : "Stage bets"}
               rows={buckets.stage}
               locale={locale}
-              selfUserId={selfUserId}
-              selfName={selfName}
+              targetUserId={targetUserId}
+              targetName={targetName}
               playerNames={playerNames}
               stakeBounds={stakeBounds}
             />
@@ -378,8 +412,8 @@ export function MyBetsBrowser({
               title={isHebrew ? "הימורי טורניר" : "Tournament bets"}
               rows={buckets.tournament}
               locale={locale}
-              selfUserId={selfUserId}
-              selfName={selfName}
+              targetUserId={targetUserId}
+              targetName={targetName}
               playerNames={playerNames}
               stakeBounds={stakeBounds}
             />
@@ -435,8 +469,8 @@ function ScopeSection({
   title,
   rows,
   locale,
-  selfUserId,
-  selfName,
+  targetUserId,
+  targetName,
   playerNames,
   stakeBounds,
 }: {
@@ -444,8 +478,8 @@ function ScopeSection({
   title: string;
   rows: AdminUserBetRow[];
   locale: Locale;
-  selfUserId: string;
-  selfName: string;
+  targetUserId: string;
+  targetName: string;
   playerNames: PlayerNameMap;
   stakeBounds: { minStake: number; maxStake: number };
 }) {
@@ -466,8 +500,8 @@ function ScopeSection({
             key={r.betId}
             row={r}
             locale={locale}
-            selfUserId={selfUserId}
-            selfName={selfName}
+            targetUserId={targetUserId}
+            targetName={targetName}
             playerNames={playerNames}
             stakeBounds={stakeBounds}
           />
@@ -480,15 +514,15 @@ function ScopeSection({
 function BetRow({
   row,
   locale,
-  selfUserId,
-  selfName,
+  targetUserId,
+  targetName,
   playerNames,
   stakeBounds,
 }: {
   row: AdminUserBetRow;
   locale: Locale;
-  selfUserId: string;
-  selfName: string;
+  targetUserId: string;
+  targetName: string;
   playerNames: PlayerNameMap;
   stakeBounds: { minStake: number; maxStake: number };
 }) {
@@ -552,8 +586,8 @@ function BetRow({
             scope={row.scope}
             stakeBounds={stakeBounds}
             currentStake={row.pickStakePaid}
-            targetUserId={selfUserId}
-            targetUserName={selfName}
+            targetUserId={targetUserId}
+            targetUserName={targetName}
             locale={locale}
             lockAt={row.lockAt}
             triggerLabel={
@@ -622,13 +656,13 @@ function BetRow({
 function MatchPicksSection({
   rows,
   locale,
-  selfUserId,
-  selfName,
+  targetUserId,
+  targetName,
 }: {
   rows: AdminUserMatchPickRow[];
   locale: Locale;
-  selfUserId: string;
-  selfName: string;
+  targetUserId: string;
+  targetName: string;
 }) {
   const isHebrew = locale === "he";
   const filled = rows.filter((r) => r.pickId != null).length;
@@ -649,8 +683,8 @@ function MatchPicksSection({
             key={r.matchId}
             row={r}
             locale={locale}
-            selfUserId={selfUserId}
-            selfName={selfName}
+            targetUserId={targetUserId}
+            targetName={targetName}
           />
         ))}
       </Card>
@@ -661,13 +695,13 @@ function MatchPicksSection({
 function MatchPickRow({
   row,
   locale,
-  selfUserId,
-  selfName,
+  targetUserId,
+  targetName,
 }: {
   row: AdminUserMatchPickRow;
   locale: Locale;
-  selfUserId: string;
-  selfName: string;
+  targetUserId: string;
+  targetName: string;
 }) {
   const isHebrew = locale === "he";
   const hasPick = row.pickId != null;
@@ -726,8 +760,136 @@ function MatchPickRow({
         matchupEn={matchupEn}
         currentHomeScore={row.pickHomeScore}
         currentAwayScore={row.pickAwayScore}
-        targetUserId={selfUserId}
-        targetUserName={selfName}
+        targetUserId={targetUserId}
+        targetUserName={targetName}
+        locale={locale}
+        lockAt={row.kickoffAt}
+        triggerLabel={
+          hasPick ? (isHebrew ? "תקן" : "Fix") : isHebrew ? "הוסף" : "Add"
+        }
+      />
+    </div>
+  );
+}
+
+function AdvancePicksSection({
+  rows,
+  locale,
+  targetUserId,
+  targetName,
+}: {
+  rows: AdminUserAdvancePickRow[];
+  locale: Locale;
+  targetUserId: string;
+  targetName: string;
+}) {
+  const isHebrew = locale === "he";
+  const filled = rows.filter((r) => r.pickId != null).length;
+  return (
+    <section className="flex flex-col gap-3">
+      <SectionHeading as="h2" underline="thin">
+        <span className="inline-flex items-center gap-2">
+          <Swords className="h-5 w-5" strokeWidth={1.75} />
+          {isHebrew ? "מי עולה?" : "Who advances?"}
+          <span className="text-xs font-normal text-on-surface-variant tabular-nums">
+            ({filled} / {rows.length})
+          </span>
+        </span>
+      </SectionHeading>
+      <Card className="p-3 md:p-4 flex flex-col gap-1">
+        {rows.map((r) => (
+          <AdvancePickRow
+            key={r.matchId}
+            row={r}
+            locale={locale}
+            targetUserId={targetUserId}
+            targetName={targetName}
+          />
+        ))}
+      </Card>
+    </section>
+  );
+}
+
+function AdvancePickRow({
+  row,
+  locale,
+  targetUserId,
+  targetName,
+}: {
+  row: AdminUserAdvancePickRow;
+  locale: Locale;
+  targetUserId: string;
+  targetName: string;
+}) {
+  const isHebrew = locale === "he";
+  const hasPick = row.pickId != null;
+  const kickoff = formatDateTime(row.kickoffAt, locale, {
+    day: "numeric",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  const home = isHebrew ? row.homeNameHe : row.homeNameEn;
+  const away = isHebrew ? row.awayNameHe : row.awayNameEn;
+  const matchupHe = `${row.homeNameHe} נגד ${row.awayNameHe}`;
+  const matchupEn = `${row.homeNameEn} vs ${row.awayNameEn}`;
+  const started = row.matchStatus !== "scheduled";
+  // Map a team code to the display name of one of the two fixture teams.
+  const nameOf = (code: string | null): string | null => {
+    if (code == null) return null;
+    if (code === row.homeCode) return home;
+    if (code === row.awayCode) return away;
+    return code;
+  };
+  const pickName = nameOf(row.pickTeam);
+  return (
+    <div className="flex items-center gap-2 py-2 px-2 rounded border-b border-outline-variant last:border-b-0">
+      <span className="text-xs text-on-surface-variant tabular-nums shrink-0 w-20 md:w-24">
+        {kickoff}
+      </span>
+      <span className="text-sm flex-1 min-w-0 truncate">
+        <MatchupLabel home={home} away={away} locale={locale} />
+        {started && (
+          <span className="ms-1 text-[10px] font-bold uppercase text-error align-middle">
+            {isHebrew ? "התחיל" : "started"}
+          </span>
+        )}
+      </span>
+      {hasPick ? (
+        <span className="text-sm font-bold shrink-0 inline-flex items-center gap-1 max-w-[7rem] md:max-w-[10rem]">
+          <Check className="h-3.5 w-3.5 text-secondary shrink-0" strokeWidth={2.5} />
+          <span className="truncate">{pickName}</span>
+        </span>
+      ) : (
+        <span className="text-xs text-on-surface-variant italic shrink-0 inline-flex items-center gap-1">
+          <X className="h-3.5 w-3.5" strokeWidth={2} />—
+        </span>
+      )}
+      {row.pickPointsEarned != null && (
+        <span
+          className={`text-xs font-bold tabular-nums shrink-0 w-10 text-end ${
+            row.pickPointsEarned > 0 ? "text-secondary" : "text-on-surface-variant"
+          }`}
+        >
+          {row.pickPointsEarned > 0 ? "+" : ""}
+          {row.pickPointsEarned}
+        </span>
+      )}
+      <MyBetsEditor
+        surface="advance"
+        matchId={row.matchId}
+        matchupHe={matchupHe}
+        matchupEn={matchupEn}
+        homeCode={row.homeCode}
+        awayCode={row.awayCode}
+        homeTeamHe={row.homeNameHe}
+        homeTeamEn={row.homeNameEn}
+        awayTeamHe={row.awayNameHe}
+        awayTeamEn={row.awayNameEn}
+        currentTeam={row.pickTeam}
+        targetUserId={targetUserId}
+        targetUserName={targetName}
         locale={locale}
         lockAt={row.kickoffAt}
         triggerLabel={

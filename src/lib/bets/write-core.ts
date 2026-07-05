@@ -101,12 +101,12 @@ export type WriteOutcome =
 // player still gets a pick after their deadline, while every other guard
 // (bet not graded, match not yet kicked off, never-overwrite, bank) still
 // holds. Defaults to false everywhere else.
-// `backdate` is the admin self-backdate escape hatch (see
-// _plans/2026-06-23-admin-self-backdate-bets.md): it accepts a custom bet in
-// any post-open status (locked / reversed / graded) and skips the lock +
-// existing-locked gates, so a full admin can correct their OWN pick after the
-// match has started. Set ONLY by backdateOwnCustomPick — every other caller
-// leaves it false and plays by the normal status/lock rules.
+// `backdate` is the admin backdate escape hatch (see
+// _plans/2026-07-05-admin-backdate-all-users-advance.md): it accepts a custom
+// bet in any post-open status (locked / reversed / graded) and skips the lock +
+// existing-locked gates, so a full admin can correct a pick after the match has
+// started. Set ONLY by backdateCustomPick — every other caller leaves it false
+// and plays by the normal status/lock rules.
 export type WriteOpts = {
   overwrite: boolean;
   allowAfterDeadline?: boolean;
@@ -1131,32 +1131,36 @@ export async function clearCustomPickAdmin(
   }
 }
 
-// ---- admin self-backdate writers ----
+// ---- admin backdate writers ----
 //
 // The deliberate exception to the post-kickoff lock (see
-// _plans/2026-06-23-admin-self-backdate-bets.md): a FULL admin correcting
-// their OWN pick after a match has already started or finished, because the
-// recurring prod DB hang sometimes drops a save before it persists. Two hard
-// guards on top of the normal admin-proxy path:
-//   1. Self-only — principal.adminId must equal principal.userId. The action
-//      layer asserts the session user is the only possible target; this is the
-//      write-core mirror so a future caller can never backdate someone else.
-//   2. The audit row is stamped `backdated: true` (and lockBypassed: true) so
-//      the private self-backdate view singles these out from ordinary
-//      pre-deadline overrides.
+// _plans/2026-07-05-admin-backdate-all-users-advance.md, extending
+// _plans/2026-06-23-admin-self-backdate-bets.md): a FULL admin correcting a
+// pick after a match has already started or finished, because the recurring
+// prod DB hang sometimes drops a save before it persists. Originally self-only;
+// now generalized to any target user (the admin picks whose bet to fix). The
+// guarantees that remain:
+//   1. The audit row is stamped `backdated: true` (and lockBypassed: true) so
+//      the backdate view singles these out from ordinary pre-deadline
+//      overrides. `admin_id` and `target_user_id` are both recorded, so a
+//      self-edit stays distinguishable in the trail (admin_id == target_user_id).
+//   2. Every write requires a non-empty reason (assertAdminReason + DB CHECK).
 // Callers MUST have passed requireAdmin() (full admin) before building the
-// principal — enforced at source in bet-immutability.test.ts.
+// principal — enforced at source in bet-immutability.test.ts. `my-bets` is
+// never granted to a scoped operator (absent from PERMISSION_PATHS).
 
+// A backdate targeting the admin's own bet — the highest conflict-of-interest
+// action, so it's flagged in the logs. It is NOT a gate: an admin may backdate
+// any user. The self-vs-other distinction lives in the audit row's ids.
 function isSelfBackdate(principal: AdminPrincipal): boolean {
   return principal.adminId === principal.userId;
 }
 
-export async function backdateOwnMatchPick(
+export async function backdateMatchPick(
   principal: AdminPrincipal,
   input: MatchPickInput,
 ): Promise<WriteOutcome> {
   if (!gateAccess(principal)) return { status: "skipped", reason: "not_allowed" };
-  if (!isSelfBackdate(principal)) return { status: "skipped", reason: "not_allowed" };
   assertAdminReason(principal.reason);
   if (!Number.isFinite(input.home) || !Number.isFinite(input.away)) {
     return { status: "error", error: "invalid" };
@@ -1244,9 +1248,11 @@ export async function backdateOwnMatchPick(
         lockBypassed: true,
         backdated: true,
       });
-      console.info("[admin self-backdate]", {
+      console.info("[admin backdate]", {
         step: "set_match",
         adminId: principal.adminId,
+        targetUserId: principal.userId,
+        isSelf: isSelfBackdate(principal),
         matchId: input.matchId,
         matchStatus: r.status,
         before: existing
@@ -1258,17 +1264,16 @@ export async function backdateOwnMatchPick(
       return { status: "filled", balanceAfter: null };
     });
   } catch (err) {
-    console.error("[write-core backdateOwnMatchPick] failed", err);
+    console.error("[write-core backdateMatchPick] failed", err);
     return { status: "error", error: "db" };
   }
 }
 
-export async function clearOwnMatchPick(
+export async function clearMatchPick(
   principal: AdminPrincipal,
   matchId: string,
 ): Promise<WriteOutcome> {
   if (!gateAccess(principal)) return { status: "skipped", reason: "not_allowed" };
-  if (!isSelfBackdate(principal)) return { status: "skipped", reason: "not_allowed" };
   assertAdminReason(principal.reason);
 
   try {
@@ -1302,9 +1307,11 @@ export async function clearOwnMatchPick(
         lockBypassed: true,
         backdated: true,
       });
-      console.info("[admin self-backdate]", {
+      console.info("[admin backdate]", {
         step: "clear_match",
         adminId: principal.adminId,
+        targetUserId: principal.userId,
+        isSelf: isSelfBackdate(principal),
         matchId,
         before: { home: existing.homeScore, away: existing.awayScore },
         reason: principal.reason.slice(0, 80),
@@ -1312,17 +1319,16 @@ export async function clearOwnMatchPick(
       return { status: "filled", balanceAfter: null };
     });
   } catch (err) {
-    console.error("[write-core clearOwnMatchPick] failed", err);
+    console.error("[write-core clearMatchPick] failed", err);
     return { status: "error", error: "db" };
   }
 }
 
-export async function backdateOwnCustomPick(
+export async function backdateCustomPick(
   principal: AdminPrincipal,
   input: CustomPickInput,
 ): Promise<WriteOutcome> {
   if (!gateAccess(principal)) return { status: "skipped", reason: "not_allowed" };
-  if (!isSelfBackdate(principal)) return { status: "skipped", reason: "not_allowed" };
   assertAdminReason(principal.reason);
 
   try {
@@ -1419,9 +1425,11 @@ export async function backdateOwnCustomPick(
         lockBypassed: true,
         backdated: true,
       });
-      console.info("[admin self-backdate]", {
+      console.info("[admin backdate]", {
         step: "set_custom",
         adminId: principal.adminId,
+        targetUserId: principal.userId,
+        isSelf: isSelfBackdate(principal),
         betId: input.customBetId,
         betStatus: bet.status,
         regraded,
@@ -1432,17 +1440,16 @@ export async function backdateOwnCustomPick(
       return outcome;
     });
   } catch (err) {
-    console.error("[write-core backdateOwnCustomPick] failed", err);
+    console.error("[write-core backdateCustomPick] failed", err);
     return { status: "error", error: "db" };
   }
 }
 
-export async function clearOwnCustomPick(
+export async function clearCustomPick(
   principal: AdminPrincipal,
   customBetId: string,
 ): Promise<WriteOutcome> {
   if (!gateAccess(principal)) return { status: "skipped", reason: "not_allowed" };
-  if (!isSelfBackdate(principal)) return { status: "skipped", reason: "not_allowed" };
   assertAdminReason(principal.reason);
 
   try {
@@ -1478,9 +1485,11 @@ export async function clearOwnCustomPick(
         lockBypassed: true,
         backdated: true,
       });
-      console.info("[admin self-backdate]", {
+      console.info("[admin backdate]", {
         step: "clear_custom",
         adminId: principal.adminId,
+        targetUserId: principal.userId,
+        isSelf: isSelfBackdate(principal),
         betId: customBetId,
         before: existing.answer,
         reason: principal.reason.slice(0, 80),
@@ -1488,7 +1497,162 @@ export async function clearOwnCustomPick(
       return { status: "filled", balanceAfter: null };
     });
   } catch (err) {
-    console.error("[write-core clearOwnCustomPick] failed", err);
+    console.error("[write-core clearCustomPick] failed", err);
+    return { status: "error", error: "db" };
+  }
+}
+
+// ---- admin backdate: "who advances?" (מי עולה) ----
+//
+// The advance pick lives in match_advance_bets (a flat-scoring side market, no
+// bank). Like backdateMatchPick, this deliberately does NOT refuse a started /
+// finished match — that is the point of a retroactive fix — and resets the
+// grading columns so an already-final knockout re-scores against the corrected
+// team. The action layer calls scoreAdvanceBets() right after for a final match
+// so points land immediately; a live/scheduled match grades on the next sync.
+// The audit row uses surface 'advance' + match_id (mirroring the 'match'
+// surface), stamped backdated=true. before/after snapshot the picked team code.
+export async function backdateAdvancePick(
+  principal: AdminPrincipal,
+  input: AdvancePickInput,
+): Promise<WriteOutcome> {
+  if (!gateAccess(principal)) return { status: "skipped", reason: "not_allowed" };
+  assertAdminReason(principal.reason);
+
+  // Knockout-only, and the team must be one of the two actually in the fixture.
+  const r = await execFirstRow<{
+    status: string;
+    stage: string;
+    home_team: string;
+    away_team: string;
+  }>(sql`
+    select
+      m.status::text as "status",
+      m.stage::text  as "stage",
+      m.home_team    as "home_team",
+      m.away_team    as "away_team"
+    from public.matches m
+    where m.id = ${input.matchId}::uuid
+    limit 1
+  `);
+  if (!r) return { status: "error", error: "not_found" };
+  if (r.stage === "group") return { status: "error", error: "invalid" };
+  if (input.team !== r.home_team && input.team !== r.away_team) {
+    return { status: "error", error: "invalid" };
+  }
+
+  try {
+    return await db.transaction(async (tx) => {
+      const [existing] = await tx
+        .select({ id: matchAdvanceBets.id, team: matchAdvanceBets.team })
+        .from(matchAdvanceBets)
+        .where(
+          and(
+            eq(matchAdvanceBets.userId, principal.userId),
+            eq(matchAdvanceBets.matchId, input.matchId),
+          ),
+        )
+        .limit(1);
+
+      // Reset grading to NULL/false so an already-final match re-scores against
+      // the corrected pick (scoreAdvanceBets only touches points_earned IS NULL).
+      await tx
+        .insert(matchAdvanceBets)
+        .values({
+          userId: principal.userId,
+          matchId: input.matchId,
+          team: input.team,
+        })
+        .onConflictDoUpdate({
+          target: [matchAdvanceBets.userId, matchAdvanceBets.matchId],
+          set: {
+            team: input.team,
+            pointsEarned: null,
+            wasCorrect: null,
+            locked: false,
+            updatedAt: new Date(),
+          },
+        });
+
+      await tx.insert(betAdminAudit).values({
+        adminId: principal.adminId,
+        targetUserId: principal.userId,
+        action: "set",
+        surface: "advance",
+        matchId: input.matchId,
+        customBetId: null,
+        before: existing ? { team: existing.team } : null,
+        after: { team: input.team },
+        reason: principal.reason.trim(),
+        lockBypassed: true,
+        backdated: true,
+      });
+      console.info("[admin backdate]", {
+        step: "set_advance",
+        adminId: principal.adminId,
+        targetUserId: principal.userId,
+        isSelf: isSelfBackdate(principal),
+        matchId: input.matchId,
+        matchStatus: r.status,
+        before: existing ? existing.team : null,
+        after: input.team,
+        reason: principal.reason.slice(0, 80),
+      });
+      return { status: "filled", balanceAfter: null };
+    });
+  } catch (err) {
+    console.error("[write-core backdateAdvancePick] failed", err);
+    return { status: "error", error: "db" };
+  }
+}
+
+export async function clearAdvancePick(
+  principal: AdminPrincipal,
+  matchId: string,
+): Promise<WriteOutcome> {
+  if (!gateAccess(principal)) return { status: "skipped", reason: "not_allowed" };
+  assertAdminReason(principal.reason);
+
+  try {
+    return await db.transaction(async (tx) => {
+      const [existing] = await tx
+        .select({ id: matchAdvanceBets.id, team: matchAdvanceBets.team })
+        .from(matchAdvanceBets)
+        .where(
+          and(
+            eq(matchAdvanceBets.userId, principal.userId),
+            eq(matchAdvanceBets.matchId, matchId),
+          ),
+        )
+        .limit(1);
+      if (!existing) return { status: "skipped", reason: "already_filled" };
+      await tx.delete(matchAdvanceBets).where(eq(matchAdvanceBets.id, existing.id));
+      await tx.insert(betAdminAudit).values({
+        adminId: principal.adminId,
+        targetUserId: principal.userId,
+        action: "clear",
+        surface: "advance",
+        matchId,
+        customBetId: null,
+        before: { team: existing.team },
+        after: null,
+        reason: principal.reason.trim(),
+        lockBypassed: true,
+        backdated: true,
+      });
+      console.info("[admin backdate]", {
+        step: "clear_advance",
+        adminId: principal.adminId,
+        targetUserId: principal.userId,
+        isSelf: isSelfBackdate(principal),
+        matchId,
+        before: existing.team,
+        reason: principal.reason.slice(0, 80),
+      });
+      return { status: "filled", balanceAfter: null };
+    });
+  } catch (err) {
+    console.error("[write-core clearAdvancePick] failed", err);
     return { status: "error", error: "db" };
   }
 }

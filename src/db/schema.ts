@@ -992,7 +992,7 @@ export const betAdminAudit = pgTable(
       .notNull()
       .references(() => profiles.id, { onDelete: "cascade" }),
     action: text("action").notNull(), // 'set' | 'clear'
-    surface: text("surface").notNull(), // 'match' | 'custom'
+    surface: text("surface").notNull(), // 'match' | 'custom' | 'advance'
     matchId: uuid("match_id").references(() => matches.id, {
       onDelete: "set null",
     }),

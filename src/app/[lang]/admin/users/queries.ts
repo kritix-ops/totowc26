@@ -289,6 +289,81 @@ export async function fetchUserMatchPicksForAdmin(
   `);
 }
 
+// Every knockout match + this user's "who advances?" (מי עולה) pick if any.
+// Same shape/purpose as fetchUserMatchPicksForAdmin but for the advance
+// surface, which lives in match_advance_bets. Group matches are excluded (the
+// market only exists on knockouts). `advancingTeam` is the resolved winner
+// (incl. extra time + penalties) once the match is final, so the admin can see
+// whether a fix would be right. Sorted by kickoff for a chronological scan.
+export type AdminUserAdvancePickRow = {
+  matchId: string;
+  kickoffAt: string;
+  stage: "r32" | "r16" | "qf" | "sf" | "third_place" | "final";
+  homeCode: string;
+  awayCode: string;
+  homeNameHe: string;
+  homeNameEn: string;
+  awayNameHe: string;
+  awayNameEn: string;
+  matchStatus: string;
+  advancingTeam: string | null;
+  pickId: string | null;
+  pickTeam: string | null;
+  pickPointsEarned: number | null;
+  pickWasCorrect: boolean | null;
+  pickLocked: boolean | null;
+};
+
+export async function fetchUserAdvancePicksForAdmin(
+  userId: string,
+): Promise<AdminUserAdvancePickRow[]> {
+  return execRows<AdminUserAdvancePickRow>(sql`
+    select
+      m.id::text                          as "matchId",
+      m.kickoff_at::text                  as "kickoffAt",
+      m.stage::text                       as "stage",
+      m.home_team                         as "homeCode",
+      m.away_team                         as "awayCode",
+      ht.name_he                          as "homeNameHe",
+      ht.name_en                          as "homeNameEn",
+      at.name_he                          as "awayNameHe",
+      at.name_en                          as "awayNameEn",
+      m.status::text                      as "matchStatus",
+      m.advancing_team                    as "advancingTeam",
+      ab.id::text                         as "pickId",
+      ab.team                             as "pickTeam",
+      ab.points_earned                    as "pickPointsEarned",
+      ab.was_correct                      as "pickWasCorrect",
+      ab.locked                           as "pickLocked"
+    from public.matches m
+    join public.teams ht on ht.code = m.home_team
+    join public.teams at on at.code = m.away_team
+    left join public.match_advance_bets ab
+      on ab.match_id = m.id and ab.user_id = ${userId}
+    where m.stage <> 'group'
+    order by m.kickoff_at asc
+  `);
+}
+
+// Lightweight user list for the backdate screen's "whose bets?" picker.
+// Non-bots only, sorted by name. Kept minimal (id + name) — the picker just
+// needs to navigate to ?user=<id>.
+export type AdminSelectableUser = {
+  id: string;
+  displayName: string;
+};
+
+export async function fetchSelectableUsers(): Promise<AdminSelectableUser[]> {
+  return execRows<AdminSelectableUser>(sql`
+    select
+      p.id::text       as "id",
+      p.display_name   as "displayName"
+    from public.profiles p
+    where p.is_bot = false
+    order by p.display_name asc
+  `);
+}
+
 // Cross-user matrix for /admin/bets-overview. ONE query returns every
 // (user, custom_bet) pair where status in ('open','locked'), with the
 // user's pick if any. We deliberately do this as a single SQL with

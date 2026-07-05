@@ -6,45 +6,53 @@ import { getUser } from "@/lib/supabase/auth";
 import { execRows } from "@/db/helpers";
 import { sql } from "drizzle-orm";
 import {
-  backdateOwnCustomPick,
-  backdateOwnMatchPick,
-  clearOwnCustomPick,
-  clearOwnMatchPick,
+  backdateCustomPick,
+  backdateMatchPick,
+  backdateAdvancePick,
+  clearCustomPick,
+  clearMatchPick,
+  clearAdvancePick,
 } from "@/lib/bets/write-core";
-import { scoreFinalMatches } from "@/lib/sync";
+import { scoreFinalMatches, scoreAdvanceBets } from "@/lib/sync";
 import type { PickAnswer } from "@/lib/bets/types";
 import type { AdminWriteResult } from "../users/[id]/bets/actions";
 
-// Admin self-backdate server actions: a FULL admin correcting their OWN bets
-// after a match has started/finished (the recurring prod DB hang sometimes
-// drops a save). See _plans/2026-06-23-admin-self-backdate-bets.md.
+// Admin backdate server actions: a FULL admin correcting a pick after a match
+// has started/finished (the recurring prod DB hang sometimes drops a save).
+// See _plans/2026-07-05-admin-backdate-all-users-advance.md.
 //
 // Every action:
 //   1. Gates on requireAdmin-equivalent (getUser + isAdmin full admin).
-//   2. IGNORES any client-supplied targetUserId and forces the session user's
-//      own id into BOTH adminId and userId — the write-core layer additionally
-//      refuses unless adminId === userId, so this can never touch another
-//      player's pick.
-//   3. Forwards to a self-only write-core entrypoint that writes the pick AND
-//      an immutable bet_admin_audit row (backdated: true) atomically.
+//   2. Sources the acting adminId from the live session (never the request
+//      body). The TARGET user is the caller-supplied targetUserId — the admin
+//      picks whose bet to fix on the backdate screen. Self-edits and other-user
+//      edits both land in bet_admin_audit (backdated: true); admin_id vs
+//      target_user_id keeps them distinguishable.
+//   3. Forwards to a write-core backdate entrypoint that writes the pick AND an
+//      immutable bet_admin_audit row atomically, then re-grades a final match.
 // The action result shape matches the proxy editor's AdminWriteResult so the
 // shared AdminPickEditor dialog can render either action set.
 
-async function gateSelf(): Promise<{ userId: string } | AdminWriteResult> {
+async function gate(
+  targetUserId: string,
+): Promise<{ adminId: string; targetUserId: string } | AdminWriteResult> {
   const user = await getUser();
   if (!user) return { ok: false, error: "unauthorized" };
   if (!(await isAdmin(user.id))) return { ok: false, error: "forbidden" };
-  return { userId: user.id };
+  if (typeof targetUserId !== "string" || targetUserId.trim().length === 0) {
+    return { ok: false, error: "invalid_input" };
+  }
+  return { adminId: user.id, targetUserId };
 }
 
 function validateReason(reason: string): boolean {
   return typeof reason === "string" && reason.trim().length > 0;
 }
 
-// Revalidate every surface a backdated pick can change: the self-backdate page
+// Revalidate every surface a backdated pick can change: the backdate page
 // itself, the leaderboard (points), the play surface (custom picks), and the
-// match page when a score pick moved.
-function revalidateSelf(matchId?: string): void {
+// match page when a score/advance pick moved.
+function revalidateAfter(matchId?: string): void {
   revalidatePath("/he/admin/my-bets");
   revalidatePath("/en/admin/my-bets");
   revalidatePath("/[lang]/leaderboard", "page");
@@ -55,7 +63,7 @@ function revalidateSelf(matchId?: string): void {
   }
 }
 
-export async function selfBackdateMatchPick(args: {
+export async function backdateMatchPickForUser(args: {
   targetUserId: string;
   matchId: string;
   homeScore: number;
@@ -63,7 +71,7 @@ export async function selfBackdateMatchPick(args: {
   reason: string;
   lockBypassed: boolean;
 }): Promise<AdminWriteResult> {
-  const guard = await gateSelf();
+  const guard = await gate(args.targetUserId);
   if ("ok" in guard) return guard;
   if (!validateReason(args.reason)) return { ok: false, error: "missing_reason" };
   if (
@@ -74,11 +82,11 @@ export async function selfBackdateMatchPick(args: {
   ) {
     return { ok: false, error: "invalid_input" };
   }
-  const outcome = await backdateOwnMatchPick(
+  const outcome = await backdateMatchPick(
     {
       kind: "admin_proxy",
-      adminId: guard.userId,
-      userId: guard.userId,
+      adminId: guard.adminId,
+      userId: guard.targetUserId,
       reason: args.reason,
       lockBypassed: true,
     },
@@ -89,39 +97,39 @@ export async function selfBackdateMatchPick(args: {
   if (outcome.status === "filled") {
     try {
       const res = await scoreFinalMatches();
-      console.info("[admin self-backdate] regrade_after_match_set", res);
+      console.info("[admin backdate] regrade_after_match_set", res);
     } catch (err) {
-      console.error("[admin self-backdate] regrade failed", err);
+      console.error("[admin backdate] regrade failed", err);
     }
   }
-  revalidateSelf(args.matchId);
+  revalidateAfter(args.matchId);
   return { ok: true, outcome };
 }
 
-export async function selfClearMatchPick(args: {
+export async function clearMatchPickForUser(args: {
   targetUserId: string;
   matchId: string;
   reason: string;
   lockBypassed: boolean;
 }): Promise<AdminWriteResult> {
-  const guard = await gateSelf();
+  const guard = await gate(args.targetUserId);
   if ("ok" in guard) return guard;
   if (!validateReason(args.reason)) return { ok: false, error: "missing_reason" };
-  const outcome = await clearOwnMatchPick(
+  const outcome = await clearMatchPick(
     {
       kind: "admin_proxy",
-      adminId: guard.userId,
-      userId: guard.userId,
+      adminId: guard.adminId,
+      userId: guard.targetUserId,
       reason: args.reason,
       lockBypassed: true,
     },
     args.matchId,
   );
-  revalidateSelf(args.matchId);
+  revalidateAfter(args.matchId);
   return { ok: true, outcome };
 }
 
-export async function selfBackdateCustomBetPick(args: {
+export async function backdateCustomBetPickForUser(args: {
   targetUserId: string;
   customBetId: string;
   answer: PickAnswer;
@@ -131,14 +139,14 @@ export async function selfBackdateCustomBetPick(args: {
   // range; free-pick scopes ignore it (always 0).
   requestedStake?: number;
 }): Promise<AdminWriteResult> {
-  const guard = await gateSelf();
+  const guard = await gate(args.targetUserId);
   if ("ok" in guard) return guard;
   if (!validateReason(args.reason)) return { ok: false, error: "missing_reason" };
-  const outcome = await backdateOwnCustomPick(
+  const outcome = await backdateCustomPick(
     {
       kind: "admin_proxy",
-      adminId: guard.userId,
-      userId: guard.userId,
+      adminId: guard.adminId,
+      userId: guard.targetUserId,
       reason: args.reason,
       lockBypassed: true,
     },
@@ -148,46 +156,112 @@ export async function selfBackdateCustomBetPick(args: {
       requestedStake: args.requestedStake,
     },
   );
-  revalidateSelf();
+  revalidateAfter();
   return { ok: true, outcome };
 }
 
-export async function selfClearCustomBetPick(args: {
+export async function clearCustomBetPickForUser(args: {
   targetUserId: string;
   customBetId: string;
   reason: string;
   lockBypassed: boolean;
 }): Promise<AdminWriteResult> {
-  const guard = await gateSelf();
+  const guard = await gate(args.targetUserId);
   if ("ok" in guard) return guard;
   if (!validateReason(args.reason)) return { ok: false, error: "missing_reason" };
-  const outcome = await clearOwnCustomPick(
+  const outcome = await clearCustomPick(
     {
       kind: "admin_proxy",
-      adminId: guard.userId,
-      userId: guard.userId,
+      adminId: guard.adminId,
+      userId: guard.targetUserId,
       reason: args.reason,
       lockBypassed: true,
     },
     args.customBetId,
   );
-  revalidateSelf();
+  revalidateAfter();
   return { ok: true, outcome };
 }
 
-// The private backdate trail: only the calling admin's own backdated rows.
-// Joined to the bet/match so the log reads in plain language. RLS already
-// restricts the table to admins; we further filter to admin_id = self so one
-// admin never sees another's corrections.
+export async function backdateAdvancePickForUser(args: {
+  targetUserId: string;
+  matchId: string;
+  team: string;
+  reason: string;
+  lockBypassed: boolean;
+}): Promise<AdminWriteResult> {
+  const guard = await gate(args.targetUserId);
+  if ("ok" in guard) return guard;
+  if (!validateReason(args.reason)) return { ok: false, error: "missing_reason" };
+  if (typeof args.team !== "string" || args.team.trim().length === 0) {
+    return { ok: false, error: "invalid_input" };
+  }
+  const outcome = await backdateAdvancePick(
+    {
+      kind: "admin_proxy",
+      adminId: guard.adminId,
+      userId: guard.targetUserId,
+      reason: args.reason,
+      lockBypassed: true,
+    },
+    { matchId: args.matchId, team: args.team },
+  );
+  // Grade immediately if the knockout is already final (scoreAdvanceBets only
+  // touches ungraded picks, and the write reset points_earned to NULL).
+  if (outcome.status === "filled") {
+    try {
+      const res = await scoreAdvanceBets();
+      console.info("[admin backdate] regrade_after_advance_set", res);
+    } catch (err) {
+      console.error("[admin backdate] advance regrade failed", err);
+    }
+  }
+  revalidateAfter(args.matchId);
+  return { ok: true, outcome };
+}
+
+export async function clearAdvancePickForUser(args: {
+  targetUserId: string;
+  matchId: string;
+  reason: string;
+  lockBypassed: boolean;
+}): Promise<AdminWriteResult> {
+  const guard = await gate(args.targetUserId);
+  if ("ok" in guard) return guard;
+  if (!validateReason(args.reason)) return { ok: false, error: "missing_reason" };
+  const outcome = await clearAdvancePick(
+    {
+      kind: "admin_proxy",
+      adminId: guard.adminId,
+      userId: guard.targetUserId,
+      reason: args.reason,
+      lockBypassed: true,
+    },
+    args.matchId,
+  );
+  revalidateAfter(args.matchId);
+  return { ok: true, outcome };
+}
+
+// The backdate trail: every backdated row this admin wrote, across all target
+// users, newest first. Joined to the bet/match so the log reads in plain
+// language, plus the target user's name so a fix for someone else is labelled.
+// RLS already restricts the table to admins; we further filter to admin_id =
+// self so one admin never sees another's corrections.
 export type MyBackdateAuditRow = {
   id: string;
   createdAt: string;
   action: "set" | "clear";
-  surface: "match" | "custom";
+  surface: "match" | "custom" | "advance";
   before: unknown | null;
   after: unknown | null;
   reason: string;
-  // Display context (NULL for the surface that doesn't apply).
+  // Whose bet was fixed (labelled in the log). NULL only if the profile was
+  // since deleted.
+  targetUserName: string | null;
+  isSelf: boolean;
+  // Display context (NULL for the surface that doesn't apply). Advance reuses
+  // the match join for the matchup.
   matchHomeHe: string | null;
   matchAwayHe: string | null;
   matchHomeEn: string | null;
@@ -209,6 +283,8 @@ export async function fetchMyBackdateAudit(): Promise<MyBackdateAuditRow[]> {
       a.before                           as "before",
       a.after                            as "after",
       a.reason                           as "reason",
+      tu.display_name                    as "targetUserName",
+      (a.target_user_id = a.admin_id)    as "isSelf",
       ht.name_he                         as "matchHomeHe",
       at.name_he                         as "matchAwayHe",
       ht.name_en                         as "matchHomeEn",
@@ -216,6 +292,7 @@ export async function fetchMyBackdateAudit(): Promise<MyBackdateAuditRow[]> {
       cb.question_he                     as "questionHe",
       cb.question_en                     as "questionEn"
     from public.bet_admin_audit a
+    left join public.profiles tu on tu.id = a.target_user_id
     left join public.matches m  on m.id = a.match_id
     left join public.teams ht   on ht.code = m.home_team
     left join public.teams at   on at.code = m.away_team

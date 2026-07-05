@@ -210,7 +210,7 @@ export default async function AdminPage({
           locale={locale}
           path="admin/my-bets"
           icon={<ListChecks className="h-5 w-5" strokeWidth={1.75} />}
-          label={isHebrew ? "ההימורים שלי (תיקון בדיעבד)" : "My bets (backdate)"}
+          label={isHebrew ? "תיקון בדיעבד" : "Backdate a bet"}
         />
         <AdminTile
           locale={locale}
