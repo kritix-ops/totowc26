@@ -225,6 +225,11 @@ export type AdminCustomBetRow = {
   // ratios (decimalOddsByValue / decimalOddsYes/No) at a glance. Typed as
   // unknown like the other admin rows; callers narrow via AnswerConfig.
   answerConfig: unknown;
+  // Raw resolved_value jsonb — null until the bet is graded. Surfaced so a
+  // finalize surface (tournament page) can prefill / display the official
+  // result via the shared GradeForm. Narrow via ResolvedValue at the call
+  // site, same convention as answerConfig.
+  resolvedValue: unknown;
   stakeSnapshot: number;
   payoutSnapshot: number;
   lockAt: string;
@@ -289,6 +294,7 @@ export async function listCustomBets(opts: {
       cb.answer_type::text                        as "answerType",
       cb.grading_source::text                     as "gradingSource",
       cb.answer_config                            as "answerConfig",
+      cb.resolved_value                           as "resolvedValue",
       cb.stake_snapshot                           as "stakeSnapshot",
       cb.payout_snapshot                          as "payoutSnapshot",
       cb.lock_at                                  as "lockAt",

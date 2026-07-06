@@ -3,10 +3,12 @@ import { notFound } from "next/navigation";
 import { sql } from "drizzle-orm";
 import { ChevronLeft, ChevronRight, Trophy } from "lucide-react";
 import { hasLocale, type Locale } from "../../dictionaries";
-import { Card } from "@/components/ui";
+import { Card, SectionHeading } from "@/components/ui";
 import { execFirstRow, execRows } from "@/db/helpers";
+import { listCustomBets } from "@/db/admin-queries";
 import { localePath } from "@/lib/paths";
 import { serverNow } from "@/lib/server-now";
+import { stageLabel } from "@/lib/stage-label";
 import { MS_PER_DAY, MS_PER_MINUTE } from "@/lib/time";
 import type { DynamicOptionSource } from "@/lib/bets/types";
 import {
@@ -14,6 +16,10 @@ import {
   OUTRIGHT_PLAYER_CEILING,
 } from "@/lib/bets/free-pick-scopes";
 import { TournamentTemplateCard } from "./TournamentTemplateCard";
+import {
+  PublishedTournamentBets,
+  type PublishedTournamentBet,
+} from "./PublishedTournamentBets";
 
 // Curated library of tournament-scope bet templates. Each one is a
 // one-click publish that pre-populates the custom_bets shape with
@@ -25,9 +31,10 @@ import { TournamentTemplateCard } from "./TournamentTemplateCard";
 // red cards) we expose admin-editable stake/payout because API-Football
 // does not publish outright futures odds we can read directly.
 //
-// The grading source on every published template is 'manual' — admin
-// settles tournament bets via /admin/bets/[id]/grade once the
-// tournament concludes the relevant stat.
+// The grading source on every published template is 'manual'. The admin
+// settles each bet from the "ההימורים שפרסמת" section at the top of this
+// page (PublishedTournamentBets → the shared GradeForm) once the tournament
+// concludes the relevant stat — no trip to the live-bets surface needed.
 
 // Explicit prop typing — the auto-generated AppRoutes constraint does
 // not pick up new routes until after a `next build`.
@@ -36,6 +43,16 @@ type PageParams = {
 };
 
 type Team = { code: string; nameHe: string; nameEn: string; flag: string };
+
+// Finalize-list ordering: locked (past its lock, most urgent) and open
+// (decided but still accepting picks) come first, then reversed, then the
+// already-graded rows. Draft / cancelled are filtered out before sorting.
+const STATUS_RANK: Record<PublishedTournamentBet["status"], number> = {
+  locked: 0,
+  open: 1,
+  reversed: 2,
+  graded: 3,
+};
 
 export default async function TournamentSuggestionsPage({
   params,
@@ -46,10 +63,46 @@ export default async function TournamentSuggestionsPage({
   const isHebrew = locale === "he";
   const ChevBack = isHebrew ? ChevronRight : ChevronLeft;
 
-  const [teams, lastFixtureRow] = await Promise.all([
+  const [teams, lastFixtureRow, publishedBetRows] = await Promise.all([
     loadWcTeams(),
     loadLastWcKickoff(),
+    // The stage + tournament bets this page is responsible for. Group-scope
+    // bets auto-grade and live on /admin/group-bets, so they are excluded
+    // here to avoid duplicating that surface.
+    listCustomBets({ scopeIn: ["stage", "tournament"], limit: 200 }),
   ]);
+
+  // Shape the published bets for the finalize list: localize the question
+  // and scope, drop draft (unpublished) / cancelled (dead) rows, and order
+  // the ones needing action ahead of the already-graded ones. The query
+  // returns newest-first and Array.sort is stable, so recency is preserved
+  // within each status band.
+  const publishedBets: PublishedTournamentBet[] = publishedBetRows
+    .filter(
+      (b) =>
+        b.status === "open" ||
+        b.status === "locked" ||
+        b.status === "reversed" ||
+        b.status === "graded",
+    )
+    .map((b) => ({
+      id: b.id,
+      status: b.status as PublishedTournamentBet["status"],
+      question: isHebrew ? b.questionHe : b.questionEn,
+      scopeLabel:
+        b.scope === "tournament"
+          ? isHebrew
+            ? "טורניר"
+            : "Tournament"
+          : stageLabel(b.stage ?? "", b.groupId, locale),
+      answerType: b.answerType,
+      answerConfig: b.answerConfig,
+      resolvedValue: b.resolvedValue,
+      payoutSnapshot: b.payoutSnapshot,
+      pickCount: b.pickCount,
+      lockAt: b.lockAt,
+    }))
+    .sort((a, b) => STATUS_RANK[a.status] - STATUS_RANK[b.status]);
 
   // Tournament/stage/group bets are free picks: stake 0, payouts on the
   // outright scale (notional unit 1, cap 25). See
@@ -87,34 +140,46 @@ export default async function TournamentSuggestionsPage({
         <div className="flex flex-col gap-2">
           <h1 className="font-[family-name:var(--font-display)] text-[28px] leading-9 md:text-[40px] md:leading-[44px] font-bold text-primary inline-flex items-center gap-3">
             <Trophy className="h-6 w-6 md:h-7 md:w-7" strokeWidth={1.75} />
-            {isHebrew ? "הצעות הימורי טורניר" : "Tournament bet suggestions"}
+            {isHebrew ? "הימורי טורניר" : "Tournament bets"}
           </h1>
           <p className="text-sm text-on-surface-variant">
             {isHebrew
-              ? "תבניות מוכנות להימורי טורניר חד-פעמיים. כל תבנית פותחת הימור בעמוד \"הימורים → הימורי טורניר\" של המשתתפים. בחירת הקבוצות מבוססת על רשימת המונדיאל מהדאטה שלנו."
-              : "Ready-made templates for one-shot tournament bets. Each template publishes a bet into the player-facing Bets → Tournament tab. Team lists are seeded from our World Cup data."}
+              ? "כאן מנהלים את הימורי הטורניר: מסיימים הימור שכבר הוכרע (למעלה) ומפרסמים הימורים חדשים מהתבניות (למטה)."
+              : "Manage tournament bets here: finalize a decided bet (top) and publish new ones from the templates (below)."}
           </p>
         </div>
       </header>
 
-      {templates.length === 0 ? (
-        <Card className="p-6 text-center text-on-surface-variant">
+      <PublishedTournamentBets locale={locale} bets={publishedBets} />
+
+      <section className="flex flex-col gap-3">
+        <SectionHeading as="h2" underline="thin">
+          {isHebrew ? "פרסם הימור חדש" : "Publish a new bet"}
+        </SectionHeading>
+        <p className="text-sm text-on-surface-variant">
           {isHebrew
-            ? "אין תבניות זמינות. ודא שהסנכרון הראשוני של המשחקים רץ."
-            : "No templates available. Confirm the initial fixture sync has run."}
-        </Card>
-      ) : (
-        <div className="flex flex-col gap-4">
-          {templates.map((tpl) => (
-            <TournamentTemplateCard
-              key={tpl.key}
-              locale={locale}
-              template={tpl}
-              maxPayout={maxPayout}
-            />
-          ))}
-        </div>
-      )}
+            ? "תבניות מוכנות להימורי טורניר חד-פעמיים. כל תבנית פותחת הימור בעמוד \"הימורים → הימורי טורניר\" של המשתתפים. בחירת הקבוצות מבוססת על רשימת המונדיאל מהדאטה שלנו."
+            : "Ready-made templates for one-shot tournament bets. Each template publishes a bet into the player-facing Bets → Tournament tab. Team lists are seeded from our World Cup data."}
+        </p>
+        {templates.length === 0 ? (
+          <Card className="p-6 text-center text-on-surface-variant">
+            {isHebrew
+              ? "אין תבניות זמינות. ודא שהסנכרון הראשוני של המשחקים רץ."
+              : "No templates available. Confirm the initial fixture sync has run."}
+          </Card>
+        ) : (
+          <div className="flex flex-col gap-4">
+            {templates.map((tpl) => (
+              <TournamentTemplateCard
+                key={tpl.key}
+                locale={locale}
+                template={tpl}
+                maxPayout={maxPayout}
+              />
+            ))}
+          </div>
+        )}
+      </section>
     </section>
   );
 }
