@@ -25,7 +25,12 @@
 //   5. Cross-origin — straight to network. Auth tokens, flag CDN,
 //      football-data API: all live, never cached here.
 
-const VERSION = "v3";
+// Bump this on any deploy that must evict every client's runtime caches
+// (e.g. recovering users stranded on a stale build whose chunk URLs the
+// new deploy has already deleted). The `activate` handler below deletes
+// every `toto-*` cache whose name doesn't match the current VERSION, so a
+// bump is a clean-slate for icons, build assets, and images alike.
+const VERSION = "v4";
 const STATIC_CACHE = `toto-static-${VERSION}`;
 const BUILD_CACHE = `toto-build-${VERSION}`;
 const IMG_CACHE = `toto-img-${VERSION}`;

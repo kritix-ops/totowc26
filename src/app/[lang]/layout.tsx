@@ -14,6 +14,7 @@ import {
   type Locale,
 } from "./dictionaries";
 import { AppShell } from "@/components/AppShell";
+import { ChunkRecoveryScript } from "@/components/ChunkRecoveryScript";
 import { HiddenPageToast } from "@/components/HiddenPageToast";
 import { Toaster } from "@/components/Toaster";
 import { SandboxBanner } from "@/components/SandboxBanner";
@@ -121,6 +122,7 @@ export default async function RootLayout({
       className={`${display.variable} ${displayEn.variable} ${ui.variable}`}
     >
       <body className="bg-background text-on-background min-h-screen flex flex-col">
+        <ChunkRecoveryScript />
         <SplashOverlay
           locale={SPLASH_LOCALES_AVAILABLE.includes(locale) ? locale : "he"}
         />
