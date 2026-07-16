@@ -35,13 +35,15 @@ const sql = postgres(url, { prepare: false });
 
 // Continuous log-odds payout curve. Mirrors buildOutrightCurve in
 // src/lib/odds-normalize.ts and the OUTRIGHT_* curve constants in
-// src/lib/bets/free-pick-scopes.ts. The favourite of a surface earns the
-// floor, the longest priced shot earns the ceiling, interpolated on
-// ln(odds). Player + champion/runner-up/third surfaces span 20→100;
-// group winners span 20→50 normalised within each group. Free picks:
-// stake is always 0 at submit. See
-// _plans/2026-06-01-tournament-payout-curve.md.
-const CURVE_FLOOR = 20;
+// src/lib/bets/free-pick-scopes.ts (source of truth — keep in sync). The
+// favourite of a surface earns the floor, the longest priced shot earns the
+// ceiling, interpolated on ln(odds). Player + champion/runner-up/third
+// surfaces span 35→100; group winners span 20→50 normalised within each
+// group. Free picks: stake is always 0 at submit. See
+// _plans/2026-06-01-tournament-payout-curve.md and
+// _plans/2026-07-16-raise-tournament-bet-floor-to-35.md.
+const PLAYER_FLOOR = 35;
+const GROUP_FLOOR = 20;
 const PLAYER_CEILING = 100;
 const GROUP_CEILING = 50;
 
@@ -95,7 +97,7 @@ try {
   // ---------- iterate every surface ----------
   const summary = {};
 
-  // 1) Player surfaces — top_scorer, golden_ball. Curve 20→100; unpriced
+  // 1) Player surfaces — top_scorer, golden_ball. Curve 35→100; unpriced
   //    players fall back to the ceiling via the bet-level payout_snapshot.
   for (const surface of ["top_scorer", "golden_ball"]) {
     const snapshot = await sql`
@@ -105,7 +107,7 @@ try {
     `;
     const curve = buildCurve(
       snapshot.map((r) => Number(r.decimal_odds)),
-      CURVE_FLOOR,
+      PLAYER_FLOOR,
       PLAYER_CEILING,
     );
     const overrides = {};
@@ -123,7 +125,7 @@ try {
   }
 
   // 2) Tournament-wide team surfaces — champion, runner_up, third.
-  //    Same 20→100 curve as the player surfaces, for consistency.
+  //    Same 35→100 curve as the player surfaces, for consistency.
   for (const surface of ["champion", "runner_up", "third"]) {
     const snapshot = await sql`
       select option_id, decimal_odds
@@ -132,7 +134,7 @@ try {
     `;
     const curve = buildCurve(
       snapshot.map((r) => Number(r.decimal_odds)),
-      CURVE_FLOOR,
+      PLAYER_FLOOR,
       PLAYER_CEILING,
     );
     const overrides = {};
@@ -170,15 +172,16 @@ try {
       if (team) oddsByCode.set(team.code, Number(row.decimal_odds));
     }
     // Per-team payout by odds WITHIN the group: the group favourite earns
-    // the floor (20), the longest shot in that group earns the ceiling
-    // (50), interpolated on the log-odds curve. The curve is built from
-    // this group's four odds only, so it normalises per group — every
+    // the group floor (20), the longest shot in that group earns the
+    // ceiling (50), interpolated on the log-odds curve. The curve is built
+    // from this group's four odds only, so it normalises per group — every
     // group's favourite is 20 and its longest shot is 50, ranked by odds
-    // in between. Reverses the prior flat per-group payout. See
+    // in between. Group surfaces keep the 20 floor (unlike tournament
+    // surfaces, now 35). Reverses the prior flat per-group payout. See
     // _plans/2026-06-01-tournament-payout-curve.md.
     const curve = buildCurve(
       groupTeams.map((t) => oddsByCode.get(t.code)).filter((d) => d != null),
-      CURVE_FLOOR,
+      GROUP_FLOOR,
       GROUP_CEILING,
     );
 

@@ -1,0 +1,170 @@
+{
+  "bet": {
+    "id": "3ba57e2b-dec8-47a9-b410-27b2a7403208",
+    "answer_config": {
+      "kind": "multi_choice",
+      "options": [
+        {
+          "value": "lt_265",
+          "labelEn": "Under 265",
+          "labelHe": "פחות מ-265",
+          "payoutOverride": 100
+        },
+        {
+          "value": "265_295",
+          "labelEn": "265–295",
+          "labelHe": "265–295",
+          "payoutOverride": 54
+        },
+        {
+          "value": "gt_295",
+          "labelEn": "Over 295",
+          "labelHe": "מעל 295",
+          "payoutOverride": 20
+        }
+      ],
+      "payoutOverridesByValue": {
+        "gt_295": 20,
+        "lt_265": 100,
+        "265_295": 54
+      }
+    }
+  },
+  "winners": [
+    {
+      "pick_id": "678fdd5e-3075-4091-97f8-b5fe0675f9fa",
+      "display_name": "Oz D",
+      "stake_paid": 0,
+      "payout_snapshot": 20,
+      "points_earned": 20,
+      "was_correct": true,
+      "pick_value": "gt_295"
+    },
+    {
+      "pick_id": "9a223db3-5aa7-40c7-805c-d40cd017aeef",
+      "display_name": "tombello1234",
+      "stake_paid": 0,
+      "payout_snapshot": 20,
+      "points_earned": 20,
+      "was_correct": true,
+      "pick_value": "gt_295"
+    },
+    {
+      "pick_id": "e08e9a16-4e0e-4974-8599-f73c54055175",
+      "display_name": "Yakir bst",
+      "stake_paid": 0,
+      "payout_snapshot": 20,
+      "points_earned": 20,
+      "was_correct": true,
+      "pick_value": "gt_295"
+    },
+    {
+      "pick_id": "ec5602f8-bee4-4f92-b436-90d34573678a",
+      "display_name": "אוהד ניסן",
+      "stake_paid": 0,
+      "payout_snapshot": 20,
+      "points_earned": 20,
+      "was_correct": true,
+      "pick_value": "gt_295"
+    },
+    {
+      "pick_id": "3f05a17d-d4ca-4f1b-814d-f11188bb95d1",
+      "display_name": "אילן מזרחי",
+      "stake_paid": 0,
+      "payout_snapshot": 20,
+      "points_earned": 20,
+      "was_correct": true,
+      "pick_value": "gt_295"
+    },
+    {
+      "pick_id": "1a924655-7714-4fc8-ac9d-7cfb4c1d2a4c",
+      "display_name": "הקוף",
+      "stake_paid": 0,
+      "payout_snapshot": 20,
+      "points_earned": 20,
+      "was_correct": true,
+      "pick_value": "gt_295"
+    },
+    {
+      "pick_id": "401f705a-3e19-47dc-a588-00aea78723e4",
+      "display_name": "הרן",
+      "stake_paid": 0,
+      "payout_snapshot": 20,
+      "points_earned": 20,
+      "was_correct": true,
+      "pick_value": "gt_295"
+    },
+    {
+      "pick_id": "0aa82666-6782-49a7-ae92-3be77600b653",
+      "display_name": "ינאי מזרחי",
+      "stake_paid": 0,
+      "payout_snapshot": 20,
+      "points_earned": 20,
+      "was_correct": true,
+      "pick_value": "gt_295"
+    },
+    {
+      "pick_id": "9e44a827-be2c-4e01-95fa-f97bde5c622e",
+      "display_name": "לנדאו",
+      "stake_paid": 0,
+      "payout_snapshot": 20,
+      "points_earned": 20,
+      "was_correct": true,
+      "pick_value": "gt_295"
+    },
+    {
+      "pick_id": "ad5cfda8-1082-43b9-b38a-afef54099bf6",
+      "display_name": "מתן לרנר",
+      "stake_paid": 0,
+      "payout_snapshot": 20,
+      "points_earned": 20,
+      "was_correct": true,
+      "pick_value": "gt_295"
+    },
+    {
+      "pick_id": "5af1b239-8203-41a6-b014-500b17dc4038",
+      "display_name": "מתן ענתבי",
+      "stake_paid": 0,
+      "payout_snapshot": 20,
+      "points_earned": 20,
+      "was_correct": true,
+      "pick_value": "gt_295"
+    },
+    {
+      "pick_id": "e8555a0b-7c2b-48ca-b198-fe0847782c3a",
+      "display_name": "עומר נוריאל",
+      "stake_paid": 0,
+      "payout_snapshot": 20,
+      "points_earned": 20,
+      "was_correct": true,
+      "pick_value": "gt_295"
+    },
+    {
+      "pick_id": "ed75535d-bc2d-4ab8-ae44-04ff017338ae",
+      "display_name": "עמית גולן",
+      "stake_paid": 0,
+      "payout_snapshot": 20,
+      "points_earned": 20,
+      "was_correct": true,
+      "pick_value": "gt_295"
+    },
+    {
+      "pick_id": "74f45ae3-d36d-41f9-a780-11d5cccaf02a",
+      "display_name": "ערן פלגי",
+      "stake_paid": 0,
+      "payout_snapshot": 20,
+      "points_earned": 20,
+      "was_correct": true,
+      "pick_value": "gt_295"
+    },
+    {
+      "pick_id": "137905a8-95ee-44fd-95a5-c98959727ba1",
+      "display_name": "שרון ירמיה",
+      "stake_paid": 0,
+      "payout_snapshot": 20,
+      "points_earned": 20,
+      "was_correct": true,
+      "pick_value": "gt_295"
+    }
+  ]
+}

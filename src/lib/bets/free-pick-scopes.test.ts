@@ -2,9 +2,15 @@ import { describe, expect, it } from "vitest";
 import {
   FREE_PICK_SCOPES,
   isFreePickScope,
+  OUTRIGHT_GROUP_CEILING,
+  OUTRIGHT_GROUP_FLOOR,
   OUTRIGHT_HOUSE_EDGE_PCT,
   OUTRIGHT_MAX_PAYOUT,
   OUTRIGHT_NOTIONAL_STAKE,
+  OUTRIGHT_PLAYER_CEILING,
+  OUTRIGHT_PLAYER_FLOOR,
+  outrightCurveCeiling,
+  outrightCurveFloor,
 } from "./free-pick-scopes";
 
 describe("isFreePickScope", () => {
@@ -44,5 +50,50 @@ describe("outright payout constants", () => {
   });
   it("house edge is 5 %", () => {
     expect(OUTRIGHT_HOUSE_EDGE_PCT).toBe(5);
+  });
+});
+
+describe("outright curve floor (surface-aware)", () => {
+  // The floor was lifted 20 → 35 for tournament surfaces on 2026-07-16 so a
+  // whole-tournament favourite pays more than a pittance; group surfaces keep
+  // the 20 floor so their tighter 20→50 range does not collapse. See
+  // _plans/2026-07-16-raise-tournament-bet-floor-to-35.md. Pinned so a stray
+  // edit fails CI.
+  it("tournament floor is 35, group floor is 20", () => {
+    expect(OUTRIGHT_PLAYER_FLOOR).toBe(35);
+    expect(OUTRIGHT_GROUP_FLOOR).toBe(20);
+  });
+
+  it("lifts the floor to 35 for player + tournament-wide team surfaces", () => {
+    for (const surface of [
+      "top_scorer",
+      "golden_ball",
+      "champion",
+      "runner_up",
+      "third",
+    ]) {
+      expect(outrightCurveFloor(surface)).toBe(35);
+    }
+  });
+
+  it("keeps the floor at 20 for every group surface", () => {
+    for (const letter of "ABCDEFGHIJKL") {
+      expect(outrightCurveFloor(`group_${letter}`)).toBe(20);
+    }
+  });
+
+  it("keeps floor strictly below ceiling on every surface", () => {
+    for (const surface of ["champion", "top_scorer", "group_A", "group_L"]) {
+      expect(outrightCurveFloor(surface)).toBeLessThan(
+        outrightCurveCeiling(surface),
+      );
+    }
+  });
+
+  it("leaves the ceilings unchanged (100 outright, 50 group)", () => {
+    expect(outrightCurveCeiling("champion")).toBe(OUTRIGHT_PLAYER_CEILING);
+    expect(outrightCurveCeiling("group_A")).toBe(OUTRIGHT_GROUP_CEILING);
+    expect(OUTRIGHT_PLAYER_CEILING).toBe(100);
+    expect(OUTRIGHT_GROUP_CEILING).toBe(50);
   });
 });

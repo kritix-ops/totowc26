@@ -1,0 +1,1315 @@
+[
+  {
+    "id": "63d40c1f-0e37-43f1-99c3-7af5906ec553",
+    "question": "האם הגמר יוכרע בפנדלים?",
+    "answer_config": {
+      "kind": "yes_no",
+      "payoutOverrideNo": 20,
+      "payoutOverrideYes": 100
+    }
+  },
+  {
+    "id": "dc8743cc-e4ca-49e6-8963-73139b403aae",
+    "question": "מי תזכה במונדיאל 2026?",
+    "answer_config": {
+      "kind": "multi_choice",
+      "options": [
+        {
+          "icon": "🇩🇿",
+          "value": "ALG",
+          "labelEn": "Algeria",
+          "labelHe": "אלג'יריה",
+          "payoutOverride": 89
+        },
+        {
+          "icon": "🇦🇷",
+          "value": "ARG",
+          "labelEn": "Argentina",
+          "labelHe": "ארגנטינה",
+          "payoutOverride": 29
+        },
+        {
+          "icon": "🇦🇺",
+          "value": "AUS",
+          "labelEn": "Australia",
+          "labelHe": "אוסטרליה",
+          "payoutOverride": 92
+        },
+        {
+          "icon": "🇦🇹",
+          "value": "AUT",
+          "labelEn": "Austria",
+          "labelHe": "אוסטריה",
+          "payoutOverride": 70
+        },
+        {
+          "icon": "🇧🇪",
+          "value": "BEL",
+          "labelEn": "Belgium",
+          "labelHe": "בלגיה",
+          "payoutOverride": 51
+        },
+        {
+          "icon": "🇧🇦",
+          "value": "BIH",
+          "labelEn": "Bosnia and Herzegovina",
+          "labelHe": "בוסניה והרצגובינה",
+          "payoutOverride": 100
+        },
+        {
+          "icon": "🇧🇷",
+          "value": "BRA",
+          "labelEn": "Brazil",
+          "labelHe": "ברזיל",
+          "payoutOverride": 28
+        },
+        {
+          "icon": "🇨🇦",
+          "value": "CAN",
+          "labelEn": "Canada",
+          "labelHe": "קנדה",
+          "payoutOverride": 81
+        },
+        {
+          "icon": "🇨🇻",
+          "value": "CPV",
+          "labelEn": "Cape Verde",
+          "labelHe": "כף ורדה",
+          "payoutOverride": 100
+        },
+        {
+          "icon": "🇨🇴",
+          "value": "COL",
+          "labelEn": "Colombia",
+          "labelHe": "קולומביה",
+          "payoutOverride": 52
+        },
+        {
+          "icon": "🇭🇷",
+          "value": "CRO",
+          "labelEn": "Croatia",
+          "labelHe": "קרואטיה",
+          "payoutOverride": 68
+        },
+        {
+          "icon": "🇨🇼",
+          "value": "CUW",
+          "labelEn": "Curaçao",
+          "labelHe": "קוראסאו",
+          "payoutOverride": 100
+        },
+        {
+          "icon": "🇨🇿",
+          "value": "CZE",
+          "labelEn": "Czechia",
+          "labelHe": "צ'כיה",
+          "payoutOverride": 100
+        },
+        {
+          "icon": "🇨🇩",
+          "value": "COD",
+          "labelEn": "DR Congo",
+          "labelHe": "קונגו (DR)",
+          "payoutOverride": 100
+        },
+        {
+          "icon": "🇪🇨",
+          "value": "ECU",
+          "labelEn": "Ecuador",
+          "labelHe": "אקוודור",
+          "payoutOverride": 66
+        },
+        {
+          "icon": "🇪🇬",
+          "value": "EGY",
+          "labelEn": "Egypt",
+          "labelHe": "מצרים",
+          "payoutOverride": 87
+        },
+        {
+          "icon": "🇬🇧",
+          "value": "ENG",
+          "labelEn": "England",
+          "labelHe": "אנגליה",
+          "payoutOverride": 24
+        },
+        {
+          "icon": "🇫🇷",
+          "value": "FRA",
+          "labelEn": "France",
+          "labelHe": "צרפת",
+          "payoutOverride": 20
+        },
+        {
+          "icon": "🇩🇪",
+          "value": "GER",
+          "labelEn": "Germany",
+          "labelHe": "גרמניה",
+          "payoutOverride": 37
+        },
+        {
+          "icon": "🇬🇭",
+          "value": "GHA",
+          "labelEn": "Ghana",
+          "labelHe": "גאנה",
+          "payoutOverride": 89
+        },
+        {
+          "icon": "🇭🇹",
+          "value": "HAI",
+          "labelEn": "Haiti",
+          "labelHe": "האיטי",
+          "payoutOverride": 100
+        },
+        {
+          "icon": "🇮🇷",
+          "value": "IRN",
+          "labelEn": "Iran",
+          "labelHe": "איראן",
+          "payoutOverride": 98
+        },
+        {
+          "icon": "🇮🇶",
+          "value": "IRQ",
+          "labelEn": "Iraq",
+          "labelHe": "עיראק",
+          "payoutOverride": 100
+        },
+        {
+          "icon": "🇨🇮",
+          "value": "CIV",
+          "labelEn": "Ivory Coast",
+          "labelHe": "חוף השנהב",
+          "payoutOverride": 77
+        },
+        {
+          "icon": "🇯🇵",
+          "value": "JPN",
+          "labelEn": "Japan",
+          "labelHe": "יפן",
+          "payoutOverride": 57
+        },
+        {
+          "icon": "🇯🇴",
+          "value": "JOR",
+          "labelEn": "Jordan",
+          "labelHe": "ירדן",
+          "payoutOverride": 100
+        },
+        {
+          "icon": "🇲🇽",
+          "value": "MEX",
+          "labelEn": "Mexico",
+          "labelHe": "מקסיקו",
+          "payoutOverride": 62
+        },
+        {
+          "icon": "🇲🇦",
+          "value": "MAR",
+          "labelEn": "Morocco",
+          "labelHe": "מרוקו",
+          "payoutOverride": 57
+        },
+        {
+          "icon": "🇳🇱",
+          "value": "NED",
+          "labelEn": "Netherlands",
+          "labelHe": "הולנד",
+          "payoutOverride": 42
+        },
+        {
+          "icon": "🇳🇿",
+          "value": "NZL",
+          "labelEn": "New Zealand",
+          "labelHe": "ניו זילנד",
+          "payoutOverride": 100
+        },
+        {
+          "icon": "🇳🇴",
+          "value": "NOR",
+          "labelEn": "Norway",
+          "labelHe": "נורווגיה",
+          "payoutOverride": 48
+        },
+        {
+          "icon": "🇵🇦",
+          "value": "PAN",
+          "labelEn": "Panama",
+          "labelHe": "פנמה",
+          "payoutOverride": 100
+        },
+        {
+          "icon": "🇵🇾",
+          "value": "PAR",
+          "labelEn": "Paraguay",
+          "labelHe": "פרגוואי",
+          "payoutOverride": 82
+        },
+        {
+          "icon": "🇵🇹",
+          "value": "POR",
+          "labelEn": "Portugal",
+          "labelHe": "פורטוגל",
+          "payoutOverride": 31
+        },
+        {
+          "icon": "🇶🇦",
+          "value": "QAT",
+          "labelEn": "Qatar",
+          "labelHe": "קטאר",
+          "payoutOverride": 100
+        },
+        {
+          "icon": "🇸🇦",
+          "value": "KSA",
+          "labelEn": "Saudi Arabia",
+          "labelHe": "ערב הסעודית",
+          "payoutOverride": 100
+        },
+        {
+          "icon": "🏴󠁧󠁢󠁳󠁣󠁴󠁿",
+          "value": "SCO",
+          "labelEn": "Scotland",
+          "labelHe": "סקוטלנד",
+          "payoutOverride": 77
+        },
+        {
+          "icon": "🇸🇳",
+          "value": "SEN",
+          "labelEn": "Senegal",
+          "labelHe": "סנגל",
+          "payoutOverride": 70
+        },
+        {
+          "icon": "🇿🇦",
+          "value": "RSA",
+          "labelEn": "South Africa",
+          "labelHe": "דרום אפריקה",
+          "payoutOverride": 98
+        },
+        {
+          "icon": "🇰🇷",
+          "value": "KOR",
+          "labelEn": "South Korea",
+          "labelHe": "דרום קוריאה",
+          "payoutOverride": 87
+        },
+        {
+          "icon": "🇪🇸",
+          "value": "ESP",
+          "labelEn": "Spain",
+          "labelHe": "ספרד",
+          "payoutOverride": 20
+        },
+        {
+          "icon": "🇸🇪",
+          "value": "SWE",
+          "labelEn": "Sweden",
+          "labelHe": "שוודיה",
+          "payoutOverride": 69
+        },
+        {
+          "icon": "🇨🇭",
+          "value": "SUI",
+          "labelEn": "Switzerland",
+          "labelHe": "שוויץ",
+          "payoutOverride": 60
+        },
+        {
+          "icon": "🇹🇳",
+          "value": "TUN",
+          "labelEn": "Tunisia",
+          "labelHe": "תוניסיה",
+          "payoutOverride": 98
+        },
+        {
+          "icon": "🇹🇷",
+          "value": "TUR",
+          "labelEn": "Turkey",
+          "labelHe": "טורקיה",
+          "payoutOverride": 66
+        },
+        {
+          "icon": "🇺🇾",
+          "value": "URY",
+          "labelEn": "Uruguay",
+          "labelHe": "אורוגוואי",
+          "payoutOverride": 63
+        },
+        {
+          "icon": "🇺🇸",
+          "value": "USA",
+          "labelEn": "USA",
+          "labelHe": "ארה\"ב",
+          "payoutOverride": 59
+        },
+        {
+          "icon": "🇺🇿",
+          "value": "UZB",
+          "labelEn": "Uzbekistan",
+          "labelHe": "אוזבקיסטן",
+          "payoutOverride": 100
+        }
+      ],
+      "payoutOverridesByValue": {
+        "ALG": 89,
+        "ARG": 29,
+        "AUS": 92,
+        "AUT": 70,
+        "BEL": 51,
+        "BRA": 28,
+        "CAN": 81,
+        "CIV": 77,
+        "COD": 100,
+        "COL": 52,
+        "CRO": 68,
+        "ECU": 66,
+        "EGY": 87,
+        "ENG": 24,
+        "ESP": 20,
+        "FRA": 20,
+        "GER": 37,
+        "GHA": 89,
+        "IRN": 98,
+        "JPN": 57,
+        "KOR": 87,
+        "MAR": 57,
+        "MEX": 62,
+        "NED": 42,
+        "NOR": 48,
+        "PAR": 82,
+        "POR": 31,
+        "RSA": 98,
+        "SCO": 77,
+        "SEN": 70,
+        "SUI": 60,
+        "SWE": 69,
+        "TUN": 98,
+        "TUR": 66,
+        "URY": 63,
+        "USA": 59
+      }
+    }
+  },
+  {
+    "id": "f5c27caf-d2c3-4386-b416-825d1bf6a07a",
+    "question": "מי תזכה במקום השלישי?",
+    "answer_config": {
+      "kind": "multi_choice",
+      "options": [
+        {
+          "icon": "🇩🇿",
+          "value": "ALG",
+          "labelEn": "Algeria",
+          "labelHe": "אלג'יריה",
+          "payoutOverride": 100
+        },
+        {
+          "icon": "🇦🇷",
+          "value": "ARG",
+          "labelEn": "Argentina",
+          "labelHe": "ארגנטינה",
+          "payoutOverride": 31
+        },
+        {
+          "icon": "🇦🇺",
+          "value": "AUS",
+          "labelEn": "Australia",
+          "labelHe": "אוסטרליה",
+          "payoutOverride": 100
+        },
+        {
+          "icon": "🇦🇹",
+          "value": "AUT",
+          "labelEn": "Austria",
+          "labelHe": "אוסטריה",
+          "payoutOverride": 81
+        },
+        {
+          "icon": "🇧🇪",
+          "value": "BEL",
+          "labelEn": "Belgium",
+          "labelHe": "בלגיה",
+          "payoutOverride": 58
+        },
+        {
+          "icon": "🇧🇦",
+          "value": "BIH",
+          "labelEn": "Bosnia and Herzegovina",
+          "labelHe": "בוסניה והרצגובינה",
+          "payoutOverride": 100
+        },
+        {
+          "icon": "🇧🇷",
+          "value": "BRA",
+          "labelEn": "Brazil",
+          "labelHe": "ברזיל",
+          "payoutOverride": 31
+        },
+        {
+          "icon": "🇨🇦",
+          "value": "CAN",
+          "labelEn": "Canada",
+          "labelHe": "קנדה",
+          "payoutOverride": 94
+        },
+        {
+          "icon": "🇨🇻",
+          "value": "CPV",
+          "labelEn": "Cape Verde",
+          "labelHe": "כף ורדה",
+          "payoutOverride": 100
+        },
+        {
+          "icon": "🇨🇴",
+          "value": "COL",
+          "labelEn": "Colombia",
+          "labelHe": "קולומביה",
+          "payoutOverride": 58
+        },
+        {
+          "icon": "🇭🇷",
+          "value": "CRO",
+          "labelEn": "Croatia",
+          "labelHe": "קרואטיה",
+          "payoutOverride": 78
+        },
+        {
+          "icon": "🇨🇼",
+          "value": "CUW",
+          "labelEn": "Curaçao",
+          "labelHe": "קוראסאו",
+          "payoutOverride": 100
+        },
+        {
+          "icon": "🇨🇿",
+          "value": "CZE",
+          "labelEn": "Czechia",
+          "labelHe": "צ'כיה",
+          "payoutOverride": 100
+        },
+        {
+          "icon": "🇨🇩",
+          "value": "COD",
+          "labelEn": "DR Congo",
+          "labelHe": "קונגו (DR)",
+          "payoutOverride": 100
+        },
+        {
+          "icon": "🇪🇨",
+          "value": "ECU",
+          "labelEn": "Ecuador",
+          "labelHe": "אקוודור",
+          "payoutOverride": 75
+        },
+        {
+          "icon": "🇪🇬",
+          "value": "EGY",
+          "labelEn": "Egypt",
+          "labelHe": "מצרים",
+          "payoutOverride": 100
+        },
+        {
+          "icon": "🇬🇧",
+          "value": "ENG",
+          "labelEn": "England",
+          "labelHe": "אנגליה",
+          "payoutOverride": 25
+        },
+        {
+          "icon": "🇫🇷",
+          "value": "FRA",
+          "labelEn": "France",
+          "labelHe": "צרפת",
+          "payoutOverride": 20
+        },
+        {
+          "icon": "🇩🇪",
+          "value": "GER",
+          "labelEn": "Germany",
+          "labelHe": "גרמניה",
+          "payoutOverride": 40
+        },
+        {
+          "icon": "🇬🇭",
+          "value": "GHA",
+          "labelEn": "Ghana",
+          "labelHe": "גאנה",
+          "payoutOverride": 100
+        },
+        {
+          "icon": "🇭🇹",
+          "value": "HAI",
+          "labelEn": "Haiti",
+          "labelHe": "האיטי",
+          "payoutOverride": 100
+        },
+        {
+          "icon": "🇮🇷",
+          "value": "IRN",
+          "labelEn": "Iran",
+          "labelHe": "איראן",
+          "payoutOverride": 100
+        },
+        {
+          "icon": "🇮🇶",
+          "value": "IRQ",
+          "labelEn": "Iraq",
+          "labelHe": "עיראק",
+          "payoutOverride": 100
+        },
+        {
+          "icon": "🇨🇮",
+          "value": "CIV",
+          "labelEn": "Ivory Coast",
+          "labelHe": "חוף השנהב",
+          "payoutOverride": 90
+        },
+        {
+          "icon": "🇯🇵",
+          "value": "JPN",
+          "labelEn": "Japan",
+          "labelHe": "יפן",
+          "payoutOverride": 65
+        },
+        {
+          "icon": "🇯🇴",
+          "value": "JOR",
+          "labelEn": "Jordan",
+          "labelHe": "ירדן",
+          "payoutOverride": 100
+        },
+        {
+          "icon": "🇲🇽",
+          "value": "MEX",
+          "labelEn": "Mexico",
+          "labelHe": "מקסיקו",
+          "payoutOverride": 71
+        },
+        {
+          "icon": "🇲🇦",
+          "value": "MAR",
+          "labelEn": "Morocco",
+          "labelHe": "מרוקו",
+          "payoutOverride": 66
+        },
+        {
+          "icon": "🇳🇱",
+          "value": "NED",
+          "labelEn": "Netherlands",
+          "labelHe": "הולנד",
+          "payoutOverride": 47
+        },
+        {
+          "icon": "🇳🇿",
+          "value": "NZL",
+          "labelEn": "New Zealand",
+          "labelHe": "ניו זילנד",
+          "payoutOverride": 100
+        },
+        {
+          "icon": "🇳🇴",
+          "value": "NOR",
+          "labelEn": "Norway",
+          "labelHe": "נורווגיה",
+          "payoutOverride": 54
+        },
+        {
+          "icon": "🇵🇦",
+          "value": "PAN",
+          "labelEn": "Panama",
+          "labelHe": "פנמה",
+          "payoutOverride": 100
+        },
+        {
+          "icon": "🇵🇾",
+          "value": "PAR",
+          "labelEn": "Paraguay",
+          "labelHe": "פרגוואי",
+          "payoutOverride": 95
+        },
+        {
+          "icon": "🇵🇹",
+          "value": "POR",
+          "labelEn": "Portugal",
+          "labelHe": "פורטוגל",
+          "payoutOverride": 33
+        },
+        {
+          "icon": "🇶🇦",
+          "value": "QAT",
+          "labelEn": "Qatar",
+          "labelHe": "קטאר",
+          "payoutOverride": 100
+        },
+        {
+          "icon": "🇸🇦",
+          "value": "KSA",
+          "labelEn": "Saudi Arabia",
+          "labelHe": "ערב הסעודית",
+          "payoutOverride": 100
+        },
+        {
+          "icon": "🏴󠁧󠁢󠁳󠁣󠁴󠁿",
+          "value": "SCO",
+          "labelEn": "Scotland",
+          "labelHe": "סקוטלנד",
+          "payoutOverride": 90
+        },
+        {
+          "icon": "🇸🇳",
+          "value": "SEN",
+          "labelEn": "Senegal",
+          "labelHe": "סנגל",
+          "payoutOverride": 80
+        },
+        {
+          "icon": "🇿🇦",
+          "value": "RSA",
+          "labelEn": "South Africa",
+          "labelHe": "דרום אפריקה",
+          "payoutOverride": 100
+        },
+        {
+          "icon": "🇰🇷",
+          "value": "KOR",
+          "labelEn": "South Korea",
+          "labelHe": "דרום קוריאה",
+          "payoutOverride": 100
+        },
+        {
+          "icon": "🇪🇸",
+          "value": "ESP",
+          "labelEn": "Spain",
+          "labelHe": "ספרד",
+          "payoutOverride": 20
+        },
+        {
+          "icon": "🇸🇪",
+          "value": "SWE",
+          "labelEn": "Sweden",
+          "labelHe": "שוודיה",
+          "payoutOverride": 79
+        },
+        {
+          "icon": "🇨🇭",
+          "value": "SUI",
+          "labelEn": "Switzerland",
+          "labelHe": "שוויץ",
+          "payoutOverride": 69
+        },
+        {
+          "icon": "🇹🇳",
+          "value": "TUN",
+          "labelEn": "Tunisia",
+          "labelHe": "תוניסיה",
+          "payoutOverride": 100
+        },
+        {
+          "icon": "🇹🇷",
+          "value": "TUR",
+          "labelEn": "Turkey",
+          "labelHe": "טורקיה",
+          "payoutOverride": 76
+        },
+        {
+          "icon": "🇺🇾",
+          "value": "URY",
+          "labelEn": "Uruguay",
+          "labelHe": "אורוגוואי",
+          "payoutOverride": 72
+        },
+        {
+          "icon": "🇺🇸",
+          "value": "USA",
+          "labelEn": "USA",
+          "labelHe": "ארה\"ב",
+          "payoutOverride": 68
+        },
+        {
+          "icon": "🇺🇿",
+          "value": "UZB",
+          "labelEn": "Uzbekistan",
+          "labelHe": "אוזבקיסטן",
+          "payoutOverride": 100
+        }
+      ],
+      "payoutOverridesByValue": {
+        "ALG": 100,
+        "ARG": 31,
+        "AUS": 100,
+        "AUT": 81,
+        "BEL": 58,
+        "BRA": 31,
+        "CAN": 94,
+        "CIV": 90,
+        "COD": 100,
+        "COL": 58,
+        "CRO": 78,
+        "ECU": 75,
+        "EGY": 100,
+        "ENG": 25,
+        "ESP": 20,
+        "FRA": 20,
+        "GER": 40,
+        "GHA": 100,
+        "IRN": 100,
+        "JPN": 65,
+        "KOR": 100,
+        "MAR": 66,
+        "MEX": 71,
+        "NED": 47,
+        "NOR": 54,
+        "PAR": 95,
+        "POR": 33,
+        "RSA": 100,
+        "SCO": 90,
+        "SEN": 80,
+        "SUI": 69,
+        "SWE": 79,
+        "TUN": 100,
+        "TUR": 76,
+        "URY": 72,
+        "USA": 68
+      }
+    }
+  },
+  {
+    "id": "b9736943-e96e-4906-a248-5dc090af9fbc",
+    "question": "מי תהיה סגנית אלוף המונדיאל 2026?",
+    "answer_config": {
+      "kind": "multi_choice",
+      "options": [
+        {
+          "icon": "🇩🇿",
+          "value": "ALG",
+          "labelEn": "Algeria",
+          "labelHe": "אלג'יריה",
+          "payoutOverride": 96
+        },
+        {
+          "icon": "🇦🇷",
+          "value": "ARG",
+          "labelEn": "Argentina",
+          "labelHe": "ארגנטינה",
+          "payoutOverride": 30
+        },
+        {
+          "icon": "🇦🇺",
+          "value": "AUS",
+          "labelEn": "Australia",
+          "labelHe": "אוסטרליה",
+          "payoutOverride": 99
+        },
+        {
+          "icon": "🇦🇹",
+          "value": "AUT",
+          "labelEn": "Austria",
+          "labelHe": "אוסטריה",
+          "payoutOverride": 76
+        },
+        {
+          "icon": "🇧🇪",
+          "value": "BEL",
+          "labelEn": "Belgium",
+          "labelHe": "בלגיה",
+          "payoutOverride": 55
+        },
+        {
+          "icon": "🇧🇦",
+          "value": "BIH",
+          "labelEn": "Bosnia and Herzegovina",
+          "labelHe": "בוסניה והרצגובינה",
+          "payoutOverride": 100
+        },
+        {
+          "icon": "🇧🇷",
+          "value": "BRA",
+          "labelEn": "Brazil",
+          "labelHe": "ברזיל",
+          "payoutOverride": 30
+        },
+        {
+          "icon": "🇨🇦",
+          "value": "CAN",
+          "labelEn": "Canada",
+          "labelHe": "קנדה",
+          "payoutOverride": 87
+        },
+        {
+          "icon": "🇨🇻",
+          "value": "CPV",
+          "labelEn": "Cape Verde",
+          "labelHe": "כף ורדה",
+          "payoutOverride": 100
+        },
+        {
+          "icon": "🇨🇴",
+          "value": "COL",
+          "labelEn": "Colombia",
+          "labelHe": "קולומביה",
+          "payoutOverride": 55
+        },
+        {
+          "icon": "🇭🇷",
+          "value": "CRO",
+          "labelEn": "Croatia",
+          "labelHe": "קרואטיה",
+          "payoutOverride": 73
+        },
+        {
+          "icon": "🇨🇼",
+          "value": "CUW",
+          "labelEn": "Curaçao",
+          "labelHe": "קוראסאו",
+          "payoutOverride": 100
+        },
+        {
+          "icon": "🇨🇿",
+          "value": "CZE",
+          "labelEn": "Czechia",
+          "labelHe": "צ'כיה",
+          "payoutOverride": 100
+        },
+        {
+          "icon": "🇨🇩",
+          "value": "COD",
+          "labelEn": "DR Congo",
+          "labelHe": "קונגו (DR)",
+          "payoutOverride": 100
+        },
+        {
+          "icon": "🇪🇨",
+          "value": "ECU",
+          "labelEn": "Ecuador",
+          "labelHe": "אקוודור",
+          "payoutOverride": 70
+        },
+        {
+          "icon": "🇪🇬",
+          "value": "EGY",
+          "labelEn": "Egypt",
+          "labelHe": "מצרים",
+          "payoutOverride": 94
+        },
+        {
+          "icon": "🇬🇧",
+          "value": "ENG",
+          "labelEn": "England",
+          "labelHe": "אנגליה",
+          "payoutOverride": 25
+        },
+        {
+          "icon": "🇫🇷",
+          "value": "FRA",
+          "labelEn": "France",
+          "labelHe": "צרפת",
+          "payoutOverride": 20
+        },
+        {
+          "icon": "🇩🇪",
+          "value": "GER",
+          "labelEn": "Germany",
+          "labelHe": "גרמניה",
+          "payoutOverride": 38
+        },
+        {
+          "icon": "🇬🇭",
+          "value": "GHA",
+          "labelEn": "Ghana",
+          "labelHe": "גאנה",
+          "payoutOverride": 97
+        },
+        {
+          "icon": "🇭🇹",
+          "value": "HAI",
+          "labelEn": "Haiti",
+          "labelHe": "האיטי",
+          "payoutOverride": 100
+        },
+        {
+          "icon": "🇮🇷",
+          "value": "IRN",
+          "labelEn": "Iran",
+          "labelHe": "איראן",
+          "payoutOverride": 100
+        },
+        {
+          "icon": "🇮🇶",
+          "value": "IRQ",
+          "labelEn": "Iraq",
+          "labelHe": "עיראק",
+          "payoutOverride": 100
+        },
+        {
+          "icon": "🇨🇮",
+          "value": "CIV",
+          "labelEn": "Ivory Coast",
+          "labelHe": "חוף השנהב",
+          "payoutOverride": 84
+        },
+        {
+          "icon": "🇯🇵",
+          "value": "JPN",
+          "labelEn": "Japan",
+          "labelHe": "יפן",
+          "payoutOverride": 61
+        },
+        {
+          "icon": "🇯🇴",
+          "value": "JOR",
+          "labelEn": "Jordan",
+          "labelHe": "ירדן",
+          "payoutOverride": 100
+        },
+        {
+          "icon": "🇲🇽",
+          "value": "MEX",
+          "labelEn": "Mexico",
+          "labelHe": "מקסיקו",
+          "payoutOverride": 66
+        },
+        {
+          "icon": "🇲🇦",
+          "value": "MAR",
+          "labelEn": "Morocco",
+          "labelHe": "מרוקו",
+          "payoutOverride": 61
+        },
+        {
+          "icon": "🇳🇱",
+          "value": "NED",
+          "labelEn": "Netherlands",
+          "labelHe": "הולנד",
+          "payoutOverride": 45
+        },
+        {
+          "icon": "🇳🇿",
+          "value": "NZL",
+          "labelEn": "New Zealand",
+          "labelHe": "ניו זילנד",
+          "payoutOverride": 100
+        },
+        {
+          "icon": "🇳🇴",
+          "value": "NOR",
+          "labelEn": "Norway",
+          "labelHe": "נורווגיה",
+          "payoutOverride": 51
+        },
+        {
+          "icon": "🇵🇦",
+          "value": "PAN",
+          "labelEn": "Panama",
+          "labelHe": "פנמה",
+          "payoutOverride": 100
+        },
+        {
+          "icon": "🇵🇾",
+          "value": "PAR",
+          "labelEn": "Paraguay",
+          "labelHe": "פרגוואי",
+          "payoutOverride": 88
+        },
+        {
+          "icon": "🇵🇹",
+          "value": "POR",
+          "labelEn": "Portugal",
+          "labelHe": "פורטוגל",
+          "payoutOverride": 32
+        },
+        {
+          "icon": "🇶🇦",
+          "value": "QAT",
+          "labelEn": "Qatar",
+          "labelHe": "קטאר",
+          "payoutOverride": 100
+        },
+        {
+          "icon": "🇸🇦",
+          "value": "KSA",
+          "labelEn": "Saudi Arabia",
+          "labelHe": "ערב הסעודית",
+          "payoutOverride": 100
+        },
+        {
+          "icon": "🏴󠁧󠁢󠁳󠁣󠁴󠁿",
+          "value": "SCO",
+          "labelEn": "Scotland",
+          "labelHe": "סקוטלנד",
+          "payoutOverride": 83
+        },
+        {
+          "icon": "🇸🇳",
+          "value": "SEN",
+          "labelEn": "Senegal",
+          "labelHe": "סנגל",
+          "payoutOverride": 75
+        },
+        {
+          "icon": "🇿🇦",
+          "value": "RSA",
+          "labelEn": "South Africa",
+          "labelHe": "דרום אפריקה",
+          "payoutOverride": 100
+        },
+        {
+          "icon": "🇰🇷",
+          "value": "KOR",
+          "labelEn": "South Korea",
+          "labelHe": "דרום קוריאה",
+          "payoutOverride": 94
+        },
+        {
+          "icon": "🇪🇸",
+          "value": "ESP",
+          "labelEn": "Spain",
+          "labelHe": "ספרד",
+          "payoutOverride": 20
+        },
+        {
+          "icon": "🇸🇪",
+          "value": "SWE",
+          "labelEn": "Sweden",
+          "labelHe": "שוודיה",
+          "payoutOverride": 74
+        },
+        {
+          "icon": "🇨🇭",
+          "value": "SUI",
+          "labelEn": "Switzerland",
+          "labelHe": "שוויץ",
+          "payoutOverride": 65
+        },
+        {
+          "icon": "🇹🇳",
+          "value": "TUN",
+          "labelEn": "Tunisia",
+          "labelHe": "תוניסיה",
+          "payoutOverride": 100
+        },
+        {
+          "icon": "🇹🇷",
+          "value": "TUR",
+          "labelEn": "Turkey",
+          "labelHe": "טורקיה",
+          "payoutOverride": 71
+        },
+        {
+          "icon": "🇺🇾",
+          "value": "URY",
+          "labelEn": "Uruguay",
+          "labelHe": "אורוגוואי",
+          "payoutOverride": 67
+        },
+        {
+          "icon": "🇺🇸",
+          "value": "USA",
+          "labelEn": "USA",
+          "labelHe": "ארה\"ב",
+          "payoutOverride": 64
+        },
+        {
+          "icon": "🇺🇿",
+          "value": "UZB",
+          "labelEn": "Uzbekistan",
+          "labelHe": "אוזבקיסטן",
+          "payoutOverride": 100
+        }
+      ],
+      "payoutOverridesByValue": {
+        "ALG": 96,
+        "ARG": 30,
+        "AUS": 99,
+        "AUT": 76,
+        "BEL": 55,
+        "BRA": 30,
+        "CAN": 87,
+        "CIV": 84,
+        "COD": 100,
+        "COL": 55,
+        "CRO": 73,
+        "ECU": 70,
+        "EGY": 94,
+        "ENG": 25,
+        "ESP": 20,
+        "FRA": 20,
+        "GER": 38,
+        "GHA": 97,
+        "IRN": 100,
+        "JPN": 61,
+        "KOR": 94,
+        "MAR": 61,
+        "MEX": 66,
+        "NED": 45,
+        "NOR": 51,
+        "PAR": 88,
+        "POR": 32,
+        "RSA": 100,
+        "SCO": 83,
+        "SEN": 75,
+        "SUI": 65,
+        "SWE": 74,
+        "TUN": 100,
+        "TUR": 71,
+        "URY": 67,
+        "USA": 64
+      }
+    }
+  },
+  {
+    "id": "39d25281-1934-448e-a203-de052b0ce93b",
+    "question": "מי יהיה מלך השערים של המונדיאל?",
+    "answer_config": {
+      "kind": "multi_choice",
+      "options": [],
+      "dynamicSource": "players",
+      "payoutOverridesByValue": {
+        "9": 87,
+        "17": 66,
+        "153": 47,
+        "154": 32,
+        "184": 23,
+        "217": 45,
+        "226": 83,
+        "247": 53,
+        "249": 62,
+        "276": 57,
+        "278": 20,
+        "304": 66,
+        "306": 57,
+        "421": 73,
+        "427": 70,
+        "544": 78,
+        "629": 66,
+        "644": 66,
+        "667": 53,
+        "715": 66,
+        "726": 78,
+        "744": 78,
+        "747": 70,
+        "762": 42,
+        "874": 41,
+        "903": 70,
+        "907": 48,
+        "909": 62,
+        "927": 78,
+        "931": 53,
+        "978": 57,
+        "1100": 34,
+        "1159": 87,
+        "1165": 62,
+        "1323": 57,
+        "1422": 66,
+        "1460": 53,
+        "1485": 57,
+        "1496": 48,
+        "1646": 83,
+        "1864": 70,
+        "1946": 62,
+        "2001": 83,
+        "2032": 78,
+        "2218": 78,
+        "2864": 62,
+        "2887": 78,
+        "3033": 87,
+        "3246": 83,
+        "5996": 78,
+        "6009": 51,
+        "8492": 62,
+        "13708": 78,
+        "18931": 83,
+        "18979": 57,
+        "19170": 62,
+        "19191": 100,
+        "19366": 66,
+        "19524": 83,
+        "19586": 62,
+        "19617": 53,
+        "19974": 78,
+        "20649": 87,
+        "21509": 57,
+        "22236": 66,
+        "25927": 57,
+        "26475": 57,
+        "35533": 62,
+        "35573": 53,
+        "35981": 53,
+        "37127": 83,
+        "38750": 66,
+        "41585": 57,
+        "45175": 83,
+        "46746": 66,
+        "46930": 83,
+        "47311": 53,
+        "47323": 39,
+        "48389": 83,
+        "48471": 45,
+        "48648": 87,
+        "50739": 100,
+        "51617": 62,
+        "73868": 70,
+        "81573": 70,
+        "98936": 100,
+        "123469": 83,
+        "127769": 70,
+        "129718": 57,
+        "133609": 83,
+        "138787": 66,
+        "138835": 66,
+        "147859": 70,
+        "153430": 87,
+        "156477": 70,
+        "157997": 83,
+        "158054": 51,
+        "161904": 70,
+        "181812": 62,
+        "182219": 78,
+        "183799": 70,
+        "196156": 53,
+        "203224": 57,
+        "275651": 78,
+        "278133": 83,
+        "283058": 70,
+        "343027": 57,
+        "386828": 39
+      }
+    }
+  },
+  {
+    "id": "3c98c798-e4e7-4f48-a563-1856611be974",
+    "question": "מי יזכה בכדור הזהב של המונדיאל?",
+    "answer_config": {
+      "kind": "multi_choice",
+      "options": [],
+      "dynamicSource": "players",
+      "payoutOverridesByValue": {
+        "9": 74,
+        "17": 100,
+        "153": 73,
+        "154": 32,
+        "184": 20,
+        "247": 73,
+        "278": 29,
+        "304": 100,
+        "744": 67,
+        "762": 40,
+        "907": 81,
+        "909": 67,
+        "1100": 38,
+        "1422": 73,
+        "1485": 48,
+        "1496": 48,
+        "3275": 67,
+        "6009": 67,
+        "19617": 29,
+        "48471": 73,
+        "129718": 20,
+        "203224": 53,
+        "294824": 81,
+        "343027": 81,
+        "386828": 23
+      }
+    }
+  }
+]

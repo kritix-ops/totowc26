@@ -13,8 +13,8 @@ import { getUser } from "@/lib/supabase/auth";
 import { hasPermission } from "@/lib/admin";
 import { buildOutrightCurve } from "@/lib/odds-normalize";
 import {
-  OUTRIGHT_CURVE_FLOOR,
   outrightCurveCeiling,
+  outrightCurveFloor,
 } from "@/lib/bets/free-pick-scopes";
 import type {
   AnswerConfig,
@@ -155,13 +155,14 @@ export async function publishSurfaceToBet(input: {
 
   try {
     // Outright surfaces price each option on a continuous log-odds curve:
-    // the surface favourite earns OUTRIGHT_CURVE_FLOOR (20), the longest
-    // priced shot earns the surface ceiling (100 for players + champion /
-    // runner-up / third, 50 for group winners), interpolated between.
-    // Group surfaces publish one at a time, so the curve normalises per
-    // group automatically. See
-    // _plans/2026-06-01-tournament-payout-curve.md.
-    const curveFloor = OUTRIGHT_CURVE_FLOOR;
+    // the surface favourite earns the floor (35 for players + champion /
+    // runner-up / third, 20 for group winners), the longest priced shot
+    // earns the surface ceiling (100 / 50 respectively), interpolated
+    // between. Group surfaces publish one at a time, so the curve
+    // normalises per group automatically. See
+    // _plans/2026-06-01-tournament-payout-curve.md and
+    // _plans/2026-07-16-raise-tournament-bet-floor-to-35.md.
+    const curveFloor = outrightCurveFloor(input.surface);
     const curveCeiling = outrightCurveCeiling(input.surface);
 
     const [bet] = await db

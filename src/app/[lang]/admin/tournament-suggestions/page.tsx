@@ -14,6 +14,7 @@ import type { DynamicOptionSource } from "@/lib/bets/types";
 import {
   OUTRIGHT_MAX_PAYOUT,
   OUTRIGHT_PLAYER_CEILING,
+  OUTRIGHT_PLAYER_FLOOR,
 } from "@/lib/bets/free-pick-scopes";
 import { TournamentTemplateCard } from "./TournamentTemplateCard";
 import {
@@ -387,14 +388,16 @@ function buildTemplates({
       gradingRuleHe: "סך כל השערים בכל המשחקים, כולל הארכות, פנדלים אחרי תיקו לא נספרים. הזוכים הם מי שבחרו את הטווח המכיל את המספר הסופי.",
       gradingRuleEn: "Sum of goals across every match including extra time; penalty shoot-outs after a draw are not counted. Winners are those who picked the range containing the final number.",
       answerType: "multi_choice",
-      // Per-option payouts on the 20→100 log-odds curve derived from
+      // Per-option payouts on the 35→100 log-odds curve derived from
       // DraftKings WC2026 over/under lines (de-juiced; the bookmaker
       // centre sits around ~300 goals, so the Toto buckets sit below
       // it). Probabilities: P(<265)≈7%, P(265–295)≈26%, P(>295)≈67%.
+      // Favourite bucket sits on the raised floor (see
+      // _plans/2026-07-16-raise-tournament-bet-floor-to-35.md).
       answerOptions: [
         { value: "lt_265",   labelHe: "פחות מ-265", labelEn: "Under 265", payoutOverride: 100 },
         { value: "265_295",  labelHe: "265–295",    labelEn: "265–295",   payoutOverride: 54  },
-        { value: "gt_295",   labelHe: "מעל 295",    labelEn: "Over 295",  payoutOverride: 20  },
+        { value: "gt_295",   labelHe: "מעל 295",    labelEn: "Over 295",  payoutOverride: OUTRIGHT_PLAYER_FLOOR },
       ],
       defaultStake: baseStake,
       defaultPayout: curveCeilingPayout,
@@ -412,13 +415,14 @@ function buildTemplates({
       gradingRuleHe: "סך כל הכרטיסים האדומים שדווחו במשחק. שני כרטיסים צהובים שהפכו לאדום נספרים פעם אחת. הזוכים הם מי שבחרו את הטווח המכיל את המספר הסופי.",
       gradingRuleEn: "Sum of red cards reported per match. Two yellows that became a red count once. Winners are those who picked the range containing the final number.",
       answerType: "multi_choice",
-      // Per-option payouts on the 20→100 curve from historical baselines
+      // Per-option payouts on the 35→100 curve from historical baselines
       // (Planet World Cup): VAR-era 0.07 reds/match × 104 matches ≈ 7
       // expected reds, fat right tail from the 48-team expansion bringing
       // in less experienced teams. Probabilities: P(<8)≈60%,
-      // P(8–13)≈28%, P(>13)≈12%.
+      // P(8–13)≈28%, P(>13)≈12%. Favourite bucket sits on the raised
+      // floor (see _plans/2026-07-16-raise-tournament-bet-floor-to-35.md).
       answerOptions: [
-        { value: "lt_8",   labelHe: "פחות מ-8", labelEn: "Under 8", payoutOverride: 20  },
+        { value: "lt_8",   labelHe: "פחות מ-8", labelEn: "Under 8", payoutOverride: OUTRIGHT_PLAYER_FLOOR },
         { value: "8_13",   labelHe: "8–13",     labelEn: "8–13",    payoutOverride: 58  },
         { value: "gt_13",  labelHe: "מעל 13",   labelEn: "Over 13", payoutOverride: 100 },
       ],
@@ -439,10 +443,10 @@ function buildTemplates({
       gradingRuleEn: "Yes if the final ended in a penalty shoot-out. No in every other case.",
       answerType: "yes_no",
       // Historical base rate: 6 of 20 WC finals (1966–2022) went to
-      // penalties → ~30%. Per-branch payouts on the 20→100 curve so
+      // penalties → ~30%. Per-branch payouts on the 35→100 curve so
       // the longshot ("yes") pays the ceiling and the favourite ("no")
       // pays the floor — same scale as the other tournament bets.
-      yesNoOverrides: { yes: OUTRIGHT_PLAYER_CEILING, no: 20 },
+      yesNoOverrides: { yes: OUTRIGHT_PLAYER_CEILING, no: OUTRIGHT_PLAYER_FLOOR },
       defaultStake: baseStake,
       defaultPayout: curveCeilingPayout,
       defaultLockAtIso: defaultLockIso,
