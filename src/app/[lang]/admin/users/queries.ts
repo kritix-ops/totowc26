@@ -289,10 +289,11 @@ export async function fetchUserMatchPicksForAdmin(
   `);
 }
 
-// Every knockout match + this user's "who advances?" (מי עולה) pick if any.
+// Every knockout match with a "who advances?" market + this user's pick if any.
 // Same shape/purpose as fetchUserMatchPicksForAdmin but for the advance
-// surface, which lives in match_advance_bets. Group matches are excluded (the
-// market only exists on knockouts). `advancingTeam` is the resolved winner
+// surface, which lives in match_advance_bets. Group matches and the terminal
+// final / third-place matches are excluded (nobody advances out of them).
+// `advancingTeam` is the resolved winner
 // (incl. extra time + penalties) once the match is final, so the admin can see
 // whether a fix would be right. Sorted by kickoff for a chronological scan.
 export type AdminUserAdvancePickRow = {
@@ -340,7 +341,7 @@ export async function fetchUserAdvancePicksForAdmin(
     join public.teams at on at.code = m.away_team
     left join public.match_advance_bets ab
       on ab.match_id = m.id and ab.user_id = ${userId}
-    where m.stage <> 'group'
+    where m.stage not in ('group', 'third_place', 'final')
     order by m.kickoff_at asc
   `);
 }

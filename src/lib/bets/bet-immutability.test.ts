@@ -414,8 +414,8 @@ describe("admin backdate path: full-admin, reasoned, audited (any target user)",
     // Reject a team code that is neither the home nor the away team.
     expect(body).toMatch(/input\.team\s*!==\s*r\.home_team/);
     expect(body).toMatch(/input\.team\s*!==\s*r\.away_team/);
-    // Knockout-only market.
-    expect(body).toMatch(/r\.stage\s*===\s*["']group["']/);
+    // Knockout-only market, excluding the terminal final / third-place matches.
+    expect(body).toMatch(/!stageHasAdvanceBet\s*\(\s*r\.stage\s*\)/);
   });
 });
 

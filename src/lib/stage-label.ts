@@ -27,8 +27,10 @@ export function stageLabel(
   return pair[locale === "he" ? 0 : 1];
 }
 
-// True for any post-group knockout stage — the surfaces that show the
-// "who advances?" pick gate on this.
-export function isKnockoutStage(stage: string): boolean {
-  return stage !== "group";
+// True only for knockout stages that feed a next round — the surfaces that
+// show the "who advances?" pick gate on this. The final and the third-place
+// play-off are knockout matches too, but nobody advances out of them (they
+// are terminal), so they carry no "who advances?" market.
+export function stageHasAdvanceBet(stage: string): boolean {
+  return stage !== "group" && stage !== "third_place" && stage !== "final";
 }

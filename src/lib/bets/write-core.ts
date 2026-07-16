@@ -26,6 +26,7 @@ import {
   resolveYesNoSideOdds,
 } from "@/lib/bets/price-options";
 import { isFreePickScope } from "@/lib/bets/free-pick-scopes";
+import { stageHasAdvanceBet } from "@/lib/stage-label";
 import { isPickCorrect } from "@/lib/bets/grade-pick";
 import { validateAnswer } from "@/lib/bets/validate-answer";
 import type { ResolvedValue } from "@/lib/bets/types";
@@ -355,9 +356,10 @@ export async function writeAdvancePick(
     limit 1
   `);
   if (!r) return { status: "error", error: "not_found" };
-  // "Who advances?" exists only on knockout matches and must name one of the
-  // two teams actually in the fixture.
-  if (r.stage === "group") return { status: "error", error: "invalid" };
+  // "Who advances?" exists only on knockout matches that feed a next round
+  // (not the final or third-place play-off) and must name one of the two teams
+  // actually in the fixture.
+  if (!stageHasAdvanceBet(r.stage)) return { status: "error", error: "invalid" };
   if (input.team !== r.home_team && input.team !== r.away_team) {
     return { status: "error", error: "invalid" };
   }
@@ -1519,7 +1521,8 @@ export async function backdateAdvancePick(
   if (!gateAccess(principal)) return { status: "skipped", reason: "not_allowed" };
   assertAdminReason(principal.reason);
 
-  // Knockout-only, and the team must be one of the two actually in the fixture.
+  // Knockout-only (excluding the terminal final / third-place matches), and
+  // the team must be one of the two actually in the fixture.
   const r = await execFirstRow<{
     status: string;
     stage: string;
@@ -1536,7 +1539,7 @@ export async function backdateAdvancePick(
     limit 1
   `);
   if (!r) return { status: "error", error: "not_found" };
-  if (r.stage === "group") return { status: "error", error: "invalid" };
+  if (!stageHasAdvanceBet(r.stage)) return { status: "error", error: "invalid" };
   if (input.team !== r.home_team && input.team !== r.away_team) {
     return { status: "error", error: "invalid" };
   }

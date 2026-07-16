@@ -916,7 +916,8 @@ export async function scoreFinalMatches(): Promise<{
 // matches.advancing_team (the winner incl. extra time + penalties). A hit earns
 // settings.scoring_advance; a miss earns 0 (no risk penalty on this market).
 // Idempotent: only ungraded picks (points_earned IS NULL) are touched, so an
-// admin regrade is never overwritten. Group matches and matches without a
+// admin regrade is never overwritten. Group matches, the terminal final /
+// third-place matches (no "who advances?" market), and matches without a
 // resolved advancing_team are skipped → those picks wait for manual grading.
 export async function scoreAdvanceBets(): Promise<{
   scoredMatches: number;
@@ -940,7 +941,7 @@ export async function scoreAdvanceBets(): Promise<{
     from public.matches m
     join public.teams adv on adv.code = m.advancing_team
     where m.status = 'final'
-      and m.stage <> 'group'
+      and m.stage not in ('group', 'third_place', 'final')
       and m.advancing_team is not null
       and exists (
         select 1 from public.match_advance_bets ab

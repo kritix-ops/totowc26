@@ -1,0 +1,20 @@
+[
+  {
+    "pick_id": "4d6976de-6550-449c-bde2-9ccd8363bf08",
+    "display_name": "דניאל ספיר",
+    "team": "FRA",
+    "points_earned": null,
+    "stage": "third_place",
+    "status": "scheduled",
+    "kickoff_at": "2026-07-18 21:00:00+00"
+  },
+  {
+    "pick_id": "0528d04d-d921-4960-b36f-cd939d0a675f",
+    "display_name": "דניאל ספיר",
+    "team": "ESP",
+    "points_earned": null,
+    "stage": "final",
+    "status": "scheduled",
+    "kickoff_at": "2026-07-19 19:00:00+00"
+  }
+]

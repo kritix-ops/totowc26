@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { stageLabel, isKnockoutStage } from "./stage-label";
+import { stageLabel, stageHasAdvanceBet } from "./stage-label";
 
 // The canonical stage-label map drives the quick-picks card chip and the
 // "who advances?" picker gating. These pin the Hebrew/English strings and the
@@ -30,11 +30,18 @@ describe("stageLabel", () => {
   });
 });
 
-describe("isKnockoutStage", () => {
-  it("is false only for the group stage", () => {
-    expect(isKnockoutStage("group")).toBe(false);
-    for (const s of ["r32", "r16", "qf", "sf", "third_place", "final"]) {
-      expect(isKnockoutStage(s)).toBe(true);
+describe("stageHasAdvanceBet", () => {
+  it("is true only for knockout rounds that feed a next round", () => {
+    for (const s of ["r32", "r16", "qf", "sf"]) {
+      expect(stageHasAdvanceBet(s)).toBe(true);
     }
+  });
+
+  it("is false for the group stage and the terminal final / third-place", () => {
+    // Nobody advances out of the group (not knockout) or the final /
+    // third-place play-off (terminal), so they carry no "who advances?" market.
+    expect(stageHasAdvanceBet("group")).toBe(false);
+    expect(stageHasAdvanceBet("third_place")).toBe(false);
+    expect(stageHasAdvanceBet("final")).toBe(false);
   });
 });

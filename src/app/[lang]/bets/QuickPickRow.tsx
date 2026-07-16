@@ -12,7 +12,7 @@ import { usePendingAction } from "@/lib/use-pending-action";
 import { useAutosave } from "@/lib/use-autosave";
 import { toast } from "@/lib/toast";
 import { withTimeout, SAVE_TIMEOUT_MS } from "@/lib/with-timeout";
-import { stageLabel, isKnockoutStage } from "@/lib/stage-label";
+import { stageLabel, stageHasAdvanceBet } from "@/lib/stage-label";
 import { suggestMatchScore } from "./random-actions";
 import type { SaveBetResult } from "./[matchId]/actions";
 
@@ -68,7 +68,7 @@ export function QuickPickRow({
 }) {
   const isHebrew = locale === "he";
   const hadPick = match.myHomeScore !== null && match.myAwayScore !== null;
-  const isKnockout = isKnockoutStage(match.stage);
+  const showsAdvance = stageHasAdvanceBet(match.stage);
 
   const [home, setHome] = useState<number>(match.myHomeScore ?? 0);
   const [away, setAway] = useState<number>(match.myAwayScore ?? 0);
@@ -422,7 +422,7 @@ export function QuickPickRow({
       {/* Knockout-only: the "who advances?" (מי עולה?) pick + the note that the
           score guess above is judged on 90 minutes (extra time lives in live
           bets). Two finger-sized team buttons; tapping the selected one clears. */}
-      {isKnockout && (
+      {showsAdvance && (
         <div className="flex flex-col gap-2 border-t border-outline-variant pt-2.5">
           <div className="flex items-center justify-between gap-2">
             <span className="text-xs font-bold text-on-surface inline-flex items-center gap-1.5">

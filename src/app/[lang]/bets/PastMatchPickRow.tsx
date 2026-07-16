@@ -6,7 +6,7 @@ import {
   matchPickPointsDisplay,
   matchPickOutcome,
 } from "@/lib/bets/past-view";
-import { stageLabel, isKnockoutStage } from "@/lib/stage-label";
+import { stageLabel, stageHasAdvanceBet } from "@/lib/stage-label";
 import type { Locale, Dictionary } from "@/app/[lang]/dictionaries";
 import type { PastMatchPickRow as PastMatchPickRowData } from "@/db/queries";
 
@@ -34,7 +34,7 @@ export function PastMatchPickRow({
     match.myHomeScore !== null && match.myAwayScore !== null;
   const hasActualScore =
     match.homeScore !== null && match.awayScore !== null;
-  const isKnockout = isKnockoutStage(match.stage);
+  const showsAdvance = stageHasAdvanceBet(match.stage);
   // The 1/X/2 grade is judged on the 90-minute score. When a knockout went past
   // 90' the final scoreboard differs from that, so spell out the basis to keep
   // an "exact" badge from looking wrong next to a 2-1 AET scoreline.
@@ -149,7 +149,7 @@ export function PastMatchPickRow({
 
       {/* Knockout-only "who advances?" result: the user's pick, whether it was
           right, and (once decided) who actually went through. */}
-      {isKnockout && (
+      {showsAdvance && (
         <div className="flex items-center justify-between gap-2 pt-2 border-t border-outline-variant">
           <span className="font-[family-name:var(--font-label)] text-[10px] font-bold tracking-[0.05em] uppercase text-on-surface-variant">
             {isHebrew ? "מי עולה" : "Who advances"}
