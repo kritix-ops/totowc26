@@ -57,6 +57,26 @@ describe("validateResolvedValue", () => {
     expect(validateResolvedValue("multi_choice", cfg, { type: "multi_choice", value: "z" })).toBe(false);
   });
 
+  // Player markets (top scorer / golden ball) keep options=[] and hydrate the
+  // roster client-side. Grading must accept a real roster id even though the
+  // inline option list is empty — this is what lets an admin settle "who is
+  // top scorer?" by picking Mbappé. Mirrors validateAnswer's submit path.
+  it("multi_choice dynamic-source with no price map accepts any non-empty id", () => {
+    const cfg = { dynamicSource: "players", options: [] };
+    expect(validateResolvedValue("multi_choice", cfg, { type: "multi_choice", value: "1100" })).toBe(true);
+    expect(validateResolvedValue("multi_choice", cfg, { type: "multi_choice", value: "" })).toBe(false);
+  });
+
+  it("multi_choice dynamic-source with a price map restricts to priced ids", () => {
+    const cfg = {
+      dynamicSource: "players",
+      options: [],
+      payoutOverridesByValue: { "1100": 5, "2200": 8 },
+    };
+    expect(validateResolvedValue("multi_choice", cfg, { type: "multi_choice", value: "1100" })).toBe(true);
+    expect(validateResolvedValue("multi_choice", cfg, { type: "multi_choice", value: "9999" })).toBe(false);
+  });
+
   it("free_text must be 1..200 chars", () => {
     expect(validateResolvedValue("free_text", null, { type: "free_text", value: "x" })).toBe(true);
     expect(validateResolvedValue("free_text", null, { type: "free_text", value: "" })).toBe(false);

@@ -32,8 +32,30 @@ export function validateResolvedValue(
     if (typeof resolved.value !== "string" || resolved.value.length === 0) {
       return false;
     }
-    const c = config as { options?: Array<{ value: string }> } | null | undefined;
-    return !!c?.options?.some((o) => o.value === resolved.value);
+    const c = config as
+      | {
+          options?: Array<{ value: string }>;
+          dynamicSource?: unknown;
+          payoutOverridesByValue?: Record<string, unknown>;
+        }
+      | null
+      | undefined;
+    // Static bets carry their full option list inline — validate membership.
+    if (c?.options?.some((o) => o.value === resolved.value)) return true;
+    // Dynamic-source bets (top scorer, golden ball) keep options=[] and hydrate
+    // the ~1,300-row roster client-side, so there's nothing to match against
+    // here. Accept the priced universe when a price map exists, else any real
+    // roster id. This mirrors validateAnswer's dynamic-source branch so the
+    // grade path and the pick-submit path cannot diverge — without it, grading
+    // a player market was rejected as invalid_resolved_value.
+    if (c?.dynamicSource != null) {
+      const overrides = c.payoutOverridesByValue;
+      if (overrides && Object.keys(overrides).length > 0) {
+        return Object.prototype.hasOwnProperty.call(overrides, resolved.value);
+      }
+      return true;
+    }
+    return false;
   }
   if (typeof resolved.value !== "string") return false;
   return resolved.value.length > 0 && resolved.value.length <= 200;

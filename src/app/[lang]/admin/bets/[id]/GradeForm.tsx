@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { AlertCircle, Check, Minus, Plus, RotateCcw, Trophy } from "lucide-react";
 import { clsx } from "clsx";
 import { Card, LabelCaps, PillButton } from "@/components/ui";
+import { SearchableChoicePicker } from "@/components/SearchableChoicePicker";
 import {
   COMMON_ADMIN_ERRORS,
   translateAdminError,
@@ -16,6 +17,7 @@ import type {
   MultiChoiceOption,
   ResolvedValue,
 } from "@/lib/bets/types";
+import { usePickerOptions } from "@/lib/picker-options/client";
 import { usePendingAction } from "@/lib/use-pending-action";
 import { gradeCustomBet, reverseCustomBetGrading } from "../actions";
 
@@ -317,6 +319,20 @@ function ResolvedValueInput({
   }
 
   if (answerType === "multi_choice") {
+    // Player markets (top scorer / golden ball) store an empty options
+    // array and hydrate the full squad at view time via dynamicSource.
+    // Without this branch the grade panel renders zero pills and there's
+    // no way to pick the winner. Mirror AdminPickEditor's DynamicPlayerPicker.
+    if (config.kind === "multi_choice" && config.dynamicSource === "players") {
+      return (
+        <DynamicPlayerPicker
+          locale={locale}
+          currentValue={value?.type === "multi_choice" ? value.value : null}
+          disabled={disabled}
+          onPick={(v) => onChange({ type: "multi_choice", value: v })}
+        />
+      );
+    }
     const opts: MultiChoiceOption[] =
       config.kind === "multi_choice" ? config.options : [];
     const current = value?.type === "multi_choice" ? value.value : null;
@@ -357,6 +373,56 @@ function ResolvedValueInput({
       placeholder={isHebrew ? "התוצאה הרשמית" : "Official answer"}
       dir={isHebrew ? "rtl" : "ltr"}
       className="min-h-[48px] w-full px-3 rounded border border-outline bg-surface-container-lowest text-base"
+    />
+  );
+}
+
+// Dynamic-roster picker for the player markets (top scorer / golden ball).
+// These bets store an empty options array to save DB space and hydrate the
+// full WC squad from /api/picker-options at view time. Renders the shared
+// SearchableChoicePicker — search by name / team / position, chunked display,
+// mobile sheet. Mirrors AdminPickEditor's picker so admins grade the same way
+// they edit a user's pick.
+function DynamicPlayerPicker({
+  locale,
+  currentValue,
+  disabled,
+  onPick,
+}: {
+  locale: Locale;
+  currentValue: string | null;
+  disabled?: boolean;
+  onPick: (value: string) => void;
+}) {
+  const isHebrew = locale === "he";
+  const { options, loading, error } = usePickerOptions("players", locale);
+
+  if (loading) {
+    return (
+      <div className="min-h-[52px] flex items-center justify-center rounded-full border border-outline-variant text-sm text-on-surface-variant">
+        {isHebrew ? "טוען שחקנים…" : "Loading players…"}
+      </div>
+    );
+  }
+  if (error) {
+    return (
+      <p className="inline-flex items-center gap-1.5 text-sm text-error">
+        <AlertCircle className="h-4 w-4" strokeWidth={2} />
+        {isHebrew ? "טעינת רשימת השחקנים נכשלה" : "Failed to load players"}
+      </p>
+    );
+  }
+  return (
+    <SearchableChoicePicker
+      options={options}
+      currentValue={currentValue}
+      locale={locale}
+      disabled={disabled}
+      lazyChunkSize={20}
+      placeholder={isHebrew ? "בחר שחקן…" : "Pick a player…"}
+      onChange={(value) => {
+        if (value) onPick(value);
+      }}
     />
   );
 }
